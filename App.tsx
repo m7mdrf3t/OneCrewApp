@@ -11,6 +11,7 @@ import SplashScreen from './src/components/SplashScreen';
 // Pages
 import HomePage from './src/pages/HomePage';
 import SectionServicesPage from './src/pages/SectionServicesPage';
+import ServiceDetailPage from './src/pages/ServiceDetailPage';
 import ProjectsPage from './src/pages/ProjectsPage';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
 
@@ -178,6 +179,17 @@ const App: React.FC = () => {
               onServiceSelect={handleServiceSelect}
             />
           )}
+          {page.name === 'details' && (
+            <ServiceDetailPage
+              service={page.data}
+              onBack={handleBack}
+              onProfileSelect={handleProfileSelect}
+              onAddToTeam={handleAddToTeam}
+              onAssignToProject={handleAssignToProject}
+              onStartChat={handleStartChat}
+              myTeam={myTeam}
+            />
+          )}
           {page.name === 'projects' && (
             <ProjectsPage
               projects={projects}
@@ -267,9 +279,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 2,
     borderBottomColor: '#000',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    height: 48,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingTop: 16,
+    minHeight: 56,
   },
   topBarLeft: {
     flexDirection: 'row',
@@ -279,10 +292,11 @@ const styles = StyleSheet.create({
   topBarRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginRight: 4,
   },
   topBarButton: {
     padding: 8,
-    marginLeft: 4,
+    marginLeft: 8,
     position: 'relative',
   },
   topBarTitle: {
@@ -308,7 +322,7 @@ const styles = StyleSheet.create({
   },
   backButton: {
     position: 'absolute',
-    bottom: 80,
+    bottom: 88,
     left: 16,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
     borderRadius: 24,

@@ -267,6 +267,126 @@ export const MOCK_PROFILES_DATA: Profile[] = [
     stats: { followers: '2.5k', projects: 8, likes: '5.1k' },
     onlineStatus: 'online',
     imageUrl: ''
+  },
+  {
+    id: 4,
+    name: 'Omar Hassan',
+    specialty: 'Film Actor',
+    category: 'crew',
+    location: 'Cairo, EG',
+    bio: "Experienced film actor with a passion for storytelling. I bring authenticity to every role.",
+    about: {
+      gender: 'Male',
+      age: 32,
+      nationality: 'Egyptian',
+      location: 'Cairo',
+      height: 175,
+      weight: 75,
+      skinTone: 'Olive',
+      hairColor: 'Black',
+      dialects: ['Standard Egyptian', 'American'],
+      willingToTravel: true
+    },
+    skills: ['Film Acting', 'Character Development', 'Emotional Range'],
+    stats: { followers: '3.2k', projects: 18, likes: '7.8k' },
+    onlineStatus: 'online',
+    imageUrl: ''
+  },
+  {
+    id: 5,
+    name: 'Nour El-Din',
+    specialty: 'Commercial Actor',
+    category: 'crew',
+    location: 'Dubai, UAE',
+    bio: "Professional commercial actor with extensive experience in TV commercials and brand campaigns.",
+    about: {
+      gender: 'Male',
+      age: 29,
+      nationality: 'Emirati',
+      location: 'Dubai',
+      height: 178,
+      weight: 72,
+      skinTone: 'Medium',
+      hairColor: 'Brown',
+      dialects: ['Emirati', 'English', 'Standard Egyptian'],
+      willingToTravel: true
+    },
+    skills: ['Commercial Acting', 'Brand Representation', 'Screen Presence'],
+    stats: { followers: '1.8k', projects: 35, likes: '4.2k' },
+    onlineStatus: 'Last seen 1h ago',
+    imageUrl: ''
+  },
+  {
+    id: 6,
+    name: 'Mona Farouk',
+    specialty: 'Drama Actress',
+    category: 'crew',
+    location: 'Cairo, EG',
+    bio: "Award-winning drama actress known for powerful performances in television series and films.",
+    about: {
+      gender: 'Female',
+      age: 31,
+      nationality: 'Egyptian',
+      location: 'Cairo',
+      height: 168,
+      weight: 58,
+      skinTone: 'Fair',
+      hairColor: 'Black',
+      dialects: ['Standard Egyptian', 'Classical Arabic (Fusha)'],
+      willingToTravel: false
+    },
+    skills: ['Drama Acting', 'Emotional Depth', 'Character Transformation'],
+    stats: { followers: '5.7k', projects: 22, likes: '12.3k' },
+    onlineStatus: 'online',
+    imageUrl: ''
+  },
+  {
+    id: 7,
+    name: 'Ahmed Zaki',
+    specialty: 'Comedy Actor',
+    category: 'crew',
+    location: 'Alexandria, EG',
+    bio: "Comedy specialist with a natural talent for making people laugh. Perfect timing and delivery.",
+    about: {
+      gender: 'Male',
+      age: 26,
+      nationality: 'Egyptian',
+      location: 'Alexandria',
+      height: 172,
+      weight: 68,
+      skinTone: 'Medium',
+      hairColor: 'Black',
+      dialects: ['Standard Egyptian', 'Alexandrian'],
+      willingToTravel: true
+    },
+    skills: ['Comedy Acting', 'Timing', 'Physical Comedy'],
+    stats: { followers: '2.1k', projects: 15, likes: '6.5k' },
+    onlineStatus: 'Last seen 30m ago',
+    imageUrl: ''
+  },
+  {
+    id: 8,
+    name: 'Layla El-Masry',
+    specialty: 'Lead Actress',
+    category: 'crew',
+    location: 'Cairo, EG',
+    bio: "Versatile lead actress with experience in both film and television. Known for strong character portrayals.",
+    about: {
+      gender: 'Female',
+      age: 27,
+      nationality: 'Egyptian',
+      location: 'Cairo',
+      height: 165,
+      weight: 55,
+      skinTone: 'Light',
+      hairColor: 'Brown',
+      dialects: ['Standard Egyptian', 'American', 'British'],
+      willingToTravel: true
+    },
+    skills: ['Lead Acting', 'Character Development', 'Screen Chemistry'],
+    stats: { followers: '4.3k', projects: 20, likes: '9.1k' },
+    onlineStatus: 'online',
+    imageUrl: ''
   }
 ];
 

@@ -23,7 +23,7 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange }) => {
           <Ionicons
             name={tab.icon as any}
             size={20}
-            color={active === tab.key ? '#000' : '#71717a'}
+            color={active === tab.key ? '#fff' : '#999'}
           />
           <Text style={[styles.tabLabel, active === tab.key && styles.activeTabLabel]}>
             {tab.label}
@@ -37,9 +37,9 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange }) => {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: '#000',
     borderTopWidth: 1,
-    borderTopColor: '#d4d4d8',
+    borderTopColor: '#333',
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
@@ -50,17 +50,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   activeTab: {
-    backgroundColor: '#f4f4f5',
+    backgroundColor: '#333',
     borderRadius: 8,
   },
   tabLabel: {
     fontSize: 12,
-    color: '#71717a',
+    color: '#999',
     marginTop: 4,
     fontWeight: '500',
   },
   activeTabLabel: {
-    color: '#000',
+    color: '#fff',
     fontWeight: '600',
   },
 });

@@ -16,7 +16,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.onecrew.app"
+      "bundleIdentifier": "com.onecrewapp.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -27,6 +27,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
+      }
     }
   }
 }
