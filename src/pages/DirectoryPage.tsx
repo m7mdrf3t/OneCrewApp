@@ -34,6 +34,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     try {
@@ -164,8 +165,17 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.title}>{section.title}</Text>
-        <View style={styles.placeholder} />
+        <Text style={styles.title}>
+          {selectedSubcategory ? selectedSubcategory : section.title}
+        </Text>
+        {selectedSubcategory && (
+          <TouchableOpacity 
+            onPress={() => setSelectedSubcategory(null)} 
+            style={styles.backButton}
+          >
+            <Ionicons name="close" size={24} color="#000" />
+          </TouchableOpacity>
+        )}
       </View>
       
       <ScrollView 
@@ -181,19 +191,42 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           </View>
         )}
 
-        {section.items.map((item) => {
-          const itemUsers = filteredUsers[item.label] || [];
-          
-          return (
-            <View key={item.label} style={styles.categorySection}>
-              <View style={styles.categoryHeader}>
-                <Text style={styles.categoryTitle}>{item.label}</Text>
-                <Text style={styles.userCount}>{itemUsers.length} profiles</Text>
-              </View>
+        {!selectedSubcategory ? (
+          // Show subcategories
+          <View style={styles.subcategoriesContainer}>
+            {section.items.map((item) => {
+              const itemUsers = (filteredUsers as any)[item.label] || [];
               
-              {itemUsers.length > 0 ? (
+              return (
+                <TouchableOpacity
+                  key={item.label}
+                  style={styles.subcategoryCard}
+                  onPress={() => setSelectedSubcategory(item.label)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.subcategoryContent}>
+                    <View style={styles.subcategoryIcon}>
+                      <Ionicons name="people" size={24} color="#3b82f6" />
+                    </View>
+                    <View style={styles.subcategoryInfo}>
+                      <Text style={styles.subcategoryTitle}>{item.label}</Text>
+                      <Text style={styles.subcategoryCount}>{itemUsers.length} profiles</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#71717a" />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : (
+          // Show users for selected subcategory
+          <View style={styles.usersContainer}>
+            {(() => {
+              const itemUsers = (filteredUsers as any)[selectedSubcategory] || [];
+              
+              return itemUsers.length > 0 ? (
                 <View style={styles.usersGrid}>
-                  {itemUsers.map((user) => (
+                  {itemUsers.map((user: User) => (
                     <TouchableOpacity
                       key={user.id}
                       style={styles.userCard}
@@ -234,12 +267,12 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                 </View>
               ) : (
                 <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>No {item.label.toLowerCase()} profiles found</Text>
+                  <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} profiles found</Text>
                 </View>
-              )}
-            </View>
-          );
-        })}
+              );
+            })()}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -384,6 +417,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#71717a',
     textAlign: 'center',
+  },
+  subcategoriesContainer: {
+    padding: 16,
+  },
+  subcategoryCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#d4d4d8',
+  },
+  subcategoryContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  subcategoryIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#f0f9ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  subcategoryInfo: {
+    flex: 1,
+  },
+  subcategoryTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 4,
+  },
+  subcategoryCount: {
+    fontSize: 14,
+    color: '#71717a',
+  },
+  usersContainer: {
+    padding: 16,
   },
 });
 
