@@ -2,8 +2,9 @@ import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProfileDetailPageProps } from '../types';
+import { getInitials } from '../data/mockData';
 
-const ProfileDetailPage: React.FC<ProfileDetailPageProps> = ({
+const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void }> = ({
   profile,
   onBack,
   onAssignToProject,
@@ -12,6 +13,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps> = ({
   onStartChat,
   onMediaSelect,
   isCurrentUser = false,
+  onLogout,
 }) => {
   const isInTeam = myTeam.some(member => member.id === profile.id);
 
@@ -22,32 +24,59 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps> = ({
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title}>{profile.name}</Text>
-        <View style={styles.placeholder} />
+        {isCurrentUser && onLogout ? (
+          <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
+            <Ionicons name="log-out" size={24} color="#ff4444" />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.placeholder} />
+        )}
       </View>
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <Text style={styles.heroInitials}>{getInitials(profile.name)}</Text>
+        </View>
         <View style={styles.profileContainer}>
-          <Image source={{ uri: profile.imageUrl }} style={styles.profileImage} />
-          <Text style={styles.name}>{profile.name}</Text>
-          <Text style={styles.specialty}>{profile.specialty}</Text>
-          <Text style={styles.location}>{profile.location}</Text>
-          
-          <View style={styles.bioContainer}>
-            <Text style={styles.bio}>{profile.bio}</Text>
+          <View style={styles.nameRow}> 
+            <Text style={styles.name}>{profile.name}</Text>
+            <Ionicons name={profile.about?.gender?.toLowerCase() === 'female' ? 'woman' : 'man'} size={18} color="#fff" />
+          </View>
+          <Text style={styles.lastSeen}>{profile.onlineStatus || 'Last seen recently'}</Text>
+
+          <View style={styles.ctaRow}>
+            <TouchableOpacity
+              style={[styles.ctaButton, styles.ctaLight]}
+              onPress={() => onAddToTeam(profile)}
+            >
+              <Ionicons name="add" size={18} color="#fff" />
+              <Text style={styles.ctaText}>My Team</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.ctaButton, styles.ctaDark]}
+              onPress={() => onAssignToProject(profile)}
+            >
+              <Text style={styles.ctaText}>Add to Crew</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
+            <View style={styles.statCard}>
               <Text style={styles.statNumber}>{profile.stats.followers}</Text>
               <Text style={styles.statLabel}>Followers</Text>
             </View>
-            <View style={styles.statItem}>
+            <View style={styles.statCard}>
               <Text style={styles.statNumber}>{profile.stats.projects}</Text>
               <Text style={styles.statLabel}>Projects</Text>
             </View>
-            <View style={styles.statItem}>
+            <View style={styles.statCard}>
               <Text style={styles.statNumber}>{profile.stats.likes}</Text>
               <Text style={styles.statLabel}>Likes</Text>
             </View>
+          </View>
+
+          <View style={styles.bioContainer}>
+            <Text style={styles.sectionHeader}>About</Text>
+            <Text style={styles.bio}>{profile.bio}</Text>
           </View>
 
           <View style={styles.skillsContainer}>
@@ -126,31 +155,62 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  hero: {
+    height: 360,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroInitials: {
+    fontSize: 220,
+    fontWeight: '800',
+    color: '#9ca3af',
+  },
   profileContainer: {
     padding: 16,
-    alignItems: 'center',
   },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginBottom: 16,
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   name: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 4,
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 2,
   },
-  specialty: {
-    fontSize: 16,
-    color: '#71717a',
-    marginBottom: 4,
-  },
-  location: {
+  lastSeen: {
     fontSize: 14,
-    color: '#71717a',
+    color: '#d1d5db',
     marginBottom: 16,
+  },
+  ctaRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  ctaButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  ctaLight: {
+    backgroundColor: '#1f2937',
+  },
+  ctaDark: {
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  ctaText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   bioContainer: {
     backgroundColor: '#fff',
@@ -166,23 +226,30 @@ const styles = StyleSheet.create({
     color: '#000',
     lineHeight: 20,
   },
+  sectionHeader: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#000',
+    marginBottom: 8,
+  },
   statsContainer: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
+    gap: 12,
     marginBottom: 16,
     width: '100%',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
   },
-  statItem: {
+  statCard: {
     flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 18,
+    borderWidth: 2,
+    borderColor: '#111111',
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#000',
   },
   statLabel: {
@@ -226,36 +293,10 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: 12,
   },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    padding: 16,
-  },
-  primaryButton: {
-    backgroundColor: '#000',
-  },
-  addButton: {
-    backgroundColor: '#10b981',
-  },
-  removeButton: {
-    backgroundColor: '#ef4444',
-  },
-  assignButton: {
-    backgroundColor: '#3b82f6',
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  secondaryButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
+  logoutButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#ffe6e6',
   },
 });
 

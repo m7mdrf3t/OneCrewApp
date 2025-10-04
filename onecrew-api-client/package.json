@@ -1,0 +1,35 @@
+{
+  "name": "onecrew-api-client",
+  "version": "1.0.0",
+  "description": "OneCrew Backend API Client for Expo/React Native",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublish": "npm run build"
+  },
+  "keywords": [
+    "onecrew",
+    "api",
+    "client",
+    "expo",
+    "react-native",
+    "film",
+    "entertainment"
+  ],
+  "author": "OneCrew Team",
+  "license": "MIT",
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^1.19.5",
+    "expo-secure-store": "~12.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.6",
+    "typescript": "^5.0.4"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

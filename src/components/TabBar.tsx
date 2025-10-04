@@ -1,9 +1,11 @@
 import React from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TabBarProps } from '../types';
 
 const TabBar: React.FC<TabBarProps> = ({ active, onChange }) => {
+  const insets = useSafeAreaInsets();
   const tabs = [
     { key: 'home', label: 'Home', icon: 'home' },
     { key: 'projects', label: 'Projects', icon: 'folder' },
@@ -13,7 +15,7 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange }) => {
   ];
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8) }]}> 
       {tabs.map((tab) => (
         <TouchableOpacity
           key={tab.key}

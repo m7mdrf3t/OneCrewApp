@@ -1,7 +1,10 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+
+// Context
+import { ApiProvider, useApi } from './src/contexts/ApiContext';
 
 // Components
 import TabBar from './src/components/TabBar';
@@ -10,24 +13,57 @@ import SplashScreen from './src/components/SplashScreen';
 
 // Pages
 import HomePage from './src/pages/HomePage';
+import HomePageWithUsers from './src/pages/HomePageWithUsers';
 import SectionServicesPage from './src/pages/SectionServicesPage';
 import ServiceDetailPage from './src/pages/ServiceDetailPage';
 import ProjectsPage from './src/pages/ProjectsPage';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
+import SpotPage from './src/pages/SpotPage';
+import LoginPage from './src/pages/LoginPage';
+import SignupPage from './src/pages/SignupPage';
+import ForgotPasswordPage from './src/pages/ForgotPasswordPage';
+import ResetPasswordPage from './src/pages/ResetPasswordPage';
+import OnboardingPage from './src/pages/OnboardingPage';
 
 // Data
 import { MOCK_PROFILES, MOCK_PROJECTS_DATA, SECTIONS } from './src/data/mockData';
 import { NavigationState, User } from './src/types';
 
-const App: React.FC = () => {
+// Main App Content Component
+const AppContent: React.FC = () => {
+  const { isAuthenticated, user, isLoading, logout } = useApi();
   const [showSplash, setShowSplash] = useState(true);
-  const [user, setUser] = useState<User>({ name: 'Guest' });
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [projects, setProjects] = useState(MOCK_PROJECTS_DATA);
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState('spot');
   const [myTeam, setMyTeam] = useState([MOCK_PROFILES[0], MOCK_PROFILES[1]]);
+  const [authPage, setAuthPage] = useState<'login' | 'signup' | 'forgot-password' | 'reset-password' | 'onboarding' | null>(null);
+  const [resetToken, setResetToken] = useState<string>('');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const systemColorScheme = useColorScheme();
   const [theme, setTheme] = useState('light');
+
+  useEffect(() => {
+    if (systemColorScheme) {
+      setTheme(systemColorScheme);
+    }
+  }, [systemColorScheme]);
+
+  // Handle authentication state changes
+  useEffect(() => {
+    if (!isLoading) {
+      if (!isAuthenticated) {
+        setAuthPage('login');
+      } else if (user?.profile_step === 'onboarding') {
+        setShowOnboarding(true);
+        setAuthPage(null);
+      } else {
+        setAuthPage(null);
+        setShowOnboarding(false);
+      }
+    }
+  }, [isAuthenticated, isLoading, user]);
 
   const page = history[history.length - 1];
 
@@ -128,39 +164,158 @@ const App: React.FC = () => {
     setShowSplash(false);
   };
 
+  // Authentication navigation handlers
+  const handleNavigateToSignup = () => {
+    setAuthPage('signup');
+  };
+
+  const handleNavigateToLogin = () => {
+    setAuthPage('login');
+  };
+
+  const handleNavigateToForgotPassword = () => {
+    setAuthPage('forgot-password');
+  };
+
+  const handleNavigateToResetPassword = (email: string) => {
+    setResetToken('sample-token'); // In real app, this would come from URL params
+    setAuthPage('reset-password');
+  };
+
+  const handleLoginSuccess = () => {
+    setAuthPage(null);
+  };
+
+  const handleSignupSuccess = () => {
+    setShowOnboarding(true);
+    setAuthPage(null);
+  };
+
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+  };
+
+  const handleOnboardingSkip = () => {
+    setShowOnboarding(false);
+  };
+
+  const handleResetSuccess = () => {
+    setAuthPage('login');
+  };
+
+  const handleLogout = async () => {
+    try {
+      console.log('🚪 Logging out...');
+      await logout();
+      console.log('✅ Logout successful');
+      setAuthPage('login');
+      setShowOnboarding(false);
+    } catch (error) {
+      console.error('❌ Logout failed:', error);
+    }
+  };
+
+  const isDark = theme === 'dark';
+
   const renderContent = () => {
     if (showSplash) {
       return <SplashScreen onFinished={handleSplashFinished} />;
     }
 
+    // Show loading state while API is initializing
+    if (isLoading) {
+      return (
+        <View style={[styles.appContainer, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
+          <View style={styles.loadingContainer}>
+            <Text style={[styles.loadingText, { color: isDark ? '#fff' : '#000' }]}>
+              Loading...
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    // Show onboarding for new users
+    if (showOnboarding) {
+      return (
+        <OnboardingPage
+          onComplete={handleOnboardingComplete}
+          onSkip={handleOnboardingSkip}
+        />
+      );
+    }
+
+    // Show authentication pages
+    if (authPage === 'login') {
+      return (
+        <LoginPage
+          onNavigateToSignup={handleNavigateToSignup}
+          onNavigateToForgotPassword={handleNavigateToForgotPassword}
+          onLoginSuccess={handleLoginSuccess}
+        />
+      );
+    }
+
+    if (authPage === 'signup') {
+      return (
+        <SignupPage
+          onNavigateToLogin={handleNavigateToLogin}
+          onSignupSuccess={handleSignupSuccess}
+        />
+      );
+    }
+
+    if (authPage === 'forgot-password') {
+      return (
+        <ForgotPasswordPage
+          onNavigateToLogin={handleNavigateToLogin}
+          onNavigateToResetPassword={handleNavigateToResetPassword}
+        />
+      );
+    }
+
+    if (authPage === 'reset-password') {
+      return (
+        <ResetPasswordPage
+          token={resetToken}
+          onNavigateToLogin={handleNavigateToLogin}
+          onResetSuccess={handleResetSuccess}
+        />
+      );
+    }
+
+    // Show main app for authenticated users
     return (
-      <View style={styles.appContainer}>
-        <View style={styles.topBar}>
+      <View style={[styles.appContainer, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
+        <View style={[styles.topBar, { backgroundColor: isDark ? '#000' : '#fff', borderBottomColor: isDark ? '#1f2937' : '#000' }]}>
           <View style={styles.topBarLeft}>
             <TouchableOpacity style={styles.topBarButton}>
-              <Ionicons name="help-circle" size={20} color="#71717a" />
+              <Ionicons name="help-circle" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
             <Text style={styles.topBarTitle}>
-              One Crew, <Text style={styles.userName}>{user.name}</Text>
+              One Crew, <Text style={styles.userName}>{user?.name || 'Guest'}</Text>
             </Text>
           </View>
           <View style={styles.topBarRight}>
             <TouchableOpacity onPress={toggleTheme} style={styles.topBarButton}>
-              <Ionicons name={theme === 'light' ? 'moon' : 'sunny'} size={20} color="#71717a" />
+              <Ionicons name={theme === 'light' ? 'moon' : 'sunny'} size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.topBarButton}>
-              <Ionicons name="chatbubble" size={20} color="#71717a" />
+              <Ionicons name="chatbubble" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.topBarButton}>
-              <Ionicons name="notifications" size={20} color="#71717a" />
+              <Ionicons name="notifications" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
               <View style={styles.notificationBadge} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleLogout} style={styles.topBarButton}>
+              <Ionicons name="log-out" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.content}>
           {page.name === 'home' && (
-            <HomePage
+            <HomePageWithUsers
               onServiceSelect={handleServiceSelect}
               onOpenFilter={() => {}}
               searchQuery={searchQuery}
@@ -168,9 +323,12 @@ const App: React.FC = () => {
               onToggleTheme={toggleTheme}
               theme={theme}
               onNavigate={navigateTo}
-              user={user}
+              user={user || { name: 'Guest' }}
               onOpenMainMenu={() => {}}
             />
+          )}
+          {page.name === 'spot' && (
+            <SpotPage isDark={isDark} />
           )}
           {page.name === 'sectionServices' && (
             <SectionServicesPage
@@ -224,6 +382,7 @@ const App: React.FC = () => {
               onStartChat={handleStartChat}
               onMediaSelect={() => {}}
               isCurrentUser={true}
+              onLogout={handleLogout}
             />
           )}
           {page.name === 'star' && (
@@ -255,8 +414,8 @@ const App: React.FC = () => {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
         {renderContent()}
       </SafeAreaView>
     </SafeAreaProvider>
@@ -329,6 +488,26 @@ const styles = StyleSheet.create({
     padding: 12,
     zIndex: 20,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
 });
+
+// Main App Component with API Provider
+const App: React.FC = () => {
+  return (
+    <ApiProvider baseUrl="http://localhost:3000">
+      <SafeAreaProvider>
+        <AppContent />
+      </SafeAreaProvider>
+    </ApiProvider>
+  );
+};
 
 export default App;

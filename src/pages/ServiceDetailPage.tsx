@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { MOCK_PROFILES } from '../data/mockData';
+import { MOCK_PROFILES, getInitials } from '../data/mockData';
 
 interface ServiceDetailPageProps {
   service: {
@@ -74,39 +74,34 @@ const ServiceDetailPage: React.FC<ServiceDetailPageProps> = ({
         key={profile.id}
         style={styles.profileCard}
         onPress={() => onProfileSelect(profile)}
+        activeOpacity={0.8}
       >
-        <Image source={{ uri: profile.imageUrl }} style={styles.profileImage} />
-        <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{profile.name}</Text>
+        <View style={styles.cardHeader}>
+          {isInTeam && (
+            <View style={styles.checkBadge}>
+              <Ionicons name="checkmark" size={18} color="#000" />
+            </View>
+          )}
+          <View style={styles.bagBadge}>
+            <Ionicons name="briefcase" size={18} color="#fff" />
+          </View>
+        </View>
+        <View style={styles.initialsContainer}>
+          <Text style={styles.initialsText}>{getInitials(profile.name)}</Text>
+        </View>
+        <View style={styles.cardFooter}>
+          <View style={styles.nameRow}>
+            <View style={[styles.dot, { backgroundColor: profile.onlineStatus === 'online' ? '#10b981' : '#6b7280' }]} />
+            <Text style={styles.profileName}>{profile.name}</Text>
+          </View>
           <Text style={styles.profileSpecialty}>{profile.specialty}</Text>
-          <Text style={styles.profileLocation}>{profile.location}</Text>
-          <View style={styles.skillsContainer}>
-            {profile.skills.slice(0, 2).map((skill: string, index: number) => (
-              <View key={index} style={styles.skillTag}>
-                <Text style={styles.skillText}>{skill}</Text>
-              </View>
-            ))}
-          </View>
-          <View style={styles.statsContainer}>
-            <Text style={styles.statText}>{profile.stats.followers} followers</Text>
-            <Text style={styles.statText}>•</Text>
-            <Text style={styles.statText}>{profile.stats.projects} projects</Text>
-          </View>
         </View>
-        <View style={styles.profileActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.primaryButton]}
-            onPress={() => onStartChat?.(profile)}
-          >
-            <Ionicons name="chatbubble" size={16} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, isInTeam ? styles.removeButton : styles.addButton]}
-            onPress={() => onAddToTeam?.(profile)}
-          >
-            <Ionicons name={isInTeam ? "remove" : "add"} size={16} color="#fff" />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          onPress={() => onAddToTeam?.(profile)}
+          style={styles.plusBadge}
+        >
+          <Ionicons name="add" size={18} color="#fff" />
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -184,88 +179,82 @@ const styles = StyleSheet.create({
   },
   profilesContainer: {
     padding: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   profileCard: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    width: '48%',
+    backgroundColor: '#000',
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
+    marginBottom: 16,
+    position: 'relative',
+  },
+  cardHeader: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  checkBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#fff',
     alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
   },
-  profileImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 12,
+  bagBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
   },
-  profileInfo: {
-    flex: 1,
+  plusBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  initialsContainer: {
+    height: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  initialsText: {
+    fontSize: 96,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  cardFooter: {
+    marginTop: 12,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
   },
   profileName: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 2,
+    fontWeight: '700',
+    color: '#fff',
   },
   profileSpecialty: {
     fontSize: 14,
-    color: '#71717a',
-    marginBottom: 2,
-  },
-  profileLocation: {
-    fontSize: 12,
-    color: '#71717a',
-    marginBottom: 8,
-  },
-  skillsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 8,
-  },
-  skillTag: {
-    backgroundColor: '#f4f4f5',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 6,
-    marginBottom: 4,
-  },
-  skillText: {
-    fontSize: 10,
-    color: '#000',
-    fontWeight: '500',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statText: {
-    fontSize: 12,
-    color: '#71717a',
-    marginRight: 8,
-  },
-  profileActions: {
-    flexDirection: 'column',
-    gap: 8,
-  },
-  actionButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  primaryButton: {
-    backgroundColor: '#000',
-  },
-  addButton: {
-    backgroundColor: '#10b981',
-  },
-  removeButton: {
-    backgroundColor: '#ef4444',
+    color: '#d1d5db',
   },
   emptyState: {
     flex: 1,

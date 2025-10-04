@@ -195,6 +195,52 @@ export const getInitials = (name: string) => {
   return `${firstInitial}${lastInitial}`.toUpperCase();
 };
 
+export interface NewsItem {
+  id: number;
+  title: string;
+  summary: string;
+  imageUrl: string;
+  category: 'Marvel' | 'Netflix' | 'VR' | 'Tech';
+  source?: string;
+  publishedAt?: string;
+}
+
+export const MOCK_SPOT_NEWS: NewsItem[] = [
+  {
+    id: 1,
+    title: 'Netflix Builds $1B New Jersey Studio',
+    summary:
+      "Netflix is building a huge new film studio in New Jersey worth $1 billion. It will include massive soundstages and create thousands of jobs, positioning it as a major production hub on the U.S. East Coast.",
+    imageUrl: 'https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?q=80&w=1600&auto=format&fit=crop',
+    category: 'Netflix',
+    source: 'One Crew Spot',
+  },
+  {
+    id: 2,
+    title: 'Marvel Teases Multiverse Saga Surprises',
+    summary:
+      "Marvel Studios hints at bold new crossovers and character arcs in the Multiverse Saga, with directors exploring more practical VFX and dynamic on-set LED volumes for immersive worlds.",
+    imageUrl: 'https://images.unsplash.com/photo-1520975916090-3105956dac38?q=80&w=1600&auto=format&fit=crop',
+    category: 'Marvel',
+  },
+  {
+    id: 3,
+    title: 'VR Filmmaking: From Previz to Final Pixels',
+    summary:
+      "Virtual production with real-time engines is reshaping previs, blocking, and editorial. Directors can scout digital sets in VR and iterate lighting, lenses, and camera moves instantly.",
+    imageUrl: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=1600&auto=format&fit=crop',
+    category: 'VR',
+  },
+  {
+    id: 4,
+    title: 'New Tech in Cinema: AI-Assisted Color & Sound',
+    summary:
+      "AI-powered grading and dialogue isolation tools speed up color and post sound while keeping creative control in artists’ hands. The next wave focuses on explainable adjustments and collaboration.",
+    imageUrl: 'https://images.unsplash.com/photo-1541963463532-d68292c34b19?q=80&w=1600&auto=format&fit=crop',
+    category: 'Tech',
+  },
+];
+
 export const MOCK_PROFILES_DATA: Profile[] = [
   {
     id: 1,

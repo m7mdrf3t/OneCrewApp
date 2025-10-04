@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 
 interface SplashScreenProps {
   onFinished: () => void;
@@ -12,23 +11,27 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinished }) => {
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
-      duration: 1000,
+      duration: 1500,
       useNativeDriver: true,
     }).start();
 
     const timer = setTimeout(() => {
       onFinished();
-    }, 2000);
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [fadeAnim, onFinished]);
 
+  const translateY = fadeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [20, 0],
+  });
+
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
-        <Ionicons name="film" size={80} color="#000" />
-        <Text style={styles.title}>One Crew</Text>
-        <Text style={styles.subtitle}>Film Production Platform</Text>
+      <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY }] }]}>
+        <Text style={styles.one}>ONE</Text>
+        <Text style={styles.crew}>CREW</Text>
       </Animated.View>
     </View>
   );
@@ -37,23 +40,27 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinished }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
   },
   content: {
     alignItems: 'center',
   },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#000',
-    marginTop: 20,
+  one: {
+    fontSize: 48,
+    fontWeight: '900',
+    color: '#fff',
+    textTransform: 'uppercase',
+    letterSpacing: 4,
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#71717a',
-    marginTop: 8,
+  crew: {
+    fontSize: 40,
+    fontWeight: '600',
+    color: '#d1d5db',
+    textTransform: 'uppercase',
+    letterSpacing: 6,
+    marginTop: 4,
   },
 });
 
