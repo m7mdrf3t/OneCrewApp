@@ -25,7 +25,12 @@ const SectionCard: React.FC<SectionCardProps> = ({ section, onClick }) => {
       <View style={styles.iconContainer}>
         <Ionicons name={iconName} size={20} color="#000" />
       </View>
-      <Text style={styles.title}>{section.title}</Text>
+      <View style={styles.content}>
+        <Text style={styles.title}>{section.title}</Text>
+        {section.userCount !== undefined && (
+          <Text style={styles.userCount}>{section.userCount} members</Text>
+        )}
+      </View>
       <Ionicons name="chevron-forward" size={16} color="#71717a" />
     </TouchableOpacity>
   );
@@ -53,11 +58,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-  title: {
+  content: {
     flex: 1,
+  },
+  title: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
+    marginBottom: 2,
+  },
+  userCount: {
+    fontSize: 14,
+    color: '#71717a',
   },
 });
 

@@ -10,7 +10,7 @@ import { useApi } from '../contexts/ApiContext';
 interface User {
   id: string;
   name: string;
-  email: string;
+  email?: string;
   category: 'crew' | 'talent' | 'company';
   primary_role?: string;
   profile_completeness: number;
@@ -44,7 +44,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       
       if (response.success && response.data) {
         // The API returns data as an array directly, not as data.items
-        const usersArray = Array.isArray(response.data) ? response.data : response.data.items || [];
+        const usersArray = Array.isArray(response.data) ? response.data : [];
         console.log('✅ Users fetched successfully:', usersArray.length);
         setUsers(usersArray);
       } else {
@@ -97,6 +97,26 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     return categorized;
   }, [users]);
 
+  const sectionsWithUserCounts = useMemo(() => {
+    return SECTIONS.map(section => {
+      let userCount = 0;
+      
+      // Map section keys to user categories
+      if (section.key === 'talent') {
+        userCount = usersByCategory.talent.length;
+      } else if (section.key === 'crew' || section.key === 'individuals' || section.key === 'technicians' || section.key === 'specialized') {
+        userCount = usersByCategory.crew.length;
+      } else if (section.key === 'onehub') {
+        userCount = usersByCategory.company.length;
+      }
+      
+      return {
+        ...section,
+        userCount
+      };
+    });
+  }, [usersByCategory]);
+
   const handleUserSelect = (selectedUser: User) => {
     console.log('👤 User selected:', selectedUser.name);
     // Navigate to user profile or start chat
@@ -141,9 +161,9 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Original Services Section */}
+        {/* Dynamic Directory Sections */}
         <View style={styles.sectionsContainer}>
-          {filteredSections.map((section) => (
+          {sectionsWithUserCounts.map((section) => (
             <SectionCard
               key={section.key}
               section={section}
@@ -152,41 +172,6 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
           ))}
         </View>
 
-        {/* Users by Category - Added at the bottom */}
-        <View style={styles.usersSection}>
-          <Text style={[styles.sectionTitle, { color: isDark ? '#fff' : '#000' }]}>
-            Community Members
-          </Text>
-          
-          {error && (
-            <View style={styles.errorContainer}>
-              <Text style={[styles.errorText, { color: '#ef4444' }]}>
-                {error}
-              </Text>
-            </View>
-          )}
-          
-          <UserTable
-            title="Talent"
-            users={usersByCategory.talent}
-            onUserSelect={handleUserSelect}
-            isDark={isDark}
-          />
-          
-          <UserTable
-            title="Crew"
-            users={usersByCategory.crew}
-            onUserSelect={handleUserSelect}
-            isDark={isDark}
-          />
-          
-          <UserTable
-            title="Companies"
-            users={usersByCategory.company}
-            onUserSelect={handleUserSelect}
-            isDark={isDark}
-          />
-        </View>
       </ScrollView>
     </View>
   );

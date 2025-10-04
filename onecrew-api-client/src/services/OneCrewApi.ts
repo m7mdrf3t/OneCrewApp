@@ -55,7 +55,7 @@ export class OneCrewApi {
   }
 
   async getUserById(userId: string): Promise<ApiResponse<User>> {
-    return this.apiClient.get<User>(`/api/users/${userId}`);
+    return this.apiClient.post<User>('/api/users/get-by-id', { id: userId });
   }
 
   async updateUserProfile(updates: Partial<User>): Promise<ApiResponse<User>> {

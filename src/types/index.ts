@@ -25,6 +25,7 @@ export interface SectionCardProps {
     key: string;
     title: string;
     items: Array<{ label: string; users?: number }>;
+    userCount?: number;
   };
   onClick: () => void;
 }

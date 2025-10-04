@@ -1,8 +1,9 @@
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProfileDetailPageProps } from '../types';
 import { getInitials } from '../data/mockData';
+import { useApi } from '../contexts/ApiContext';
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void }> = ({
   profile,
@@ -15,7 +16,115 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   isCurrentUser = false,
   onLogout,
 }) => {
-  const isInTeam = myTeam.some(member => member.id === profile.id);
+  const { api } = useApi();
+  const [userProfile, setUserProfile] = useState(profile);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch fresh user data if we have a user ID
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (!profile?.id || profile.id === '' || profile.id === 'undefined') {
+        console.log('⚠️ No valid profile ID provided, skipping fetch');
+        console.log('⚠️ Profile ID value:', profile?.id);
+        return;
+      }
+      
+      // Skip fetch if we already have complete profile data
+      if (profile.bio && profile.skills && profile.stats) {
+        console.log('✅ Profile data already complete, skipping fetch');
+        setUserProfile(profile);
+        return;
+      }
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        console.log('👤 Fetching user profile for ID:', profile.id);
+        console.log('👤 Profile object:', profile);
+        const response = await api.getUserById(profile.id);
+        
+        if (response.success && response.data) {
+          console.log('✅ User profile fetched successfully');
+          // Transform the data to match expected format
+          const transformedProfile = {
+            ...response.data,
+            stats: (response.data as any).stats || {
+              followers: '0',
+              projects: 0,
+              likes: '0'
+            },
+            skills: (response.data as any).skills || [],
+            bio: response.data.bio || 'No bio available',
+            onlineStatus: (response.data as any).onlineStatus || response.data.online_last_seen || 'Last seen recently',
+            about: (response.data as any).about || {
+              gender: 'unknown'
+            }
+          };
+          setUserProfile(transformedProfile);
+        } else {
+          console.error('❌ Failed to fetch user profile:', response.error);
+          setError('Failed to load profile');
+        }
+      } catch (err: any) {
+        console.error('❌ Error fetching user profile:', err);
+        setError(err.message || 'Failed to load profile');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchUserProfile();
+  }, [profile?.id, api]);
+
+  const isInTeam = myTeam.some(member => member.id === userProfile.id);
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Loading...</Text>
+          <View style={styles.placeholder} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Error</Text>
+          <View style={styles.placeholder} />
+        </View>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#ef4444" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => {
+            setError(null);
+            setIsLoading(true);
+            // Re-trigger the useEffect by updating the profile ID
+            setUserProfile(profile);
+          }}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -23,7 +132,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.title}>{profile.name}</Text>
+        <Text style={styles.title}>{userProfile.name}</Text>
         {isCurrentUser && onLogout ? (
           <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
             <Ionicons name="log-out" size={24} color="#ff4444" />
@@ -34,26 +143,26 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       </View>
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Text style={styles.heroInitials}>{getInitials(profile.name)}</Text>
+          <Text style={styles.heroInitials}>{getInitials(userProfile.name)}</Text>
         </View>
         <View style={styles.profileContainer}>
           <View style={styles.nameRow}> 
-            <Text style={styles.name}>{profile.name}</Text>
-            <Ionicons name={profile.about?.gender?.toLowerCase() === 'female' ? 'woman' : 'man'} size={18} color="#fff" />
+            <Text style={styles.name}>{userProfile.name}</Text>
+            <Ionicons name={userProfile.about?.gender?.toLowerCase() === 'female' ? 'woman' : 'man'} size={18} color="#fff" />
           </View>
-          <Text style={styles.lastSeen}>{profile.onlineStatus || 'Last seen recently'}</Text>
+          <Text style={styles.lastSeen}>{userProfile.onlineStatus || userProfile.online_last_seen || 'Last seen recently'}</Text>
 
           <View style={styles.ctaRow}>
             <TouchableOpacity
               style={[styles.ctaButton, styles.ctaLight]}
-              onPress={() => onAddToTeam(profile)}
+              onPress={() => onAddToTeam(userProfile)}
             >
               <Ionicons name="add" size={18} color="#fff" />
               <Text style={styles.ctaText}>My Team</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.ctaButton, styles.ctaDark]}
-              onPress={() => onAssignToProject(profile)}
+              onPress={() => onAssignToProject(userProfile)}
             >
               <Text style={styles.ctaText}>Add to Crew</Text>
             </TouchableOpacity>
@@ -61,28 +170,28 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
           <View style={styles.statsContainer}>
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{profile.stats.followers}</Text>
+              <Text style={styles.statNumber}>{userProfile.stats?.followers || '0'}</Text>
               <Text style={styles.statLabel}>Followers</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{profile.stats.projects}</Text>
+              <Text style={styles.statNumber}>{userProfile.stats?.projects || '0'}</Text>
               <Text style={styles.statLabel}>Projects</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{profile.stats.likes}</Text>
+              <Text style={styles.statNumber}>{userProfile.stats?.likes || '0'}</Text>
               <Text style={styles.statLabel}>Likes</Text>
             </View>
           </View>
 
           <View style={styles.bioContainer}>
             <Text style={styles.sectionHeader}>About</Text>
-            <Text style={styles.bio}>{profile.bio}</Text>
+            <Text style={styles.bio}>{userProfile.bio || 'No bio available'}</Text>
           </View>
 
           <View style={styles.skillsContainer}>
             <Text style={styles.sectionTitle}>Skills</Text>
             <View style={styles.skillsList}>
-              {profile.skills.map((skill, index) => (
+              {(userProfile.skills || []).map((skill: string, index: number) => (
                 <View key={index} style={styles.skillTag}>
                   <Text style={styles.skillText}>{skill}</Text>
                 </View>
@@ -297,6 +406,73 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
     backgroundColor: '#ffe6e6',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    gap: 8,
+    marginBottom: 8,
+  },
+  primaryButton: {
+    backgroundColor: '#3b82f6',
+  },
+  addButton: {
+    backgroundColor: '#10b981',
+  },
+  removeButton: {
+    backgroundColor: '#ef4444',
+  },
+  assignButton: {
+    backgroundColor: '#f59e0b',
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  secondaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#71717a',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#ef4444',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

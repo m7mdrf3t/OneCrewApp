@@ -15,6 +15,7 @@ import SplashScreen from './src/components/SplashScreen';
 import HomePage from './src/pages/HomePage';
 import HomePageWithUsers from './src/pages/HomePageWithUsers';
 import SectionServicesPage from './src/pages/SectionServicesPage';
+import DirectoryPage from './src/pages/DirectoryPage';
 import ServiceDetailPage from './src/pages/ServiceDetailPage';
 import ProjectsPage from './src/pages/ProjectsPage';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
@@ -31,7 +32,7 @@ import { NavigationState, User } from './src/types';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [projects, setProjects] = useState(MOCK_PROJECTS_DATA);
@@ -55,7 +56,7 @@ const AppContent: React.FC = () => {
     if (!isLoading) {
       if (!isAuthenticated) {
         setAuthPage('login');
-      } else if (user?.profile_step === 'onboarding') {
+      } else if (user?.profile_step === 'onboarding' || user?.profile_completeness === 0) {
         setShowOnboarding(true);
         setAuthPage(null);
       } else {
@@ -109,7 +110,27 @@ const AppContent: React.FC = () => {
   }, [navigateTo]);
 
   const handleProfileSelect = useCallback((profileData: any) => {
-    navigateTo('profile', profileData);
+    console.log('👤 Profile selected:', profileData);
+    console.log('👤 Profile ID:', profileData.id);
+    
+    // Transform real user data to match ProfileDetailPage expectations
+    const transformedProfile = {
+      ...profileData,
+      // Add missing properties with defaults
+      stats: profileData.stats || {
+        followers: '0',
+        projects: 0,
+        likes: '0'
+      },
+      skills: profileData.skills || [],
+      bio: profileData.bio || 'No bio available',
+      onlineStatus: profileData.onlineStatus || profileData.online_last_seen || 'Last seen recently',
+      about: profileData.about || {
+        gender: 'unknown'
+      }
+    };
+    console.log('👤 Transformed profile:', transformedProfile);
+    navigateTo('profile', transformedProfile);
   }, [navigateTo]);
 
   const handleProjectSelect = useCallback((projectData: any) => {
@@ -191,8 +212,18 @@ const AppContent: React.FC = () => {
     setAuthPage(null);
   };
 
-  const handleOnboardingComplete = () => {
-    setShowOnboarding(false);
+  const handleOnboardingComplete = async () => {
+    try {
+      // Update user profile to mark onboarding as complete
+      if (user) {
+        await api.updateUserProfile({ profile_step: 'completed' });
+      }
+      setShowOnboarding(false);
+    } catch (error) {
+      console.error('Failed to update profile step:', error);
+      // Still hide onboarding even if update fails
+      setShowOnboarding(false);
+    }
   };
 
   const handleOnboardingSkip = () => {
@@ -331,10 +362,10 @@ const AppContent: React.FC = () => {
             <SpotPage isDark={isDark} />
           )}
           {page.name === 'sectionServices' && (
-            <SectionServicesPage
+            <DirectoryPage
               section={page.data}
               onBack={handleBack}
-              onServiceSelect={handleServiceSelect}
+              onUserSelect={handleProfileSelect}
             />
           )}
           {page.name === 'details' && (
@@ -374,7 +405,7 @@ const AppContent: React.FC = () => {
           )}
           {page.name === 'myProfile' && (
             <ProfileDetailPage
-              profile={MOCK_PROFILES[0]}
+              profile={user || { id: '', name: 'Guest' }}
               onBack={handleBack}
               onAssignToProject={handleAssignToProject}
               onAddToTeam={handleAddToTeam}
