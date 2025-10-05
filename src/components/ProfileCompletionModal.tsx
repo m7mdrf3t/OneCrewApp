@@ -227,12 +227,22 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           setAbilities(abilitiesRes.data || []);
           setLanguages(languagesRes.data || []);
           
-          console.log('✅ Reference data loaded:', {
+          console.log('🔍 Reference data loaded:', {
             skinTones: skinTonesRes.data?.length || 0,
             hairColors: hairColorsRes.data?.length || 0,
             skills: skillsRes.data?.length || 0,
             abilities: abilitiesRes.data?.length || 0,
             languages: languagesRes.data?.length || 0,
+          });
+          
+          console.log('🔍 Current form values:', {
+            skinTone: formData.about.skinTone,
+            hairColor: formData.about.hairColor,
+          });
+          
+          console.log('🔍 Available options:', {
+            skinToneOptions: skinTonesRes.data,
+            hairColorOptions: hairColorsRes.data,
           });
         } catch (error) {
           console.error('❌ Failed to load reference data:', error);
@@ -281,6 +291,14 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
       errors.location = 'Location is required';
     }
 
+    // Validate image URL if provided
+    if (formData.imageUrl && formData.imageUrl.trim()) {
+      const urlPattern = /^https?:\/\/.+\..+/;
+      if (!urlPattern.test(formData.imageUrl.trim())) {
+        errors.imageUrl = 'Please enter a valid URL (must start with http:// or https://)';
+      }
+    }
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -312,6 +330,16 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
         skills: [...prev.skills, currentSkill.trim()],
       }));
       setCurrentSkill('');
+    }
+  };
+
+  const addSkillFromDropdown = (skillValue: string) => {
+    if (skillValue && !formData.skills.includes(skillValue)) {
+      setFormData(prev => ({
+        ...prev,
+        skills: [...prev.skills, skillValue],
+      }));
+      setCurrentSkill(''); // Reset dropdown selection
     }
   };
 
@@ -350,21 +378,49 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      console.log('🔄 Starting profile update using talent profile API...');
+      console.log('🔄 Starting profile update with separated data sources...');
       
-      // Prepare basic profile data (bio, specialty, skills, imageUrl)
+      // 1. Prepare basic profile data (bio, specialty, skills, imageUrl)
       const basicProfileData = {
         bio: formData.bio.trim(),
         specialty: formData.specialty.trim(),
         skills: formData.skills,
-        imageUrl: formData.imageUrl.trim(),
+        imageUrl: formData.imageUrl.trim(), // This will be mapped to image_url in ApiContext
       };
 
-      // Prepare complete talent profile data (includes age, nationality, gender, and all other details)
-      const talentProfileData = {
-        gender: formData.about.gender,
+      // 2. Prepare UserDetails data (age, nationality, gender only)
+      // Map form gender to valid enum values
+      const genderMapping: { [key: string]: 'male' | 'female' | 'non_binary' | 'prefer_not_to_say' | 'other' } = {
+        'male': 'male',
+        'female': 'female',
+        'Male': 'male',
+        'Female': 'female',
+        'MALE': 'male',
+        'FEMALE': 'female',
+        'other': 'other',
+        'Other': 'other',
+        'OTHER': 'other',
+        'non_binary': 'non_binary',
+        'Non Binary': 'non_binary',
+        'Non-Binary': 'non_binary',
+        'NON_BINARY': 'non_binary',
+        'prefer_not_to_say': 'prefer_not_to_say',
+        'Prefer Not To Say': 'prefer_not_to_say',
+        'Prefer not to say': 'prefer_not_to_say',
+        'PREFER_NOT_TO_SAY': 'prefer_not_to_say',
+      };
+
+      const userDetailsData = {
+        gender: genderMapping[formData.about.gender] || 'prefer_not_to_say',
         age: Number(formData.about.age),
         nationality: formData.about.nationality,
+      };
+
+      console.log('🔍 Form gender value:', formData.about.gender);
+      console.log('🔍 Mapped gender value:', userDetailsData.gender);
+
+      // 3. Prepare Talent Profile data (all other physical and professional details)
+      const talentProfileData = {
         height_cm: Number(formData.about.height) || undefined,
         weight_kg: Number(formData.about.weight) || undefined,
         skin_tone: formData.about.skinTone,
@@ -381,22 +437,61 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
       };
 
       console.log('🔄 Updating basic profile:', basicProfileData);
-      console.log('🔄 Updating talent profile (all details):', talentProfileData);
+      console.log('🔄 Updating user details (age, nationality, gender):', userDetailsData);
+      console.log('🔄 Updating talent profile (physical details):', talentProfileData);
+      console.log('🔍 Talent profile data being sent:', JSON.stringify(talentProfileData, null, 2));
 
       // Update basic profile
       const profileResponse = await updateProfile(basicProfileData);
       console.log('✅ Basic profile updated:', profileResponse);
 
-      // Update talent profile (includes all user details)
-      const talentResponse = await updateProfile({
-        about: talentProfileData
-      });
-      console.log('✅ Talent profile updated:', talentResponse);
+      // Update or create user details (age, nationality, gender)
+      let userDetailsResponse;
+      try {
+        userDetailsResponse = await api.updateUserDetails(userDetailsData);
+        console.log('✅ User details updated:', userDetailsResponse);
+      } catch (updateError: any) {
+        // If update fails (404 - user details don't exist), create new ones
+        if (updateError.message?.includes('404') || updateError.message?.includes('not found')) {
+          console.log('ℹ️ User details don\'t exist, creating new ones...');
+        } else {
+          console.log('⚠️ Update failed, trying to create new user details:', updateError.message);
+        }
+        userDetailsResponse = await api.createUserDetails(userDetailsData);
+        console.log('✅ User details created:', userDetailsResponse);
+      }
 
-      // Combine responses
+      // Update talent profile (physical details) using direct API call
+      const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
+      if (!accessToken) {
+        throw new Error('Access token required for talent profile update');
+      }
+
+      const talentResponse = await fetch('http://localhost:3000/api/talent/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(talentProfileData),
+      });
+
+      const talentResult = await talentResponse.json();
+      
+      if (!talentResponse.ok) {
+        console.error('❌ Talent profile update failed:', talentResult);
+        throw new Error(talentResult.error || 'Failed to update talent profile');
+      }
+
+      console.log('✅ Talent profile updated:', talentResult);
+
+      // Combine all responses
       const combinedData = {
         ...profileResponse.data,
-        about: talentResponse.data?.about || talentProfileData
+        about: {
+          ...userDetailsResponse?.data,  // age, nationality, gender
+          ...talentResult.data  // height, weight, skin_tone, etc.
+        }
       };
 
       Alert.alert(
@@ -507,20 +602,25 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           {/* Skills */}
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Skills *</Text>
-            <View style={styles.skillInputContainer}>
-              <TextInput
-                style={styles.skillInput}
-                placeholder="Add a skill..."
-                placeholderTextColor="#9ca3af"
+            {loadingReferences ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+                <Text style={styles.loadingText}>Loading skills...</Text>
+              </View>
+            ) : (
+              <CustomDropdown
+                options={availableSkills}
                 value={currentSkill}
-                onChangeText={setCurrentSkill}
-                onSubmitEditing={addSkill}
-                editable={!isSubmitting}
+                onValueChange={(value) => {
+                  setCurrentSkill(value);
+                  if (value && !formData.skills.includes(value)) {
+                    addSkillFromDropdown(value);
+                  }
+                }}
+                placeholder="Select a skill to add"
+                disabled={isSubmitting}
               />
-              <TouchableOpacity style={styles.addButton} onPress={addSkill} disabled={isSubmitting}>
-                <Ionicons name="add" size={20} color="#fff" />
-              </TouchableOpacity>
-            </View>
+            )}
             <View style={styles.skillsList}>
               {formData.skills.map((skill, index) => (
                 <View key={index} style={styles.skillTag}>
@@ -542,16 +642,19 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           <View style={styles.row}>
             <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
               <Text style={styles.label}>Gender *</Text>
-              <View style={[styles.inputWrapper, formErrors.gender && styles.inputError]}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Male/Female/Other"
-                  placeholderTextColor="#9ca3af"
-                  value={formData.about.gender}
-                  onChangeText={(text) => handleInputChange('about.gender', text)}
-                  editable={!isSubmitting}
-                />
-              </View>
+              <CustomDropdown
+                options={[
+                  { id: 'male', name: 'Male' },
+                  { id: 'female', name: 'Female' },
+                  { id: 'non_binary', name: 'Non Binary' },
+                  { id: 'other', name: 'Other' },
+                  { id: 'prefer_not_to_say', name: 'Prefer Not To Say' },
+                ]}
+                value={formData.about.gender}
+                onValueChange={(value) => handleInputChange('about.gender', value)}
+                placeholder="Select gender"
+                disabled={isSubmitting}
+              />
               {formErrors.gender && <Text style={styles.fieldError}>{formErrors.gender}</Text>}
             </View>
 
@@ -821,13 +924,20 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Profile Image URL</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, formErrors.imageUrl && styles.inputError]}
               placeholder="https://example.com/image.jpg"
               placeholderTextColor="#9ca3af"
               value={formData.imageUrl}
               onChangeText={(text) => handleInputChange('imageUrl', text)}
+              keyboardType="url"
+              autoCapitalize="none"
+              autoCorrect={false}
               editable={!isSubmitting}
             />
+            {formErrors.imageUrl && <Text style={styles.fieldError}>{formErrors.imageUrl}</Text>}
+            <Text style={styles.helpText}>
+              Enter a valid image URL (JPG, PNG, or GIF format recommended)
+            </Text>
           </View>
         </ScrollView>
 
@@ -1167,6 +1277,12 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
     color: '#6b7280',
+  },
+  helpText: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
 });
 

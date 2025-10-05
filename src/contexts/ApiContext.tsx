@@ -171,19 +171,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const basicProfileData = {
         bio: profileData.bio,
         specialty: profileData.specialty,
-        imageUrl: profileData.imageUrl,
+        image_url: profileData.imageUrl, // Map imageUrl to image_url for API
       };
 
-      // Clean and prepare talent profile data
+      // Clean and prepare talent profile data (excluding age, nationality, gender - these go to UserDetails)
       const talentProfileData = {
         height_cm: profileData.about?.height ? Number(profileData.about.height) : null,
         weight_kg: profileData.about?.weight ? Number(profileData.about.weight) : null,
         eye_color: profileData.about?.eyeColor || null,
         skin_tone: profileData.about?.skinTone || null,
         hair_color: profileData.about?.hairColor || null,
-        gender: profileData.about?.gender || null,
-        age: profileData.about?.age ? Number(profileData.about.age) : null,
-        nationality: profileData.about?.nationality || null,
         location: profileData.about?.location || null,
         chest_cm: profileData.about?.chestCm ? Number(profileData.about.chestCm) : null,
         waist_cm: profileData.about?.waistCm ? Number(profileData.about.waistCm) : null,
@@ -207,7 +204,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         skills: profileData.skills || [],
       };
 
-      // Update basic profile info using PUT /api/users/{id}
+      // Update basic profile info using direct API call
       const basicResponse = await fetch(`http://localhost:3000/api/users/${userId}`, {
         method: 'PUT',
         headers: {

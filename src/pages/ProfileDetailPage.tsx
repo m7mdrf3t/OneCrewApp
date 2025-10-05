@@ -50,17 +50,30 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         
         let response;
         try {
-          // Use the talent profile API to get complete user details
-          console.log('🔍 Fetching user profile and talent details...');
+          // Fetch from both UserDetails and Talent Profile endpoints
+          console.log('🔍 Fetching user profile, user details, and talent profile...');
           
           // Get basic user profile
           const userResponse = await api.getUserByIdDirect(profile.id);
           console.log('✅ User profile fetched:', userResponse);
           
-          // Get talent profile data (includes age, nationality, gender, and all other details)
+          // Get UserDetails (age, nationality, gender only)
+          let userDetailsResponse = null;
+          try {
+            userDetailsResponse = await api.getUserDetails(profile.id);
+            console.log('✅ User details (age, nationality, gender) fetched:', userDetailsResponse);
+          } catch (detailsError: any) {
+            // 404 is expected if user details don't exist yet
+            if (detailsError.message?.includes('404') || detailsError.message?.includes('not found')) {
+              console.log('ℹ️ User details not created yet, continuing without details');
+            } else {
+              console.log('⚠️ Error fetching user details:', detailsError.message);
+            }
+          }
+
+          // Get talent profile data (all other physical and professional details)
           let talentProfileResponse = null;
           try {
-            // Use the talent profile endpoint to get all user details
             const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
             if (accessToken) {
               const talentResponse = await fetch('http://localhost:3000/api/talent/profile', {
@@ -82,12 +95,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             console.log('⚠️ Talent profile fetch failed, continuing without details:', talentError.message);
           }
           
-          // Combine the data
+          // Combine the data: UserDetails + Talent Profile
           response = {
             success: true,
             data: {
               ...userResponse.data,
-              about: talentProfileResponse?.data || {}
+              about: {
+                ...userDetailsResponse?.data,  // age, nationality, gender
+                ...talentProfileResponse?.data // height, weight, skin_tone, etc.
+              }
             }
           };
           console.log('✅ Combined profile data:', response);
