@@ -50,24 +50,19 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         
         let response;
         try {
-          // Try to get the complete profile with talent details
-          // First try a direct fetch to get the full profile data
-          const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
-          if (accessToken) {
-            console.log('🔍 Fetching complete profile with talent details...');
-            const fullProfileResponse = await fetch(`http://localhost:3000/api/users/${profile.id}`, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${accessToken}`,
-              },
-            });
-            
-            if (fullProfileResponse.ok) {
-              const fullProfileData = await fullProfileResponse.json();
-              console.log('✅ Complete profile data received:', fullProfileData);
-              
-              // Also fetch talent-specific data
+          // Use the talent profile API to get complete user details
+          console.log('🔍 Fetching user profile and talent details...');
+          
+          // Get basic user profile
+          const userResponse = await api.getUserByIdDirect(profile.id);
+          console.log('✅ User profile fetched:', userResponse);
+          
+          // Get talent profile data (includes age, nationality, gender, and all other details)
+          let talentProfileResponse = null;
+          try {
+            // Use the talent profile endpoint to get all user details
+            const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
+            if (accessToken) {
               const talentResponse = await fetch('http://localhost:3000/api/talent/profile', {
                 method: 'GET',
                 headers: {
@@ -77,38 +72,36 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               });
               
               if (talentResponse.ok) {
-                const talentData = await talentResponse.json();
-                console.log('✅ Talent data received:', talentData);
-                
-                // Combine the data
-                response = {
-                  success: true,
-                  data: {
-                    ...fullProfileData.data,
-                    about: talentData.data || {}
-                  }
-                };
-                console.log('✅ Combined profile data:', response);
+                talentProfileResponse = await talentResponse.json();
+                console.log('✅ Talent profile data fetched:', talentProfileResponse);
               } else {
-                // Fallback to regular API methods
-                response = await api.getUserByIdDirect(profile.id);
-                console.log('Direct method succeeded (fallback)');
+                console.log('⚠️ Talent profile not found, continuing without details');
               }
-            } else {
-              // Fallback to regular API methods
-              response = await api.getUserByIdDirect(profile.id);
-              console.log('Direct method succeeded (fallback)');
             }
-          } else {
-            // No access token, use regular methods
-            response = await api.getUserByIdDirect(profile.id);
-            console.log('Direct method succeeded (no token)');
+          } catch (talentError: any) {
+            console.log('⚠️ Talent profile fetch failed, continuing without details:', talentError.message);
           }
-        } catch (directError: any) {
-          console.log('All methods failed, trying regular method...', directError.message);
-          // Fallback to regular method
-          response = await api.getUserById(profile.id);
-          console.log('Regular method succeeded');
+          
+          // Combine the data
+          response = {
+            success: true,
+            data: {
+              ...userResponse.data,
+              about: talentProfileResponse?.data || {}
+            }
+          };
+          console.log('✅ Combined profile data:', response);
+        } catch (error: any) {
+          console.log('❌ API methods failed, trying fallback...', error.message);
+          // Fallback to regular API methods
+          try {
+            response = await api.getUserByIdDirect(profile.id);
+            console.log('✅ Fallback API method succeeded');
+          } catch (fallbackError: any) {
+            console.log('❌ Fallback API method failed, trying regular method...', fallbackError.message);
+            response = await api.getUserById(profile.id);
+            console.log('✅ Regular API method succeeded');
+          }
         }
         
         if (response.success && response.data) {
@@ -248,7 +241,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         />
         
         <View style={styles.hero}>
-          <Text style={styles.heroInitials}>{getInitials(userProfile.name)}</Text>
+          {userProfile.imageUrl || userProfile.image_url ? (
+            <Image 
+              source={{ uri: userProfile.imageUrl || userProfile.image_url }} 
+              style={styles.heroImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text style={styles.heroInitials}>{getInitials(userProfile.name)}</Text>
+          )}
         </View>
         <View style={styles.profileContainer}>
           <View style={styles.nameRow}> 
@@ -544,6 +545,11 @@ const styles = StyleSheet.create({
     fontSize: 220,
     fontWeight: '800',
     color: '#9ca3af',
+  },
+  heroImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 0,
   },
   profileContainer: {
     padding: 16,

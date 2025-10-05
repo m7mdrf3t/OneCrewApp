@@ -9,9 +9,79 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+
+// Helper function to get initials
+const getInitials = (name: string) => {
+  return name
+    .split(' ')
+    .map(word => word.charAt(0))
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+};
+
+// Custom Dropdown Component
+interface DropdownProps {
+  options: Array<{id: string, name: string}>;
+  value: string;
+  onValueChange: (value: string) => void;
+  placeholder: string;
+  disabled?: boolean;
+}
+
+const CustomDropdown: React.FC<DropdownProps> = ({ options, value, onValueChange, placeholder, disabled = false }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  const selectedOption = options.find(option => option.id === value);
+  
+  return (
+    <View style={styles.dropdownContainer}>
+      <TouchableOpacity
+        style={[styles.dropdownButton, disabled && styles.dropdownButtonDisabled]}
+        onPress={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+      >
+        <Text style={[styles.dropdownButtonText, !selectedOption && styles.placeholderText]}>
+          {selectedOption ? selectedOption.name : placeholder}
+        </Text>
+        <Ionicons 
+          name={isOpen ? "chevron-up" : "chevron-down"} 
+          size={20} 
+          color="#6b7280" 
+        />
+      </TouchableOpacity>
+      
+      {isOpen && (
+        <View style={styles.dropdownList}>
+          {options.map((option) => (
+            <TouchableOpacity
+              key={option.id}
+              style={[
+                styles.dropdownItem,
+                value === option.id && styles.dropdownItemSelected
+              ]}
+              onPress={() => {
+                onValueChange(option.id);
+                setIsOpen(false);
+              }}
+            >
+              <Text style={[
+                styles.dropdownItemText,
+                value === option.id && styles.dropdownItemTextSelected
+              ]}>
+                {option.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
 
 interface ProfileCompletionModalProps {
   visible: boolean;
@@ -52,7 +122,7 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
   user,
   onProfileUpdated,
 }) => {
-  const { updateProfile, isLoading } = useApi();
+  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages } = useApi();
   const [formData, setFormData] = useState<ProfileFormData>({
     bio: '',
     skills: [],
@@ -82,10 +152,21 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
   const [currentDialect, setCurrentDialect] = useState('');
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Reference data state
+  const [skinTones, setSkinTones] = useState<Array<{id: string, name: string}>>([]);
+  const [hairColors, setHairColors] = useState<Array<{id: string, name: string}>>([]);
+  const [availableSkills, setAvailableSkills] = useState<Array<{id: string, name: string}>>([]);
+  const [abilities, setAbilities] = useState<Array<{id: string, name: string}>>([]);
+  const [languages, setLanguages] = useState<Array<{id: string, name: string}>>([]);
+  const [loadingReferences, setLoadingReferences] = useState(false);
 
   // Initialize form data when user changes
   useEffect(() => {
     if (user) {
+      console.log('🔄 Initializing form data with user:', user);
+      console.log('🔄 User about data:', user.about);
+      
       setFormData({
         bio: user.bio || '',
         skills: user.skills || [],
@@ -94,11 +175,11 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           age: user.about?.age?.toString() || '',
           nationality: user.about?.nationality || '',
           location: user.about?.location || '',
-          height: user.about?.height?.toString() || '',
-          weight: user.about?.weight?.toString() || '',
-          skinTone: user.about?.skinTone || '',
-          hairColor: user.about?.hairColor || '',
-          eyeColor: user.about?.eyeColor || '',
+          height: user.about?.height_cm?.toString() || '',
+          weight: user.about?.weight_kg?.toString() || '',
+          skinTone: user.about?.skin_tone || '',
+          hairColor: user.about?.hair_color || '',
+          eyeColor: user.about?.eye_color || '',
           chestCm: user.about?.chest_cm?.toString() || '',
           waistCm: user.about?.waist_cm?.toString() || '',
           hipsCm: user.about?.hips_cm?.toString() || '',
@@ -106,13 +187,64 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           reelUrl: user.about?.reel_url || '',
           unionMember: user.about?.union_member || false,
           dialects: user.about?.dialects || [],
-          willingToTravel: user.about?.willingToTravel || user.about?.travel_ready || false,
+          willingToTravel: user.about?.travel_ready || false,
         },
         specialty: user.specialty || '',
         imageUrl: user.imageUrl || user.image_url || '',
       });
+      
+      console.log('🔄 Form data initialized:', {
+        bio: user.bio || '',
+        specialty: user.specialty || '',
+        height: user.about?.height_cm?.toString() || '',
+        weight: user.about?.weight_kg?.toString() || '',
+        eyeColor: user.about?.eye_color || '',
+        skinTone: user.about?.skin_tone || '',
+        hairColor: user.about?.hair_color || '',
+      });
     }
   }, [user]);
+
+  // Load reference data when modal opens
+  useEffect(() => {
+    const loadReferenceData = async () => {
+      if (visible) {
+        setLoadingReferences(true);
+        try {
+          console.log('🔄 Loading reference data...');
+          
+          const [skinTonesRes, hairColorsRes, skillsRes, abilitiesRes, languagesRes] = await Promise.all([
+            getSkinTones(),
+            getHairColors(),
+            getSkills(),
+            getAbilities(),
+            getLanguages(),
+          ]);
+          
+          setSkinTones(skinTonesRes.data || []);
+          setHairColors(hairColorsRes.data || []);
+          setAvailableSkills(skillsRes.data || []);
+          setAbilities(abilitiesRes.data || []);
+          setLanguages(languagesRes.data || []);
+          
+          console.log('✅ Reference data loaded:', {
+            skinTones: skinTonesRes.data?.length || 0,
+            hairColors: hairColorsRes.data?.length || 0,
+            skills: skillsRes.data?.length || 0,
+            abilities: abilitiesRes.data?.length || 0,
+            languages: languagesRes.data?.length || 0,
+          });
+        } catch (error) {
+          console.error('❌ Failed to load reference data:', error);
+          // Don't show error to user, just use empty arrays
+        } finally {
+          setLoadingReferences(false);
+        }
+      }
+    };
+    
+    loadReferenceData();
+  }, [visible, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages]);
 
   const validateForm = () => {
     const errors: { [key: string]: string } = {};
@@ -218,43 +350,64 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      // Prepare the data for API submission
-      const updateData = {
-        id: user.id, // Include user ID
+      console.log('🔄 Starting profile update using talent profile API...');
+      
+      // Prepare basic profile data (bio, specialty, skills, imageUrl)
+      const basicProfileData = {
         bio: formData.bio.trim(),
         specialty: formData.specialty.trim(),
         skills: formData.skills,
-        about: {
-          ...formData.about,
-          age: Number(formData.about.age),
-          height: Number(formData.about.height) || 0,
-          weight: Number(formData.about.weight) || 0,
-          eyeColor: formData.about.eyeColor,
-          chestCm: Number(formData.about.chestCm) || 0,
-          waistCm: Number(formData.about.waistCm) || 0,
-          hipsCm: Number(formData.about.hipsCm) || 0,
-          shoeSizeEu: Number(formData.about.shoeSizeEu) || 0,
-          reelUrl: formData.about.reelUrl,
-          unionMember: formData.about.unionMember,
-        },
         imageUrl: formData.imageUrl.trim(),
       };
 
-      // Call API to update profile
-      const response = await updateProfile(updateData);
+      // Prepare complete talent profile data (includes age, nationality, gender, and all other details)
+      const talentProfileData = {
+        gender: formData.about.gender,
+        age: Number(formData.about.age),
+        nationality: formData.about.nationality,
+        height_cm: Number(formData.about.height) || undefined,
+        weight_kg: Number(formData.about.weight) || undefined,
+        skin_tone: formData.about.skinTone,
+        hair_color: formData.about.hairColor,
+        eye_color: formData.about.eyeColor,
+        chest_cm: Number(formData.about.chestCm) || undefined,
+        waist_cm: Number(formData.about.waistCm) || undefined,
+        hips_cm: Number(formData.about.hipsCm) || undefined,
+        shoe_size_eu: Number(formData.about.shoeSizeEu) || undefined,
+        reel_url: formData.about.reelUrl,
+        union_member: formData.about.unionMember,
+        dialects: formData.about.dialects,
+        travel_ready: formData.about.willingToTravel,
+      };
+
+      console.log('🔄 Updating basic profile:', basicProfileData);
+      console.log('🔄 Updating talent profile (all details):', talentProfileData);
+
+      // Update basic profile
+      const profileResponse = await updateProfile(basicProfileData);
+      console.log('✅ Basic profile updated:', profileResponse);
+
+      // Update talent profile (includes all user details)
+      const talentResponse = await updateProfile({
+        about: talentProfileData
+      });
+      console.log('✅ Talent profile updated:', talentResponse);
+
+      // Combine responses
+      const combinedData = {
+        ...profileResponse.data,
+        about: talentResponse.data?.about || talentProfileData
+      };
+
+      Alert.alert(
+        'Success',
+        'Your profile has been updated successfully!',
+        [{ text: 'OK', onPress: onClose }]
+      );
+      onProfileUpdated(combinedData);
       
-      if (response.success) {
-        Alert.alert(
-          'Success',
-          'Your profile has been updated successfully!',
-          [{ text: 'OK', onPress: onClose }]
-        );
-        onProfileUpdated(response.data);
-      } else {
-        Alert.alert('Error', response.error || 'Failed to update profile');
-      }
     } catch (error: any) {
-      console.error('Profile update error:', error);
+      console.error('❌ Profile update error:', error);
       Alert.alert('Error', error.message || 'Failed to update profile');
     } finally {
       setIsSubmitting(false);
@@ -296,6 +449,29 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
             <View style={styles.progressBar}>
               <View style={[styles.progressFill, { width: `${completionPercentage}%` }]} />
             </View>
+          </View>
+
+          {/* Profile Picture Preview */}
+          <View style={styles.profilePictureContainer}>
+            <Text style={styles.sectionTitle}>Profile Picture</Text>
+            <View style={styles.profilePictureWrapper}>
+              {formData.imageUrl ? (
+                <Image 
+                  source={{ uri: formData.imageUrl }} 
+                  style={styles.profilePicture}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.profilePicturePlaceholder}>
+                  <Text style={styles.profilePictureInitials}>
+                    {getInitials(user?.name || 'User')}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.profilePictureHint}>
+              {formData.imageUrl ? 'Profile picture loaded' : 'Add an image URL below to see your profile picture'}
+            </Text>
           </View>
 
           {/* Bio */}
@@ -453,26 +629,38 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           <View style={styles.row}>
             <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
               <Text style={styles.label}>Skin Tone</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Light/Medium/Dark"
-                placeholderTextColor="#9ca3af"
-                value={formData.about.skinTone}
-                onChangeText={(text) => handleInputChange('about.skinTone', text)}
-                editable={!isSubmitting}
-              />
+              {loadingReferences ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#3b82f6" />
+                  <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+              ) : (
+                <CustomDropdown
+                  options={skinTones}
+                  value={formData.about.skinTone}
+                  onValueChange={(value) => handleInputChange('about.skinTone', value)}
+                  placeholder="Select skin tone"
+                  disabled={isSubmitting}
+                />
+              )}
             </View>
 
             <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
               <Text style={styles.label}>Hair Color</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Black/Brown/Blonde"
-                placeholderTextColor="#9ca3af"
-                value={formData.about.hairColor}
-                onChangeText={(text) => handleInputChange('about.hairColor', text)}
-                editable={!isSubmitting}
-              />
+              {loadingReferences ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#3b82f6" />
+                  <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+              ) : (
+                <CustomDropdown
+                  options={hairColors}
+                  value={formData.about.hairColor}
+                  onValueChange={(value) => handleInputChange('about.hairColor', value)}
+                  placeholder="Select hair color"
+                  disabled={isSubmitting}
+                />
+              )}
             </View>
           </View>
 
@@ -717,6 +905,46 @@ const styles = StyleSheet.create({
     backgroundColor: '#3b82f6',
     borderRadius: 4,
   },
+  profilePictureContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    alignItems: 'center',
+  },
+  profilePictureWrapper: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    overflow: 'hidden',
+    marginBottom: 12,
+    borderWidth: 3,
+    borderColor: '#e5e7eb',
+  },
+  profilePicture: {
+    width: '100%',
+    height: '100%',
+  },
+  profilePicturePlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profilePictureInitials: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#9ca3af',
+  },
+  profilePictureHint: {
+    fontSize: 12,
+    color: '#6b7280',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
   inputContainer: {
     marginBottom: 16,
   },
@@ -865,6 +1093,80 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Dropdown styles
+  dropdownContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
+  dropdownButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  dropdownButtonDisabled: {
+    backgroundColor: '#f9fafb',
+    borderColor: '#e5e7eb',
+  },
+  dropdownButtonText: {
+    fontSize: 16,
+    color: '#000',
+    flex: 1,
+  },
+  placeholderText: {
+    color: '#9ca3af',
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    marginTop: 4,
+    maxHeight: 200,
+    zIndex: 1001,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  dropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  dropdownItemSelected: {
+    backgroundColor: '#f0f9ff',
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    color: '#000',
+  },
+  dropdownItemTextSelected: {
+    color: '#3b82f6',
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  loadingText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#6b7280',
   },
 });
 

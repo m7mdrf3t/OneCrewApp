@@ -15,6 +15,12 @@ interface ApiContextType {
   updateProfile: (profileData: any) => Promise<any>;
   updateSkills: (skills: string[]) => Promise<any>;
   getProfileCompleteness: (userId: string) => Promise<any>;
+  // Reference data methods
+  getSkinTones: () => Promise<any>;
+  getHairColors: () => Promise<any>;
+  getSkills: () => Promise<any>;
+  getAbilities: () => Promise<any>;
+  getLanguages: () => Promise<any>;
   clearError: () => void;
 }
 
@@ -409,6 +415,122 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Reference data methods
+  const getSkinTones = async () => {
+    try {
+      console.log('🔍 Fetching skin tones...');
+      const response = await fetch('http://localhost:3000/api/talent/reference/skin-tones', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP Error: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('✅ Skin tones fetched:', result);
+      return result;
+    } catch (err: any) {
+      console.error('❌ Failed to fetch skin tones:', err);
+      throw err;
+    }
+  };
+
+  const getHairColors = async () => {
+    try {
+      console.log('🔍 Fetching hair colors...');
+      const response = await fetch('http://localhost:3000/api/talent/reference/hair-colors', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP Error: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('✅ Hair colors fetched:', result);
+      return result;
+    } catch (err: any) {
+      console.error('❌ Failed to fetch hair colors:', err);
+      throw err;
+    }
+  };
+
+  const getSkills = async () => {
+    try {
+      console.log('🔍 Fetching skills...');
+      const response = await fetch('http://localhost:3000/api/talent/reference/skills', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP Error: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('✅ Skills fetched:', result);
+      return result;
+    } catch (err: any) {
+      console.error('❌ Failed to fetch skills:', err);
+      throw err;
+    }
+  };
+
+  const getAbilities = async () => {
+    try {
+      console.log('🔍 Fetching abilities...');
+      const response = await fetch('http://localhost:3000/api/talent/reference/abilities', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP Error: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('✅ Abilities fetched:', result);
+      return result;
+    } catch (err: any) {
+      console.error('❌ Failed to fetch abilities:', err);
+      throw err;
+    }
+  };
+
+  const getLanguages = async () => {
+    try {
+      console.log('🔍 Fetching languages...');
+      const response = await fetch('http://localhost:3000/api/talent/reference/languages', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP Error: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('✅ Languages fetched:', result);
+      return result;
+    } catch (err: any) {
+      console.error('❌ Failed to fetch languages:', err);
+      throw err;
+    }
+  };
+
   const clearError = () => {
     setError(null);
   };
@@ -427,6 +549,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     updateProfile,
     updateSkills,
     getProfileCompleteness,
+    // Reference data methods
+    getSkinTones,
+    getHairColors,
+    getSkills,
+    getAbilities,
+    getLanguages,
     clearError,
   };
 
