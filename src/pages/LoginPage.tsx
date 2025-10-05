@@ -41,8 +41,8 @@ const LoginPage: React.FC<LoginPageProps> = ({
 
     if (!password.trim()) {
       errors.password = 'Password is required';
-    } else if (password.length < 6) {
-      errors.password = 'Password must be at least 6 characters';
+    } else if (password.length < 8) {
+      errors.password = 'Password must be at least 8 characters';
     }
 
     setFormErrors(errors);
@@ -141,6 +141,9 @@ const LoginPage: React.FC<LoginPageProps> = ({
               </TouchableOpacity>
             </View>
             {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
+            <Text style={styles.passwordRequirements}>
+              Password must be at least 8 characters long
+            </Text>
           </View>
 
           <TouchableOpacity
@@ -262,6 +265,12 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontSize: 12,
     marginTop: 4,
+  },
+  passwordRequirements: {
+    color: '#71717a',
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   forgotPassword: {
     alignSelf: 'flex-end',

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProfileDetailPageProps } from '../types';
 import { getInitials } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
+import ProfileCompletionBanner from '../components/ProfileCompletionBanner';
+import ProfileCompletionModal from '../components/ProfileCompletionModal';
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void }> = ({
   profile,
@@ -16,10 +18,12 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   isCurrentUser = false,
   onLogout,
 }) => {
-  const { api } = useApi();
+  const { api, user: currentUser } = useApi();
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [profileCompleteness, setProfileCompleteness] = useState(0);
 
   // Fetch fresh user data if we have a user ID
   useEffect(() => {
@@ -41,12 +45,74 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       setError(null);
       
       try {
-        console.log('👤 Fetching user profile for ID:', profile.id);
+        console.log('👤 Fetching user profile directly for ID:', profile.id);
         console.log('👤 Profile object:', profile);
-        const response = await api.getUserById(profile.id);
+        
+        let response;
+        try {
+          // Try to get the complete profile with talent details
+          // First try a direct fetch to get the full profile data
+          const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
+          if (accessToken) {
+            console.log('🔍 Fetching complete profile with talent details...');
+            const fullProfileResponse = await fetch(`http://localhost:3000/api/users/${profile.id}`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            });
+            
+            if (fullProfileResponse.ok) {
+              const fullProfileData = await fullProfileResponse.json();
+              console.log('✅ Complete profile data received:', fullProfileData);
+              
+              // Also fetch talent-specific data
+              const talentResponse = await fetch('http://localhost:3000/api/talent/profile', {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${accessToken}`,
+                },
+              });
+              
+              if (talentResponse.ok) {
+                const talentData = await talentResponse.json();
+                console.log('✅ Talent data received:', talentData);
+                
+                // Combine the data
+                response = {
+                  success: true,
+                  data: {
+                    ...fullProfileData.data,
+                    about: talentData.data || {}
+                  }
+                };
+                console.log('✅ Combined profile data:', response);
+              } else {
+                // Fallback to regular API methods
+                response = await api.getUserByIdDirect(profile.id);
+                console.log('Direct method succeeded (fallback)');
+              }
+            } else {
+              // Fallback to regular API methods
+              response = await api.getUserByIdDirect(profile.id);
+              console.log('Direct method succeeded (fallback)');
+            }
+          } else {
+            // No access token, use regular methods
+            response = await api.getUserByIdDirect(profile.id);
+            console.log('Direct method succeeded (no token)');
+          }
+        } catch (directError: any) {
+          console.log('All methods failed, trying regular method...', directError.message);
+          // Fallback to regular method
+          response = await api.getUserById(profile.id);
+          console.log('Regular method succeeded');
+        }
         
         if (response.success && response.data) {
-          console.log('✅ User profile fetched successfully');
+          console.log('User profile fetched successfully');
           // Transform the data to match expected format
           const transformedProfile = {
             ...response.data,
@@ -64,11 +130,11 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           };
           setUserProfile(transformedProfile);
         } else {
-          console.error('❌ Failed to fetch user profile:', response.error);
+          console.error('Failed to fetch user profile:', response.error);
           setError('Failed to load profile');
         }
       } catch (err: any) {
-        console.error('❌ Error fetching user profile:', err);
+        console.error('Error fetching user profile:', err);
         setError(err.message || 'Failed to load profile');
       } finally {
         setIsLoading(false);
@@ -79,6 +145,38 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   }, [profile?.id, api]);
 
   const isInTeam = myTeam.some(member => member.id === userProfile.id);
+
+  // Calculate profile completeness
+  const calculateProfileCompleteness = (profile: any) => {
+    const fields = [
+      profile.bio,
+      profile.specialty,
+      profile.skills && profile.skills.length > 0,
+      profile.about?.gender,
+      profile.about?.age,
+      profile.about?.nationality,
+      profile.about?.location,
+      profile.imageUrl || profile.image_url,
+    ];
+    
+    const completedFields = fields.filter(Boolean).length;
+    return Math.round((completedFields / fields.length) * 100);
+  };
+
+  // Check if this is the current user's profile and if it's incomplete
+  const isCurrentUserProfile = isCurrentUser && currentUser && userProfile.id === currentUser.id;
+  const shouldShowCompletionBanner = Boolean(isCurrentUserProfile && profileCompleteness < 100);
+
+  // Update profile completeness when userProfile changes
+  useEffect(() => {
+    const completeness = calculateProfileCompleteness(userProfile);
+    setProfileCompleteness(completeness);
+  }, [userProfile]);
+
+  const handleProfileUpdated = (updatedProfile: any) => {
+    setUserProfile(updatedProfile);
+    setShowCompletionModal(false);
+  };
 
   // Show loading state
   if (isLoading) {
@@ -142,6 +240,13 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         )}
       </View>
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Profile Completion Banner */}
+        <ProfileCompletionBanner
+          completionPercentage={profileCompleteness}
+          onCompleteProfile={() => setShowCompletionModal(true)}
+          isVisible={shouldShowCompletionBanner}
+        />
+        
         <View style={styles.hero}>
           <Text style={styles.heroInitials}>{getInitials(userProfile.name)}</Text>
         </View>
@@ -188,6 +293,153 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             <Text style={styles.bio}>{userProfile.bio || 'No bio available'}</Text>
           </View>
 
+          {/* Talent Profile Details */}
+          {userProfile.category === 'talent' && userProfile.about && (
+            <View style={styles.talentDetailsContainer}>
+              <Text style={styles.sectionTitle}>Talent Details</Text>
+              <View style={styles.talentDetailsGrid}>
+                {userProfile.about.height_cm && (
+                  <View style={styles.detailItem}>
+                    <Ionicons name="resize" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Height</Text>
+                    <Text style={styles.detailValue}>{userProfile.about.height_cm} cm</Text>
+                  </View>
+                )}
+                {userProfile.about.weight_kg && (
+                  <View style={styles.detailItem}>
+                    <Ionicons name="fitness" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Weight</Text>
+                    <Text style={styles.detailValue}>{userProfile.about.weight_kg} kg</Text>
+                  </View>
+                )}
+                {userProfile.about.eye_color && (
+                  <View style={styles.detailItem}>
+                    <Ionicons name="eye" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Eye Color</Text>
+                    <Text style={styles.detailValue}>{userProfile.about.eye_color}</Text>
+                  </View>
+                )}
+                {userProfile.about.hair_color && (
+                  <View style={styles.detailItem}>
+                    <Ionicons name="cut" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Hair Color</Text>
+                    <Text style={styles.detailValue}>{userProfile.about.hair_color}</Text>
+                  </View>
+                )}
+                {userProfile.about.skin_tone && (
+                  <View style={styles.detailItem}>
+                    <Ionicons name="color-palette" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Skin Tone</Text>
+                    <Text style={styles.detailValue}>{userProfile.about.skin_tone}</Text>
+                  </View>
+                )}
+                {userProfile.about.age && (
+                  <View style={styles.detailItem}>
+                    <Ionicons name="calendar" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Age</Text>
+                    <Text style={styles.detailValue}>{userProfile.about.age} years</Text>
+                  </View>
+                )}
+                {userProfile.about.nationality && (
+                  <View style={styles.detailItem}>
+                    <Ionicons name="flag" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Nationality</Text>
+                    <Text style={styles.detailValue}>{userProfile.about.nationality}</Text>
+                  </View>
+                )}
+                {userProfile.about.location && (
+                  <View style={styles.detailItem}>
+                    <Ionicons name="location" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Location</Text>
+                    <Text style={styles.detailValue}>{userProfile.about.location}</Text>
+                  </View>
+                )}
+                <View style={styles.detailItem}>
+                  <Ionicons name="airplane" size={16} color="#8b5cf6" />
+                  <Text style={styles.detailLabel}>Travel Ready</Text>
+                  <Text style={[styles.detailValue, { color: userProfile.about.travel_ready ? '#10b981' : '#ef4444' }]}>
+                    {userProfile.about.travel_ready ? 'Yes' : 'No'}
+                  </Text>
+                </View>
+                {userProfile.about.dialects && userProfile.about.dialects.length > 0 && (
+                  <View style={styles.detailItem}>
+                    <Ionicons name="chatbubbles" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Dialects</Text>
+                    <Text style={styles.detailValue}>{userProfile.about.dialects.join(', ')}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Body Measurements */}
+          {userProfile.category === 'talent' && userProfile.about && (
+            (userProfile.about.chest_cm || userProfile.about.waist_cm || userProfile.about.hips_cm || userProfile.about.shoe_size_eu) && (
+              <View style={styles.talentDetailsContainer}>
+                <Text style={styles.sectionTitle}>Body Measurements</Text>
+                <View style={styles.talentDetailsGrid}>
+                  {userProfile.about.chest_cm && (
+                    <View style={styles.detailItem}>
+                      <Ionicons name="body" size={16} color="#8b5cf6" />
+                      <Text style={styles.detailLabel}>Chest</Text>
+                      <Text style={styles.detailValue}>{userProfile.about.chest_cm} cm</Text>
+                    </View>
+                  )}
+                  {userProfile.about.waist_cm && (
+                    <View style={styles.detailItem}>
+                      <Ionicons name="resize" size={16} color="#8b5cf6" />
+                      <Text style={styles.detailLabel}>Waist</Text>
+                      <Text style={styles.detailValue}>{userProfile.about.waist_cm} cm</Text>
+                    </View>
+                  )}
+                  {userProfile.about.hips_cm && (
+                    <View style={styles.detailItem}>
+                      <Ionicons name="ellipse" size={16} color="#8b5cf6" />
+                      <Text style={styles.detailLabel}>Hips</Text>
+                      <Text style={styles.detailValue}>{userProfile.about.hips_cm} cm</Text>
+                    </View>
+                  )}
+                  {userProfile.about.shoe_size_eu && (
+                    <View style={styles.detailItem}>
+                      <Ionicons name="footsteps" size={16} color="#8b5cf6" />
+                      <Text style={styles.detailLabel}>Shoe Size</Text>
+                      <Text style={styles.detailValue}>EU {userProfile.about.shoe_size_eu}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            )
+          )}
+
+          {/* Professional Details */}
+          {userProfile.category === 'talent' && userProfile.about && (
+            (userProfile.about.reel_url || userProfile.about.union_member !== undefined) && (
+              <View style={styles.talentDetailsContainer}>
+                <Text style={styles.sectionTitle}>Professional Details</Text>
+                <View style={styles.talentDetailsGrid}>
+                  {userProfile.about.reel_url && (
+                    <View style={[styles.detailItem, { minWidth: '100%' }]}>
+                      <Ionicons name="videocam" size={16} color="#8b5cf6" />
+                      <Text style={styles.detailLabel}>Reel/Portfolio</Text>
+                      <TouchableOpacity onPress={() => Linking.openURL(userProfile.about.reel_url)}>
+                        <Text style={[styles.detailValue, { color: '#3b82f6', textDecorationLine: 'underline' }]}>
+                          View Portfolio
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  <View style={styles.detailItem}>
+                    <Ionicons name="ribbon" size={16} color="#8b5cf6" />
+                    <Text style={styles.detailLabel}>Union Member</Text>
+                    <Text style={[styles.detailValue, { color: userProfile.about.union_member ? '#10b981' : '#ef4444' }]}>
+                      {userProfile.about.union_member ? 'Yes' : 'No'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )
+          )}
+
           <View style={styles.skillsContainer}>
             <Text style={styles.sectionTitle}>Skills</Text>
             <View style={styles.skillsList}>
@@ -200,7 +452,17 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           </View>
 
           <View style={styles.actionsContainer}>
-            {!isCurrentUser && (
+            {isCurrentUser ? (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.completeProfileButton]}
+                onPress={() => setShowCompletionModal(true)}
+              >
+                <Ionicons name="person-add" size={20} color="#fff" />
+                <Text style={styles.primaryButtonText}>
+                  {profileCompleteness < 100 ? 'Complete Profile' : 'Edit Profile'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
               <>
                 <TouchableOpacity
                   style={[styles.actionButton, styles.primaryButton]}
@@ -230,6 +492,14 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           </View>
         </View>
       </ScrollView>
+
+      {/* Profile Completion Modal */}
+      <ProfileCompletionModal
+        visible={showCompletionModal}
+        onClose={() => setShowCompletionModal(false)}
+        user={userProfile}
+        onProfileUpdated={handleProfileUpdated}
+      />
     </View>
   );
 };
@@ -335,6 +605,45 @@ const styles = StyleSheet.create({
     color: '#000',
     lineHeight: 20,
   },
+  talentDetailsContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    width: '100%',
+    borderWidth: 2,
+    borderColor: '#d4d4d8',
+  },
+  talentDetailsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+    minWidth: '45%',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  detailLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    marginLeft: 6,
+    marginRight: 8,
+    fontWeight: '500',
+  },
+  detailValue: {
+    fontSize: 12,
+    color: '#1e293b',
+    fontWeight: '600',
+    flex: 1,
+  },
   sectionHeader: {
     fontSize: 18,
     fontWeight: '800',
@@ -428,6 +737,9 @@ const styles = StyleSheet.create({
   },
   assignButton: {
     backgroundColor: '#f59e0b',
+  },
+  completeProfileButton: {
+    backgroundColor: '#8b5cf6',
   },
   primaryButtonText: {
     color: '#fff',

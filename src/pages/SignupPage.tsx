@@ -81,8 +81,8 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
     if (!formData.password.trim()) {
       errors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      errors.password = 'Password must be at least 6 characters';
+    } else if (formData.password.length < 8) {
+      errors.password = 'Password must be at least 8 characters';
     }
 
     if (!formData.confirmPassword.trim()) {
@@ -278,6 +278,9 @@ const SignupPage: React.FC<SignupPageProps> = ({
               </TouchableOpacity>
             </View>
             {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
+            <Text style={styles.passwordRequirements}>
+              Password must be at least 8 characters long
+            </Text>
           </View>
 
           <View style={styles.inputContainer}>
@@ -421,6 +424,12 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontSize: 12,
     marginTop: 4,
+  },
+  passwordRequirements: {
+    color: '#71717a',
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   categoryContainer: {
     flexDirection: 'row',
