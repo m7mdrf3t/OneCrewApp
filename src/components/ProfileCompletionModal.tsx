@@ -673,7 +673,7 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
         throw new Error('Access token required for talent profile update');
       }
 
-      const talentResponse = await fetch('http://localhost:3000/api/talent/profile', {
+      const talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

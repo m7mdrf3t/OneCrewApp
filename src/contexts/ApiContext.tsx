@@ -38,7 +38,7 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-  baseUrl = 'http://localhost:3000' // Local development server
+  baseUrl = 'https://onecrewbe-production.up.railway.app' // Production server
 }) => {
   const [api] = useState(() => new OneCrewApi(baseUrl));
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -210,7 +210,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       };
 
       // Update basic profile info using direct API call
-      const basicResponse = await fetch(`http://localhost:3000/api/users/${userId}`, {
+      const basicResponse = await fetch(`https://onecrewbe-production.up.railway.app/api/users/${userId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -228,7 +228,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('✅ Basic profile updated successfully:', basicResult);
 
       // Update talent-specific profile info using PUT /api/talent/profile
-      const talentResponse = await fetch('http://localhost:3000/api/talent/profile', {
+      const talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -250,7 +250,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('✅ Talent profile updated successfully:', talentResult);
 
       // Update skills using PUT /api/users/{id}/skills
-      const skillsResponse = await fetch(`http://localhost:3000/api/users/${userId}/skills`, {
+      const skillsResponse = await fetch(`https://onecrewbe-production.up.railway.app/api/users/${userId}/skills`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -352,7 +352,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
         const skillsData = { skills };
 
-        const response = await fetch(`http://localhost:3000/api/users/${userId}/skills`, {
+        const response = await fetch(`https://onecrewbe-production.up.railway.app/api/users/${userId}/skills`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -450,7 +450,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getSkinTones = async () => {
     try {
       console.log('🔍 Fetching skin tones...');
-      const response = await fetch('http://localhost:3000/api/talent/reference/skin-tones', {
+      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/skin-tones', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -473,7 +473,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getHairColors = async () => {
     try {
       console.log('🔍 Fetching hair colors...');
-      const response = await fetch('http://localhost:3000/api/talent/reference/hair-colors', {
+      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/hair-colors', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -496,7 +496,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getSkills = async () => {
     try {
       console.log('🔍 Fetching skills...');
-      const response = await fetch('http://localhost:3000/api/talent/reference/skills', {
+      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/skills', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -519,7 +519,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getAbilities = async () => {
     try {
       console.log('🔍 Fetching abilities...');
-      const response = await fetch('http://localhost:3000/api/talent/reference/abilities', {
+      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/abilities', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -542,7 +542,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getLanguages = async () => {
     try {
       console.log('🔍 Fetching languages...');
-      const response = await fetch('http://localhost:3000/api/talent/reference/languages', {
+      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/languages', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
