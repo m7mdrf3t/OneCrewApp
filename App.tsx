@@ -533,7 +533,7 @@ const styles = StyleSheet.create({
 // Main App Component with API Provider
 const App: React.FC = () => {
   return (
-    <ApiProvider baseUrl="http://localhost:3000">
+    <ApiProvider>
       <SafeAreaProvider>
         <AppContent />
       </SafeAreaProvider>

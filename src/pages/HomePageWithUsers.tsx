@@ -51,7 +51,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   user,
   onOpenMainMenu,
 }) => {
-  const { api } = useApi();
+  const { api, getUsersDirect } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -62,12 +62,28 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     try {
       console.log('👥 Fetching users...');
       setError(null);
+      
+      // Try direct fetch first
+      try {
+        const response = await getUsersDirect({ limit: 50 });
+        
+        if (response.success && response.data) {
+          const usersArray = Array.isArray(response.data) ? response.data : [];
+          console.log('✅ Users fetched successfully with direct fetch:', usersArray.length);
+          setUsers(usersArray);
+          return;
+        }
+      } catch (directErr) {
+        console.warn('⚠️ Direct fetch failed, trying API client:', directErr);
+      }
+      
+      // Fallback to API client
       const response = await api.getUsers({ limit: 50 });
       
       if (response.success && response.data) {
         // The API returns data as an array directly, not as data.items
         const usersArray = Array.isArray(response.data) ? response.data : [];
-        console.log('✅ Users fetched successfully:', usersArray.length);
+        console.log('✅ Users fetched successfully with API client:', usersArray.length);
         
         // For now, use basic user data to avoid rate limiting
         // TODO: Implement batch API call or server-side complete data fetching
