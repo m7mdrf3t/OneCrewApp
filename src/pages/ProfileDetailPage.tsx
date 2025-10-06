@@ -35,7 +35,11 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       }
       
       // Skip fetch if we already have complete profile data
-      if (profile.bio && profile.skills && profile.stats) {
+      // Check for both basic profile data and talent-specific data
+      const hasBasicData = profile.bio && profile.skills && profile.stats;
+      const hasTalentData = profile.category !== 'talent' || (profile.about && profile.about.height_cm);
+      
+      if (hasBasicData && hasTalentData) {
         console.log('✅ Profile data already complete, skipping fetch');
         setUserProfile(profile);
         return;
@@ -336,18 +340,22 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                     <Text style={styles.detailValue}>{userProfile.about.eye_color}</Text>
                   </View>
                 )}
-                {userProfile.about.hair_color && (
+                {(userProfile.about.hair_color || userProfile.about.hair_colors?.name) && (
                   <View style={styles.detailItem}>
                     <Ionicons name="cut" size={16} color="#8b5cf6" />
                     <Text style={styles.detailLabel}>Hair Color</Text>
-                    <Text style={styles.detailValue}>{userProfile.about.hair_color}</Text>
+                    <Text style={styles.detailValue}>
+                      {userProfile.about.hair_colors?.name || userProfile.about.hair_color}
+                    </Text>
                   </View>
                 )}
-                {userProfile.about.skin_tone && (
+                {(userProfile.about.skin_tone || userProfile.about.skin_tones?.name) && (
                   <View style={styles.detailItem}>
                     <Ionicons name="color-palette" size={16} color="#8b5cf6" />
                     <Text style={styles.detailLabel}>Skin Tone</Text>
-                    <Text style={styles.detailValue}>{userProfile.about.skin_tone}</Text>
+                    <Text style={styles.detailValue}>
+                      {userProfile.about.skin_tones?.name || userProfile.about.skin_tone}
+                    </Text>
                   </View>
                 )}
                 {userProfile.about.age && (

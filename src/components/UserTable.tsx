@@ -12,6 +12,31 @@ interface User {
   online_last_seen?: string;
   bio?: string;
   image_url?: string;
+  specialty?: string;
+  skills?: string[];
+  about?: {
+    gender?: string;
+    age?: number;
+    nationality?: string;
+    location?: string;
+    height_cm?: number;
+    weight_kg?: number;
+    skin_tone?: string;
+    hair_color?: string;
+    skin_tone_id?: string;
+    hair_color_id?: string;
+    skin_tones?: { name: string };
+    hair_colors?: { name: string };
+    eye_color?: string;
+    chest_cm?: number;
+    waist_cm?: number;
+    hips_cm?: number;
+    shoe_size_eu?: number;
+    reel_url?: string;
+    union_member?: boolean;
+    dialects?: string[];
+    travel_ready?: boolean;
+  };
 }
 
 interface UserTableProps {
@@ -19,6 +44,8 @@ interface UserTableProps {
   users: User[];
   onUserSelect?: (user: User) => void;
   isDark?: boolean;
+  onFetchCompleteData?: (userId: string) => void;
+  loadingCompleteData?: Set<string>;
 }
 
 const UserTable: React.FC<UserTableProps> = ({
@@ -26,6 +53,8 @@ const UserTable: React.FC<UserTableProps> = ({
   users,
   onUserSelect,
   isDark = false,
+  onFetchCompleteData,
+  loadingCompleteData = new Set(),
 }) => {
   const getInitials = (name: string) => {
     return name
@@ -110,7 +139,15 @@ const UserTable: React.FC<UserTableProps> = ({
           <TouchableOpacity
             key={user.id}
             style={[styles.userCard, { backgroundColor: isDark ? '#374151' : '#f9fafb' }]}
-            onPress={() => onUserSelect?.(user)}
+            onPress={async () => {
+              // For talent users without complete data, fetch it first
+              if (user.category === 'talent' && !user.about && onFetchCompleteData) {
+                // Note: UserTable doesn't have access to the updated user data
+                // The parent component should handle this
+                onFetchCompleteData(user.id);
+              }
+              onUserSelect?.(user);
+            }}
             activeOpacity={0.7}
           >
             <View style={styles.userHeader}>
@@ -141,6 +178,97 @@ const UserTable: React.FC<UserTableProps> = ({
                   {getOnlineStatus(user.online_last_seen)}
                 </Text>
               </View>
+
+              {/* Talent-specific details - only show if data is available */}
+              {user.category === 'talent' && user.about && (
+                <>
+                  {user.about.height_cm && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="resize" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
+                      <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                        {user.about.height_cm}cm
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {user.about.age && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="calendar" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
+                      <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                        {user.about.age} years
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {user.about.nationality && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="flag" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
+                      <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                        {user.about.nationality}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {user.about.location && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="location" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
+                      <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                        {user.about.location}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {(user.about.hair_color || user.about.hair_colors?.name) && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="cut" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
+                      <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                        {user.about.hair_colors?.name || user.about.hair_color}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {(user.about.skin_tone || user.about.skin_tones?.name) && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="color-palette" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
+                      <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                        {user.about.skin_tones?.name || user.about.skin_tone}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {user.about.eye_color && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="eye" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
+                      <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                        {user.about.eye_color}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {user.skills && user.skills.length > 0 && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="star" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
+                      <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]} numberOfLines={1}>
+                        {user.skills.slice(0, 2).join(', ')}{user.skills.length > 2 ? '...' : ''}
+                      </Text>
+                    </View>
+                  )}
+                </>
+              )}
+              
+              {/* Show message if talent profile data is not available */}
+              {user.category === 'talent' && !user.about && (
+                <View style={styles.detailRow}>
+                  <Ionicons 
+                    name={loadingCompleteData.has(user.id) ? "refresh" : "information-circle"} 
+                    size={12} 
+                    color={isDark ? '#9ca3af' : '#6b7280'} 
+                  />
+                  <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                    {loadingCompleteData.has(user.id) ? 'Loading details...' : 'Profile details not loaded'}
+                  </Text>
+                </View>
+              )}
               
               <View style={styles.progressContainer}>
                 <Text style={[styles.progressLabel, { color: isDark ? '#9ca3af' : '#6b7280' }]}>

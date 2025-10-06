@@ -21,6 +21,11 @@ interface ApiContextType {
   getSkills: () => Promise<any>;
   getAbilities: () => Promise<any>;
   getLanguages: () => Promise<any>;
+  // New skill management methods
+  getAvailableSkillsNew: () => Promise<any>;
+  getUserSkillsNew: () => Promise<any>;
+  addUserSkillNew: (skillId: string) => Promise<any>;
+  removeUserSkillNew: (skillId: string) => Promise<any>;
   clearError: () => void;
 }
 
@@ -287,7 +292,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const updateSkills = async (skills: string[]) => {
-    console.log('🎯 Updating skills:', skills);
+    console.log('🎯 Updating skills (legacy method):', skills);
     setIsLoading(true);
     setError(null);
     try {
@@ -296,22 +301,51 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error('User ID not available');
       }
 
-      // Try using the OneCrewApi client's built-in methods first
+      // Use the new skill management methods
       try {
-        console.log('🔄 Trying OneCrewApi client methods for skills...');
+        console.log('🔄 Using new skill management methods...');
         
-        // Try to use the API client's updateSkills method if it exists
-        const response = await (api as any).updateSkills?.(skills) || await (api as any).updateUserSkills?.(skills);
-        console.log('✅ Skills updated via API client:', response);
+        // Get current user skills
+        const currentSkillsResponse = await api.getUserSkills();
+        const currentSkills = currentSkillsResponse.data || [];
+        console.log('🔍 Current user skills:', currentSkills);
+        
+        // Get available skills to find IDs
+        const availableSkillsResponse = await api.getAvailableSkills();
+        const availableSkills = availableSkillsResponse.data || [];
+        console.log('🔍 Available skills:', availableSkills);
+        
+        // Find skill IDs for the provided skill names
+        const skillIdsToAdd = skills
+          .map(skillName => {
+            const skill = availableSkills.find(s => s.name.toLowerCase() === skillName.toLowerCase());
+            return skill?.id;
+          })
+          .filter(Boolean);
+        
+        console.log('🔍 Skill IDs to add:', skillIdsToAdd);
+        
+        // Add each skill individually
+        const addPromises = skillIdsToAdd.map(skillId => 
+          api.addUserSkill(skillId as string).catch(err => {
+            console.warn(`⚠️ Failed to add skill ${skillId}:`, err);
+            return null;
+          })
+        );
+        
+        const results = await Promise.all(addPromises);
+        const successfulAdds = results.filter(Boolean);
+        
+        console.log('✅ Skills added successfully:', successfulAdds.length);
         
         // Update the current user data
-        if (user && response.data) {
-          setUser({ ...user, skills: response.data?.skills || skills } as any);
+        if (user) {
+          setUser({ ...user, skills: skills } as any);
         }
         
-        return response;
+        return { success: true, data: { skills } };
       } catch (apiError: any) {
-        console.log('⚠️ API client method failed for skills, trying direct fetch:', apiError.message);
+        console.log('⚠️ New skill methods failed, trying direct fetch:', apiError.message);
         
         // Fallback to direct fetch call
         const accessToken = getAccessToken();
@@ -528,6 +562,69 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // New skill management methods using the updated API client
+  const getAvailableSkillsNew = async () => {
+    try {
+      console.log('🔄 Fetching available skills using new API...');
+      const response = await api.getAvailableSkills();
+      console.log('✅ Available skills fetched:', response.data?.length || 0);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to fetch available skills:', error);
+      throw error;
+    }
+  };
+
+  const getUserSkillsNew = async () => {
+    try {
+      console.log('🔄 Fetching user skills using new API...');
+      const response = await api.getUserSkills();
+      console.log('✅ User skills fetched:', response.data?.length || 0);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to fetch user skills:', error);
+      throw error;
+    }
+  };
+
+  const addUserSkillNew = async (skillId: string) => {
+    try {
+      console.log('🔄 Adding user skill:', skillId);
+      const response = await api.addUserSkill(skillId);
+      console.log('✅ User skill added:', response.data);
+      
+      // Update the current user data
+      if (user) {
+        const updatedSkills = [...((user as any).skills || []), skillId];
+        setUser({ ...user, skills: updatedSkills } as any);
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to add user skill:', error);
+      throw error;
+    }
+  };
+
+  const removeUserSkillNew = async (skillId: string) => {
+    try {
+      console.log('🔄 Removing user skill:', skillId);
+      const response = await api.removeUserSkill(skillId);
+      console.log('✅ User skill removed:', response);
+      
+      // Update the current user data
+      if (user) {
+        const updatedSkills = ((user as any).skills || []).filter((skill: any) => skill !== skillId);
+        setUser({ ...user, skills: updatedSkills } as any);
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to remove user skill:', error);
+      throw error;
+    }
+  };
+
   const clearError = () => {
     setError(null);
   };
@@ -552,6 +649,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getSkills,
     getAbilities,
     getLanguages,
+    // New skill management methods
+    getAvailableSkillsNew,
+    getUserSkillsNew,
+    addUserSkillNew,
+    removeUserSkillNew,
     clearError,
   };
 

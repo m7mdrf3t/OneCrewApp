@@ -17,6 +17,27 @@ interface User {
   online_last_seen?: string;
   bio?: string;
   image_url?: string;
+  specialty?: string;
+  skills?: string[];
+  about?: {
+    gender?: string;
+    age?: number;
+    nationality?: string;
+    location?: string;
+    height_cm?: number;
+    weight_kg?: number;
+    skin_tone?: string;
+    hair_color?: string;
+    eye_color?: string;
+    chest_cm?: number;
+    waist_cm?: number;
+    hips_cm?: number;
+    shoe_size_eu?: number;
+    reel_url?: string;
+    union_member?: boolean;
+    dialects?: string[];
+    travel_ready?: boolean;
+  };
 }
 
 const HomePageWithUsers: React.FC<HomePageProps> = ({
@@ -35,6 +56,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingCompleteData, setLoadingCompleteData] = useState<Set<string>>(new Set());
 
   const fetchUsers = async () => {
     try {
@@ -46,7 +68,13 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
         // The API returns data as an array directly, not as data.items
         const usersArray = Array.isArray(response.data) ? response.data : [];
         console.log('✅ Users fetched successfully:', usersArray.length);
-        setUsers(usersArray);
+        
+        // For now, use basic user data to avoid rate limiting
+        // TODO: Implement batch API call or server-side complete data fetching
+        const completeUsers = usersArray;
+        
+        setUsers(completeUsers);
+        console.log('✅ Complete user data fetched:', completeUsers.length);
       } else {
         console.error('❌ Failed to fetch users:', response.error);
         setError('Failed to load users');
@@ -67,6 +95,39 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   const onRefresh = () => {
     setRefreshing(true);
     fetchUsers();
+  };
+
+  const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
+    if (loadingCompleteData.has(userId)) {
+      return null; // Already loading
+    }
+
+    setLoadingCompleteData(prev => new Set(prev).add(userId));
+    
+    try {
+      console.log(`🔍 Fetching complete data for user: ${userId}`);
+      const completeResponse = await api.getUserByIdDirect(userId);
+      
+      if (completeResponse.success && completeResponse.data) {
+        const updatedUser = completeResponse.data;
+        setUsers(prevUsers => 
+          prevUsers.map(user => 
+            user.id === userId ? updatedUser : user
+          )
+        );
+        console.log(`✅ Complete data fetched for user: ${userId}`);
+        return updatedUser;
+      }
+    } catch (err) {
+      console.warn(`⚠️ Failed to fetch complete data for user ${userId}:`, err);
+    } finally {
+      setLoadingCompleteData(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(userId);
+        return newSet;
+      });
+    }
+    return null;
   };
 
   const filteredSections = useMemo(() => {
@@ -117,10 +178,16 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     });
   }, [usersByCategory]);
 
-  const handleUserSelect = (selectedUser: User) => {
+  const handleUserSelect = async (selectedUser: User) => {
     console.log('👤 User selected:', selectedUser.name);
-    // Navigate to user profile or start chat
-    onNavigate('profile', selectedUser);
+    
+    // For talent users without complete data, fetch it first
+    if (selectedUser.category === 'talent' && !selectedUser.about) {
+      const updatedUser = await fetchCompleteUserData(selectedUser.id);
+      onNavigate('profile', updatedUser || selectedUser);
+    } else {
+      onNavigate('profile', selectedUser);
+    }
   };
 
   const isDark = theme === 'dark';

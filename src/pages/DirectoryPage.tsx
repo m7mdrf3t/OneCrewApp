@@ -12,6 +12,32 @@ interface User {
   profile_completeness: number;
   online_last_seen?: string;
   image_url?: string;
+  bio?: string;
+  specialty?: string;
+  skills?: string[];
+  about?: {
+    gender?: string;
+    age?: number;
+    nationality?: string;
+    location?: string;
+    height_cm?: number;
+    weight_kg?: number;
+    skin_tone?: string;
+    hair_color?: string;
+    skin_tone_id?: string;
+    hair_color_id?: string;
+    skin_tones?: { name: string };
+    hair_colors?: { name: string };
+    eye_color?: string;
+    chest_cm?: number;
+    waist_cm?: number;
+    hips_cm?: number;
+    shoe_size_eu?: number;
+    reel_url?: string;
+    union_member?: boolean;
+    dialects?: string[];
+    travel_ready?: boolean;
+  };
 }
 
 interface DirectoryPageProps {
@@ -35,6 +61,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  const [loadingCompleteData, setLoadingCompleteData] = useState<Set<string>>(new Set());
 
   const fetchUsers = async () => {
     try {
@@ -45,7 +72,13 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       if (response.success && response.data) {
         const usersArray = Array.isArray(response.data) ? response.data : [];
         console.log('✅ Users fetched successfully:', usersArray.length);
-        setUsers(usersArray);
+        
+        // For now, use basic user data to avoid rate limiting
+        // TODO: Implement batch API call or server-side complete data fetching
+        const completeUsers = usersArray;
+        
+        setUsers(completeUsers);
+        console.log('✅ Complete user data fetched:', completeUsers.length);
       } else {
         console.error('❌ Failed to fetch users:', response.error);
         setError('Failed to load users');
@@ -66,6 +99,39 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const onRefresh = () => {
     setRefreshing(true);
     fetchUsers();
+  };
+
+  const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
+    if (loadingCompleteData.has(userId)) {
+      return null; // Already loading
+    }
+
+    setLoadingCompleteData(prev => new Set(prev).add(userId));
+    
+    try {
+      console.log(`🔍 Fetching complete data for user: ${userId}`);
+      const completeResponse = await api.getUserByIdDirect(userId);
+      
+      if (completeResponse.success && completeResponse.data) {
+        const updatedUser = completeResponse.data;
+        setUsers(prevUsers => 
+          prevUsers.map(user => 
+            user.id === userId ? updatedUser : user
+          )
+        );
+        console.log(`✅ Complete data fetched for user: ${userId}`);
+        return updatedUser;
+      }
+    } catch (err) {
+      console.warn(`⚠️ Failed to fetch complete data for user ${userId}:`, err);
+    } finally {
+      setLoadingCompleteData(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(userId);
+        return newSet;
+      });
+    }
+    return null;
   };
 
   // Filter users based on section and items
@@ -230,7 +296,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                     <TouchableOpacity
                       key={user.id}
                       style={styles.userCard}
-                      onPress={() => onUserSelect(user)}
+                      onPress={async () => {
+                        // For talent users without complete data, fetch it first
+                        if (user.category === 'talent' && !user.about) {
+                          const updatedUser = await fetchCompleteUserData(user.id);
+                          onUserSelect(updatedUser || user);
+                        } else {
+                          onUserSelect(user);
+                        }
+                      }}
                       activeOpacity={0.7}
                     >
                       <View style={styles.userCardContent}>
@@ -251,6 +325,56 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                           <Text style={styles.userRole}>
                             {user.primary_role?.replace('_', ' ').toUpperCase() || 'Member'}
                           </Text>
+                          
+                          {/* Talent-specific details */}
+                          {user.category === 'talent' && user.about && (
+                            <View style={styles.talentDetails}>
+                              {user.about.age && (
+                                <Text style={styles.talentDetailText}>
+                                  {user.about.age} years
+                                </Text>
+                              )}
+                              {user.about.height_cm && (
+                                <Text style={styles.talentDetailText}>
+                                  {user.about.height_cm}cm
+                                </Text>
+                              )}
+                              {user.about.nationality && (
+                                <Text style={styles.talentDetailText}>
+                                  {user.about.nationality}
+                                </Text>
+                              )}
+                              {(user.about.hair_color || user.about.hair_colors?.name) && (
+                                <Text style={styles.talentDetailText}>
+                                  {user.about.hair_colors?.name || user.about.hair_color}
+                                </Text>
+                              )}
+                              {(user.about.skin_tone || user.about.skin_tones?.name) && (
+                                <Text style={styles.talentDetailText}>
+                                  {user.about.skin_tones?.name || user.about.skin_tone}
+                                </Text>
+                              )}
+                              {user.about.eye_color && (
+                                <Text style={styles.talentDetailText}>
+                                  {user.about.eye_color}
+                                </Text>
+                              )}
+                              {user.skills && user.skills.length > 0 && (
+                                <Text style={styles.talentDetailText} numberOfLines={1}>
+                                  {user.skills.slice(0, 2).join(', ')}{user.skills.length > 2 ? '...' : ''}
+                                </Text>
+                              )}
+                            </View>
+                          )}
+                          
+                          {/* Show message if talent profile data is not available */}
+                          {user.category === 'talent' && !user.about && (
+                            <View style={styles.talentDetails}>
+                              <Text style={[styles.talentDetailText, { fontStyle: 'italic' }]}>
+                                {loadingCompleteData.has(user.id) ? 'Loading details...' : 'Profile details not loaded'}
+                              </Text>
+                            </View>
+                          )}
                         </View>
                         
                         <View style={styles.userActions}>
@@ -396,6 +520,20 @@ const styles = StyleSheet.create({
   userRole: {
     fontSize: 12,
     color: '#9ca3af',
+  },
+  talentDetails: {
+    marginTop: 4,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  talentDetailText: {
+    fontSize: 10,
+    color: '#9ca3af',
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   userActions: {
     flexDirection: 'row',

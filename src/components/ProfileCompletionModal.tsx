@@ -38,6 +38,19 @@ const CustomDropdown: React.FC<DropdownProps> = ({ options, value, onValueChange
   
   const selectedOption = options.find(option => option.id === value);
   
+  // Debug logging for dropdown values
+  console.log('🔍 CustomDropdown render:', {
+    placeholder,
+    value,
+    optionsCount: options.length,
+    selectedOption: selectedOption?.name || 'NOT FOUND',
+    availableIds: options.map(opt => opt.id),
+    hasValue: !!value,
+    hasOptions: options.length > 0,
+    valueType: typeof value,
+    valueLength: value ? value.length : 0,
+  });
+  
   return (
     <View style={styles.dropdownContainer}>
       <TouchableOpacity
@@ -166,6 +179,14 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
     if (user) {
       console.log('🔄 Initializing form data with user:', user);
       console.log('🔄 User about data:', user.about);
+      console.log('🔍 Hair color and skin tone from user:', {
+        hair_color: user.about?.hair_color,
+        skin_tone: user.about?.skin_tone,
+        hair_color_id: user.about?.hair_color_id,
+        skin_tone_id: user.about?.skin_tone_id,
+        type_hair: typeof user.about?.hair_color,
+        type_skin: typeof user.about?.skin_tone,
+      });
       
       setFormData({
         bio: user.bio || '',
@@ -177,8 +198,8 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           location: user.about?.location || '',
           height: user.about?.height_cm?.toString() || '',
           weight: user.about?.weight_kg?.toString() || '',
-          skinTone: user.about?.skin_tone || '',
-          hairColor: user.about?.hair_color || '',
+          skinTone: user.about?.skin_tone_id || user.about?.skin_tone || '', // Will be updated after reference data loads
+          hairColor: user.about?.hair_color_id || user.about?.hair_color || '', // Will be updated after reference data loads
           eyeColor: user.about?.eye_color || '',
           chestCm: user.about?.chest_cm?.toString() || '',
           waistCm: user.about?.waist_cm?.toString() || '',
@@ -199,6 +220,13 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
         height: user.about?.height_cm?.toString() || '',
         weight: user.about?.weight_kg?.toString() || '',
         eyeColor: user.about?.eye_color || '',
+        skinTone: user.about?.skin_tone || '',
+        hairColor: user.about?.hair_color || '',
+        skills: user.skills || [],
+      });
+      
+      console.log('🔍 User about data for debugging:', user.about);
+      console.log('🔍 Form data set with values:', {
         skinTone: user.about?.skin_tone || '',
         hairColor: user.about?.hair_color || '',
       });
@@ -244,6 +272,78 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
             skinToneOptions: skinTonesRes.data,
             hairColorOptions: hairColorsRes.data,
           });
+          
+          console.log('🔍 Reference data structure:', {
+            skinTones: skinTonesRes.data?.slice(0, 3), // First 3 items
+            hairColors: hairColorsRes.data?.slice(0, 3), // First 3 items
+            skills: skillsRes.data?.slice(0, 3), // First 3 items
+          });
+
+          // Re-initialize form data after reference data is loaded to ensure proper matching
+          if (user) {
+            console.log('🔄 Re-initializing form data after reference data loaded...');
+            
+            // Find matching IDs for hair color and skin tone
+            let hairColorId = '';
+            let skinToneId = '';
+            
+            if (user.about?.hair_color) {
+              // If user.about.hair_color is a string (name), find the ID
+              if (typeof user.about.hair_color === 'string') {
+                const matchingHairColor = hairColorsRes.data?.find((color: any) => 
+                  color.name.toLowerCase() === user.about.hair_color.toLowerCase()
+                );
+                hairColorId = matchingHairColor?.id || '';
+              } else {
+                // If it's already an ID, use it directly
+                hairColorId = user.about.hair_color;
+              }
+            }
+            
+            if (user.about?.skin_tone) {
+              // If user.about.skin_tone is a string (name), find the ID
+              if (typeof user.about.skin_tone === 'string') {
+                const matchingSkinTone = skinTonesRes.data?.find((tone: any) => 
+                  tone.name.toLowerCase() === user.about.skin_tone.toLowerCase()
+                );
+                skinToneId = matchingSkinTone?.id || '';
+              } else {
+                // If it's already an ID, use it directly
+                skinToneId = user.about.skin_tone;
+              }
+            }
+            
+            console.log('🔍 Matching IDs found:', {
+              hairColorId,
+              skinToneId,
+              originalHairColor: user.about?.hair_color,
+              originalSkinTone: user.about?.skin_tone,
+            });
+            
+            console.log('🔍 Available options for matching:', {
+              hairColorOptions: hairColorsRes.data?.map((c: any) => ({ id: c.id, name: c.name })),
+              skinToneOptions: skinTonesRes.data?.map((t: any) => ({ id: t.id, name: t.name })),
+            });
+            
+            setFormData(prevFormData => {
+              const newFormData = {
+                ...prevFormData,
+                about: {
+                  ...prevFormData.about,
+                  skinTone: skinToneId,
+                  hairColor: hairColorId,
+                },
+                skills: user.skills || [],
+              };
+              
+              console.log('🔍 Updated form data:', {
+                skinTone: newFormData.about.skinTone,
+                hairColor: newFormData.about.hairColor,
+              });
+              
+              return newFormData;
+            });
+          }
         } catch (error) {
           console.error('❌ Failed to load reference data:', error);
           // Don't show error to user, just use empty arrays
@@ -254,7 +354,94 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
     };
     
     loadReferenceData();
-  }, [visible, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages]);
+  }, [visible, user, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages]);
+
+  // Re-initialize form data when reference data is loaded and user data is available
+  useEffect(() => {
+    if (user && skinTones.length > 0 && hairColors.length > 0 && visible) {
+      console.log('🔄 Re-initializing form with reference data...');
+      console.log('🔍 User data for matching:', {
+        hair_color: user.about?.hair_color,
+        skin_tone: user.about?.skin_tone,
+        about: user.about,
+      });
+      
+      // Find matching IDs for hair color and skin tone
+      let hairColorId = '';
+      let skinToneId = '';
+      
+      // Check for hair_color_id first (new structure), then fallback to hair_color (old structure)
+      if (user.about?.hair_color_id) {
+        hairColorId = user.about.hair_color_id;
+        console.log('🔍 Hair color ID found:', hairColorId);
+      } else if (user.about?.hair_color) {
+        if (typeof user.about.hair_color === 'string') {
+          const matchingHairColor = hairColors.find((color: any) => 
+            color.name.toLowerCase() === user.about.hair_color.toLowerCase()
+          );
+          hairColorId = matchingHairColor?.id || '';
+          console.log('🔍 Hair color matching:', {
+            original: user.about.hair_color,
+            found: matchingHairColor,
+            id: hairColorId,
+          });
+        } else {
+          hairColorId = user.about.hair_color;
+          console.log('🔍 Hair color already ID:', hairColorId);
+        }
+      }
+      
+      // Check for skin_tone_id first (new structure), then fallback to skin_tone (old structure)
+      if (user.about?.skin_tone_id) {
+        skinToneId = user.about.skin_tone_id;
+        console.log('🔍 Skin tone ID found:', skinToneId);
+      } else if (user.about?.skin_tone) {
+        if (typeof user.about.skin_tone === 'string') {
+          const matchingSkinTone = skinTones.find((tone: any) => 
+            tone.name.toLowerCase() === user.about.skin_tone.toLowerCase()
+          );
+          skinToneId = matchingSkinTone?.id || '';
+          console.log('🔍 Skin tone matching:', {
+            original: user.about.skin_tone,
+            found: matchingSkinTone,
+            id: skinToneId,
+          });
+        } else {
+          skinToneId = user.about.skin_tone;
+          console.log('🔍 Skin tone already ID:', skinToneId);
+        }
+      }
+      
+      console.log('🔍 Final matching results:', {
+        hairColorId,
+        skinToneId,
+        originalHairColor: user.about?.hair_color,
+        originalSkinTone: user.about?.skin_tone,
+      });
+      
+      // Only update if we found valid IDs
+      if (hairColorId || skinToneId) {
+        setFormData(prevFormData => {
+          const newFormData = {
+            ...prevFormData,
+            about: {
+              ...prevFormData.about,
+              skinTone: skinToneId,
+              hairColor: hairColorId,
+            },
+            skills: user.skills || [],
+          };
+          
+          console.log('🔍 Updated form data:', {
+            skinTone: newFormData.about.skinTone,
+            hairColor: newFormData.about.hairColor,
+          });
+          
+          return newFormData;
+        });
+      }
+    }
+  }, [user, skinTones, hairColors, visible]);
 
   const validateForm = () => {
     const errors: { [key: string]: string } = {};
@@ -420,26 +607,45 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
       console.log('🔍 Mapped gender value:', userDetailsData.gender);
 
       // 3. Prepare Talent Profile data (all other physical and professional details)
+      // Find the IDs for hair color and skin tone from reference data
+      const selectedHairColor = hairColors.find(color => color.id === formData.about.hairColor);
+      const selectedSkinTone = skinTones.find(tone => tone.id === formData.about.skinTone);
+      
       const talentProfileData = {
         height_cm: Number(formData.about.height) || undefined,
         weight_kg: Number(formData.about.weight) || undefined,
-        skin_tone: formData.about.skinTone,
-        hair_color: formData.about.hairColor,
-        eye_color: formData.about.eyeColor,
+        skin_tone_id: selectedSkinTone?.id || undefined,
+        hair_color_id: selectedHairColor?.id || undefined,
+        eye_color: formData.about.eyeColor || undefined,
         chest_cm: Number(formData.about.chestCm) || undefined,
         waist_cm: Number(formData.about.waistCm) || undefined,
         hips_cm: Number(formData.about.hipsCm) || undefined,
         shoe_size_eu: Number(formData.about.shoeSizeEu) || undefined,
-        reel_url: formData.about.reelUrl,
+        reel_url: formData.about.reelUrl || undefined,
         union_member: formData.about.unionMember,
-        dialects: formData.about.dialects,
+        dialects: formData.about.dialects || [],
         travel_ready: formData.about.willingToTravel,
       };
 
+      // Clean the talent profile data - remove undefined values
+      const cleanedTalentData = Object.fromEntries(
+        Object.entries(talentProfileData).filter(([_, value]) => value !== undefined && value !== null && value !== '')
+      );
+
       console.log('🔄 Updating basic profile:', basicProfileData);
       console.log('🔄 Updating user details (age, nationality, gender):', userDetailsData);
-      console.log('🔄 Updating talent profile (physical details):', talentProfileData);
-      console.log('🔍 Talent profile data being sent:', JSON.stringify(talentProfileData, null, 2));
+      console.log('🔄 Updating talent profile (physical details):', cleanedTalentData);
+      console.log('🔍 Talent profile data being sent:', JSON.stringify(cleanedTalentData, null, 2));
+      console.log('🔍 Form data values being used:', {
+        skinTone: formData.about.skinTone,
+        hairColor: formData.about.hairColor,
+        skills: formData.skills,
+      });
+      
+      console.log('🔍 Reference data for matching:', {
+        skinTones: skinTones.map(t => ({ id: t.id, name: t.name })),
+        hairColors: hairColors.map(c => ({ id: c.id, name: c.name })),
+      });
 
       // Update basic profile
       const profileResponse = await updateProfile(basicProfileData);
@@ -473,7 +679,7 @@ const ProfileCompletionModal: React.FC<ProfileCompletionModalProps> = ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${accessToken}`,
         },
-        body: JSON.stringify(talentProfileData),
+        body: JSON.stringify(cleanedTalentData),
       });
 
       const talentResult = await talentResponse.json();
