@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -18,6 +18,15 @@ import SectionServicesPage from './src/pages/SectionServicesPage';
 import DirectoryPage from './src/pages/DirectoryPage';
 import ServiceDetailPage from './src/pages/ServiceDetailPage';
 import ProjectsPage from './src/pages/ProjectsPage';
+import ProjectDetailPage from './src/pages/ProjectDetailPage';
+import NewProjectPage from './src/pages/NewProjectPage';
+import ProjectCreationModal from './src/components/ProjectCreationModal';
+import ProjectDashboard from './src/components/ProjectDashboard';
+import ProjectDetailsModal from './src/components/ProjectDetailsModal';
+import CommunicationComponent from './src/components/CommunicationComponent';
+import LegalTracker from './src/components/LegalTracker';
+import UserMenuModal from './src/components/UserMenuModal';
+import MyTeamModal from './src/components/MyTeamModal';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
 import SpotPage from './src/pages/SpotPage';
 import LoginPage from './src/pages/LoginPage';
@@ -27,21 +36,27 @@ import ResetPasswordPage from './src/pages/ResetPasswordPage';
 import OnboardingPage from './src/pages/OnboardingPage';
 
 // Data
-import { MOCK_PROFILES, MOCK_PROJECTS_DATA, SECTIONS } from './src/data/mockData';
-import { NavigationState, User } from './src/types';
+import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
+import { NavigationState, User, ProjectCreationData, ProjectDashboardData } from './src/types';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
-  const [projects, setProjects] = useState(MOCK_PROJECTS_DATA);
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState('spot');
   const [myTeam, setMyTeam] = useState([MOCK_PROFILES[0], MOCK_PROFILES[1]]);
   const [authPage, setAuthPage] = useState<'login' | 'signup' | 'forgot-password' | 'reset-password' | 'onboarding' | null>(null);
   const [resetToken, setResetToken] = useState<string>('');
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showProjectCreation, setShowProjectCreation] = useState(false);
+  const [currentProject, setCurrentProject] = useState<ProjectDashboardData | null>(null);
+  const [showProjectDashboard, setShowProjectDashboard] = useState(false);
+  const [showProjectDetails, setShowProjectDetails] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<any>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showMyTeam, setShowMyTeam] = useState(false);
   const systemColorScheme = useColorScheme();
   const [theme, setTheme] = useState('light');
 
@@ -54,9 +69,9 @@ const AppContent: React.FC = () => {
   // Handle authentication state changes
   useEffect(() => {
     if (!isLoading) {
-      if (!isAuthenticated) {
+      if (!isAuthenticated && !isGuest) {
         setAuthPage('login');
-      } else if (user?.profile_step === 'onboarding' || user?.profile_completeness === 0) {
+      } else if (isAuthenticated && user?.profile_step === 'onboarding' || user?.profile_completeness === 0) {
         setShowOnboarding(true);
         setAuthPage(null);
       } else {
@@ -64,7 +79,7 @@ const AppContent: React.FC = () => {
         setShowOnboarding(false);
       }
     }
-  }, [isAuthenticated, isLoading, user]);
+  }, [isAuthenticated, isLoading, user, isGuest]);
 
   const page = history[history.length - 1];
 
@@ -85,7 +100,7 @@ const AppContent: React.FC = () => {
       if (prevHistory.length > 1) {
         const newHistory = prevHistory.slice(0, -1);
         const newCurrentPage = newHistory[newHistory.length - 1];
-        const tabPages = ['home', 'projects', 'spot', 'profile', 'star'];
+        const tabPages = ['home', 'projects', 'spot', 'profile'];
         if (tabPages.includes(newCurrentPage.name)) {
           setTab(newCurrentPage.name);
         } else if (newCurrentPage.name === 'myProfile') {
@@ -134,9 +149,161 @@ const AppContent: React.FC = () => {
   }, [navigateTo]);
 
   const handleProjectSelect = useCallback((projectData: any) => {
-    const project = projects.find(p => p.id === projectData.id);
-    navigateTo('projectDetail', project);
-  }, [projects, navigateTo]);
+    navigateTo('projectDetail', projectData);
+  }, [navigateTo]);
+
+  const handleProjectCreated = useCallback((project: any) => {
+    console.log('🎬 Project created:', project);
+    // Navigate back to projects page
+    navigateTo('projects', null);
+    // Optionally refresh projects data
+  }, [navigateTo]);
+
+  const handleCreateProjectDirect = useCallback(async () => {
+    try {
+      // Check if user is authenticated
+      if (!user) {
+        throw new Error('You must be logged in to create a project');
+      }
+
+      console.log('👤 Creating project directly for user:', user.id, user.name);
+
+      // Create a simple project with default values
+      const projectRequest = {
+        title: 'Project 1',
+        description: 'New project created',
+        type: 'film',
+        status: 'planning' as const,
+      };
+
+      console.log('📋 Creating simple project with data:', projectRequest);
+
+      // Create the project using the API
+      const createdProject = await api.createProject(projectRequest);
+      console.log('✅ Project created successfully:', createdProject);
+
+      // Navigate back to projects page to show the new project
+      navigateTo('projects', null);
+      
+      // Show success message
+      Alert.alert('Success', 'Project "Project 1" created successfully!');
+    } catch (error) {
+      console.error('Failed to create project:', error);
+      Alert.alert('Error', 'Failed to create project. Please try again.');
+    }
+  }, [api, user, navigateTo]);
+
+  const handleCreateProject = useCallback(async (projectData: ProjectCreationData) => {
+    try {
+      // Check if user is authenticated
+      if (!user) {
+        throw new Error('You must be logged in to create a project');
+      }
+
+      console.log('👤 Creating project for user:', user.id, user.name);
+
+      // Create a simple project with default values
+      const projectRequest = {
+        title: 'Project 1',
+        description: 'New project created',
+        type: 'film',
+        status: 'planning' as const,
+      };
+
+      console.log('📋 Creating simple project with data:', projectRequest);
+
+      // Create the project using the API
+      const createdProject = await api.createProject(projectRequest);
+      console.log('✅ Project created successfully:', createdProject);
+
+      // Navigate back to projects page to show the new project
+      navigateTo('projects', null);
+      
+      // Close the creation modal
+      setShowProjectCreation(false);
+    } catch (error) {
+      console.error('Failed to create project:', error);
+      throw new Error('Failed to create project. Please try again.');
+    }
+  }, [api, user, navigateTo]);
+
+  const handleUpdateProject = useCallback((updatedProject: ProjectDashboardData) => {
+    setCurrentProject(updatedProject);
+  }, []);
+
+  const handleSendMessage = useCallback((message: string) => {
+    console.log('Message sent:', message);
+    // In a real app, this would send the message to the backend
+  }, []);
+
+  const handleUpdateLegalStatus = useCallback((legalId: string, status: string) => {
+    console.log('Legal status updated:', legalId, status);
+    // In a real app, this would update the legal status in the backend
+  }, []);
+
+  const handleEditProjectDetails = useCallback(() => {
+    setShowProjectDetails(true);
+  }, []);
+
+  const handleSaveProjectDetails = useCallback(async (updatedProject: any) => {
+    try {
+      console.log('💾 Saving project details:', updatedProject);
+      // Here you would call the API to update the project
+      // await api.updateProject(updatedProject.id, updatedProject);
+      setSelectedProject(updatedProject);
+      console.log('✅ Project details saved successfully');
+    } catch (error) {
+      console.error('Failed to save project details:', error);
+      throw error;
+    }
+  }, []);
+
+  const handleRefreshProjects = useCallback(() => {
+    console.log('🔄 Refreshing projects list...');
+    // The ProjectsPage will handle the actual refresh
+  }, []);
+
+  // User menu handlers
+  const handleUserMenuPress = useCallback(() => {
+    setShowUserMenu(true);
+  }, []);
+
+  const handleMyTeam = useCallback(() => {
+    setShowMyTeam(true);
+  }, []);
+
+  const handleSettings = useCallback(() => {
+    // TODO: Navigate to settings page
+    console.log('Navigate to Settings');
+  }, []);
+
+  const handleProfileEdit = useCallback(() => {
+    navigateTo('myProfile', MOCK_PROFILES[0]);
+  }, [navigateTo]);
+
+  const handleHelpSupport = useCallback(() => {
+    // TODO: Navigate to help/support page
+    console.log('Navigate to Help & Support');
+  }, []);
+
+  const handleNavigateToSignup = useCallback(() => {
+    setAuthPage('signup');
+  }, []);
+
+  const handleNavigateToLogin = useCallback(() => {
+    setAuthPage('login');
+  }, []);
+
+  const handleNavigateToProjectDetail = useCallback(async (projectData: any) => {
+    try {
+      console.log('📋 Navigating to project dashboard:', projectData.id);
+      setSelectedProject(projectData);
+      setShowProjectDashboard(true);
+    } catch (error) {
+      console.error('Failed to load project details:', error);
+      Alert.alert('Error', 'Failed to load project details');
+    }
+  }, []);
 
   const handleAddNewProject = useCallback(() => {
     navigateTo('newProject', null);
@@ -166,6 +333,103 @@ const AppContent: React.FC = () => {
     navigateTo('chat', profile);
   }, [navigateTo]);
 
+  // Task management handlers
+  const handleCreateTask = useCallback(async (taskData: any) => {
+    try {
+      const currentProject = page.data;
+      if (currentProject) {
+        const createdTask = await createTask(currentProject.id, taskData);
+        // Refresh project data
+        const updatedProject = await getProjectById(currentProject.id);
+        setHistory(prev => {
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
+          return newHistory;
+        });
+        return createdTask; // Return the created task
+      }
+    } catch (error) {
+      console.error('Failed to create task:', error);
+      throw error;
+    }
+  }, [createTask, getProjectById, page.data]);
+
+  const handleUpdateTask = useCallback(async (taskId: string, updates: any) => {
+    try {
+      await updateTask(taskId, updates);
+      // Refresh project data
+      const currentProject = page.data;
+      if (currentProject) {
+        const updatedProject = await getProjectById(currentProject.id);
+        setHistory(prev => {
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
+          return newHistory;
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update task:', error);
+      throw error;
+    }
+  }, [updateTask, getProjectById, page.data]);
+
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    try {
+      await deleteTask(taskId);
+      // Refresh project data
+      const currentProject = page.data;
+      if (currentProject) {
+        const updatedProject = await getProjectById(currentProject.id);
+        setHistory(prev => {
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
+          return newHistory;
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete task:', error);
+      throw error;
+    }
+  }, [deleteTask, getProjectById, page.data]);
+
+  const handleAssignTask = useCallback(async (projectId: string, taskId: string, assignment: any) => {
+    try {
+      await assignTaskService(projectId, taskId, assignment);
+      // Refresh project data
+      const currentProject = page.data;
+      if (currentProject) {
+        const updatedProject = await getProjectById(currentProject.id);
+        setHistory(prev => {
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
+          return newHistory;
+        });
+      }
+    } catch (error) {
+      console.error('Failed to assign task:', error);
+      throw error;
+    }
+  }, [assignTaskService, getProjectById, page.data]);
+
+  const handleUpdateTaskStatus = useCallback(async (taskId: string, status: any) => {
+    try {
+      await updateTaskStatus(taskId, status);
+      // Refresh project data
+      const currentProject = page.data;
+      if (currentProject) {
+        const updatedProject = await getProjectById(currentProject.id);
+        setHistory(prev => {
+          const newHistory = [...prev];
+          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
+          return newHistory;
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update task status:', error);
+      throw error;
+    }
+  }, [updateTaskStatus, getProjectById, page.data]);
+
   const handleTabChange = useCallback((newTab: string) => {
     setTab(newTab);
     setSearchQuery('');
@@ -173,8 +437,6 @@ const AppContent: React.FC = () => {
     let rootPage;
     if (newTab === 'profile') {
       rootPage = { name: 'myProfile', data: MOCK_PROFILES[0] };
-    } else if (newTab === 'star') {
-      rootPage = { name: 'star', data: MOCK_PROFILES[2] };
     } else {
       rootPage = { name: newTab, data: null };
     }
@@ -185,14 +447,6 @@ const AppContent: React.FC = () => {
     setShowSplash(false);
   };
 
-  // Authentication navigation handlers
-  const handleNavigateToSignup = () => {
-    setAuthPage('signup');
-  };
-
-  const handleNavigateToLogin = () => {
-    setAuthPage('login');
-  };
 
   const handleNavigateToForgotPassword = () => {
     setAuthPage('forgot-password');
@@ -204,6 +458,10 @@ const AppContent: React.FC = () => {
   };
 
   const handleLoginSuccess = () => {
+    setAuthPage(null);
+  };
+
+  const handleGuestMode = () => {
     setAuthPage(null);
   };
 
@@ -283,6 +541,7 @@ const AppContent: React.FC = () => {
           onNavigateToSignup={handleNavigateToSignup}
           onNavigateToForgotPassword={handleNavigateToForgotPassword}
           onLoginSuccess={handleLoginSuccess}
+          onGuestMode={handleGuestMode}
         />
       );
     }
@@ -320,11 +579,11 @@ const AppContent: React.FC = () => {
       <View style={[styles.appContainer, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
         <View style={[styles.topBar, { backgroundColor: isDark ? '#000' : '#fff', borderBottomColor: isDark ? '#1f2937' : '#000' }]}>
           <View style={styles.topBarLeft}>
-            <TouchableOpacity style={styles.topBarButton}>
-              <Ionicons name="help-circle" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
+            <TouchableOpacity style={styles.topBarButton} onPress={handleUserMenuPress}>
+              <Ionicons name="menu" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
             <Text style={styles.topBarTitle}>
-              One Crew, <Text style={styles.userName}>{user?.name || 'Guest'}</Text>
+              One Crew, <Text style={styles.userName}>{isGuest ? 'Guest User' : (user?.name || 'Guest')}</Text>
             </Text>
           </View>
           <View style={styles.topBarRight}>
@@ -381,15 +640,18 @@ const AppContent: React.FC = () => {
           )}
           {page.name === 'projects' && (
             <ProjectsPage
-              projects={projects}
               onProjectSelect={handleProjectSelect}
-              onAddNewProject={handleAddNewProject}
+              onAddNewProject={handleCreateProjectDirect}
               onAddNewProjectEasy={handleAddNewProjectEasy}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               onBack={handleBack}
               myTeam={myTeam}
               onProfileSelect={handleProfileSelect}
+              onNavigateToProjectDetail={handleNavigateToProjectDetail}
+              onRefresh={handleRefreshProjects}
+              onNavigateToSignup={handleNavigateToSignup}
+              onNavigateToLogin={handleNavigateToLogin}
             />
           )}
           {page.name === 'profile' && (
@@ -401,6 +663,23 @@ const AppContent: React.FC = () => {
               myTeam={myTeam}
               onStartChat={handleStartChat}
               onMediaSelect={() => {}}
+            />
+          )}
+          {page.name === 'projectDetail' && (
+            <ProjectDetailPage
+              project={page.data}
+              onBack={handleBack}
+              onCreateTask={handleCreateTask}
+              onUpdateTask={handleUpdateTask}
+              onDeleteTask={handleDeleteTask}
+              onAssignTask={handleAssignTask}
+              onUpdateTaskStatus={handleUpdateTaskStatus}
+            />
+          )}
+          {page.name === 'newProject' && (
+            <NewProjectPage
+              onBack={handleBack}
+              onProjectCreated={handleProjectCreated}
             />
           )}
           {page.name === 'myProfile' && (
@@ -416,18 +695,31 @@ const AppContent: React.FC = () => {
               onLogout={handleLogout}
             />
           )}
-          {page.name === 'star' && (
-            <ProfileDetailPage
-              profile={page.data}
-              onBack={handleBack}
-              onAssignToProject={handleAssignToProject}
-              onAddToTeam={handleAddToTeam}
-              myTeam={myTeam}
-              onStartChat={handleStartChat}
-              onMediaSelect={() => {}}
-            />
-          )}
         </View>
+
+        {/* Project Creation Modal */}
+        <ProjectCreationModal
+          visible={showProjectCreation}
+          onClose={() => setShowProjectCreation(false)}
+          onSubmit={handleCreateProject}
+        />
+
+        {/* User Menu Modal */}
+        <UserMenuModal
+          visible={showUserMenu}
+          onClose={() => setShowUserMenu(false)}
+          onMyTeam={handleMyTeam}
+          onSettings={handleSettings}
+          onProfileEdit={handleProfileEdit}
+          onHelpSupport={handleHelpSupport}
+          onLogout={handleLogout}
+        />
+
+        {/* My Team Modal */}
+        <MyTeamModal
+          visible={showMyTeam}
+          onClose={() => setShowMyTeam(false)}
+        />
 
         <TabBar active={tab} onChange={handleTabChange} />
 
@@ -439,6 +731,25 @@ const AppContent: React.FC = () => {
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
         )}
+
+        {/* Full-page Project Dashboard */}
+        {showProjectDashboard && selectedProject && (
+          <View style={styles.fullPageOverlay}>
+            <ProjectDashboard
+              project={selectedProject}
+              onBack={() => setShowProjectDashboard(false)}
+              onEditProjectDetails={handleEditProjectDetails}
+            />
+          </View>
+        )}
+
+        {/* Project Details Modal */}
+        <ProjectDetailsModal
+          visible={showProjectDetails}
+          onClose={() => setShowProjectDetails(false)}
+          project={selectedProject}
+          onSave={handleSaveProjectDetails}
+        />
       </View>
     );
   };
@@ -518,6 +829,15 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 12,
     zIndex: 20,
+  },
+  fullPageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#f5f5f5',
+    zIndex: 1000,
   },
   loadingContainer: {
     flex: 1,

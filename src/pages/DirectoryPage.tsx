@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 
@@ -55,13 +55,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   onBack,
   onUserSelect,
 }) => {
-  const { api, getUsersDirect } = useApi();
+  const { api, getUsersDirect, getMyTeam, addToMyTeam, removeFromMyTeam, getMyTeamMembers } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [loadingCompleteData, setLoadingCompleteData] = useState<Set<string>>(new Set());
+  const [teamMemberIds, setTeamMemberIds] = useState<Set<string>>(new Set());
+  const [actionLoading, setActionLoading] = useState<Set<string>>(new Set());
 
   const fetchUsers = async () => {
     try {
@@ -110,11 +112,27 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
   useEffect(() => {
     fetchUsers();
+    loadTeamMembers();
   }, []);
+
+  const loadTeamMembers = async () => {
+    try {
+      const response = await getMyTeamMembers();
+      if (response.success && response.data) {
+        console.log('🔍 DirectoryPage - Team members data:', JSON.stringify(response.data, null, 2));
+        const memberIds = new Set<string>(response.data.map((member: any) => member.user_id));
+        setTeamMemberIds(memberIds);
+        console.log('✅ DirectoryPage - Team member IDs loaded:', Array.from(memberIds));
+      }
+    } catch (error) {
+      console.error('Error loading team members:', error);
+    }
+  };
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchUsers();
+    loadTeamMembers(); // Also refresh team members
   };
 
   const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
@@ -222,6 +240,51 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       return 'offline';
     }
     return 'offline';
+  };
+
+  const handleToggleTeamMember = async (user: User) => {
+    const isCurrentlyInTeam = teamMemberIds.has(user.id);
+    const isLoading = actionLoading.has(user.id);
+    
+    if (isLoading) return; // Prevent multiple simultaneous actions
+    
+    setActionLoading(prev => new Set(prev).add(user.id));
+    
+    try {
+      if (isCurrentlyInTeam) {
+        // Remove from team
+        console.log('🔍 Removing user from personal team:', user.name);
+        const response = await removeFromMyTeam(user.id);
+        
+        if (response.success) {
+          setTeamMemberIds(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(user.id);
+            return newSet;
+          });
+        } else {
+          console.error('Failed to remove user:', response.error);
+        }
+      } else {
+        // Add to team
+        console.log('🔍 Adding user to personal team:', user.name);
+        const response = await addToMyTeam(user.id);
+        
+        if (response.success) {
+          setTeamMemberIds(prev => new Set(prev).add(user.id));
+        } else {
+          console.error('Failed to add user:', response.error);
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling team member:', error);
+    } finally {
+      setActionLoading(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(user.id);
+        return newSet;
+      });
+    }
   };
 
   if (isLoading) {
@@ -394,8 +457,24 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                         </View>
                         
                         <View style={styles.userActions}>
-                          <TouchableOpacity style={styles.actionButton}>
-                            <Ionicons name="add" size={16} color="#fff" />
+                          <TouchableOpacity 
+                            style={[
+                              styles.actionButton,
+                              teamMemberIds.has(user.id) && styles.actionButtonAdded,
+                              actionLoading.has(user.id) && styles.actionButtonLoading
+                            ]}
+                            onPress={() => handleToggleTeamMember(user)}
+                            disabled={actionLoading.has(user.id)}
+                          >
+                            {actionLoading.has(user.id) ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <Ionicons 
+                                name={teamMemberIds.has(user.id) ? "checkmark" : "add"} 
+                                size={16} 
+                                color="#fff" 
+                              />
+                            )}
                           </TouchableOpacity>
                           <TouchableOpacity style={styles.actionButton}>
                             <Ionicons name="briefcase" size={16} color="#fff" />
@@ -562,6 +641,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#374151',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  actionButtonAdded: {
+    backgroundColor: '#10b981', // Green color when user is in team
+  },
+  actionButtonLoading: {
+    backgroundColor: '#6b7280', // Gray color when loading
   },
   emptyState: {
     padding: 24,

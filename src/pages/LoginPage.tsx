@@ -17,14 +17,16 @@ interface LoginPageProps {
   onNavigateToSignup: () => void;
   onNavigateToForgotPassword: () => void;
   onLoginSuccess: () => void;
+  onGuestMode: () => void;
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({
   onNavigateToSignup,
   onNavigateToForgotPassword,
   onLoginSuccess,
+  onGuestMode,
 }) => {
-  const { login, isLoading, error, clearError } = useApi();
+  const { login, isLoading, error, clearError, createGuestSession } = useApi();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -72,6 +74,16 @@ const LoginPage: React.FC<LoginPageProps> = ({
     setPassword(text);
     if (formErrors.password) {
       setFormErrors(prev => ({ ...prev, password: '' }));
+    }
+  };
+
+  const handleGuestMode = async () => {
+    try {
+      clearError();
+      await createGuestSession();
+      onGuestMode();
+    } catch (err: any) {
+      Alert.alert('Guest Mode Failed', err.message || 'Unable to start guest browsing. Please try again.');
     }
   };
 
@@ -164,6 +176,15 @@ const LoginPage: React.FC<LoginPageProps> = ({
             ) : (
               <Text style={styles.loginButtonText}>Sign In</Text>
             )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.guestButton, isLoading && styles.guestButtonDisabled]}
+            onPress={handleGuestMode}
+            disabled={isLoading}
+          >
+            <Ionicons name="eye" size={20} color="#fff" style={styles.guestButtonIcon} />
+            <Text style={styles.guestButtonText}>Browse as Guest</Text>
           </TouchableOpacity>
 
           <View style={styles.divider}>
@@ -292,6 +313,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#9ca3af',
   },
   loginButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  guestButton: {
+    backgroundColor: '#3b82f6',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 24,
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  guestButtonDisabled: {
+    backgroundColor: '#9ca3af',
+  },
+  guestButtonIcon: {
+    marginRight: 8,
+  },
+  guestButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',

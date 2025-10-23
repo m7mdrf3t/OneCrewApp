@@ -475,3 +475,125 @@ export const MOCK_PROJECTS_DATA: Project[] = [
     ]
   }
 ];
+
+// Project Creation Mock Data
+export const PROJECT_TYPES = [
+  { id: 'film', name: 'Film', description: 'Feature film or short film' },
+  { id: 'series', name: 'Series', description: 'Television series or web series' },
+  { id: 'commercial', name: 'Commercial', description: 'Advertisement or promotional content' },
+  { id: 'music_video', name: 'Music Video', description: 'Music video production' },
+  { id: 'documentary', name: 'Documentary', description: 'Documentary film' },
+  { id: 'event', name: 'Event', description: 'Live event or corporate video' },
+];
+
+export const PROJECT_STAGES = [
+  {
+    id: 'development',
+    name: 'Development',
+    description: 'Script writing, concept development, and pre-planning',
+    order: 1,
+    isSelected: false,
+  },
+  {
+    id: 'pre_production',
+    name: 'Pre-production',
+    description: 'Casting, location scouting, and production planning',
+    order: 2,
+    isSelected: false,
+  },
+  {
+    id: 'production',
+    name: 'Production',
+    description: 'Principal photography and filming',
+    order: 3,
+    isSelected: false,
+  },
+  {
+    id: 'post_production',
+    name: 'Post-production',
+    description: 'Editing, sound design, and visual effects',
+    order: 4,
+    isSelected: false,
+  },
+  {
+    id: 'distribution',
+    name: 'Distribution',
+    description: 'Marketing, release, and distribution',
+    order: 5,
+    isSelected: false,
+  },
+];
+
+export const TASK_TO_SERVICE_SUGGESTIONS = {
+  development: [
+    { role: 'Writer', service: 'Screenwriter' },
+    { role: 'Director', service: 'Director' },
+    { role: 'Producer', service: 'Producer' },
+    { role: 'Script Consultant', service: 'Script Consultant' },
+  ],
+  pre_production: [
+    { role: 'Casting Director', service: 'Casting Director' },
+    { role: 'Actor', service: 'Actor' },
+    { role: 'Location Scout', service: 'Location Scout' },
+    { role: 'Production Designer', service: 'Production Designer' },
+    { role: 'Costume Designer', service: 'Costume Designer' },
+  ],
+  production: [
+    { role: 'Director', service: 'Director' },
+    { role: 'Cinematographer', service: 'Cinematographer' },
+    { role: 'Actor', service: 'Actor' },
+    { role: 'Sound Engineer', service: 'Sound Engineer' },
+    { role: 'Gaffer', service: 'Gaffer' },
+    { role: 'Grip', service: 'Grip' },
+  ],
+  post_production: [
+    { role: 'Editor', service: 'Editor' },
+    { role: 'Sound Designer', service: 'Sound Designer' },
+    { role: 'Colorist', service: 'Colorist' },
+    { role: 'VFX Artist', service: 'VFX Artist' },
+    { role: 'Composer', service: 'Composer' },
+  ],
+  distribution: [
+    { role: 'Marketing Manager', service: 'Marketing Manager' },
+    { role: 'Publicist', service: 'Publicist' },
+    { role: 'Distributor', service: 'Distributor' },
+    { role: 'Film Festival Coordinator', service: 'Film Festival Coordinator' },
+  ],
+};
+
+export const FILTER_OPTIONS = {
+  age: [
+    { label: '18-25', value: '18-25' },
+    { label: '26-35', value: '26-35' },
+    { label: '36-45', value: '36-45' },
+    { label: '46-55', value: '46-55' },
+    { label: '55+', value: '55+' },
+  ],
+  gender: [
+    { label: 'Male', value: 'male' },
+    { label: 'Female', value: 'female' },
+    { label: 'Non-binary', value: 'non-binary' },
+    { label: 'Any', value: 'any' },
+  ],
+  location: [
+    { label: 'New York', value: 'new_york' },
+    { label: 'Los Angeles', value: 'los_angeles' },
+    { label: 'London', value: 'london' },
+    { label: 'Toronto', value: 'toronto' },
+    { label: 'Remote', value: 'remote' },
+  ],
+  experience: [
+    { label: 'Beginner', value: 'beginner' },
+    { label: 'Intermediate', value: 'intermediate' },
+    { label: 'Experienced', value: 'experienced' },
+    { label: 'Expert', value: 'expert' },
+  ],
+};
+
+export const SERVICE_FILTERS = {
+  actor: ['age', 'gender', 'location', 'experience', 'dialects', 'special_skills'],
+  director: ['location', 'experience', 'specializations'],
+  cinematographer: ['location', 'experience', 'equipment_specialties'],
+  editor: ['location', 'experience', 'software_skills'],
+  producer: ['location', 'experience', 'budget_range'],
+};

@@ -1,6 +1,18 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Platform } from 'react-native';
 import OneCrewApi, { User, AuthResponse, LoginRequest, SignupRequest, ApiError } from 'onecrew-api-client';
+import { 
+  GuestSessionData, 
+  ConvertGuestToUserRequest, 
+  TaskWithAssignments, 
+  ProjectWithDetails, 
+  ProjectMember,
+  CreateTaskRequest,
+  UpdateTaskRequest,
+  AssignTaskServiceRequest,
+  UpdateTaskStatusRequest
+} from '../types';
+import ReferenceDataService from '../services/ReferenceDataService';
 
 interface ApiContextType {
   api: OneCrewApi;
@@ -8,11 +20,21 @@ interface ApiContextType {
   user: User | null;
   isLoading: boolean;
   error: string | null;
+  // Guest session state
+  isGuest: boolean;
+  guestSessionId: string | null;
+  // Authentication methods
   login: (credentials: LoginRequest) => Promise<AuthResponse>;
   logout: () => Promise<void>;
   signup: (userData: SignupRequest) => Promise<AuthResponse>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
+  // Guest session methods
+  createGuestSession: () => Promise<GuestSessionData>;
+  browseUsersAsGuest: (params?: { page?: number; limit?: number; search?: string; category?: string; role?: string; location?: string }) => Promise<any>;
+  convertGuestToUser: (request: ConvertGuestToUserRequest) => Promise<AuthResponse>;
+  getGuestSessionId: () => string | null;
+  // Profile methods
   updateProfile: (profileData: any) => Promise<any>;
   updateSkills: (skills: string[]) => Promise<any>;
   getProfileCompleteness: (userId: string) => Promise<any>;
@@ -22,6 +44,21 @@ interface ApiContextType {
   getSkills: () => Promise<any>;
   getAbilities: () => Promise<any>;
   getLanguages: () => Promise<any>;
+  getServices: () => Promise<any>;
+  // Roles and Categories methods
+  getRoles: () => Promise<any>;
+  getCategories: () => Promise<any>;
+  getRolesWithDescriptions: () => Promise<any>;
+  getCategoriesWithDescriptions: () => Promise<any>;
+  // User filtering methods
+  getUsersByRole: (role: string) => Promise<any>;
+  getUsersByCategory: (category: string) => Promise<any>;
+  getUsersByLocation: (location: string) => Promise<any>;
+  // Personal team management methods
+  getMyTeam: () => Promise<any>;
+  addToMyTeam: (userId: string, role?: string) => Promise<any>;
+  removeFromMyTeam: (userId: string) => Promise<any>;
+  getMyTeamMembers: () => Promise<any>;
   // New skill management methods
   getAvailableSkillsNew: () => Promise<any>;
   getUserSkillsNew: () => Promise<any>;
@@ -30,6 +67,19 @@ interface ApiContextType {
   // Direct fetch methods
   getUsersDirect: (params?: { limit?: number; page?: number }) => Promise<any>;
   fetchCompleteUserProfile: (userId: string, userData?: any) => Promise<any>;
+  // Project management methods
+  createProject: (projectData: any) => Promise<any>;
+  getProjects: () => Promise<any[]>;
+  getAllProjects: () => Promise<any[]>;
+  getProjectTasks: (projectId: string) => Promise<TaskWithAssignments[]>;
+  getProjectById: (projectId: string) => Promise<ProjectWithDetails>;
+  getProjectMembers: (projectId: string) => Promise<ProjectMember[]>;
+  // Task management methods
+  createTask: (projectId: string, taskData: CreateTaskRequest) => Promise<any>;
+  updateTask: (taskId: string, updates: UpdateTaskRequest) => Promise<any>;
+  deleteTask: (taskId: string) => Promise<void>;
+  assignTaskService: (projectId: string, taskId: string, assignment: AssignTaskServiceRequest) => Promise<any>;
+  updateTaskStatus: (taskId: string, status: UpdateTaskStatusRequest) => Promise<any>;
   // Debug methods
   debugAuthState: () => any;
   clearError: () => void;
@@ -64,6 +114,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Guest session state
+  const [isGuest, setIsGuest] = useState(false);
+  const [guestSessionId, setGuestSessionId] = useState<string | null>(null);
 
   // Test network connectivity
   const testConnectivity = async () => {
@@ -102,6 +155,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         await api.initialize();
         console.log('API client initialized successfully');
+        
+        // Initialize ReferenceDataService with the API
+        ReferenceDataService.setApi(api);
+        console.log('ReferenceDataService initialized with API');
         
         if (api.auth.isAuthenticated()) {
           const currentUser = api.auth.getCurrentUser();
@@ -892,6 +949,433 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const getServices = async () => {
+    try {
+      console.log('🔍 Fetching services...');
+      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/services', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP Error: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('✅ Services fetched:', result);
+      return result;
+    } catch (err: any) {
+      console.error('❌ Failed to fetch services:', err);
+      // Return mock services as fallback
+      return {
+        success: true,
+        data: [
+          { id: '1', name: 'Writer', category: 'Creative' },
+          { id: '2', name: 'Author', category: 'Creative' },
+          { id: '3', name: 'Producer', category: 'Production' },
+          { id: '4', name: 'Task Admins', category: 'Management' },
+          { id: '5', name: 'Director', category: 'Creative' },
+          { id: '6', name: 'Casting Director', category: 'Production' },
+          { id: '7', name: 'Location Manager', category: 'Production' },
+          { id: '8', name: 'Production Designer', category: 'Creative' },
+          { id: '9', name: 'Cinematographer', category: 'Technical' },
+          { id: '10', name: 'Sound Engineer', category: 'Technical' },
+          { id: '11', name: 'Actor', category: 'Talent' },
+          { id: '12', name: 'Stunt Coordinator', category: 'Technical' },
+          { id: '13', name: 'Editor', category: 'Technical' },
+          { id: '14', name: 'Colorist', category: 'Technical' },
+          { id: '15', name: 'Sound Designer', category: 'Technical' },
+          { id: '16', name: 'VFX Artist', category: 'Technical' },
+          { id: '17', name: 'Marketing Manager', category: 'Marketing' },
+          { id: '18', name: 'Distribution Coordinator', category: 'Business' },
+          { id: '19', name: 'Publicist', category: 'Marketing' },
+        ]
+      };
+    }
+  };
+
+  // Roles and Categories methods
+  const getRoles = async () => {
+    try {
+      console.log('🔍 Fetching roles using API client...');
+      
+      // Ensure API is initialized
+      if (!api) {
+        throw new Error('API client not initialized');
+      }
+      
+      // Check if the method exists
+      if (typeof api.getRoles !== 'function') {
+        console.log('🔍 API client methods available:', Object.getOwnPropertyNames(Object.getPrototypeOf(api)));
+        console.log('🔍 getRoles method exists:', typeof api.getRoles);
+        console.log('🔍 API client prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(api)));
+        
+        // Try using the apiClient directly
+        console.log('🔍 Trying direct apiClient call...');
+        const response = await (api as any).apiClient.get('/api/roles');
+        console.log('✅ Direct API call successful:', response);
+        return response;
+      }
+      
+      const response = await api.getRoles();
+      
+      if (response.success && response.data) {
+        // Convert string array to object array format
+        const rolesData = response.data.map((role: string, index: number) => ({
+          id: (index + 1).toString(),
+          name: role,
+          category: getRoleCategory(role)
+        }));
+        
+        console.log('✅ Roles fetched:', rolesData);
+        return {
+          success: true,
+          data: rolesData
+        };
+      } else {
+        throw new Error(response.error || 'Failed to fetch roles');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to fetch roles:', err);
+      // Return mock roles as fallback
+      return {
+        success: true,
+        data: [
+          { id: '1', name: 'Writer', category: 'Creative' },
+          { id: '2', name: 'Director', category: 'Creative' },
+          { id: '3', name: 'Producer', category: 'Production' },
+          { id: '4', name: 'Actor', category: 'Talent' },
+          { id: '5', name: 'Cinematographer', category: 'Technical' },
+          { id: '6', name: 'Editor', category: 'Technical' },
+          { id: '7', name: 'Sound Engineer', category: 'Technical' },
+          { id: '8', name: 'Casting Director', category: 'Production' },
+          { id: '9', name: 'Location Manager', category: 'Production' },
+          { id: '10', name: 'Production Designer', category: 'Creative' },
+        ]
+      };
+    }
+  };
+
+  // Helper function to categorize roles
+  const getRoleCategory = (role: string): string => {
+    const roleCategories: {[key: string]: string} = {
+      'Writer': 'Creative',
+      'Director': 'Creative',
+      'Producer': 'Production',
+      'Actor': 'Talent',
+      'Cinematographer': 'Technical',
+      'Editor': 'Technical',
+      'Sound Engineer': 'Technical',
+      'Casting Director': 'Production',
+      'Location Manager': 'Production',
+      'Production Designer': 'Creative',
+      'Author': 'Creative',
+      'Task Admins': 'Management',
+      'Stunt Coordinator': 'Technical',
+      'Colorist': 'Technical',
+      'Sound Designer': 'Technical',
+      'VFX Artist': 'Technical',
+      'Marketing Manager': 'Marketing',
+      'Distribution Coordinator': 'Business',
+      'Publicist': 'Marketing',
+    };
+    return roleCategories[role] || 'Other';
+  };
+
+  const getCategories = async () => {
+    try {
+      console.log('🔍 Fetching categories using API client...');
+      
+      // Check if the method exists
+      if (typeof api.getCategories !== 'function') {
+        console.log('🔍 getCategories method not available, using direct API call...');
+        const response = await (api as any).apiClient.get('/api/categories');
+        console.log('✅ Direct categories API call successful:', response);
+        return response;
+      }
+      
+      const response = await api.getCategories();
+      
+      if (response.success && response.data) {
+        // Convert string array to object array format
+        const categoriesData = response.data.map((category: string, index: number) => ({
+          id: (index + 1).toString(),
+          name: category,
+          description: `${category} roles`
+        }));
+        
+        console.log('✅ Categories fetched:', categoriesData);
+        return {
+          success: true,
+          data: categoriesData
+        };
+      } else {
+        throw new Error(response.error || 'Failed to fetch categories');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to fetch categories:', err);
+      // Return mock categories as fallback
+      return {
+        success: true,
+        data: [
+          { id: '1', name: 'Creative', description: 'Creative roles' },
+          { id: '2', name: 'Technical', description: 'Technical roles' },
+          { id: '3', name: 'Production', description: 'Production roles' },
+          { id: '4', name: 'Talent', description: 'Talent roles' },
+          { id: '5', name: 'Management', description: 'Management roles' },
+        ]
+      };
+    }
+  };
+
+  const getRolesWithDescriptions = async () => {
+    try {
+      console.log('🔍 Fetching roles with descriptions using API client...');
+      const response = await api.getRolesWithDescriptions();
+      
+      if (response.success && response.data) {
+        // Convert to our expected format
+        const rolesData = response.data.map((role: any, index: number) => ({
+          id: (index + 1).toString(),
+          name: role.value,
+          label: role.label,
+          description: role.description,
+          category: getRoleCategory(role.value)
+        }));
+        
+        console.log('✅ Roles with descriptions fetched:', rolesData);
+        return {
+          success: true,
+          data: rolesData
+        };
+      } else {
+        throw new Error(response.error || 'Failed to fetch roles with descriptions');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to fetch roles with descriptions:', err);
+      return getRoles(); // Fallback to basic roles
+    }
+  };
+
+  const getCategoriesWithDescriptions = async () => {
+    try {
+      console.log('🔍 Fetching categories with descriptions using API client...');
+      const response = await api.getCategoriesWithDescriptions();
+      
+      if (response.success && response.data) {
+        // Convert to our expected format
+        const categoriesData = response.data.map((category: any, index: number) => ({
+          id: (index + 1).toString(),
+          name: category.value,
+          label: category.label,
+          description: category.description
+        }));
+        
+        console.log('✅ Categories with descriptions fetched:', categoriesData);
+        return {
+          success: true,
+          data: categoriesData
+        };
+      } else {
+        throw new Error(response.error || 'Failed to fetch categories with descriptions');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to fetch categories with descriptions:', err);
+      return getCategories(); // Fallback to basic categories
+    }
+  };
+
+  // User filtering methods
+  const getUsersByRole = async (role: string) => {
+    try {
+      console.log('🔍 Fetching users by role using API client:', role);
+      
+      // Check if the method exists
+      if (typeof api.getUsersByRole !== 'function') {
+        console.log('🔍 getUsersByRole method not available, using direct API call...');
+        const response = await (api as any).apiClient.get(`/api/users/by-role/${encodeURIComponent(role)}`);
+        console.log('✅ Direct getUsersByRole API call successful:', response);
+        return response;
+      }
+      
+      const response = await api.getUsersByRole(role);
+      
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        const users = Array.isArray(response.data) ? response.data : response.data.data || [];
+        console.log('✅ Users by role fetched:', users.length);
+        return {
+          success: true,
+          data: users
+        };
+      } else {
+        throw new Error(response.error || 'Failed to fetch users by role');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to fetch users by role:', err);
+      // Fallback to getUsersDirect with role filtering
+      try {
+        const users = await getUsersDirect();
+        const filteredUsers = users.filter((user: any) => 
+          user.specialty?.toLowerCase().includes(role.toLowerCase()) ||
+          user.category?.toLowerCase().includes(role.toLowerCase()) ||
+          user.skills?.some((skill: string) => skill.toLowerCase().includes(role.toLowerCase()))
+        );
+        return { success: true, data: filteredUsers };
+      } catch (fallbackErr) {
+        console.error('❌ Fallback also failed:', fallbackErr);
+        return { success: false, data: [], error: 'Failed to fetch users' };
+      }
+    }
+  };
+
+  const getUsersByCategory = async (category: string) => {
+    try {
+      console.log('🔍 Fetching users by category using API client:', category);
+      const response = await api.getUsersByCategory(category);
+      
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        const users = Array.isArray(response.data) ? response.data : response.data.data || [];
+        console.log('✅ Users by category fetched:', users.length);
+        return {
+          success: true,
+          data: users
+        };
+      } else {
+        throw new Error(response.error || 'Failed to fetch users by category');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to fetch users by category:', err);
+      // Fallback to getUsersDirect with category filtering
+      try {
+        const users = await getUsersDirect();
+        const filteredUsers = users.filter((user: any) => 
+          user.category?.toLowerCase().includes(category.toLowerCase())
+        );
+        return { success: true, data: filteredUsers };
+      } catch (fallbackErr) {
+        console.error('❌ Fallback also failed:', fallbackErr);
+        return { success: false, data: [], error: 'Failed to fetch users' };
+      }
+    }
+  };
+
+  const getUsersByLocation = async (location: string) => {
+    try {
+      console.log('🔍 Fetching users by location using API client:', location);
+      const response = await api.getUsersByLocation(location);
+      
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        const users = Array.isArray(response.data) ? response.data : response.data.data || [];
+        console.log('✅ Users by location fetched:', users.length);
+        return {
+          success: true,
+          data: users
+        };
+      } else {
+        throw new Error(response.error || 'Failed to fetch users by location');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to fetch users by location:', err);
+      // Fallback to getUsersDirect with location filtering
+      try {
+        const users = await getUsersDirect();
+        const filteredUsers = users.filter((user: any) => 
+          user.about?.location?.toLowerCase().includes(location.toLowerCase())
+        );
+        return { success: true, data: filteredUsers };
+      } catch (fallbackErr) {
+        console.error('❌ Fallback also failed:', fallbackErr);
+        return { success: false, data: [], error: 'Failed to fetch users' };
+      }
+    }
+  };
+
+  // Personal team management methods
+  const getMyTeam = async () => {
+    try {
+      console.log('🔍 Fetching user personal team...');
+      const response = await api.getMyTeam();
+      
+      if (response.success && response.data) {
+        console.log('✅ Personal team fetched:', response.data);
+        return {
+          success: true,
+          data: response.data
+        };
+      } else {
+        throw new Error(response.error || 'Failed to fetch personal team');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to fetch personal team:', err);
+      return { success: false, data: null, error: 'Failed to fetch personal team' };
+    }
+  };
+
+  const addToMyTeam = async (userId: string, role?: string) => {
+    try {
+      console.log('🔍 Adding user to personal team:', userId, role);
+      const response = await api.addToMyTeam(userId, role);
+      
+      if (response.success && response.data) {
+        console.log('✅ User added to personal team:', response.data);
+        return {
+          success: true,
+          data: response.data
+        };
+      } else {
+        throw new Error(response.error || 'Failed to add user to personal team');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to add user to personal team:', err);
+      return { success: false, data: null, error: 'Failed to add user to personal team' };
+    }
+  };
+
+  const removeFromMyTeam = async (userId: string) => {
+    try {
+      console.log('🔍 Removing user from personal team:', userId);
+      const response = await api.removeFromMyTeam(userId);
+      
+      if (response.success) {
+        console.log('✅ User removed from personal team');
+        return {
+          success: true,
+          data: null
+        };
+      } else {
+        throw new Error(response.error || 'Failed to remove user from personal team');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to remove user from personal team:', err);
+      return { success: false, data: null, error: 'Failed to remove user from personal team' };
+    }
+  };
+
+  const getMyTeamMembers = async () => {
+    try {
+      console.log('🔍 Fetching personal team members...');
+      const response = await api.getMyTeamMembers();
+      
+      if (response.success && response.data) {
+        console.log('✅ Personal team members fetched:', response.data.length);
+        return {
+          success: true,
+          data: response.data
+        };
+      } else {
+        throw new Error(response.error || 'Failed to fetch personal team members');
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to fetch personal team members:', err);
+      return { success: false, data: [], error: 'Failed to fetch personal team members' };
+    }
+  };
+
   // New skill management methods using the updated API client
   const getAvailableSkillsNew = async () => {
     try {
@@ -1189,17 +1673,271 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     };
   };
 
+  // Guest session methods
+  const createGuestSession = async (): Promise<GuestSessionData> => {
+    try {
+      console.log('🎭 Creating guest session...');
+      const response = await api.createGuestSession();
+      if (response.success && response.data) {
+        setGuestSessionId(response.data.sessionId);
+        setIsGuest(true);
+        console.log('🎭 Guest session created:', response.data.sessionId);
+        return response.data;
+      } else {
+        throw new Error(response.error || 'Failed to create guest session');
+      }
+    } catch (error) {
+      console.error('Failed to create guest session:', error);
+      throw error;
+    }
+  };
+
+  const browseUsersAsGuest = async (params?: { page?: number; limit?: number; search?: string; category?: string; role?: string; location?: string }) => {
+    if (!guestSessionId) {
+      throw new Error('No guest session available');
+    }
+    try {
+      console.log('🎭 Browsing users as guest...');
+      const response = await api.browseUsersAsGuest(guestSessionId, params);
+      return response;
+    } catch (error) {
+      console.error('Failed to browse users as guest:', error);
+      throw error;
+    }
+  };
+
+  const convertGuestToUser = async (request: ConvertGuestToUserRequest): Promise<AuthResponse> => {
+    try {
+      console.log('🎭 Converting guest to user...');
+      const response = await api.convertGuestToUser(request);
+      if (response.success && response.data) {
+        setIsGuest(false);
+        setGuestSessionId(null);
+        setIsAuthenticated(true);
+        setUser(response.data.user);
+        console.log('🎭 Guest converted to user:', response.data.user.name);
+        return response.data;
+      } else {
+        throw new Error(response.error || 'Failed to convert guest to user');
+      }
+    } catch (error) {
+      console.error('Failed to convert guest to user:', error);
+      throw error;
+    }
+  };
+
+  const getGuestSessionId = (): string | null => {
+    return guestSessionId;
+  };
+
+  // Task management methods
+  // Project management methods
+  const createProject = async (projectData: any) => {
+    try {
+      const response = await api.createProject(projectData);
+      return response;
+    } catch (error) {
+      console.error('Failed to create project:', error);
+      throw error;
+    }
+  };
+
+  const getProjects = async (): Promise<any[]> => {
+    try {
+      console.log('📋 Getting user projects');
+      const response = await api.getProjects();
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+      } else {
+        throw new Error(response.error || 'Failed to fetch projects');
+      }
+    } catch (error) {
+      console.error('Failed to get projects:', error);
+      throw error;
+    }
+  };
+
+  const getAllProjects = async (): Promise<any[]> => {
+    try {
+      console.log('📋 Getting user projects');
+      const response = await api.getMyProjects();
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+      } else {
+        throw new Error(response.error || 'Failed to fetch user projects');
+      }
+    } catch (error) {
+      console.error('Failed to get user projects:', error);
+      throw error;
+    }
+  };
+
+  const getProjectTasks = async (projectId: string): Promise<TaskWithAssignments[]> => {
+    try {
+      console.log('📋 Getting project tasks for:', projectId);
+      const response = await api.getProjectTasks(projectId);
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+      } else {
+        throw new Error(response.error || 'Failed to get project tasks');
+      }
+    } catch (error) {
+      console.error('Failed to get project tasks:', error);
+      throw error;
+    }
+  };
+
+  const getProjectById = async (projectId: string): Promise<ProjectWithDetails> => {
+    try {
+      console.log('📋 Getting project details for:', projectId);
+      const response = await api.getProjectById(projectId);
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+      } else {
+        throw new Error(response.error || 'Failed to get project details');
+      }
+    } catch (error) {
+      console.error('Failed to get project details:', error);
+      throw error;
+    }
+  };
+
+  const getProjectMembers = async (projectId: string): Promise<ProjectMember[]> => {
+    try {
+      console.log('👥 Getting project members for:', projectId);
+      const response = await api.getProjectMembers(projectId);
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+      } else {
+        throw new Error(response.error || 'Failed to get project members');
+      }
+    } catch (error) {
+      console.error('Failed to get project members:', error);
+      throw error;
+    }
+  };
+
+  const createTask = async (projectId: string, taskData: CreateTaskRequest) => {
+    try {
+      console.log('📋 Creating task for project:', projectId);
+      const response = await api.createTask(projectId, taskData);
+      console.log('📋 Create task response:', response);
+      
+      if (response.success && response.data) {
+        console.log('✅ Task created successfully:', response.data);
+        return {
+          success: true,
+          data: response.data
+        };
+      } else {
+        console.error('❌ Failed to create task:', response.error);
+        return {
+          success: false,
+          error: response.error || 'Failed to create task'
+        };
+      }
+    } catch (error) {
+      console.error('❌ Error creating task:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to create task'
+      };
+    }
+  };
+
+  const updateTask = async (taskId: string, updates: UpdateTaskRequest) => {
+    try {
+      console.log('📋 Updating task:', taskId);
+      const response = await api.updateTask(taskId, updates);
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+      } else {
+        throw new Error(response.error || 'Failed to update task');
+      }
+    } catch (error) {
+      console.error('Failed to update task:', error);
+      throw error;
+    }
+  };
+
+  const deleteTask = async (taskId: string): Promise<void> => {
+    try {
+      console.log('📋 Deleting task:', taskId);
+      console.log('🔍 Current user:', user?.id);
+      const response = await api.deleteTask(taskId);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to delete task');
+      }
+    } catch (error) {
+      console.error('Failed to delete task:', error);
+      throw error;
+    }
+  };
+
+  const assignTaskService = async (projectId: string, taskId: string, assignment: AssignTaskServiceRequest) => {
+    try {
+      console.log('📋 Assigning task service:', taskId);
+      // Convert service_role to UserRole type
+      const apiAssignment = {
+        ...assignment,
+        service_role: assignment.service_role as any, // Type assertion for now
+      };
+      const response = await api.assignTaskService(projectId, taskId, apiAssignment);
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+      } else {
+        throw new Error(response.error || 'Failed to assign task service');
+      }
+    } catch (error) {
+      console.error('Failed to assign task service:', error);
+      throw error;
+    }
+  };
+
+  const updateTaskStatus = async (taskId: string, status: UpdateTaskStatusRequest) => {
+    try {
+      console.log('📋 Updating task status:', taskId);
+      const response = await api.updateTaskStatus(taskId, status);
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+      } else {
+        throw new Error(response.error || 'Failed to update task status');
+      }
+    } catch (error) {
+      console.error('Failed to update task status:', error);
+      throw error;
+    }
+  };
+
   const value: ApiContextType = {
     api,
     isAuthenticated,
     user,
     isLoading,
     error,
+    // Guest session state
+    isGuest,
+    guestSessionId,
+    // Authentication methods
     login,
     signup,
     logout,
     forgotPassword,
     resetPassword,
+    // Guest session methods
+    createGuestSession,
+    browseUsersAsGuest,
+    convertGuestToUser,
+    getGuestSessionId,
+    // Profile methods
     updateProfile,
     updateSkills,
     getProfileCompleteness,
@@ -1209,6 +1947,21 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getSkills,
     getAbilities,
     getLanguages,
+    getServices,
+    // Roles and Categories methods
+    getRoles,
+    getCategories,
+    getRolesWithDescriptions,
+    getCategoriesWithDescriptions,
+    // User filtering methods
+    getUsersByRole,
+    getUsersByCategory,
+    getUsersByLocation,
+    // Personal team management methods
+    getMyTeam,
+    addToMyTeam,
+    removeFromMyTeam,
+    getMyTeamMembers,
     // New skill management methods
     getAvailableSkillsNew,
     getUserSkillsNew,
@@ -1217,6 +1970,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     // Direct fetch methods
     getUsersDirect,
     fetchCompleteUserProfile,
+    // Project management methods
+    createProject,
+    getProjects,
+    getAllProjects,
+    // Task management methods
+    getProjectTasks,
+    getProjectById,
+    getProjectMembers,
+    createTask,
+    updateTask,
+    deleteTask,
+    assignTaskService,
+    updateTaskStatus,
     // Debug methods
     debugAuthState,
     clearError,

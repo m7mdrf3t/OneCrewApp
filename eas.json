@@ -11,7 +11,13 @@
     "preview": {
       "distribution": "internal"
     },
+    "internal": {
+      "distribution": "internal",
+      "developmentClient": false
+    },
     "production": {
+      "distribution": "store",
+      "developmentClient": false,
       "autoIncrement": true
     }
   },

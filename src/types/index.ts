@@ -65,7 +65,6 @@ export interface HomePageProps {
 }
 
 export interface ProjectsPageProps {
-  projects: any[];
   onProjectSelect: (project: any) => void;
   onAddNewProject: () => void;
   onAddNewProjectEasy: () => void;
@@ -74,6 +73,10 @@ export interface ProjectsPageProps {
   onBack: () => void;
   myTeam: any[];
   onProfileSelect: (profile: any) => void;
+  onNavigateToProjectDetail?: (project: any) => void;
+  onRefresh?: () => void;
+  onNavigateToSignup?: () => void;
+  onNavigateToLogin?: () => void;
 }
 
 export interface ProfileDetailPageProps {
@@ -85,4 +88,233 @@ export interface ProfileDetailPageProps {
   onStartChat: (profile: any) => void;
   onMediaSelect: (media: any) => void;
   isCurrentUser?: boolean;
+}
+
+// Task Management Types (from onecrew-api-client v1.5.0)
+export interface Task {
+  id: string;
+  project_id: string;
+  title: string;
+  service?: string;
+  timeline_text?: string;
+  status: TaskStatus;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type TaskStatus = 'pending' | 'on_hold' | 'in_progress' | 'completed' | 'cancelled';
+export type ProjectStatus = 'planning' | 'in_production' | 'completed' | 'on_hold' | 'cancelled';
+
+export interface TaskAssignment {
+  id: string;
+  task_id: string;
+  user_id: string;
+  service_role: string;
+  assigned_at: string;
+}
+
+export interface TaskWithAssignments extends Task {
+  assignments: TaskAssignment[];
+  assigned_users: Array<{
+    user_id: string;
+    service_role: string;
+    user: { name: string; image_url?: string };
+  }>;
+}
+
+export interface ProjectMember {
+  project_id: string;
+  user_id: string;
+  added_at: string;
+  last_activity?: string;
+}
+
+export interface ProjectWithDetails {
+  id: string;
+  title?: string;
+  description?: string;
+  type?: string;
+  start_date?: string;
+  end_date?: string;
+  delivery_date?: string;
+  one_day_shoot: boolean;
+  status: 'planning' | 'in_production' | 'completed' | 'on_hold' | 'cancelled';
+  progress: number;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  members: ProjectMember[];
+  tasks: TaskWithAssignments[];
+  created_by_user?: {
+    name: string;
+    image_url?: string;
+  };
+}
+
+// Guest Session Types
+export interface GuestSessionData {
+  sessionId: string;
+  expiresAt: string;
+  isActive: boolean;
+}
+
+export interface ConvertGuestToUserRequest {
+  sessionId: string;
+  userData: {
+    name: string;
+    email: string;
+    password: string;
+    category: 'crew' | 'talent' | 'company';
+    primary_role?: string;
+  };
+}
+
+// Task Management Props
+export interface ProjectDetailPageProps {
+  project: ProjectWithDetails;
+  onBack: () => void;
+  onCreateTask: (taskData: CreateTaskRequest) => Promise<void>;
+  onUpdateTask: (taskId: string, updates: UpdateTaskRequest) => Promise<void>;
+  onDeleteTask: (taskId: string) => Promise<void>;
+  onAssignTask: (projectId: string, taskId: string, assignment: AssignTaskServiceRequest) => Promise<void>;
+  onUpdateTaskStatus: (taskId: string, status: UpdateTaskStatusRequest) => Promise<void>;
+}
+
+export interface TaskCardProps {
+  task: TaskWithAssignments;
+  onEdit: (task: TaskWithAssignments) => void;
+  onDelete: (taskId: string) => void;
+  onAssign: (task: TaskWithAssignments) => void;
+  onUpdateStatus: (taskId: string, status: TaskStatus) => void;
+  canEdit: boolean;
+}
+
+export interface CreateTaskModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit: (taskData: CreateTaskRequest) => Promise<void>;
+  projectMembers: ProjectMember[];
+  editingTask?: TaskWithAssignments;
+  projectId: string;
+}
+
+export interface CreateTaskRequest {
+  title: string;
+  service?: string;
+  timeline_text?: string;
+  status?: TaskStatus;
+  sort_order?: number;
+}
+
+export interface UpdateTaskRequest {
+  title?: string;
+  service?: string;
+  timeline_text?: string;
+  status?: TaskStatus;
+  sort_order?: number;
+}
+
+export interface AssignTaskServiceRequest {
+  user_id: string;
+  service_role: string;
+}
+
+export interface UpdateTaskStatusRequest {
+  status: TaskStatus;
+}
+
+// Project Creation Types
+export interface ProjectStage {
+  id: string;
+  name: string;
+  description: string;
+  order: number;
+  startDate?: string;
+  endDate?: string;
+  isSelected: boolean;
+}
+
+export interface ProjectType {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface ProjectCreationData {
+  title: string;
+  type: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  location: string;
+  budget?: number;
+  status: ProjectStatus;
+  stages: ProjectStage[];
+}
+
+export interface TaskAssignment {
+  id: string;
+  task_id: string;
+  user_id: string;
+  service_role: string;
+  assigned_at: string;
+  // Additional UI-specific fields
+  userId?: string;
+  userName?: string;
+  userRole?: string;
+  stageId?: string;
+  stageName?: string;
+  taskTitle?: string;
+  inTime?: string;
+  outTime?: string;
+  location?: string;
+  description?: string;
+  status?: TaskStatus;
+  attendees?: string[];
+  createdAt?: string;
+}
+
+export interface ProjectDashboardData {
+  project: ProjectCreationData;
+  assignments: TaskAssignment[];
+  stages: ProjectStage[];
+  messages: any[];
+  legalServices: any[];
+}
+
+// Modal Props
+export interface ProjectCreationModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit: (data: ProjectCreationData) => Promise<void>;
+}
+
+export interface TaskAssignmentModalProps {
+  visible: boolean;
+  onClose: () => void;
+  stage: ProjectStage;
+  onAssign: (assignment: TaskAssignment) => Promise<void>;
+}
+
+export interface SearchModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (user: any) => void;
+  preFilterRole?: string;
+  preFilterService?: string;
+}
+
+export interface TaskDetailsFormProps {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit: (taskData: Partial<TaskAssignment>) => Promise<void>;
+  assignedUser?: any;
+  stage: ProjectStage;
+}
+
+export interface ProjectDashboardProps {
+  project: ProjectDashboardData;
+  onUpdateProject: (data: ProjectDashboardData) => void;
+  onBack: () => void;
 }
