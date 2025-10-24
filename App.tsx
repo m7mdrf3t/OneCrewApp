@@ -41,7 +41,7 @@ import { NavigationState, User, ProjectCreationData, ProjectDashboardData } from
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -248,20 +248,37 @@ const AppContent: React.FC = () => {
   const handleSaveProjectDetails = useCallback(async (updatedProject: any) => {
     try {
       console.log('💾 Saving project details:', updatedProject);
-      // Here you would call the API to update the project
-      // await api.updateProject(updatedProject.id, updatedProject);
-      setSelectedProject(updatedProject);
-      console.log('✅ Project details saved successfully');
+      // Call the API to update the project
+      const response = await updateProject(updatedProject.id, updatedProject);
+      if (response.success) {
+        setSelectedProject(updatedProject);
+        console.log('✅ Project details saved successfully');
+      } else {
+        throw new Error(response.error || 'Failed to update project');
+      }
     } catch (error) {
       console.error('Failed to save project details:', error);
       throw error;
     }
-  }, []);
+  }, [updateProject]);
 
   const handleRefreshProjects = useCallback(() => {
     console.log('🔄 Refreshing projects list...');
     // The ProjectsPage will handle the actual refresh
   }, []);
+
+  const handleRefreshProject = useCallback(async () => {
+    if (!selectedProject?.id) return;
+    
+    try {
+      console.log('🔄 Refreshing project data for:', selectedProject.id);
+      const latestProjectData = await getProjectById(selectedProject.id);
+      console.log('✅ Project data refreshed:', latestProjectData);
+      setSelectedProject(latestProjectData);
+    } catch (error) {
+      console.error('❌ Failed to refresh project data:', error);
+    }
+  }, [selectedProject?.id, getProjectById]);
 
   // User menu handlers
   const handleUserMenuPress = useCallback(() => {
@@ -297,13 +314,22 @@ const AppContent: React.FC = () => {
   const handleNavigateToProjectDetail = useCallback(async (projectData: any) => {
     try {
       console.log('📋 Navigating to project dashboard:', projectData.id);
-      setSelectedProject(projectData);
+      
+      // Fetch the latest project data from the database
+      console.log('🔄 Fetching latest project data from database...');
+      const latestProjectData = await getProjectById(projectData.id);
+      console.log('✅ Latest project data loaded:', latestProjectData);
+      
+      setSelectedProject(latestProjectData);
       setShowProjectDashboard(true);
     } catch (error) {
       console.error('Failed to load project details:', error);
-      Alert.alert('Error', 'Failed to load project details');
+      // Fallback to the original project data if database fetch fails
+      setSelectedProject(projectData);
+      setShowProjectDashboard(true);
+      Alert.alert('Warning', 'Using cached project data. Some information may be outdated.');
     }
-  }, []);
+  }, [getProjectById]);
 
   const handleAddNewProject = useCallback(() => {
     navigateTo('newProject', null);
@@ -739,6 +765,7 @@ const AppContent: React.FC = () => {
               project={selectedProject}
               onBack={() => setShowProjectDashboard(false)}
               onEditProjectDetails={handleEditProjectDetails}
+              onRefreshProject={handleRefreshProject}
             />
           </View>
         )}

@@ -70,6 +70,7 @@ interface ApiContextType {
   fetchCompleteUserProfile: (userId: string, userData?: any) => Promise<any>;
   // Project management methods
   createProject: (projectData: any) => Promise<any>;
+  updateProject: (projectId: string, updates: any) => Promise<any>;
   getProjects: () => Promise<any[]>;
   getAllProjects: () => Promise<any[]>;
   getProjectTasks: (projectId: string) => Promise<TaskWithAssignments[]>;
@@ -1744,6 +1745,22 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const updateProject = async (projectId: string, updates: any) => {
+    try {
+      console.log('📝 Updating project:', projectId, updates);
+      const response = await api.updateProject(projectId, updates);
+      if (response.success && response.data) {
+        console.log('✅ Project updated successfully:', response.data);
+        return response;
+      } else {
+        throw new Error(response.error || 'Failed to update project');
+      }
+    } catch (error) {
+      console.error('Failed to update project:', error);
+      throw error;
+    }
+  };
+
   const getProjects = async (): Promise<any[]> => {
     try {
       console.log('📋 Getting user projects');
@@ -1999,6 +2016,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     fetchCompleteUserProfile,
     // Project management methods
     createProject,
+    updateProject,
     getProjects,
     getAllProjects,
     // Task management methods

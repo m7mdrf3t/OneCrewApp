@@ -19,12 +19,14 @@ interface ProjectDashboardProps {
   project: any;
   onBack: () => void;
   onEditProjectDetails: () => void;
+  onRefreshProject?: () => void;
 }
 
 const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   project,
   onBack,
   onEditProjectDetails,
+  onRefreshProject,
 }) => {
   const { getProjectById, getProjectTasks, getTaskAssignments } = useApi();
   const [selectedTab, setSelectedTab] = useState('details');
@@ -38,8 +40,20 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
   // Load tasks when component mounts
   useEffect(() => {
+    loadProjectData(); // Load latest project data
     loadTasks(true); // Replace existing tasks on initial load
   }, [project.id]);
+
+  const loadProjectData = async () => {
+    try {
+      console.log('📋 Loading latest project data for:', project.id);
+      const latestProjectData = await getProjectById(project.id);
+      console.log('✅ Latest project data loaded:', latestProjectData);
+      // Note: We can't update the project prop directly, but we can use this data for display
+    } catch (error) {
+      console.error('❌ Failed to load latest project data:', error);
+    }
+  };
 
   const loadTasks = async (replaceExisting = false) => {
     if (!project.id) return;
@@ -347,7 +361,12 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         </TouchableOpacity>
         <Text style={styles.title}>{project?.title || 'Project 1'}</Text>
         <TouchableOpacity 
-          onPress={() => loadTasks(true)} 
+          onPress={() => {
+            loadTasks(true);
+            if (onRefreshProject) {
+              onRefreshProject();
+            }
+          }} 
           style={styles.refreshButton}
           disabled={isLoadingTasks}
         >

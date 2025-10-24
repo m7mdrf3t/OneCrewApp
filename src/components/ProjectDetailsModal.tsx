@@ -66,8 +66,9 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({
         description: formData.description.trim(),
         type: formData.type,
         status: formData.status,
-        start_date: formData.startDate,
-        end_date: formData.endDate,
+        start_date: formData.startDate ? new Date(formData.startDate).toISOString() : undefined,
+        end_date: formData.endDate ? new Date(formData.endDate).toISOString() : undefined,
+        delivery_date: formData.endDate ? new Date(formData.endDate).toISOString() : undefined,
       };
 
       await onSave(updatedProject);

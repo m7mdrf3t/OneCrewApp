@@ -232,15 +232,11 @@ const TaskCard: React.FC<TaskCardProps> = ({
   };
 
   const handleCreateTask = async () => {
-    if (!taskTitle.trim()) {
-      return;
-    }
-
     setIsCreatingTask(true);
     try {
       console.log('🔍 Creating task with data:', {
         projectId,
-        title: taskTitle.trim(),
+        description: taskTitle.trim() || 'No description provided',
         type: taskType,
         service: selectedService,
         members: selectedMembers,
@@ -253,7 +249,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
       const taskData = {
         project_id: projectId,
         title: stageName, // Use stage name as title for categorization
-        description: `Task for ${taskType} - ${selectedService?.name || 'No role assigned'}`,
+        description: taskTitle.trim() || `Task for ${taskType} - ${selectedService?.name || 'No role assigned'}`,
         status: taskStatus as any, // Cast to any to avoid type issues
         priority: 'medium' as any,
         due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
@@ -400,7 +396,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
           style={styles.titleInput}
           value={taskTitle}
           onChangeText={setTaskTitle}
-          placeholder="Enter task description..."
+          placeholder="Enter task description (optional)..."
           placeholderTextColor="#9ca3af"
         />
       </View>
@@ -456,11 +452,10 @@ const TaskCard: React.FC<TaskCardProps> = ({
       <View style={styles.divider} />
 
       {/* Requirements Helper Text */}
-      {(!taskTitle.trim() || !currentService || selectedMembers.length === 0) && (
+      {(!currentService || selectedMembers.length === 0) && (
         <View style={styles.requirementsContainer}>
           <Text style={styles.requirementsText}>
-            Required: {!taskTitle.trim() && 'Task title, '}
-            {!currentService && 'Role, '}
+            Required: {!currentService && 'Role, '}
             {selectedMembers.length === 0 && 'At least one user'}
           </Text>
         </View>
@@ -486,9 +481,9 @@ const TaskCard: React.FC<TaskCardProps> = ({
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.createButton, (!taskTitle.trim() || !currentService || selectedMembers.length === 0 || isCreatingTask) && styles.createButtonDisabled]}
+          style={[styles.createButton, (!currentService || selectedMembers.length === 0 || isCreatingTask) && styles.createButtonDisabled]}
           onPress={handleCreateTask}
-          disabled={!taskTitle.trim() || !currentService || selectedMembers.length === 0 || isCreatingTask}
+          disabled={!currentService || selectedMembers.length === 0 || isCreatingTask}
         >
           {isCreatingTask ? (
             <View style={styles.createButtonLoading}>
@@ -496,7 +491,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
               <Text style={styles.createButtonText}>Creating...</Text>
             </View>
           ) : (
-            <Text style={[styles.createButtonText, (!taskTitle.trim() || !currentService || selectedMembers.length === 0) && styles.createButtonTextDisabled]}>Create Task</Text>
+            <Text style={[styles.createButtonText, (!currentService || selectedMembers.length === 0) && styles.createButtonTextDisabled]}>Create Task</Text>
           )}
         </TouchableOpacity>
       </View>
