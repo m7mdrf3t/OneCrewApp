@@ -17,10 +17,23 @@ interface TaskCardProps {
   projectId: string;
   onTaskCreated: (task: any) => void;
   onCancel: () => void;
+  isExpanded?: boolean;
+  onToggleExpanded?: () => void;
+  task?: any; // For editing existing tasks
+  isEditing?: boolean;
 }
 
-const TaskCard: React.FC<TaskCardProps> = ({ taskType, projectId, onTaskCreated, onCancel }) => {
-  const { getUsersDirect, getRoles, getUsersByRole, createTask } = useApi();
+const TaskCard: React.FC<TaskCardProps> = ({ 
+  taskType, 
+  projectId, 
+  onTaskCreated, 
+  onCancel, 
+  isExpanded = false, 
+  onToggleExpanded,
+  task,
+  isEditing = false 
+}) => {
+  const { getUsersDirect, getRoles, getUsersByRole, createTask, assignTaskService } = useApi();
   const [taskTitle, setTaskTitle] = useState('');
   const [selectedService, setSelectedService] = useState<any>(null);
   const [selectedMembers, setSelectedMembers] = useState<any[]>([]);
@@ -35,6 +48,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ taskType, projectId, onTaskCreated,
   const [taskStatus, setTaskStatus] = useState('pending');
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [isExpandedLocal, setIsExpandedLocal] = useState(isExpanded);
 
   // Load services when component mounts
   useEffect(() => {
@@ -209,6 +223,14 @@ const TaskCard: React.FC<TaskCardProps> = ({ taskType, projectId, onTaskCreated,
     setShowStatusModal(false);
   };
 
+  const handleToggleExpanded = () => {
+    const newExpanded = !isExpandedLocal;
+    setIsExpandedLocal(newExpanded);
+    if (onToggleExpanded) {
+      onToggleExpanded();
+    }
+  };
+
   const handleCreateTask = async () => {
     if (!taskTitle.trim()) {
       return;
@@ -226,9 +248,11 @@ const TaskCard: React.FC<TaskCardProps> = ({ taskType, projectId, onTaskCreated,
       });
 
       // Create the task via API
+      // Use the stage name as the task title for categorization
+      const stageName = taskType; // taskType is the stage name (e.g., "pre_production", "development")
       const taskData = {
         project_id: projectId,
-        title: taskTitle.trim(),
+        title: stageName, // Use stage name as title for categorization
         description: `Task for ${taskType} - ${selectedService?.name || 'No role assigned'}`,
         status: taskStatus as any, // Cast to any to avoid type issues
         priority: 'medium' as any,
@@ -240,11 +264,50 @@ const TaskCard: React.FC<TaskCardProps> = ({ taskType, projectId, onTaskCreated,
       if (response.success && response.data) {
         console.log('✅ Task created successfully:', response.data);
         
+        // If we have a service and members, assign them to the task
+        if (selectedService && selectedMembers.length > 0) {
+          try {
+            console.log('🔍 Assigning service and members to task:', {
+              taskId: response.data.id,
+              projectId,
+              serviceRole: selectedService.name,
+              userId: selectedMembers[0].id,
+              selectedMembers: selectedMembers.map(m => ({ id: m.id, name: m.name }))
+            });
+            
+            // Assign service to task
+            const assignResponse = await assignTaskService(projectId, response.data.id, {
+              service_role: selectedService.name,
+              user_id: selectedMembers[0].id // Assign first member as primary
+            });
+            
+            console.log('✅ Service assignment response:', assignResponse);
+            console.log('✅ Service and members assigned successfully');
+          } catch (assignError) {
+            console.error('❌ Failed to assign service/members:', assignError);
+            console.error('❌ Assign error details:', {
+              error: assignError,
+              taskId: response.data.id,
+              projectId,
+              serviceRole: selectedService.name,
+              userId: selectedMembers[0].id
+            });
+            // Continue anyway - task is created
+          }
+        } else {
+          console.log('⚠️ No service or members to assign:', {
+            hasService: !!selectedService,
+            hasMembers: selectedMembers.length > 0,
+            selectedService: selectedService?.name,
+            selectedMembers: selectedMembers.map(m => ({ id: m.id, name: m.name }))
+          });
+        }
+        
         // Create the local task object for UI
         const newTask = {
           id: response.data.id || Date.now().toString(),
-          type: taskType,
-          title: taskTitle.trim(),
+          type: taskType, // Keep type for backward compatibility
+          title: stageName, // Use stage name as title for categorization
           service: selectedService,
           members: selectedMembers,
           status: taskStatus,
@@ -295,24 +358,41 @@ const TaskCard: React.FC<TaskCardProps> = ({ taskType, projectId, onTaskCreated,
 
   return (
     <View style={styles.taskCard}>
-      {/* Task Header */}
-      <View style={styles.taskHeader}>
+      {/* Task Header - Always visible */}
+      <TouchableOpacity 
+        style={styles.taskHeader}
+        onPress={handleToggleExpanded}
+        activeOpacity={0.7}
+      >
         <View style={styles.taskHeaderLeft}>
           <Ionicons name="create" size={20} color="#fff" />
-          <Text style={styles.taskTypeText}>{taskType.charAt(0).toUpperCase() + taskType.slice(1)}</Text>
+          <Text style={styles.taskTypeText}>
+            Create Task for {taskType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+          </Text>
         </View>
         <View style={styles.taskHeaderRight}>
           <TouchableOpacity 
             style={styles.statusBadge}
-            onPress={() => setShowStatusModal(true)}
+            onPress={(e) => {
+              e.stopPropagation();
+              setShowStatusModal(true);
+            }}
           >
             <Text style={styles.statusText}>{taskStatus.charAt(0).toUpperCase() + taskStatus.slice(1)}</Text>
             <Ionicons name="chevron-down" size={16} color="#fff" style={styles.statusIcon} />
           </TouchableOpacity>
-          <Ionicons name="ellipsis-vertical" size={20} color="#fff" style={styles.headerIcon} />
-          <Ionicons name="chatbubble" size={20} color="#fff" />
+          <Ionicons 
+            name={isExpandedLocal ? "chevron-up" : "chevron-down"} 
+            size={20} 
+            color="#fff" 
+            style={styles.expandIcon} 
+          />
         </View>
-      </View>
+      </TouchableOpacity>
+
+      {/* Expandable Content */}
+      {isExpandedLocal && (
+        <View style={styles.expandableContent}>
 
       {/* Task Title Input */}
       <View style={styles.inputContainer}>
@@ -320,7 +400,7 @@ const TaskCard: React.FC<TaskCardProps> = ({ taskType, projectId, onTaskCreated,
           style={styles.titleInput}
           value={taskTitle}
           onChangeText={setTaskTitle}
-          placeholder="Enter task title..."
+          placeholder="Enter task description..."
           placeholderTextColor="#9ca3af"
         />
       </View>
@@ -420,6 +500,8 @@ const TaskCard: React.FC<TaskCardProps> = ({ taskType, projectId, onTaskCreated,
           )}
         </TouchableOpacity>
       </View>
+        </View>
+      )}
 
       {/* Service Selection Modal */}
       <Modal
@@ -848,6 +930,18 @@ const styles = StyleSheet.create({
   statusItemTextSelected: {
     color: '#3b82f6',
     fontWeight: '600',
+  },
+  expandableContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  taskTitlePreview: {
+    color: '#fff',
+    fontSize: 14,
+    opacity: 0.8,
+  },
+  expandIcon: {
+    marginLeft: 8,
   },
 });
 

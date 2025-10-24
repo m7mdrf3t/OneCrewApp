@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import OneCrewApi, { User, AuthResponse, LoginRequest, SignupRequest, ApiError } from 'onecrew-api-client';
 import { 
   GuestSessionData, 
@@ -80,6 +81,7 @@ interface ApiContextType {
   deleteTask: (taskId: string) => Promise<void>;
   assignTaskService: (projectId: string, taskId: string, assignment: AssignTaskServiceRequest) => Promise<any>;
   updateTaskStatus: (taskId: string, status: UpdateTaskStatusRequest) => Promise<any>;
+  getTaskAssignments: (projectId: string, taskId: string) => Promise<any>;
   // Debug methods
   debugAuthState: () => any;
   clearError: () => void;
@@ -1794,9 +1796,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('📋 Getting project details for:', projectId);
       const response = await api.getProjectById(projectId);
+      console.log('📋 Project details response:', response);
+      
       if (response.success && response.data) {
-        // Handle both array and paginated response
-        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+        // getProjectById should return a single project object, not an array
+        return response.data;
       } else {
         throw new Error(response.error || 'Failed to get project details');
       }
@@ -1917,6 +1921,29 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const getTaskAssignments = async (projectId: string, taskId: string) => {
+    try {
+      console.log('📋 Getting task assignments:', projectId, taskId);
+      const response = await api.getTaskAssignments(projectId, taskId);
+      
+      if (response.success && response.data) {
+        return {
+          success: true,
+          data: response.data
+        };
+      } else {
+        throw new Error(response.error || 'Failed to get task assignments');
+      }
+    } catch (error) {
+      console.error('Failed to get task assignments:', error);
+      return {
+        success: false,
+        data: [],
+        error: error instanceof Error ? error.message : 'Failed to get task assignments'
+      };
+    }
+  };
+
   const value: ApiContextType = {
     api,
     isAuthenticated,
@@ -1983,6 +2010,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     deleteTask,
     assignTaskService,
     updateTaskStatus,
+    getTaskAssignments,
     // Debug methods
     debugAuthState,
     clearError,
