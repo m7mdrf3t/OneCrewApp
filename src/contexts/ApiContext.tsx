@@ -101,6 +101,8 @@ interface ApiContextType {
   addPortfolioItem: (item: { kind: 'image' | 'video'; url: string; caption?: string; sort_order?: number }) => Promise<any>;
   updatePortfolioItem: (itemId: string, updates: { caption?: string; sort_order?: number }) => Promise<any>;
   removePortfolioItem: (itemId: string) => Promise<any>;
+  // File upload methods
+  uploadFile: (file: { uri: string; type: string; name: string }) => Promise<any>;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
@@ -1879,6 +1881,71 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // File upload methods
+  const uploadFile = async (file: { uri: string; type: string; name: string }) => {
+    try {
+      console.log('📤 Uploading file:', file.name, file.type);
+      
+      // Use the correct endpoint /api/media/upload instead of /api/upload
+      const formData = new FormData();
+      formData.append('file', {
+        uri: file.uri,
+        type: file.type,
+        name: file.name,
+      } as any);
+      
+      // Add required media_type field based on file type
+      const mediaType = file.type.startsWith('image/') ? 'image' : 
+                       file.type.startsWith('video/') ? 'video' : 
+                       file.type.startsWith('audio/') ? 'audio' : 'image';
+      formData.append('media_type', mediaType);
+
+      // Debug: Log what we're sending
+      console.log('🔍 FormData file object:', {
+        uri: file.uri,
+        type: file.type,
+        name: file.name,
+        media_type: mediaType,
+      });
+
+      const accessToken = getAccessToken();
+      
+      // Don't set Content-Type manually - let fetch() handle it with proper boundary
+      const response = await fetch('https://onecrewbe-production.up.railway.app/api/media/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          // Remove Content-Type - let fetch() set it automatically
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ Upload failed with status:', response.status);
+        console.error('❌ Response:', result);
+        throw new Error(result.error || `Upload failed with status ${response.status}`);
+      }
+
+      console.log('✅ File uploaded successfully:', result);
+      
+      // The backend returns the URL in result.data.file_url, not result.data.url
+      const uploadResponse = {
+        url: result.data.file_url,
+        filename: result.data.title || file.name,
+        size: result.data.file_size,
+        type: result.data.media_type,
+      };
+      
+      console.log('🔗 Extracted upload response:', uploadResponse);
+      return { data: uploadResponse };
+    } catch (error: any) {
+      console.error('❌ Failed to upload file:', error);
+      throw error;
+    }
+  };
+
   // Guest session methods
   const createGuestSession = async (): Promise<GuestSessionData> => {
     try {
@@ -2349,6 +2416,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     addPortfolioItem,
     updatePortfolioItem,
     removePortfolioItem,
+    // File upload methods
+    uploadFile,
   };
 
   return (

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking, Modal, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Video } from 'expo-av';
 import { ProfileDetailPageProps } from '../types';
 import { getInitials } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
@@ -23,6 +24,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileCompleteness, setProfileCompleteness] = useState(0);
+  const [selectedMedia, setSelectedMedia] = useState<any>(null);
+  const [isMediaModalVisible, setIsMediaModalVisible] = useState(false);
 
   // Fetch fresh user data if we have a user ID
   useEffect(() => {
@@ -192,10 +195,14 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             onlineStatus: (response.data as any).onlineStatus || response.data.online_last_seen || 'Last seen recently',
             about: (response.data as any).about || {
               gender: 'unknown'
-            }
+            },
+            // Map user_portfolios to portfolio for the UI
+            portfolio: (response.data as any).user_portfolios || (response.data as any).portfolio || []
           };
           
           console.log('🔍 Final transformed profile skills:', transformedProfile.skills);
+          console.log('🔍 Portfolio data from API:', (response.data as any).user_portfolios);
+          console.log('🔍 Mapped portfolio data:', transformedProfile.portfolio);
           setUserProfile(transformedProfile);
         } else {
           console.error('Failed to fetch user profile:', response.error);
@@ -243,6 +250,25 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
   const handleProfileUpdated = (updatedProfile: any) => {
     setUserProfile(updatedProfile);
+  };
+
+  // Helper functions to separate images and videos
+  const getImages = () => {
+    return (userProfile.portfolio || []).filter((item: any) => item.kind === 'image');
+  };
+
+  const getVideos = () => {
+    return (userProfile.portfolio || []).filter((item: any) => item.kind === 'video');
+  };
+
+  const openMediaModal = (media: any) => {
+    setSelectedMedia(media);
+    setIsMediaModalVisible(true);
+  };
+
+  const closeMediaModal = () => {
+    setSelectedMedia(null);
+    setIsMediaModalVisible(false);
   };
 
   // Show loading state
@@ -368,44 +394,64 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             <Text style={styles.bio}>{userProfile.bio || 'No bio available'}</Text>
           </View>
 
-          {/* Portfolio Section */}
-          {userProfile.portfolio && userProfile.portfolio.length > 0 && (
-            <View style={styles.portfolioContainer}>
-              <Text style={styles.sectionHeader}>Portfolio</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.portfolioScroll}>
-                {userProfile.portfolio.map((item: any, index: number) => (
+          {/* Images Section */}
+          {getImages().length > 0 && (
+            <View style={styles.mediaContainer}>
+              <Text style={styles.sectionHeader}>Images ({getImages().length})</Text>
+              <View style={styles.imageGrid}>
+                {getImages().map((item: any, index: number) => (
                   <TouchableOpacity
                     key={index}
-                    style={styles.portfolioItem}
-                    onPress={() => onMediaSelect?.(item)}
+                    style={styles.imageGridItem}
+                    onPress={() => openMediaModal(item)}
                   >
-                    <View style={styles.portfolioItemHeader}>
-                      <Text style={styles.portfolioItemType}>
-                        {item.kind === 'image' ? '📷' : '🎥'}
-                      </Text>
-                    </View>
-                    
-                    {/* Show image preview if it's an image */}
-                    {item.kind === 'image' && item.url ? (
-                      <Image 
-                        source={{ uri: item.url }} 
-                        style={styles.portfolioItemImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <Text style={styles.portfolioItemUrl} numberOfLines={2}>
-                        {item.url}
-                      </Text>
-                    )}
-                    
+                    <Image 
+                      source={{ uri: item.url }} 
+                      style={styles.imageThumbnail}
+                      resizeMode="cover"
+                    />
                     {item.caption && (
-                      <Text style={styles.portfolioItemCaption} numberOfLines={2}>
+                      <Text style={styles.imageCaption} numberOfLines={2}>
                         {item.caption}
                       </Text>
                     )}
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
+            </View>
+          )}
+
+          {/* Videos Section */}
+          {getVideos().length > 0 && (
+            <View style={styles.mediaContainer}>
+              <Text style={styles.sectionHeader}>Videos ({getVideos().length})</Text>
+              <View style={styles.videoGrid}>
+                {getVideos().map((item: any, index: number) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.videoGridItem}
+                    onPress={() => openMediaModal(item)}
+                  >
+                    <View style={styles.videoThumbnailContainer}>
+                      <Video
+                        source={{ uri: item.url }}
+                        style={styles.videoThumbnail}
+                        shouldPlay={false}
+                        isLooping={false}
+                        isMuted={true}
+                      />
+                      <View style={styles.playButtonOverlay}>
+                        <Ionicons name="play" size={32} color="#fff" />
+                      </View>
+                    </View>
+                    {item.caption && (
+                      <Text style={styles.videoCaption} numberOfLines={2}>
+                        {item.caption}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
           )}
 
@@ -649,6 +695,48 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           </View>
         </View>
       </ScrollView>
+
+      {/* Media Modal */}
+      <Modal
+        visible={isMediaModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closeMediaModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <TouchableOpacity style={styles.closeButton} onPress={closeMediaModal}>
+              <Ionicons name="close" size={30} color="#fff" />
+            </TouchableOpacity>
+            
+            {selectedMedia && (
+              <>
+                {selectedMedia.kind === 'image' ? (
+                  <Image
+                    source={{ uri: selectedMedia.url }}
+                    style={styles.modalImage}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <Video
+                    source={{ uri: selectedMedia.url }}
+                    style={styles.modalVideo}
+                    shouldPlay={true}
+                    isLooping={true}
+                    isMuted={false}
+                  />
+                )}
+                
+                {selectedMedia.caption && (
+                  <View style={styles.modalCaptionContainer}>
+                    <Text style={styles.modalCaption}>{selectedMedia.caption}</Text>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
     </View>
   );
@@ -1018,6 +1106,121 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9ca3af',
     fontStyle: 'italic',
+  },
+  // Media sections styles
+  mediaContainer: {
+    marginBottom: 24,
+  },
+  imageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  imageGridItem: {
+    width: (Dimensions.get('window').width - 48 - 16) / 3, // 3 columns with gaps
+    aspectRatio: 1,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  imageThumbnail: {
+    width: '100%',
+    height: '80%',
+  },
+  imageCaption: {
+    fontSize: 10,
+    color: '#6b7280',
+    padding: 4,
+    textAlign: 'center',
+  },
+  videoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  videoGridItem: {
+    width: (Dimensions.get('window').width - 48 - 16) / 2, // 2 columns for videos
+    aspectRatio: 16/9,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  videoThumbnailContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  videoThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  playButtonOverlay: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -16 }, { translateY: -16 }],
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoCaption: {
+    fontSize: 10,
+    color: '#6b7280',
+    padding: 4,
+    textAlign: 'center',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '90%',
+    height: '80%',
+    position: 'relative',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  modalVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  modalCaptionContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 16,
+  },
+  modalCaption: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
   },
 });
 

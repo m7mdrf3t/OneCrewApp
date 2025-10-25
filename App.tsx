@@ -726,7 +726,7 @@ const AppContent: React.FC = () => {
           {page.name === 'profileCompletion' && (
             <ProfileCompletionPage
               navigation={{ goBack: handleBack }}
-              user={user}
+              user={page.data || user}
               onProfileUpdated={() => {
                 // Refresh user data or navigate back
                 handleBack();
