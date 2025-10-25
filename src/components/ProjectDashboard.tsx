@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import TaskTypeModal from './TaskTypeModal';
 import TaskCard from './TaskCard';
+import TaskEditModal from './TaskEditModal';
 import { useApi } from '../contexts/ApiContext';
 
 interface ProjectDashboardProps {
@@ -32,6 +33,8 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   const [selectedTab, setSelectedTab] = useState('details');
   const [showTaskTypeModal, setShowTaskTypeModal] = useState(false);
   const [showTaskCard, setShowTaskCard] = useState(false);
+  const [showTaskEditModal, setShowTaskEditModal] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<any>(null);
   const [selectedTaskType, setSelectedTaskType] = useState<string>('');
   const [selectedStage, setSelectedStage] = useState<string>('');
   const [tasks, setTasks] = useState<any[]>([]);
@@ -260,8 +263,16 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
   const handleEditTask = (task: any) => {
     console.log('🔍 Editing task:', task);
-    // TODO: Implement task editing
-    Alert.alert('Edit Task', 'Task editing will be implemented soon!');
+    setSelectedTask(task);
+    setShowTaskEditModal(true);
+  };
+
+  const handleTaskUpdated = (updatedTask: any) => {
+    console.log('✅ Task updated:', updatedTask);
+    // Update the task in local state
+    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+    setShowTaskEditModal(false);
+    setSelectedTask(null);
   };
 
   const handleDeleteTask = (task: any) => {
@@ -665,6 +676,18 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         visible={showTaskTypeModal}
         onClose={() => setShowTaskTypeModal(false)}
         onSelectType={handleTaskTypeSelected}
+      />
+
+      {/* Task Edit Modal */}
+      <TaskEditModal
+        visible={showTaskEditModal}
+        onClose={() => {
+          setShowTaskEditModal(false);
+          setSelectedTask(null);
+        }}
+        onSave={handleTaskUpdated}
+        task={selectedTask}
+        projectId={project.id}
       />
     </SafeAreaView>
   );

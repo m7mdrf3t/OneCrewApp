@@ -5,9 +5,8 @@ import { ProfileDetailPageProps } from '../types';
 import { getInitials } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
 import ProfileCompletionBanner from '../components/ProfileCompletionBanner';
-import ProfileCompletionModal from '../components/ProfileCompletionModal';
 
-const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void }> = ({
+const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void; onNavigate?: (page: string, data?: any) => void }> = ({
   profile,
   onBack,
   onAssignToProject,
@@ -17,12 +16,12 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   onMediaSelect,
   isCurrentUser = false,
   onLogout,
+  onNavigate,
 }) => {
   const { api, user: currentUser } = useApi();
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [profileCompleteness, setProfileCompleteness] = useState(0);
 
   // Fetch fresh user data if we have a user ID
@@ -98,12 +97,26 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           } catch (talentError: any) {
             console.log('⚠️ Talent profile fetch failed, continuing without details:', talentError.message);
           }
+
+          // Get user skills
+          let userSkillsResponse = null;
+          try {
+            userSkillsResponse = await api.getUserSkills();
+            console.log('✅ User skills fetched:', userSkillsResponse);
+            console.log('🔍 User skills data structure:', JSON.stringify(userSkillsResponse, null, 2));
+            console.log('🔍 User skills data array:', userSkillsResponse?.data);
+            console.log('🔍 User skills data length:', userSkillsResponse?.data?.length);
+          } catch (skillsError: any) {
+            console.log('ℹ️ User skills not accessible:', skillsError.message);
+            console.log('🔍 Skills error details:', skillsError);
+          }
           
-          // Combine the data: UserDetails + Talent Profile
+          // Combine the data: UserDetails + Talent Profile + Skills
           response = {
             success: true,
             data: {
               ...userResponse.data,
+              skills: userSkillsResponse?.data || [], // Add skills data
               about: {
                 ...userDetailsResponse?.data,  // age, nationality, gender
                 ...talentProfileResponse?.data // height, weight, skin_tone, etc.
@@ -117,16 +130,56 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           try {
             response = await api.getUserByIdDirect(profile.id);
             console.log('✅ Fallback API method succeeded');
+            
+            // Try to get skills for fallback case too
+            try {
+              const userSkillsResponse = await api.getUserSkills();
+              console.log('🔍 Fallback skills response:', userSkillsResponse);
+              if (userSkillsResponse?.data && response.data) {
+                (response.data as any).skills = userSkillsResponse.data;
+                console.log('✅ Skills added to fallback response:', userSkillsResponse.data);
+              }
+            } catch (skillsError: any) {
+              console.log('ℹ️ Skills not available in fallback:', skillsError.message);
+              console.log('🔍 Fallback skills error:', skillsError);
+            }
           } catch (fallbackError: any) {
             console.log('❌ Fallback API method failed, trying regular method...', fallbackError.message);
             response = await api.getUserById(profile.id);
             console.log('✅ Regular API method succeeded');
+            
+            // Try to get skills for regular method too
+            try {
+              const userSkillsResponse = await api.getUserSkills();
+              console.log('🔍 Regular method skills response:', userSkillsResponse);
+              if (userSkillsResponse?.data && response.data) {
+                (response.data as any).skills = userSkillsResponse.data;
+                console.log('✅ Skills added to regular response:', userSkillsResponse.data);
+              }
+            } catch (skillsError: any) {
+              console.log('ℹ️ Skills not available in regular method:', skillsError.message);
+              console.log('🔍 Regular method skills error:', skillsError);
+            }
           }
         }
         
         if (response.success && response.data) {
           console.log('User profile fetched successfully');
           // Transform the data to match expected format
+          const rawSkills = (response.data as any).skills || [];
+          console.log('🔍 Raw skills from response:', rawSkills);
+          console.log('🔍 Raw skills type:', typeof rawSkills);
+          console.log('🔍 Raw skills is array:', Array.isArray(rawSkills));
+          
+          const transformedSkills = Array.isArray(rawSkills) 
+            ? rawSkills.map((skill: any) => {
+                console.log('🔍 Processing skill in ProfileDetailPage:', skill);
+                return skill.skill_name || skill.name || skill;
+              })
+            : [];
+          
+          console.log('🔍 Transformed skills:', transformedSkills);
+          
           const transformedProfile = {
             ...response.data,
             stats: (response.data as any).stats || {
@@ -134,13 +187,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               projects: 0,
               likes: '0'
             },
-            skills: (response.data as any).skills || [],
+            skills: transformedSkills,
             bio: response.data.bio || 'No bio available',
             onlineStatus: (response.data as any).onlineStatus || response.data.online_last_seen || 'Last seen recently',
             about: (response.data as any).about || {
               gender: 'unknown'
             }
           };
+          
+          console.log('🔍 Final transformed profile skills:', transformedProfile.skills);
           setUserProfile(transformedProfile);
         } else {
           console.error('Failed to fetch user profile:', response.error);
@@ -188,7 +243,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
   const handleProfileUpdated = (updatedProfile: any) => {
     setUserProfile(updatedProfile);
-    setShowCompletionModal(false);
   };
 
   // Show loading state
@@ -256,7 +310,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         {/* Profile Completion Banner */}
         <ProfileCompletionBanner
           completionPercentage={profileCompleteness}
-          onCompleteProfile={() => setShowCompletionModal(true)}
+          onCompleteProfile={() => onNavigate?.('profileCompletion', userProfile)}
           isVisible={shouldShowCompletionBanner}
         />
         
@@ -313,6 +367,84 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             <Text style={styles.sectionHeader}>About</Text>
             <Text style={styles.bio}>{userProfile.bio || 'No bio available'}</Text>
           </View>
+
+          {/* Portfolio Section */}
+          {userProfile.portfolio && userProfile.portfolio.length > 0 && (
+            <View style={styles.portfolioContainer}>
+              <Text style={styles.sectionHeader}>Portfolio</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.portfolioScroll}>
+                {userProfile.portfolio.map((item: any, index: number) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.portfolioItem}
+                    onPress={() => onMediaSelect?.(item)}
+                  >
+                    <View style={styles.portfolioItemHeader}>
+                      <Text style={styles.portfolioItemType}>
+                        {item.kind === 'image' ? '📷' : '🎥'}
+                      </Text>
+                    </View>
+                    
+                    {/* Show image preview if it's an image */}
+                    {item.kind === 'image' && item.url ? (
+                      <Image 
+                        source={{ uri: item.url }} 
+                        style={styles.portfolioItemImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text style={styles.portfolioItemUrl} numberOfLines={2}>
+                        {item.url}
+                      </Text>
+                    )}
+                    
+                    {item.caption && (
+                      <Text style={styles.portfolioItemCaption} numberOfLines={2}>
+                        {item.caption}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Social Media Links */}
+          {userProfile.social_links && userProfile.social_links.length > 0 && (
+            <View style={styles.socialLinksContainer}>
+              <Text style={styles.sectionHeader}>Social Media & Links</Text>
+              <View style={styles.socialLinksList}>
+                {userProfile.social_links.map((link: any, index: number) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.socialLinkItem}
+                    onPress={() => Linking.openURL(link.url)}
+                  >
+                    <View style={styles.socialLinkHeader}>
+                      <Text style={styles.socialLinkPlatform}>
+                        {link.platform === 'instagram' ? '📷 Instagram' :
+                         link.platform === 'twitter' ? '🐦 Twitter' :
+                         link.platform === 'facebook' ? '📘 Facebook' :
+                         link.platform === 'linkedin' ? '💼 LinkedIn' :
+                         link.platform === 'youtube' ? '📺 YouTube' :
+                         link.platform === 'tiktok' ? '🎵 TikTok' :
+                         link.platform === 'website' ? '🌐 Website' : '🔗 Other'}
+                      </Text>
+                      <Ionicons name="open-outline" size={16} color="#6b7280" />
+                    </View>
+                    <Text style={styles.socialLinkUrl} numberOfLines={1}>
+                      {link.url}
+                    </Text>
+                    {link.username && (
+                      <Text style={styles.socialLinkUsername} numberOfLines={1}>
+                        @{link.username}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
 
           {/* Talent Profile Details */}
           {userProfile.category === 'talent' && userProfile.about && (
@@ -480,7 +612,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             {isCurrentUser ? (
               <TouchableOpacity
                 style={[styles.actionButton, styles.completeProfileButton]}
-                onPress={() => setShowCompletionModal(true)}
+                onPress={() => onNavigate?.('profileCompletion', userProfile)}
               >
                 <Ionicons name="person-add" size={20} color="#fff" />
                 <Text style={styles.primaryButtonText}>
@@ -518,13 +650,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         </View>
       </ScrollView>
 
-      {/* Profile Completion Modal */}
-      <ProfileCompletionModal
-        visible={showCompletionModal}
-        onClose={() => setShowCompletionModal(false)}
-        user={userProfile}
-        onProfileUpdated={handleProfileUpdated}
-      />
     </View>
   );
 };
@@ -815,6 +940,84 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Portfolio styles
+  portfolioContainer: {
+    marginBottom: 24,
+  },
+  portfolioScroll: {
+    marginTop: 12,
+  },
+  portfolioItem: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    padding: 16,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    minWidth: 150,
+    maxWidth: 200,
+  },
+  portfolioItemImage: {
+    width: '100%',
+    height: 100,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  portfolioItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  portfolioItemType: {
+    fontSize: 16,
+  },
+  portfolioItemUrl: {
+    fontSize: 12,
+    color: '#374151',
+    marginBottom: 4,
+  },
+  portfolioItemCaption: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontStyle: 'italic',
+  },
+  // Social media styles
+  socialLinksContainer: {
+    marginBottom: 24,
+  },
+  socialLinksList: {
+    marginTop: 12,
+    gap: 8,
+  },
+  socialLinkItem: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  socialLinkHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  socialLinkPlatform: {
+    fontSize: 14,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  socialLinkUrl: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 4,
+  },
+  socialLinkUsername: {
+    fontSize: 11,
+    color: '#9ca3af',
+    fontStyle: 'italic',
   },
 });
 

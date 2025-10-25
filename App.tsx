@@ -28,6 +28,7 @@ import LegalTracker from './src/components/LegalTracker';
 import UserMenuModal from './src/components/UserMenuModal';
 import MyTeamModal from './src/components/MyTeamModal';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
+import ProfileCompletionPage from './src/pages/ProfileCompletionPage';
 import SpotPage from './src/pages/SpotPage';
 import LoginPage from './src/pages/LoginPage';
 import SignupPage from './src/pages/SignupPage';
@@ -719,6 +720,17 @@ const AppContent: React.FC = () => {
               onMediaSelect={() => {}}
               isCurrentUser={true}
               onLogout={handleLogout}
+              onNavigate={navigateTo}
+            />
+          )}
+          {page.name === 'profileCompletion' && (
+            <ProfileCompletionPage
+              navigation={{ goBack: handleBack }}
+              user={user}
+              onProfileUpdated={() => {
+                // Refresh user data or navigate back
+                handleBack();
+              }}
             />
           )}
         </View>

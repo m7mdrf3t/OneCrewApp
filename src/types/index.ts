@@ -318,3 +318,61 @@ export interface ProjectDashboardProps {
   onUpdateProject: (data: ProjectDashboardData) => void;
   onBack: () => void;
 }
+
+// Portfolio and Social Media Types
+export interface UserPortfolio {
+  id: string;
+  user_id: string;
+  kind: 'image' | 'video';
+  url: string;
+  caption?: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface SocialMediaLink {
+  platform: 'instagram' | 'twitter' | 'facebook' | 'linkedin' | 'youtube' | 'tiktok' | 'website' | 'other';
+  url: string;
+  username?: string;
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email?: string;
+  bio?: string;
+  image_url?: string;
+  category: 'crew' | 'talent' | 'company';
+  primary_role?: string;
+  location?: string;
+  portfolio: UserPortfolio[];
+  social_links: SocialMediaLink[];
+  skills: string[];
+  abilities: string[];
+  languages: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PortfolioItemProps {
+  item: UserPortfolio;
+  onEdit: (item: UserPortfolio) => void;
+  onDelete: (itemId: string) => void;
+  canEdit: boolean;
+}
+
+export interface PortfolioModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onAddItem: (item: Omit<UserPortfolio, 'id' | 'user_id' | 'created_at'>) => Promise<void>;
+  onEditItem: (itemId: string, updates: Partial<UserPortfolio>) => Promise<void>;
+  onDeleteItem: (itemId: string) => Promise<void>;
+  portfolio: UserPortfolio[];
+}
+
+export interface SocialLinksModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSave: (links: SocialMediaLink[]) => Promise<void>;
+  socialLinks: SocialMediaLink[];
+}

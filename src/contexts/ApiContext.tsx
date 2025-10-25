@@ -62,6 +62,7 @@ interface ApiContextType {
   getMyTeamMembers: () => Promise<any>;
   // New skill management methods
   getAvailableSkillsNew: () => Promise<any>;
+  getUserSkills: () => Promise<any>;
   getUserSkillsNew: () => Promise<any>;
   addUserSkillNew: (skillId: string) => Promise<any>;
   removeUserSkillNew: (skillId: string) => Promise<any>;
@@ -88,6 +89,18 @@ interface ApiContextType {
   clearError: () => void;
   // Profile validation methods
   getProfileRequirements: () => any;
+  // New API client methods
+  getAvailableSkinTones: () => Promise<any>;
+  getAvailableHairColors: () => Promise<any>;
+  getAvailableAbilities: () => Promise<any>;
+  getAvailableLanguages: () => Promise<any>;
+  // Health check
+  healthCheck: () => Promise<any>;
+  // Portfolio management methods
+  getUserPortfolio: () => Promise<any>;
+  addPortfolioItem: (item: { kind: 'image' | 'video'; url: string; caption?: string; sort_order?: number }) => Promise<any>;
+  updatePortfolioItem: (itemId: string, updates: { caption?: string; sort_order?: number }) => Promise<any>;
+  removePortfolioItem: (itemId: string) => Promise<any>;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
@@ -552,31 +565,72 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.log('⏭️ Skipping talent profile update - no meaningful data to send');
       }
 
-      // Update skills using PUT /api/users/{id}/skills
-      const skillsResponse = await fetch(`https://onecrewbe-production.up.railway.app/api/users/${userId}/skills`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(skillsData),
-      });
-
-      const skillsResult = await skillsResponse.json();
-      
-      if (!skillsResponse.ok) {
-        console.error('❌ Skills update failed:', skillsResult);
-        if ((skillsResult as any).errors) {
-          console.error('❌ Skills validation errors:', (skillsResult as any).errors);
-          const errorMessages = Object.entries((skillsResult as any).errors).map(([field, message]) => 
-            `${field}: ${message}`
-          ).join(', ');
-          console.warn(`⚠️ Skills validation failed: ${errorMessages}`);
+      // Update skills using the correct API client methods
+      if (skillsData.skills && skillsData.skills.length > 0) {
+        try {
+          console.log('🎯 Updating skills using API client methods...');
+          
+          // Get current user skills to see what needs to be removed
+          const currentSkillsResponse = await api.getUserSkills();
+          const currentSkills = currentSkillsResponse.data || [];
+          console.log('🔍 Current user skills:', currentSkills);
+          
+          // Get available skills to find IDs
+          const availableSkillsResponse = await api.getAvailableSkills();
+          const availableSkills = availableSkillsResponse.data || [];
+          console.log('🔍 Available skills:', availableSkills);
+          
+          // Find skill IDs for the provided skill names
+          const skillIdsToAdd = skillsData.skills
+            .map((skillName: string) => {
+              const skill = availableSkills.find(s => s.name.toLowerCase() === skillName.toLowerCase());
+              return skill?.id;
+            })
+            .filter(Boolean);
+          
+          console.log('🔍 Skill IDs to add:', skillIdsToAdd);
+          
+          // Get current skill IDs to remove ones not in the new list
+          const currentSkillIds = currentSkills.map((skill: any) => skill.skill_id || skill.id);
+          const skillIdsToRemove = currentSkillIds.filter((skillId: string) => 
+            !skillIdsToAdd.includes(skillId)
+          );
+          
+          console.log('🔍 Skill IDs to remove:', skillIdsToRemove);
+          
+          // Remove skills that are no longer selected
+          const removePromises = skillIdsToRemove.map(skillId => 
+            api.removeUserSkill(skillId).catch(err => {
+              console.warn(`⚠️ Failed to remove skill ${skillId}:`, err);
+              return null;
+            })
+          );
+          
+          // Add new skills
+          const addPromises = skillIdsToAdd.map((skillId: string) => 
+            api.addUserSkill(skillId as string).catch(err => {
+              console.warn(`⚠️ Failed to add skill ${skillId}:`, err);
+              return null;
+            })
+          );
+          
+          // Execute all operations
+          const removeResults = await Promise.all(removePromises);
+          const addResults = await Promise.all(addPromises);
+          
+          const successfulRemoves = removeResults.filter(Boolean);
+          const successfulAdds = addResults.filter(Boolean);
+          
+          console.log('✅ Skills updated successfully:', {
+            removed: successfulRemoves.length,
+            added: successfulAdds.length
+          });
+        } catch (skillsError: any) {
+          console.error('❌ Skills update failed:', skillsError);
+          console.warn('⚠️ Continuing without skills update');
         }
-        // Don't throw error for skills, just log warning
-        console.warn('⚠️ Skills update failed:', (skillsResult as any).error || 'Failed to update skills');
       } else {
-        console.log('✅ Skills updated successfully:', skillsResult);
+        console.log('⏭️ No skills to update');
       }
 
       // Update the current user data - ensure ID is preserved
@@ -585,7 +639,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           ...user, 
           id: user.id, // Ensure ID is preserved
           ...basicResult.data,
-          skills: skillsResult.data?.skills || profileData.skills || [],
+          skills: profileData.skills || [],
           about: {
             ...(user as any).about,
             ...talentResult.data
@@ -595,7 +649,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         setUser(updatedUser as any);
       }
       
-      return { success: true, data: { ...basicResult.data, ...talentResult.data, skills: skillsResult.data?.skills || profileData.skills || [] } };
+      return { success: true, data: { ...basicResult.data, ...talentResult.data, skills: profileData.skills || [] } };
     } catch (err: any) {
       console.error('❌ Profile update failed:', err);
       setError(err.message || 'Failed to update profile');
@@ -606,7 +660,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const updateSkills = async (skills: string[]) => {
-    console.log('🎯 Updating skills (legacy method):', skills);
+    console.log('🎯 Updating skills:', skills);
     console.log('👤 Current user ID:', user?.id);
     setIsLoading(true);
     setError(null);
@@ -617,9 +671,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error('User ID not available. Please log in again.');
       }
 
-      // Use the new skill management methods
+      // Use the correct API client methods
       try {
-        console.log('🔄 Using new skill management methods...');
+        console.log('🔄 Using API client methods...');
         
         // Get current user skills
         const currentSkillsResponse = await api.getUserSkills();
@@ -839,116 +893,161 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Reference data methods
   const getSkinTones = async () => {
     try {
-      console.log('🔍 Fetching skin tones...');
-      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/skin-tones', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
+      console.log('🔄 Fetching skin tones using API client...');
+      const response = await api.getAvailableSkinTones();
+      console.log('✅ Skin tones fetched successfully:', response.data?.length || 0);
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to fetch skin tones via API client:', error);
+      // Fallback to direct fetch
+      try {
+        console.log('🔄 Trying direct fetch fallback...');
+        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/skin-tones', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('✅ Skin tones fetched via fallback:', result);
+        return result;
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        throw fallbackError;
       }
-      
-      const result = await response.json();
-      console.log('✅ Skin tones fetched:', result);
-      return result;
-    } catch (err: any) {
-      console.error('❌ Failed to fetch skin tones:', err);
-      throw err;
     }
   };
 
   const getHairColors = async () => {
     try {
-      console.log('🔍 Fetching hair colors...');
-      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/hair-colors', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
+      console.log('🔄 Fetching hair colors using API client...');
+      const response = await api.getAvailableHairColors();
+      console.log('✅ Hair colors fetched successfully:', response.data?.length || 0);
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to fetch hair colors via API client:', error);
+      // Fallback to direct fetch
+      try {
+        console.log('🔄 Trying direct fetch fallback...');
+        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/hair-colors', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('✅ Hair colors fetched via fallback:', result);
+        return result;
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        throw fallbackError;
       }
-      
-      const result = await response.json();
-      console.log('✅ Hair colors fetched:', result);
-      return result;
-    } catch (err: any) {
-      console.error('❌ Failed to fetch hair colors:', err);
-      throw err;
     }
   };
 
   const getSkills = async () => {
     try {
-      console.log('🔍 Fetching skills...');
-      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/skills', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
+      console.log('🔄 Fetching skills using API client...');
+      const response = await api.getAvailableSkills();
+      console.log('✅ Skills fetched successfully:', response.data?.length || 0);
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to fetch skills via API client:', error);
+      // Fallback to direct fetch
+      try {
+        console.log('🔄 Trying direct fetch fallback...');
+        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/skills', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('✅ Skills fetched via fallback:', result);
+        return result;
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        throw fallbackError;
       }
-      
-      const result = await response.json();
-      console.log('✅ Skills fetched:', result);
-      return result;
-    } catch (err: any) {
-      console.error('❌ Failed to fetch skills:', err);
-      throw err;
     }
   };
 
   const getAbilities = async () => {
     try {
-      console.log('🔍 Fetching abilities...');
-      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/abilities', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
+      console.log('🔄 Fetching abilities using API client...');
+      const response = await api.getAvailableAbilities();
+      console.log('✅ Abilities fetched successfully:', response.data?.length || 0);
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to fetch abilities via API client:', error);
+      // Fallback to direct fetch
+      try {
+        console.log('🔄 Trying direct fetch fallback...');
+        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/abilities', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('✅ Abilities fetched via fallback:', result);
+        return result;
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        throw fallbackError;
       }
-      
-      const result = await response.json();
-      console.log('✅ Abilities fetched:', result);
-      return result;
-    } catch (err: any) {
-      console.error('❌ Failed to fetch abilities:', err);
-      throw err;
     }
   };
 
   const getLanguages = async () => {
     try {
-      console.log('🔍 Fetching languages...');
-      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/languages', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP Error: ${response.status}`);
+      console.log('🔄 Fetching languages using API client...');
+      const response = await api.getAvailableLanguages();
+      console.log('✅ Languages fetched successfully:', response.data?.length || 0);
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to fetch languages via API client:', error);
+      // Fallback to direct fetch
+      try {
+        console.log('🔄 Trying direct fetch fallback...');
+        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/languages', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP Error: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log('✅ Languages fetched via fallback:', result);
+        return result;
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        throw fallbackError;
       }
-      
-      const result = await response.json();
-      console.log('✅ Languages fetched:', result);
-      return result;
-    } catch (err: any) {
-      console.error('❌ Failed to fetch languages:', err);
-      throw err;
     }
   };
 
@@ -1379,10 +1478,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  // New skill management methods using the updated API client
+  // New skill management methods using the correct API client
   const getAvailableSkillsNew = async () => {
     try {
-      console.log('🔄 Fetching available skills using new API...');
+      console.log('🔄 Fetching available skills using API client...');
       const response = await api.getAvailableSkills();
       console.log('✅ Available skills fetched:', response.data?.length || 0);
       return response;
@@ -1392,15 +1491,49 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const getUserSkills = async () => {
+    try {
+      console.log('🔄 Fetching user skills with rate limiting protection...');
+      
+      // Add delay to prevent rate limiting
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      const response = await api.getUserSkills();
+      console.log('✅ User skills fetched:', response.data?.length || 0);
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to fetch user skills:', error);
+      
+      // If rate limited, wait and retry once
+      if (error.message?.includes('429') || error.status === 429) {
+        console.log('⚠️ Rate limited, waiting 2 seconds before retry...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        try {
+          const retryResponse = await api.getUserSkills();
+          console.log('✅ User skills fetched on retry:', retryResponse.data?.length || 0);
+          return retryResponse;
+        } catch (retryError) {
+          console.error('❌ Retry also failed:', retryError);
+          return { success: true, data: [] };
+        }
+      }
+      
+      // Return empty array if there's an error
+      return { success: true, data: [] };
+    }
+  };
+
   const getUserSkillsNew = async () => {
     try {
-      console.log('🔄 Fetching user skills using new API...');
+      console.log('🔄 Fetching user skills using API client...');
       const response = await api.getUserSkills();
       console.log('✅ User skills fetched:', response.data?.length || 0);
       return response;
     } catch (error) {
       console.error('❌ Failed to fetch user skills:', error);
-      throw error;
+      // Return empty array if there's an error
+      return { success: true, data: [] };
     }
   };
 
@@ -1676,6 +1809,76 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     };
   };
 
+  // New API client methods - direct passthrough
+  const getAvailableSkinTones = async () => {
+    return await api.getAvailableSkinTones();
+  };
+
+  const getAvailableHairColors = async () => {
+    return await api.getAvailableHairColors();
+  };
+
+  const getAvailableAbilities = async () => {
+    return await api.getAvailableAbilities();
+  };
+
+  const getAvailableLanguages = async () => {
+    return await api.getAvailableLanguages();
+  };
+
+  const healthCheck = async () => {
+    return await api.healthCheck();
+  };
+
+  // Portfolio management methods
+  const getUserPortfolio = async () => {
+    try {
+      console.log('🖼️ Fetching user portfolio...');
+      const response = await api.getUserPortfolio();
+      console.log('✅ Portfolio fetched successfully:', response.data?.length || 0, 'items');
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to fetch portfolio:', error);
+      throw error;
+    }
+  };
+
+  const addPortfolioItem = async (item: { kind: 'image' | 'video'; url: string; caption?: string; sort_order?: number }) => {
+    try {
+      console.log('➕ Adding portfolio item:', item.kind, item.url);
+      const response = await api.addPortfolioItem(item);
+      console.log('✅ Portfolio item added successfully:', response.data);
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to add portfolio item:', error);
+      throw error;
+    }
+  };
+
+  const updatePortfolioItem = async (itemId: string, updates: { caption?: string; sort_order?: number }) => {
+    try {
+      console.log('✏️ Updating portfolio item:', itemId, updates);
+      const response = await api.updatePortfolioItem(itemId, updates);
+      console.log('✅ Portfolio item updated successfully:', response.data);
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to update portfolio item:', error);
+      throw error;
+    }
+  };
+
+  const removePortfolioItem = async (itemId: string) => {
+    try {
+      console.log('🗑️ Removing portfolio item:', itemId);
+      const response = await api.removePortfolioItem(itemId);
+      console.log('✅ Portfolio item removed successfully');
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to remove portfolio item:', error);
+      throw error;
+    }
+  };
+
   // Guest session methods
   const createGuestSession = async (): Promise<GuestSessionData> => {
     try {
@@ -1873,16 +2076,66 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateTask = async (taskId: string, updates: UpdateTaskRequest) => {
     try {
-      console.log('📋 Updating task:', taskId);
+      console.log('🔍 ===== TASK UPDATE DEBUG =====');
+      console.log('📋 Task ID:', taskId);
+      console.log('📋 Updates:', updates);
+      console.log('👤 Current User:', {
+        id: user?.id,
+        name: user?.name,
+        email: user?.email
+      });
+      console.log('🔑 Authentication Status:', {
+        isAuthenticated,
+        hasToken: !!user?.id,
+        tokenLength: user?.id?.length || 0
+      });
+      console.log('🎯 API Client Status:', {
+        hasApiClient: !!api,
+        hasUpdateTask: typeof api?.updateTask === 'function'
+      });
+      
+      // Check project members to see if user is a member
+      try {
+        // First get the task to find the project ID
+        const taskResponse = await api.getTaskById(taskId);
+        console.log('📋 Task details:', taskResponse);
+        
+        if (taskResponse.success && taskResponse.data) {
+          const projectId = taskResponse.data.project_id;
+          console.log('🔍 Checking project membership for project:', projectId);
+          const membersResponse = await api.getProjectMembers(projectId);
+          console.log('👥 Project Members:', membersResponse);
+          
+          const isMember = membersResponse.data?.some(member => member.user_id === user?.id);
+          console.log('✅ Is current user a project member?', isMember);
+          
+          if (!isMember) {
+            console.log('❌ USER IS NOT A PROJECT MEMBER - This is why the update is failing!');
+          }
+        }
+      } catch (memberError) {
+        console.log('❌ Failed to check project members:', memberError);
+      }
+      
+      console.log('🔍 ===============================');
+      
       const response = await api.updateTask(taskId, updates);
+      console.log('📋 Update task response:', response);
+      
       if (response.success && response.data) {
         // Handle both array and paginated response
         return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
       } else {
+        console.error('❌ Update task failed:', response.error);
         throw new Error(response.error || 'Failed to update task');
       }
-    } catch (error) {
-      console.error('Failed to update task:', error);
+    } catch (error: any) {
+      console.error('❌ Failed to update task:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        status: error.status,
+        response: error.response
+      });
       throw error;
     }
   };
@@ -1924,16 +2177,66 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateTaskStatus = async (taskId: string, status: UpdateTaskStatusRequest) => {
     try {
-      console.log('📋 Updating task status:', taskId);
+      console.log('🔍 ===== TASK STATUS UPDATE DEBUG =====');
+      console.log('📋 Task ID:', taskId);
+      console.log('📋 New Status:', status);
+      console.log('👤 Current User:', {
+        id: user?.id,
+        name: user?.name,
+        email: user?.email
+      });
+      console.log('🔑 Authentication Status:', {
+        isAuthenticated,
+        hasToken: !!user?.id,
+        tokenLength: user?.id?.length || 0
+      });
+      console.log('🎯 API Client Status:', {
+        hasApiClient: !!api,
+        hasUpdateTaskStatus: typeof api?.updateTaskStatus === 'function'
+      });
+      
+      // Check project members to see if user is a member
+      try {
+        // First get the task to find the project ID
+        const taskResponse = await api.getTaskById(taskId);
+        console.log('📋 Task details:', taskResponse);
+        
+        if (taskResponse.success && taskResponse.data) {
+          const projectId = taskResponse.data.project_id;
+          console.log('🔍 Checking project membership for project:', projectId);
+          const membersResponse = await api.getProjectMembers(projectId);
+          console.log('👥 Project Members:', membersResponse);
+          
+          const isMember = membersResponse.data?.some(member => member.user_id === user?.id);
+          console.log('✅ Is current user a project member?', isMember);
+          
+          if (!isMember) {
+            console.log('❌ USER IS NOT A PROJECT MEMBER - This is why the update is failing!');
+          }
+        }
+      } catch (memberError) {
+        console.log('❌ Failed to check project members:', memberError);
+      }
+      
+      console.log('🔍 ======================================');
+      
       const response = await api.updateTaskStatus(taskId, status);
+      console.log('📋 Update task status response:', response);
+      
       if (response.success && response.data) {
         // Handle both array and paginated response
         return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
       } else {
+        console.error('❌ Update task status failed:', response.error);
         throw new Error(response.error || 'Failed to update task status');
       }
-    } catch (error) {
-      console.error('Failed to update task status:', error);
+    } catch (error: any) {
+      console.error('❌ Failed to update task status:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        status: error.status,
+        response: error.response
+      });
       throw error;
     }
   };
@@ -2008,6 +2311,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getMyTeamMembers,
     // New skill management methods
     getAvailableSkillsNew,
+    getUserSkills,
     getUserSkillsNew,
     addUserSkillNew,
     removeUserSkillNew,
@@ -2034,6 +2338,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     clearError,
     // Profile validation methods
     getProfileRequirements,
+    // New API client methods
+    getAvailableSkinTones,
+    getAvailableHairColors,
+    getAvailableAbilities,
+    getAvailableLanguages,
+    healthCheck,
+    // Portfolio management methods
+    getUserPortfolio,
+    addPortfolioItem,
+    updatePortfolioItem,
+    removePortfolioItem,
   };
 
   return (
