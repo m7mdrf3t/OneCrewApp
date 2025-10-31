@@ -6,6 +6,7 @@ import { ProfileDetailPageProps } from '../types';
 import { getInitials } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
 import ProfileCompletionBanner from '../components/ProfileCompletionBanner';
+import SignUpPromptModal from '../components/SignUpPromptModal';
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void; onNavigate?: (page: string, data?: any) => void }> = ({
   profile,
@@ -19,13 +20,17 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   onLogout,
   onNavigate,
 }) => {
-  const { api, user: currentUser } = useApi();
+  const { api, user: currentUser, isGuest, isAuthenticated } = useApi();
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileCompleteness, setProfileCompleteness] = useState(0);
   const [selectedMedia, setSelectedMedia] = useState<any>(null);
   const [isMediaModalVisible, setIsMediaModalVisible] = useState(false);
+  const [showSignUpPrompt, setShowSignUpPrompt] = useState(false);
+  const [promptAction, setPromptAction] = useState<string>('');
+  const [galleryTab, setGalleryTab] = useState<'albums' | 'images' | 'videos' | 'audio'>('albums');
+  const [showCompletionBanner, setShowCompletionBanner] = useState(true);
 
   // Fetch fresh user data if we have a user ID
   useEffect(() => {
@@ -77,41 +82,54 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             }
           }
 
+          // Check if viewing own profile - only fetch authenticated data for own profile
+          const isViewingOwnProfile = isAuthenticated && !isGuest && currentUser && profile.id === currentUser.id;
+
           // Get talent profile data (all other physical and professional details)
           let talentProfileResponse = null;
-          try {
-            const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
-            if (accessToken) {
-              const talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
-                method: 'GET',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${accessToken}`,
-                },
-              });
-              
-              if (talentResponse.ok) {
-                talentProfileResponse = await talentResponse.json();
-                console.log('✅ Talent profile data fetched:', talentProfileResponse);
-              } else {
-                console.log('⚠️ Talent profile not found, continuing without details');
+          // Only fetch talent profile if authenticated, not guest, and viewing own profile
+          if (isViewingOwnProfile) {
+            try {
+              const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
+              if (accessToken) {
+                const talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
+                  method: 'GET',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`,
+                  },
+                });
+                
+                if (talentResponse.ok) {
+                  talentProfileResponse = await talentResponse.json();
+                  console.log('✅ Talent profile data fetched:', talentProfileResponse);
+                } else {
+                  console.log('⚠️ Talent profile not found, continuing without details');
+                }
               }
+            } catch (talentError: any) {
+              console.log('⚠️ Talent profile fetch failed, continuing without details:', talentError.message);
             }
-          } catch (talentError: any) {
-            console.log('⚠️ Talent profile fetch failed, continuing without details:', talentError.message);
+          } else {
+            console.log('ℹ️ Skipping talent profile fetch (guest mode or viewing other user profile)');
           }
 
-          // Get user skills
+          // Get user skills - only if authenticated and viewing own profile
           let userSkillsResponse = null;
-          try {
-            userSkillsResponse = await api.getUserSkills();
-            console.log('✅ User skills fetched:', userSkillsResponse);
-            console.log('🔍 User skills data structure:', JSON.stringify(userSkillsResponse, null, 2));
-            console.log('🔍 User skills data array:', userSkillsResponse?.data);
-            console.log('🔍 User skills data length:', userSkillsResponse?.data?.length);
-          } catch (skillsError: any) {
-            console.log('ℹ️ User skills not accessible:', skillsError.message);
-            console.log('🔍 Skills error details:', skillsError);
+          
+          if (isViewingOwnProfile) {
+            try {
+              userSkillsResponse = await api.getUserSkills();
+              console.log('✅ User skills fetched:', userSkillsResponse);
+              console.log('🔍 User skills data structure:', JSON.stringify(userSkillsResponse, null, 2));
+              console.log('🔍 User skills data array:', userSkillsResponse?.data);
+              console.log('🔍 User skills data length:', userSkillsResponse?.data?.length);
+            } catch (skillsError: any) {
+              console.log('ℹ️ User skills not accessible:', skillsError.message);
+              console.log('🔍 Skills error details:', skillsError);
+            }
+          } else {
+            console.log('ℹ️ Skipping user skills fetch (guest mode or viewing other user profile)');
           }
           
           // Combine the data: UserDetails + Talent Profile + Skills
@@ -119,7 +137,11 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             success: true,
             data: {
               ...userResponse.data,
-              skills: userSkillsResponse?.data || [], // Add skills data
+              skills: (userSkillsResponse?.data || []).map((skillObj: any) => {
+                // Transform skill objects to skill names
+                if (typeof skillObj === 'string') return skillObj;
+                return skillObj?.skill_name || skillObj?.name || skillObj?.skills?.name || skillObj?.skills?.skill_name || String(skillObj?.skill_id || skillObj?.id || '');
+              }), // Add skills data (transformed to names)
               about: {
                 ...userDetailsResponse?.data,  // age, nationality, gender
                 ...talentProfileResponse?.data // height, weight, skin_tone, etc.
@@ -134,34 +156,44 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             response = await api.getUserByIdDirect(profile.id);
             console.log('✅ Fallback API method succeeded');
             
-            // Try to get skills for fallback case too
-            try {
-              const userSkillsResponse = await api.getUserSkills();
-              console.log('🔍 Fallback skills response:', userSkillsResponse);
-              if (userSkillsResponse?.data && response.data) {
-                (response.data as any).skills = userSkillsResponse.data;
-                console.log('✅ Skills added to fallback response:', userSkillsResponse.data);
+            // Try to get skills for fallback case too - only if viewing own profile
+            const isViewingOwnProfileFallback = isAuthenticated && !isGuest && currentUser && profile.id === currentUser.id;
+            if (isViewingOwnProfileFallback) {
+              try {
+                const userSkillsResponse = await api.getUserSkills();
+                console.log('🔍 Fallback skills response:', userSkillsResponse);
+                if (userSkillsResponse?.data && response.data) {
+                  (response.data as any).skills = userSkillsResponse.data;
+                  console.log('✅ Skills added to fallback response:', userSkillsResponse.data);
+                }
+              } catch (skillsError: any) {
+                console.log('ℹ️ Skills not available in fallback:', skillsError.message);
+                console.log('🔍 Fallback skills error:', skillsError);
               }
-            } catch (skillsError: any) {
-              console.log('ℹ️ Skills not available in fallback:', skillsError.message);
-              console.log('🔍 Fallback skills error:', skillsError);
+            } else {
+              console.log('ℹ️ Skipping skills fetch in fallback (guest mode or viewing other user profile)');
             }
           } catch (fallbackError: any) {
             console.log('❌ Fallback API method failed, trying regular method...', fallbackError.message);
             response = await api.getUserById(profile.id);
             console.log('✅ Regular API method succeeded');
             
-            // Try to get skills for regular method too
-            try {
-              const userSkillsResponse = await api.getUserSkills();
-              console.log('🔍 Regular method skills response:', userSkillsResponse);
-              if (userSkillsResponse?.data && response.data) {
-                (response.data as any).skills = userSkillsResponse.data;
-                console.log('✅ Skills added to regular response:', userSkillsResponse.data);
+            // Try to get skills for regular method too - only if viewing own profile
+            const isViewingOwnProfileRegular = isAuthenticated && !isGuest && currentUser && profile.id === currentUser.id;
+            if (isViewingOwnProfileRegular) {
+              try {
+                const userSkillsResponse = await api.getUserSkills();
+                console.log('🔍 Regular method skills response:', userSkillsResponse);
+                if (userSkillsResponse?.data && response.data) {
+                  (response.data as any).skills = userSkillsResponse.data;
+                  console.log('✅ Skills added to regular response:', userSkillsResponse.data);
+                }
+              } catch (skillsError: any) {
+                console.log('ℹ️ Skills not available in regular method:', skillsError.message);
+                console.log('🔍 Regular method skills error:', skillsError);
               }
-            } catch (skillsError: any) {
-              console.log('ℹ️ Skills not available in regular method:', skillsError.message);
-              console.log('🔍 Regular method skills error:', skillsError);
+            } else {
+              console.log('ℹ️ Skipping skills fetch in regular method (guest mode or viewing other user profile)');
             }
           }
         }
@@ -177,7 +209,21 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           const transformedSkills = Array.isArray(rawSkills) 
             ? rawSkills.map((skill: any) => {
                 console.log('🔍 Processing skill in ProfileDetailPage:', skill);
-                return skill.skill_name || skill.name || skill;
+                // Handle different skill formats
+                if (typeof skill === 'string') {
+                  return skill;
+                } else if (skill?.skill_name) {
+                  return skill.skill_name;
+                } else if (skill?.name) {
+                  return skill.name;
+                } else if (skill?.skills?.name) {
+                  return skill.skills.name;
+                } else if (skill?.skills?.skill_name) {
+                  return skill.skills.skill_name;
+                } else {
+                  // Fallback: try to get name from nested structure
+                  return String(skill?.skill_id || skill?.id || skill || '');
+                }
               })
             : [];
           
@@ -197,7 +243,10 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               gender: 'unknown'
             },
             // Map user_portfolios to portfolio for the UI
-            portfolio: (response.data as any).user_portfolios || (response.data as any).portfolio || []
+            portfolio: (response.data as any).user_portfolios || (response.data as any).portfolio || [],
+            // Preserve languages and abilities
+            languages: (response.data as any).languages || (response.data as any).user_languages?.map((lang: any) => lang.language_name || lang.name || lang) || [],
+            abilities: (response.data as any).abilities || (response.data as any).user_abilities?.map((ability: any) => ability.ability_name || ability.name || ability) || []
           };
           
           console.log('🔍 Final transformed profile skills:', transformedProfile.skills);
@@ -271,6 +320,47 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     setIsMediaModalVisible(false);
   };
 
+  // Format last seen time
+  const formatLastSeen = (lastSeen: string) => {
+    if (!lastSeen) return 'Last seen recently';
+    
+    try {
+      const lastSeenDate = new Date(lastSeen);
+      const now = new Date();
+      const diffMs = now.getTime() - lastSeenDate.getTime();
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMinutes / 60);
+      const diffDays = Math.floor(diffHours / 24);
+      
+      if (diffMinutes < 1) {
+        return 'Last seen just now';
+      } else if (diffMinutes < 60) {
+        return `Last seen ${diffMinutes}m ago`;
+      } else if (diffHours < 24) {
+        return `Last seen ${diffHours}h ago`;
+      } else if (diffDays < 7) {
+        return `Last seen ${diffDays}d ago`;
+      } else {
+        return 'Last seen recently';
+      }
+    } catch (error) {
+      return 'Last seen recently';
+    }
+  };
+
+  // Format stat numbers (e.g., 10000 -> 10k)
+  const formatStatNumber = (value: string | number): string => {
+    const num = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : value;
+    if (isNaN(num)) return '0';
+    
+    if (num >= 1000000) {
+      return `${(num / 1000000).toFixed(1)}M`;
+    } else if (num >= 1000) {
+      return `${(num / 1000).toFixed(1)}k`;
+    }
+    return num.toString();
+  };
+
   // Show loading state
   if (isLoading) {
     return (
@@ -336,8 +426,16 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         {/* Profile Completion Banner */}
         <ProfileCompletionBanner
           completionPercentage={profileCompleteness}
-          onCompleteProfile={() => onNavigate?.('profileCompletion', userProfile)}
-          isVisible={shouldShowCompletionBanner}
+          onCompleteProfile={() => {
+            if (isGuest) {
+              setPromptAction('complete your profile');
+              setShowSignUpPrompt(true);
+            } else {
+              onNavigate?.('profileCompletion', userProfile);
+            }
+          }}
+          onSkip={() => setShowCompletionBanner(false)}
+          isVisible={shouldShowCompletionBanner && showCompletionBanner}
         />
         
         <View style={styles.hero}>
@@ -350,25 +448,51 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           ) : (
             <Text style={styles.heroInitials}>{getInitials(userProfile.name)}</Text>
           )}
+          {/* Calendar Icon - Top Right */}
+          <TouchableOpacity style={styles.heroCalendarIcon}>
+            <View style={styles.calendarIconCircle}>
+              <Ionicons name="calendar-outline" size={18} color="#000" />
+            </View>
+          </TouchableOpacity>
         </View>
         <View style={styles.profileContainer}>
           <View style={styles.nameRow}> 
             <Text style={styles.name}>{userProfile.name}</Text>
-            <Ionicons name={userProfile.about?.gender?.toLowerCase() === 'female' ? 'woman' : 'man'} size={18} color="#fff" />
+            <Ionicons 
+              name={userProfile.about?.gender?.toLowerCase() === 'female' ? 'female' : 'male'} 
+              size={18} 
+              color="#000" 
+            />
           </View>
-          <Text style={styles.lastSeen}>{userProfile.onlineStatus || userProfile.online_last_seen || 'Last seen recently'}</Text>
+          <Text style={styles.lastSeen}>
+            {userProfile.onlineStatus || (userProfile.online_last_seen ? formatLastSeen(userProfile.online_last_seen) : 'Last seen recently')}
+          </Text>
 
           <View style={styles.ctaRow}>
             <TouchableOpacity
               style={[styles.ctaButton, styles.ctaLight]}
-              onPress={() => onAddToTeam(userProfile)}
+              onPress={() => {
+                if (isGuest) {
+                  setPromptAction('add users to your team');
+                  setShowSignUpPrompt(true);
+                } else {
+                  onAddToTeam(userProfile);
+                }
+              }}
             >
-              <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.ctaText}>My Team</Text>
+              {isInTeam && <Ionicons name="checkmark" size={16} color="#10b981" style={{ marginRight: 4 }} />}
+              <Text style={styles.ctaTextLight}>My Team</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.ctaButton, styles.ctaDark]}
-              onPress={() => onAssignToProject(userProfile)}
+              onPress={() => {
+                if (isGuest) {
+                  setPromptAction('assign users to projects');
+                  setShowSignUpPrompt(true);
+                } else {
+                  onAssignToProject(userProfile);
+                }
+              }}
             >
               <Text style={styles.ctaText}>Add to Crew</Text>
             </TouchableOpacity>
@@ -376,81 +500,307 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
           <View style={styles.statsContainer}>
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{userProfile.stats?.followers || '0'}</Text>
+              <Text style={styles.statNumber}>{formatStatNumber(userProfile.stats?.followers || '0')}</Text>
               <Text style={styles.statLabel}>Followers</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{userProfile.stats?.projects || '0'}</Text>
+              <Text style={styles.statNumber}>{formatStatNumber(userProfile.stats?.projects || 0)}</Text>
               <Text style={styles.statLabel}>Projects</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{userProfile.stats?.likes || '0'}</Text>
+              <Text style={styles.statNumber}>{formatStatNumber(userProfile.stats?.likes || '0')}</Text>
               <Text style={styles.statLabel}>Likes</Text>
             </View>
           </View>
 
-          <View style={styles.bioContainer}>
-            <Text style={styles.sectionHeader}>About</Text>
-            <Text style={styles.bio}>{userProfile.bio || 'No bio available'}</Text>
+          {/* About Section */}
+          <View style={styles.infoCard}>
+            <Text style={styles.infoSectionTitle}>About</Text>
+            <Text style={styles.aboutText}>{userProfile.bio || 'No bio available'}</Text>
           </View>
 
-          {/* Images Section */}
-          {getImages().length > 0 && (
-            <View style={styles.mediaContainer}>
-              <Text style={styles.sectionHeader}>Images ({getImages().length})</Text>
-              <View style={styles.imageGrid}>
-                {getImages().map((item: any, index: number) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.imageGridItem}
-                    onPress={() => openMediaModal(item)}
-                  >
-                    <Image 
-                      source={{ uri: item.url }} 
-                      style={styles.imageThumbnail}
-                      resizeMode="cover"
-                    />
-                    {item.caption && (
-                      <Text style={styles.imageCaption} numberOfLines={2}>
-                        {item.caption}
+          {/* Personal Information Grid */}
+          {userProfile.about && (
+            <View style={styles.infoCard}>
+              <Text style={styles.infoSectionTitle}>Personal Information</Text>
+              <View style={styles.personalInfoGrid}>
+                {userProfile.about.gender && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Gender</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.gender}</Text>
+                  </View>
+                )}
+                {userProfile.about.age && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Age</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.age}</Text>
+                  </View>
+                )}
+                {userProfile.about.nationality && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Nationality</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.nationality}</Text>
+                  </View>
+                )}
+                {userProfile.about.location && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Location</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.location}</Text>
+                  </View>
+                )}
+                {userProfile.about.height_cm && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Height</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.height_cm} cm</Text>
+                  </View>
+                )}
+                {userProfile.about.weight_kg && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Weight</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.weight_kg} kg</Text>
+                  </View>
+                )}
+                {(userProfile.about.skin_tone || userProfile.about.skin_tones?.name) && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Skin Tone</Text>
+                    <Text style={styles.infoTagValue}>
+                      {userProfile.about.skin_tones?.name || userProfile.about.skin_tone}
+                    </Text>
+                  </View>
+                )}
+                {(userProfile.about.hair_color || userProfile.about.hair_colors?.name) && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Hair Color</Text>
+                    <Text style={styles.infoTagValue}>
+                      {userProfile.about.hair_colors?.name || userProfile.about.hair_color}
+                    </Text>
+                  </View>
+                )}
+                {userProfile.about.eye_color && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Eye Color</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.eye_color}</Text>
+                  </View>
+                )}
+                {userProfile.about.chest_cm && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Chest</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.chest_cm} cm</Text>
+                  </View>
+                )}
+                {userProfile.about.waist_cm && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Waist</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.waist_cm} cm</Text>
+                  </View>
+                )}
+                {userProfile.about.hips_cm && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Hips</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.about.hips_cm} cm</Text>
+                  </View>
+                )}
+                {userProfile.about.shoe_size_eu && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Shoe Size</Text>
+                    <Text style={styles.infoTagValue}>EU {userProfile.about.shoe_size_eu}</Text>
+                  </View>
+                )}
+                {userProfile.about.reel_url && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Reel/Portfolio</Text>
+                    <TouchableOpacity onPress={() => Linking.openURL(userProfile.about.reel_url)}>
+                      <Text style={[styles.infoTagValue, { color: '#3b82f6', textDecorationLine: 'underline' }]}>
+                        View Link
                       </Text>
-                    )}
-                  </TouchableOpacity>
-                ))}
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {userProfile.about.union_member !== undefined && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Union Member</Text>
+                    <Text style={[styles.infoTagValue, { color: userProfile.about.union_member ? '#10b981' : '#ef4444' }]}>
+                      {userProfile.about.union_member ? 'Yes' : 'No'}
+                    </Text>
+                  </View>
+                )}
+                {userProfile.primary_role && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Primary Role</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.primary_role}</Text>
+                  </View>
+                )}
+                {userProfile.specialty && (
+                  <View style={styles.infoTag}>
+                    <Text style={styles.infoTagLabel}>Specialty</Text>
+                    <Text style={styles.infoTagValue}>{userProfile.specialty}</Text>
+                  </View>
+                )}
               </View>
             </View>
           )}
 
-          {/* Videos Section */}
-          {getVideos().length > 0 && (
-            <View style={styles.mediaContainer}>
-              <Text style={styles.sectionHeader}>Videos ({getVideos().length})</Text>
-              <View style={styles.videoGrid}>
-                {getVideos().map((item: any, index: number) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.videoGridItem}
-                    onPress={() => openMediaModal(item)}
-                  >
-                    <View style={styles.videoThumbnailContainer}>
-                      <Video
-                        source={{ uri: item.url }}
-                        style={styles.videoThumbnail}
-                        shouldPlay={false}
-                        isLooping={false}
-                        isMuted={true}
-                      />
-                      <View style={styles.playButtonOverlay}>
-                        <Ionicons name="play" size={32} color="#fff" />
-                      </View>
+          {/* Skills Section - Right after Personal Information */}
+          {userProfile.skills && userProfile.skills.length > 0 && (
+            <View style={styles.infoCard}>
+              <Text style={styles.infoSectionTitle}>Skills</Text>
+              <View style={styles.tagList}>
+                {userProfile.skills.map((skill: any, index: number) => {
+                  // Handle both string and object formats
+                  let skillName = '';
+                  if (typeof skill === 'string') {
+                    skillName = skill;
+                  } else if (skill?.skill_name) {
+                    skillName = skill.skill_name;
+                  } else if (skill?.name) {
+                    skillName = skill.name;
+                  } else if (skill?.skills?.name) {
+                    skillName = skill.skills.name;
+                  } else if (skill?.skills?.skill_name) {
+                    skillName = skill.skills.skill_name;
+                  } else {
+                    skillName = String(skill?.skill_id || skill?.id || skill || 'Unknown');
+                  }
+                  
+                  return (
+                    <View key={index} style={styles.infoChip}>
+                      <Text style={styles.infoChipText}>{skillName}</Text>
                     </View>
-                    {item.caption && (
-                      <Text style={styles.videoCaption} numberOfLines={2}>
-                        {item.caption}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                ))}
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* Gallery/Portfolio Section */}
+          {((userProfile.portfolio && userProfile.portfolio.length > 0) || userProfile.category === 'talent') && (
+            <View style={styles.galleryContainer}>
+              <Text style={styles.galleryTitle}>Gallery</Text>
+              
+              {/* Gallery Tabs */}
+              <View style={styles.galleryTabs}>
+                <TouchableOpacity
+                  style={[styles.galleryTab, galleryTab === 'albums' && styles.galleryTabActive]}
+                  onPress={() => setGalleryTab('albums')}
+                >
+                  <Ionicons name="folder" size={18} color={galleryTab === 'albums' ? '#fff' : '#000'} />
+                  <Text style={[styles.galleryTabText, galleryTab === 'albums' && styles.galleryTabTextActive]}>
+                    Albums
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.galleryTab, galleryTab === 'images' && styles.galleryTabActive]}
+                  onPress={() => setGalleryTab('images')}
+                >
+                  <Ionicons name="image" size={18} color={galleryTab === 'images' ? '#fff' : '#000'} />
+                  <Text style={[styles.galleryTabText, galleryTab === 'images' && styles.galleryTabTextActive]}>
+                    Images
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.galleryTab, galleryTab === 'videos' && styles.galleryTabActive]}
+                  onPress={() => setGalleryTab('videos')}
+                >
+                  <Ionicons name="videocam" size={18} color={galleryTab === 'videos' ? '#fff' : '#000'} />
+                  <Text style={[styles.galleryTabText, galleryTab === 'videos' && styles.galleryTabTextActive]}>
+                    Videos
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.galleryTab, galleryTab === 'audio' && styles.galleryTabActive]}
+                  onPress={() => setGalleryTab('audio')}
+                >
+                  <Ionicons name="musical-notes" size={18} color={galleryTab === 'audio' ? '#fff' : '#000'} />
+                  <Text style={[styles.galleryTabText, galleryTab === 'audio' && styles.galleryTabTextActive]}>
+                    Audio
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Gallery Content */}
+              <View style={styles.galleryContent}>
+                {galleryTab === 'albums' && (
+                  <View style={styles.albumGrid}>
+                    {/* For now, we'll show a single "All Portfolio" album */}
+                    <TouchableOpacity style={styles.albumCard}>
+                      <View style={styles.albumTitleLargeContainer}>
+                        <Text style={styles.albumTitleLarge}>All Portfolio</Text>
+                      </View>
+                      <View style={styles.albumInfo}>
+                        <Text style={styles.albumTitle}>All Portfolio</Text>
+                        <View style={styles.albumStats}>
+                          <Ionicons name="image" size={14} color="#000" />
+                          <Text style={styles.albumStatText}>{getImages().length}</Text>
+                          <Ionicons name="videocam" size={14} color="#000" />
+                          <Text style={styles.albumStatText}>{getVideos().length}</Text>
+                          <Ionicons name="musical-notes" size={14} color="#000" />
+                          <Text style={styles.albumStatText}>0</Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                
+                {galleryTab === 'images' && (
+                  getImages().length > 0 ? (
+                    <View style={styles.imageGrid}>
+                      {getImages().map((item: any, index: number) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.imageGridItem}
+                          onPress={() => openMediaModal(item)}
+                        >
+                          <Image 
+                            source={{ uri: item.url }} 
+                            style={styles.imageThumbnail}
+                            resizeMode="cover"
+                          />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : (
+                    <View style={styles.emptyGallery}>
+                      <Text style={styles.emptyGalleryText}>No images available</Text>
+                    </View>
+                  )
+                )}
+
+                {galleryTab === 'videos' && (
+                  getVideos().length > 0 ? (
+                    <View style={styles.videoGrid}>
+                      {getVideos().map((item: any, index: number) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.videoGridItem}
+                          onPress={() => openMediaModal(item)}
+                        >
+                          <View style={styles.videoThumbnailContainer}>
+                            <Video
+                              source={{ uri: item.url }}
+                              style={styles.videoThumbnail}
+                              shouldPlay={false}
+                              isLooping={false}
+                              isMuted={true}
+                            />
+                            <View style={styles.playButtonOverlay}>
+                              <Ionicons name="play" size={32} color="#fff" />
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : (
+                    <View style={styles.emptyGallery}>
+                      <Text style={styles.emptyGalleryText}>No videos available</Text>
+                    </View>
+                  )
+                )}
+
+                {galleryTab === 'audio' && (
+                  <View style={styles.emptyGallery}>
+                    <Text style={styles.emptyGalleryText}>No audio files available</Text>
+                  </View>
+                )}
               </View>
             </View>
           )}
@@ -492,173 +842,94 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             </View>
           )}
 
-          {/* Talent Profile Details */}
+          {/* Accent Section */}
+          {userProfile.category === 'talent' && userProfile.about?.dialects && userProfile.about.dialects.length > 0 && (
+            <View style={styles.infoCard}>
+              <Text style={styles.infoSectionTitle}>Accent</Text>
+              <View style={styles.tagList}>
+                {userProfile.about.dialects.map((dialect: string, index: number) => (
+                  <View key={index} style={styles.infoChip}>
+                    <Text style={styles.infoChipText}>{dialect}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Availability Section */}
           {userProfile.category === 'talent' && userProfile.about && (
-            <View style={styles.talentDetailsContainer}>
-              <Text style={styles.sectionTitle}>Talent Details</Text>
-              <View style={styles.talentDetailsGrid}>
-                {userProfile.about.height_cm && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="resize" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Height</Text>
-                    <Text style={styles.detailValue}>{userProfile.about.height_cm} cm</Text>
-                  </View>
-                )}
-                {userProfile.about.weight_kg && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="fitness" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Weight</Text>
-                    <Text style={styles.detailValue}>{userProfile.about.weight_kg} kg</Text>
-                  </View>
-                )}
-                {userProfile.about.eye_color && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="eye" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Eye Color</Text>
-                    <Text style={styles.detailValue}>{userProfile.about.eye_color}</Text>
-                  </View>
-                )}
-                {(userProfile.about.hair_color || userProfile.about.hair_colors?.name) && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="cut" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Hair Color</Text>
-                    <Text style={styles.detailValue}>
-                      {userProfile.about.hair_colors?.name || userProfile.about.hair_color}
-                    </Text>
-                  </View>
-                )}
-                {(userProfile.about.skin_tone || userProfile.about.skin_tones?.name) && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="color-palette" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Skin Tone</Text>
-                    <Text style={styles.detailValue}>
-                      {userProfile.about.skin_tones?.name || userProfile.about.skin_tone}
-                    </Text>
-                  </View>
-                )}
-                {userProfile.about.age && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="calendar" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Age</Text>
-                    <Text style={styles.detailValue}>{userProfile.about.age} years</Text>
-                  </View>
-                )}
-                {userProfile.about.nationality && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="flag" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Nationality</Text>
-                    <Text style={styles.detailValue}>{userProfile.about.nationality}</Text>
-                  </View>
-                )}
-                {userProfile.about.location && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="location" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Location</Text>
-                    <Text style={styles.detailValue}>{userProfile.about.location}</Text>
-                  </View>
-                )}
-                <View style={styles.detailItem}>
-                  <Ionicons name="airplane" size={16} color="#8b5cf6" />
-                  <Text style={styles.detailLabel}>Travel Ready</Text>
-                  <Text style={[styles.detailValue, { color: userProfile.about.travel_ready ? '#10b981' : '#ef4444' }]}>
-                    {userProfile.about.travel_ready ? 'Yes' : 'No'}
-                  </Text>
-                </View>
-                {userProfile.about.dialects && userProfile.about.dialects.length > 0 && (
-                  <View style={styles.detailItem}>
-                    <Ionicons name="chatbubbles" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Dialects</Text>
-                    <Text style={styles.detailValue}>{userProfile.about.dialects.join(', ')}</Text>
+            <View style={styles.infoCard}>
+              <Text style={styles.infoSectionTitle}>Availability</Text>
+              <View style={styles.tagList}>
+                {userProfile.about.travel_ready && (
+                  <View style={styles.infoChip}>
+                    <Ionicons name="airplane" size={14} color="#000" style={styles.chipIcon} />
+                    <Text style={styles.infoChipText}>Willing to Travel</Text>
                   </View>
                 )}
               </View>
             </View>
           )}
 
-          {/* Body Measurements */}
-          {userProfile.category === 'talent' && userProfile.about && (
-            (userProfile.about.chest_cm || userProfile.about.waist_cm || userProfile.about.hips_cm || userProfile.about.shoe_size_eu) && (
-              <View style={styles.talentDetailsContainer}>
-                <Text style={styles.sectionTitle}>Body Measurements</Text>
-                <View style={styles.talentDetailsGrid}>
-                  {userProfile.about.chest_cm && (
-                    <View style={styles.detailItem}>
-                      <Ionicons name="body" size={16} color="#8b5cf6" />
-                      <Text style={styles.detailLabel}>Chest</Text>
-                      <Text style={styles.detailValue}>{userProfile.about.chest_cm} cm</Text>
+          {/* Languages Section */}
+          {userProfile.languages && userProfile.languages.length > 0 && (
+            <View style={styles.infoCard}>
+              <Text style={styles.infoSectionTitle}>Languages</Text>
+              <View style={styles.tagList}>
+                {userProfile.languages.map((language: any, index: number) => {
+                  const langName = typeof language === 'string' ? language : (language.language_name || language.name || language);
+                  return (
+                    <View key={index} style={styles.infoChip}>
+                      <Text style={styles.infoChipText}>{langName}</Text>
                     </View>
-                  )}
-                  {userProfile.about.waist_cm && (
-                    <View style={styles.detailItem}>
-                      <Ionicons name="resize" size={16} color="#8b5cf6" />
-                      <Text style={styles.detailLabel}>Waist</Text>
-                      <Text style={styles.detailValue}>{userProfile.about.waist_cm} cm</Text>
-                    </View>
-                  )}
-                  {userProfile.about.hips_cm && (
-                    <View style={styles.detailItem}>
-                      <Ionicons name="ellipse" size={16} color="#8b5cf6" />
-                      <Text style={styles.detailLabel}>Hips</Text>
-                      <Text style={styles.detailValue}>{userProfile.about.hips_cm} cm</Text>
-                    </View>
-                  )}
-                  {userProfile.about.shoe_size_eu && (
-                    <View style={styles.detailItem}>
-                      <Ionicons name="footsteps" size={16} color="#8b5cf6" />
-                      <Text style={styles.detailLabel}>Shoe Size</Text>
-                      <Text style={styles.detailValue}>EU {userProfile.about.shoe_size_eu}</Text>
-                    </View>
-                  )}
-                </View>
+                  );
+                })}
               </View>
-            )
-          )}
-
-          {/* Professional Details */}
-          {userProfile.category === 'talent' && userProfile.about && (
-            (userProfile.about.reel_url || userProfile.about.union_member !== undefined) && (
-              <View style={styles.talentDetailsContainer}>
-                <Text style={styles.sectionTitle}>Professional Details</Text>
-                <View style={styles.talentDetailsGrid}>
-                  {userProfile.about.reel_url && (
-                    <View style={[styles.detailItem, { minWidth: '100%' }]}>
-                      <Ionicons name="videocam" size={16} color="#8b5cf6" />
-                      <Text style={styles.detailLabel}>Reel/Portfolio</Text>
-                      <TouchableOpacity onPress={() => Linking.openURL(userProfile.about.reel_url)}>
-                        <Text style={[styles.detailValue, { color: '#3b82f6', textDecorationLine: 'underline' }]}>
-                          View Portfolio
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                  <View style={styles.detailItem}>
-                    <Ionicons name="ribbon" size={16} color="#8b5cf6" />
-                    <Text style={styles.detailLabel}>Union Member</Text>
-                    <Text style={[styles.detailValue, { color: userProfile.about.union_member ? '#10b981' : '#ef4444' }]}>
-                      {userProfile.about.union_member ? 'Yes' : 'No'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            )
-          )}
-
-          <View style={styles.skillsContainer}>
-            <Text style={styles.sectionTitle}>Skills</Text>
-            <View style={styles.skillsList}>
-              {(userProfile.skills || []).map((skill: string, index: number) => (
-                <View key={index} style={styles.skillTag}>
-                  <Text style={styles.skillText}>{skill}</Text>
-                </View>
-              ))}
             </View>
-          </View>
+          )}
+
+          {/* Abilities Section */}
+          {userProfile.abilities && userProfile.abilities.length > 0 && (
+            <View style={styles.infoCard}>
+              <Text style={styles.infoSectionTitle}>Abilities</Text>
+              <View style={styles.tagList}>
+                {userProfile.abilities.map((ability: any, index: number) => {
+                  const abilityName = typeof ability === 'string' ? ability : (ability.ability_name || ability.name || ability);
+                  return (
+                    <View key={index} style={styles.infoChip}>
+                      <Text style={styles.infoChipText}>{abilityName}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* Contact Section */}
+          {userProfile.email && (
+            <View style={styles.infoCard}>
+              <View style={styles.contactHeader}>
+                <Ionicons name="call" size={20} color="#000" />
+                <Text style={styles.infoSectionTitle}>Contact</Text>
+              </View>
+              <View style={styles.contactInfo}>
+                <Text style={styles.contactText}>Email: {userProfile.email}</Text>
+              </View>
+            </View>
+          )}
 
           <View style={styles.actionsContainer}>
             {isCurrentUser ? (
               <TouchableOpacity
                 style={[styles.actionButton, styles.completeProfileButton]}
-                onPress={() => onNavigate?.('profileCompletion', userProfile)}
+                onPress={() => {
+                  if (isGuest) {
+                    setPromptAction('complete your profile');
+                    setShowSignUpPrompt(true);
+                  } else {
+                    onNavigate?.('profileCompletion', userProfile);
+                  }
+                }}
               >
                 <Ionicons name="person-add" size={20} color="#fff" />
                 <Text style={styles.primaryButtonText}>
@@ -669,14 +940,28 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               <>
                 <TouchableOpacity
                   style={[styles.actionButton, styles.primaryButton]}
-                  onPress={onStartChat}
+                  onPress={() => {
+                    if (isGuest) {
+                      setPromptAction('start a chat');
+                      setShowSignUpPrompt(true);
+                    } else {
+                      onStartChat?.(userProfile);
+                    }
+                  }}
                 >
                   <Ionicons name="chatbubble" size={20} color="#fff" />
                   <Text style={styles.primaryButtonText}>Message</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionButton, isInTeam ? styles.removeButton : styles.addButton]}
-                  onPress={() => onAddToTeam(profile)}
+                  onPress={() => {
+                    if (isGuest) {
+                      setPromptAction('add users to your team');
+                      setShowSignUpPrompt(true);
+                    } else {
+                      onAddToTeam(profile);
+                    }
+                  }}
                 >
                   <Ionicons name={isInTeam ? "remove" : "add"} size={20} color="#fff" />
                   <Text style={styles.secondaryButtonText}>
@@ -685,7 +970,14 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionButton, styles.assignButton]}
-                  onPress={() => onAssignToProject(profile)}
+                  onPress={() => {
+                    if (isGuest) {
+                      setPromptAction('assign users to projects');
+                      setShowSignUpPrompt(true);
+                    } else {
+                      onAssignToProject(profile);
+                    }
+                  }}
                 >
                   <Ionicons name="briefcase" size={20} color="#fff" />
                   <Text style={styles.secondaryButtonText}>Assign to Project</Text>
@@ -738,6 +1030,20 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         </View>
       </Modal>
 
+      {/* Sign Up Prompt Modal */}
+      <SignUpPromptModal
+        visible={showSignUpPrompt}
+        onClose={() => setShowSignUpPrompt(false)}
+        onSignUp={() => {
+          setShowSignUpPrompt(false);
+          onNavigate?.('signup', null);
+        }}
+        onSignIn={() => {
+          setShowSignUpPrompt(false);
+          onNavigate?.('login', null);
+        }}
+        action={promptAction}
+      />
     </View>
   );
 };
@@ -777,19 +1083,41 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
   heroInitials: {
-    fontSize: 220,
+    fontSize: 180,
     fontWeight: '800',
     color: '#9ca3af',
+    letterSpacing: 0,
   },
   heroImage: {
     width: '100%',
     height: '100%',
     borderRadius: 0,
   },
+  heroCalendarIcon: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 1,
+  },
+  calendarIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   profileContainer: {
-    padding: 16,
+    padding: 0,
+    paddingBottom: 16,
+    backgroundColor: '#fff',
+    paddingHorizontal: 8,
+    paddingTop: 16,
   },
   nameRow: {
     flexDirection: 'row',
@@ -799,12 +1127,12 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#fff',
+    color: '#000',
     marginBottom: 2,
   },
   lastSeen: {
     fontSize: 14,
-    color: '#d1d5db',
+    color: '#71717a',
     marginBottom: 16,
   },
   ctaRow: {
@@ -822,28 +1150,220 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   ctaLight: {
-    backgroundColor: '#1f2937',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#000',
   },
   ctaDark: {
-    backgroundColor: '#111827',
-    borderWidth: 1,
-    borderColor: '#374151',
+    backgroundColor: '#1f2937',
   },
   ctaText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
-  bioContainer: {
+  ctaTextLight: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Info Card Styles (matching reference design)
+  infoCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
-    width: '100%',
+    marginHorizontal: 8,
     borderWidth: 2,
     borderColor: '#d4d4d8',
   },
-  bio: {
+  infoSectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#000',
+    marginBottom: 12,
+  },
+  aboutText: {
+    fontSize: 14,
+    color: '#000',
+    lineHeight: 20,
+  },
+  personalInfoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  infoTag: {
+    backgroundColor: '#f4f4f5',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+    minWidth: '45%',
+  },
+  infoTagLabel: {
+    fontSize: 12,
+    color: '#71717a',
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  infoTagValue: {
+    fontSize: 14,
+    color: '#000',
+    fontWeight: '700',
+  },
+  tagList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  infoChip: {
+    backgroundColor: '#f4f4f5',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  chipIcon: {
+    marginRight: 2,
+  },
+  infoChipText: {
+    fontSize: 12,
+    color: '#000',
+    fontWeight: '500',
+  },
+  // Gallery Styles
+  galleryContainer: {
+    backgroundColor: '#fff',
+    marginBottom: 16,
+    marginHorizontal: 8,
+    borderRadius: 12,
+    padding: 16,
+    paddingTop: 20,
+    borderWidth: 2,
+    borderColor: '#d4d4d8',
+  },
+  galleryTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#000',
+    marginBottom: 16,
+  },
+  galleryTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  galleryTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#f4f4f5',
+    gap: 6,
+  },
+  galleryTabActive: {
+    backgroundColor: '#000',
+  },
+  galleryTabText: {
+    fontSize: 14,
+    color: '#000',
+    fontWeight: '600',
+  },
+  galleryTabTextActive: {
+    color: '#fff',
+  },
+  galleryContent: {
+    marginTop: 8,
+    alignItems: 'flex-start',
+  },
+  albumGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+  },
+  albumCard: {
+    width: (Dimensions.get('window').width - 64) / 2,
+    height: 200,
+    backgroundColor: '#f4f4f5',
+    borderRadius: 12,
+    padding: 16,
+    justifyContent: 'flex-end',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    overflow: 'hidden',
+  },
+  albumTitleLargeContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0,
+  },
+  albumTitleLarge: {
+    fontSize: 64,
+    fontWeight: '800',
+    color: '#d1d5db',
+    opacity: 0.3,
+    textAlign: 'center',
+  },
+  albumInfo: {
+    alignItems: 'flex-start',
+    width: '100%',
+    zIndex: 1,
+  },
+  albumTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 8,
+    textAlign: 'left',
+  },
+  albumStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  albumStatText: {
+    fontSize: 12,
+    color: '#000',
+    marginRight: 8,
+    textAlign: 'left',
+  },
+  emptyGallery: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyGalleryText: {
+    fontSize: 14,
+    color: '#9ca3af',
+  },
+  // Contact Section Styles
+  contactHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  contactInfo: {
+    gap: 8,
+  },
+  contactText: {
     fontSize: 14,
     color: '#000',
     lineHeight: 20,
@@ -897,7 +1417,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginBottom: 16,
-    width: '100%',
+    marginHorizontal: 8,
+    width: 'auto',
   },
   statCard: {
     flex: 1,
@@ -917,6 +1438,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#71717a',
     marginTop: 4,
+  },
+  // Legacy styles - keeping for backward compatibility
+  bioContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    width: '100%',
+    borderWidth: 2,
+    borderColor: '#d4d4d8',
+  },
+  bio: {
+    fontSize: 14,
+    color: '#000',
+    lineHeight: 20,
   },
   skillsContainer: {
     backgroundColor: '#fff',
@@ -953,6 +1489,8 @@ const styles = StyleSheet.create({
   actionsContainer: {
     width: '100%',
     gap: 12,
+    marginHorizontal: 8,
+    marginBottom: 16,
   },
   logoutButton: {
     padding: 8,
@@ -1116,11 +1654,13 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 12,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
   },
   imageGridItem: {
-    width: (Dimensions.get('window').width - 48 - 16) / 3, // 3 columns with gaps
+    width: (Dimensions.get('window').width - 64 - 16) / 3, // 3 columns with gaps, accounting for gallery padding
     aspectRatio: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f4f4f5',
     borderRadius: 8,
     overflow: 'hidden',
     borderWidth: 1,
@@ -1128,7 +1668,7 @@ const styles = StyleSheet.create({
   },
   imageThumbnail: {
     width: '100%',
-    height: '80%',
+    height: '100%',
   },
   imageCaption: {
     fontSize: 10,
@@ -1141,11 +1681,13 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 12,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
   },
   videoGridItem: {
-    width: (Dimensions.get('window').width - 48 - 16) / 2, // 2 columns for videos
+    width: (Dimensions.get('window').width - 64 - 8) / 2, // 2 columns for videos, accounting for gallery padding
     aspectRatio: 16/9,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f4f4f5',
     borderRadius: 8,
     overflow: 'hidden',
     borderWidth: 1,

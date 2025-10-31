@@ -55,7 +55,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   onBack,
   onUserSelect,
 }) => {
-  const { api, getUsersDirect, getMyTeam, addToMyTeam, removeFromMyTeam, getMyTeamMembers } = useApi();
+  const { api, getUsersDirect, getMyTeam, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -67,9 +67,31 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
   const fetchUsers = async () => {
     try {
-      console.log('👥 Fetching users for directory...');
+      console.log('👥 Fetching users for directory...', isGuest ? '(Guest Mode)' : '(Authenticated)');
       setError(null);
       
+      // Use guest browsing if in guest mode
+      if (isGuest) {
+        try {
+          console.log('🎭 Browsing users as guest...');
+          const response = await browseUsersAsGuest({ limit: 100 });
+          
+          if (response.success && response.data) {
+            const usersArray = Array.isArray(response.data) ? response.data : (Array.isArray(response.data?.users) ? response.data.users : []);
+            console.log('✅ Users fetched successfully as guest:', usersArray.length);
+            setUsers(usersArray);
+            return;
+          } else {
+            throw new Error(response.error || 'Failed to browse users as guest');
+          }
+        } catch (guestErr: any) {
+          console.error('❌ Guest browsing failed:', guestErr);
+          setError(guestErr.message || 'Failed to browse users as guest');
+          throw guestErr;
+        }
+      }
+      
+      // Authenticated user flow
       // Try direct fetch first
       try {
         const response = await getUsersDirect({ limit: 100 });
@@ -112,10 +134,16 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
   useEffect(() => {
     fetchUsers();
-    loadTeamMembers();
-  }, []);
+    // Only load team members if authenticated (not guest)
+    if (!isGuest) {
+      loadTeamMembers();
+    }
+  }, [isGuest]);
 
   const loadTeamMembers = async () => {
+    // Skip loading team members if guest
+    if (isGuest) return;
+    
     try {
       const response = await getMyTeamMembers();
       if (response.success && response.data) {
@@ -132,7 +160,10 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const onRefresh = () => {
     setRefreshing(true);
     fetchUsers();
-    loadTeamMembers(); // Also refresh team members
+    // Only refresh team members if authenticated (not guest)
+    if (!isGuest) {
+      loadTeamMembers();
+    }
   };
 
   const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
@@ -440,7 +471,13 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                               )}
                               {user.skills && user.skills.length > 0 && (
                                 <Text style={styles.talentDetailText} numberOfLines={1}>
-                                  {user.skills.slice(0, 2).join(', ')}{user.skills.length > 2 ? '...' : ''}
+                                  {user.skills
+                                    .map((skill: any) => {
+                                      if (typeof skill === 'string') return skill;
+                                      return skill?.skill_name || skill?.name || skill?.skills?.name || String(skill?.skill_id || skill?.id || '');
+                                    })
+                                    .slice(0, 2)
+                                    .join(', ')}{user.skills.length > 2 ? '...' : ''}
                                 </Text>
                               )}
                             </View>
@@ -457,28 +494,34 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                         </View>
                         
                         <View style={styles.userActions}>
-                          <TouchableOpacity 
-                            style={[
-                              styles.actionButton,
-                              teamMemberIds.has(user.id) && styles.actionButtonAdded,
-                              actionLoading.has(user.id) && styles.actionButtonLoading
-                            ]}
-                            onPress={() => handleToggleTeamMember(user)}
-                            disabled={actionLoading.has(user.id)}
-                          >
-                            {actionLoading.has(user.id) ? (
-                              <ActivityIndicator size="small" color="#fff" />
-                            ) : (
-                              <Ionicons 
-                                name={teamMemberIds.has(user.id) ? "checkmark" : "add"} 
-                                size={16} 
-                                color="#fff" 
-                              />
-                            )}
-                          </TouchableOpacity>
-                          <TouchableOpacity style={styles.actionButton}>
-                            <Ionicons name="briefcase" size={16} color="#fff" />
-                          </TouchableOpacity>
+                          {/* Only show team actions if authenticated (not guest) */}
+                          {!isGuest && (
+                            <TouchableOpacity 
+                              style={[
+                                styles.actionButton,
+                                teamMemberIds.has(user.id) && styles.actionButtonAdded,
+                                actionLoading.has(user.id) && styles.actionButtonLoading
+                              ]}
+                              onPress={() => handleToggleTeamMember(user)}
+                              disabled={actionLoading.has(user.id)}
+                            >
+                              {actionLoading.has(user.id) ? (
+                                <ActivityIndicator size="small" color="#fff" />
+                              ) : (
+                                <Ionicons 
+                                  name={teamMemberIds.has(user.id) ? "checkmark" : "add"} 
+                                  size={16} 
+                                  color="#fff" 
+                                />
+                              )}
+                            </TouchableOpacity>
+                          )}
+                          {/* Project assignment button - also only for authenticated users */}
+                          {!isGuest && (
+                            <TouchableOpacity style={styles.actionButton}>
+                              <Ionicons name="briefcase" size={16} color="#fff" />
+                            </TouchableOpacity>
+                          )}
                         </View>
                       </View>
                     </TouchableOpacity>

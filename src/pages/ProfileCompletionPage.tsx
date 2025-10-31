@@ -196,13 +196,25 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       // Handle skills - they might be stored as IDs or names
       let userSkills = user.skills || user.user_skills || [];
       
-      // If skills are stored as IDs, we need to map them to names for display
-      // For now, we'll store them as-is and handle the mapping in the UI
+      // If skills are stored as objects with skill_name, extract the names
+      // Otherwise, use them as-is (could be names or IDs)
+      const normalizedSkills = userSkills.map((skill: any) => {
+        if (typeof skill === 'string') {
+          return skill; // Already a string (name or ID)
+        } else if (skill?.skill_name) {
+          return skill.skill_name; // Extract name from object
+        } else if (skill?.name) {
+          return skill.name; // Extract name from object
+        }
+        return String(skill); // Fallback to string conversion
+      });
+      
       console.log('🔍 User skills from profile:', userSkills);
+      console.log('🔍 Normalized skills for form:', normalizedSkills);
       
       const newFormData = {
         bio: user.bio || '',
-        skills: userSkills,
+        skills: normalizedSkills,
         portfolio: user.portfolio || user.user_portfolios || [],
         about: {
           gender: aboutData.gender || userDetails.gender || '',
@@ -347,11 +359,15 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     }
   };
 
-  const addSkillFromDropdown = (skillValue: string) => {
-    if (skillValue && !formData.skills.includes(skillValue)) {
+  const addSkillFromDropdown = (skillId: string) => {
+    if (skillId && !formData.skills.includes(skillId)) {
+      // Find the skill name for display
+      const skill = availableSkills.find(s => s.id === skillId);
+      const skillName = skill?.name || skillId;
+      
       setFormData(prev => ({
         ...prev,
-        skills: [...prev.skills, skillValue],
+        skills: [...prev.skills, skillName], // Store name for API matching
       }));
       setCurrentSkill(''); // Reset dropdown selection
     }
@@ -1014,7 +1030,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           <Text style={styles.debugText}>Age: "{formData.about.age}"</Text>
           <Text style={styles.debugText}>Nationality: "{formData.about.nationality}"</Text>
           <Text style={styles.debugText}>Height: "{formData.about.height}"</Text>
-          <Text style={styles.debugText}>Skills: {JSON.stringify(formData.skills)}</Text>
+          <Text style={styles.debugText}>Skills: {formData.skills.map((skill: any) => {
+            if (typeof skill === 'string') return skill;
+            return skill?.skill_name || skill?.name || skill?.skills?.name || String(skill?.skill_id || skill?.id || '');
+          }).join(', ')}</Text>
           <Text style={styles.debugText}>Portfolio Items: {formData.portfolio.length}</Text>
         </View>
 

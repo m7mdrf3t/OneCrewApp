@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { MOCK_PROFILES, getInitials } from '../data/mockData';
+import { useApi } from '../contexts/ApiContext';
 
 interface ServiceDetailPageProps {
   service: {
@@ -25,6 +26,7 @@ const ServiceDetailPage: React.FC<ServiceDetailPageProps> = ({
   onStartChat,
   myTeam = [],
 }) => {
+  const { isGuest } = useApi();
   // Filter profiles based on the service
   const filteredProfiles = useMemo(() => {
     const serviceLabel = service.label.toLowerCase();
@@ -97,7 +99,21 @@ const ServiceDetailPage: React.FC<ServiceDetailPageProps> = ({
           <Text style={styles.profileSpecialty}>{profile.specialty}</Text>
         </View>
         <TouchableOpacity
-          onPress={() => onAddToTeam?.(profile)}
+          onPress={() => {
+            if (isGuest) {
+              Alert.alert(
+                'Sign Up Required',
+                'Create an account to add users to your team.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Sign Up', onPress: () => {} },
+                  { text: 'Sign In', onPress: () => {} },
+                ]
+              );
+            } else {
+              onAddToTeam?.(profile);
+            }
+          }}
           style={styles.plusBadge}
         >
           <Ionicons name="add" size={18} color="#fff" />

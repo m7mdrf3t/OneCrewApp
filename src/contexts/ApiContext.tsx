@@ -568,71 +568,107 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
 
       // Update skills using the correct API client methods
-      if (skillsData.skills && skillsData.skills.length > 0) {
+      // Always update skills, even if the array is empty (to clear all skills)
+      try {
+        console.log('🎯 Updating skills using API client methods...');
+        console.log('🔍 Skills data to process:', skillsData.skills);
+        
+        // Get current user skills to see what needs to be removed
+        let currentSkills = [];
         try {
-          console.log('🎯 Updating skills using API client methods...');
-          
-          // Get current user skills to see what needs to be removed
           const currentSkillsResponse = await api.getUserSkills();
-          const currentSkills = currentSkillsResponse.data || [];
+          currentSkills = currentSkillsResponse.data || [];
           console.log('🔍 Current user skills:', currentSkills);
-          
-          // Get available skills to find IDs
-          const availableSkillsResponse = await api.getAvailableSkills();
-          const availableSkills = availableSkillsResponse.data || [];
-          console.log('🔍 Available skills:', availableSkills);
-          
-          // Find skill IDs for the provided skill names
-          const skillIdsToAdd = skillsData.skills
-            .map((skillName: string) => {
-              const skill = availableSkills.find(s => s.name.toLowerCase() === skillName.toLowerCase());
-              return skill?.id;
+        } catch (getSkillsError: any) {
+          console.warn('⚠️ Failed to get current skills, assuming empty:', getSkillsError.message);
+          currentSkills = [];
+        }
+        
+        // Get available skills to find IDs
+        const availableSkillsResponse = await api.getAvailableSkills();
+        const availableSkills = availableSkillsResponse.data || [];
+        console.log('🔍 Available skills count:', availableSkills.length);
+        
+        // Find skill IDs for the provided skill names
+        // Skills can be either names or IDs - check both
+        const skillIdsToAdd = (skillsData.skills || [])
+            .map((skillInput: string) => {
+              // First check if it's already an ID
+              const skillById = availableSkills.find(s => s.id === skillInput);
+              if (skillById) {
+                return skillById.id;
+              }
+              
+              // Then check if it's a name
+              const skillByName = availableSkills.find(s => 
+                s.name.toLowerCase() === skillInput.toLowerCase() ||
+                s.skill_name?.toLowerCase() === skillInput.toLowerCase()
+              );
+              return skillByName?.id;
             })
             .filter(Boolean);
           
-          console.log('🔍 Skill IDs to add:', skillIdsToAdd);
-          
-          // Get current skill IDs to remove ones not in the new list
-          const currentSkillIds = currentSkills.map((skill: any) => skill.skill_id || skill.id);
-          const skillIdsToRemove = currentSkillIds.filter((skillId: string) => 
-            !skillIdsToAdd.includes(skillId)
-          );
-          
-          console.log('🔍 Skill IDs to remove:', skillIdsToRemove);
-          
-          // Remove skills that are no longer selected
-          const removePromises = skillIdsToRemove.map(skillId => 
-            api.removeUserSkill(skillId).catch(err => {
-              console.warn(`⚠️ Failed to remove skill ${skillId}:`, err);
-              return null;
-            })
-          );
-          
-          // Add new skills
-          const addPromises = skillIdsToAdd.map((skillId: string) => 
-            api.addUserSkill(skillId as string).catch(err => {
-              console.warn(`⚠️ Failed to add skill ${skillId}:`, err);
-              return null;
-            })
-          );
-          
-          // Execute all operations
-          const removeResults = await Promise.all(removePromises);
-          const addResults = await Promise.all(addPromises);
-          
-          const successfulRemoves = removeResults.filter(Boolean);
-          const successfulAdds = addResults.filter(Boolean);
-          
-          console.log('✅ Skills updated successfully:', {
-            removed: successfulRemoves.length,
-            added: successfulAdds.length
-          });
-        } catch (skillsError: any) {
-          console.error('❌ Skills update failed:', skillsError);
-          console.warn('⚠️ Continuing without skills update');
+        console.log('🔍 Skill inputs:', skillsData.skills);
+        console.log('🔍 Available skills sample:', availableSkills.slice(0, 3));
+        console.log('🔍 Skill IDs to add:', skillIdsToAdd);
+        
+        // Get current skill IDs to remove ones not in the new list
+        const currentSkillIds = currentSkills.map((skill: any) => 
+          skill.skill_id || skill.id || skill.skill?.id
+        ).filter(Boolean);
+        
+        const skillIdsToRemove = currentSkillIds.filter((skillId: string) => 
+          !skillIdsToAdd.includes(skillId)
+        );
+        
+        console.log('🔍 Current skill IDs:', currentSkillIds);
+        console.log('🔍 Skill IDs to remove:', skillIdsToRemove);
+        
+        // Remove skills that are no longer selected
+        const removePromises = skillIdsToRemove.map(skillId => 
+          api.removeUserSkill(skillId).catch(err => {
+            console.warn(`⚠️ Failed to remove skill ${skillId}:`, err);
+            return null;
+          })
+        );
+        
+        // Add new skills (only add ones not already present)
+        const skillsToActuallyAdd = skillIdsToAdd.filter(skillId => 
+          !currentSkillIds.includes(skillId)
+        );
+        
+        const addPromises = skillsToActuallyAdd.map((skillId: string) => 
+          api.addUserSkill(skillId as string).catch(err => {
+            console.warn(`⚠️ Failed to add skill ${skillId}:`, err);
+            return null;
+          })
+        );
+        
+        // Execute all operations
+        const removeResults = await Promise.all(removePromises);
+        const addResults = await Promise.all(addPromises);
+        
+        const successfulRemoves = removeResults.filter(Boolean);
+        const successfulAdds = addResults.filter(Boolean);
+        
+        console.log('✅ Skills updated successfully:', {
+          removed: successfulRemoves.length,
+          added: successfulAdds.length,
+          totalRequested: skillsData.skills.length,
+          totalFound: skillIdsToAdd.length,
+          alreadyExists: skillIdsToAdd.length - skillsToActuallyAdd.length
+        });
+        
+        if (skillIdsToAdd.length === 0 && skillsData.skills.length > 0) {
+          console.warn('⚠️ Warning: No skill IDs were found for the provided skill names. Available skills might not match.');
+          console.warn('⚠️ Provided skills:', skillsData.skills);
+          console.warn('⚠️ Available skill names (first 10):', availableSkills.slice(0, 10).map(s => s.name || s.skill_name));
         }
-      } else {
-        console.log('⏭️ No skills to update');
+      } catch (skillsError: any) {
+        console.error('❌ Skills update failed:', skillsError);
+        console.error('❌ Error details:', JSON.stringify(skillsError, null, 2));
+        // Don't throw - allow profile update to continue
+        console.warn('⚠️ Continuing without skills update - profile may not have skills saved');
       }
 
       // Update the current user data - ensure ID is preserved

@@ -51,7 +51,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   user,
   onOpenMainMenu,
 }) => {
-  const { api, getUsersDirect } = useApi();
+  const { api, getUsersDirect, isGuest, browseUsersAsGuest } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,9 +60,31 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
 
   const fetchUsers = async () => {
     try {
-      console.log('👥 Fetching users...');
+      console.log('👥 Fetching users...', isGuest ? '(Guest Mode)' : '(Authenticated)');
       setError(null);
       
+      // Use guest browsing if in guest mode
+      if (isGuest) {
+        try {
+          console.log('🎭 Browsing users as guest...');
+          const response = await browseUsersAsGuest({ limit: 50 });
+          
+          if (response.success && response.data) {
+            const usersArray = Array.isArray(response.data) ? response.data : (Array.isArray(response.data?.users) ? response.data.users : []);
+            console.log('✅ Users fetched successfully as guest:', usersArray.length);
+            setUsers(usersArray);
+            return;
+          } else {
+            throw new Error(response.error || 'Failed to browse users as guest');
+          }
+        } catch (guestErr: any) {
+          console.error('❌ Guest browsing failed:', guestErr);
+          setError(guestErr.message || 'Failed to browse users as guest');
+          throw guestErr;
+        }
+      }
+      
+      // Authenticated user flow
       // Try direct fetch first
       try {
         const response = await getUsersDirect({ limit: 50 });
@@ -106,7 +128,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [isGuest]);
 
   const onRefresh = () => {
     setRefreshing(true);
