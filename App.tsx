@@ -84,6 +84,27 @@ const AppContent: React.FC = () => {
 
   const page = history[history.length - 1];
 
+  // Prevent guests from accessing profile completion page
+  useEffect(() => {
+    if (page.name === 'profileCompletion' && isGuest) {
+      Alert.alert(
+        'Sign Up Required',
+        'Create an account to complete your profile.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: handleBack },
+          { text: 'Sign Up', onPress: () => {
+            handleBack();
+            handleNavigateToSignup();
+          }},
+          { text: 'Sign In', onPress: () => {
+            handleBack();
+            handleNavigateToLogin();
+          }},
+        ]
+      );
+    }
+  }, [page.name, isGuest, handleBack, handleNavigateToSignup, handleNavigateToLogin]);
+
   const toggleTheme = () => {
     setTheme(current => (current === 'light' ? 'dark' : 'light'));
   };
@@ -160,6 +181,8 @@ const AppContent: React.FC = () => {
     // Optionally refresh projects data
   }, [navigateTo]);
 
+  const [addProjectToPage, setAddProjectToPage] = useState<((project: any) => void) | null>(null);
+
   const handleCreateProjectDirect = useCallback(async () => {
     try {
       // Check if user is authenticated
@@ -183,6 +206,11 @@ const AppContent: React.FC = () => {
       const createdProject = await api.createProject(projectRequest);
       console.log('✅ Project created successfully:', createdProject);
 
+      // Add project immediately to the list if callback is available
+      if (addProjectToPage) {
+        addProjectToPage(createdProject);
+      }
+
       // Navigate back to projects page to show the new project
       navigateTo('projects', null);
       
@@ -192,7 +220,7 @@ const AppContent: React.FC = () => {
       console.error('Failed to create project:', error);
       Alert.alert('Error', 'Failed to create project. Please try again.');
     }
-  }, [api, user, navigateTo]);
+  }, [api, user, navigateTo, addProjectToPage]);
 
   const handleCreateProject = useCallback(async (projectData: ProjectCreationData) => {
     try {
@@ -217,6 +245,11 @@ const AppContent: React.FC = () => {
       const createdProject = await api.createProject(projectRequest);
       console.log('✅ Project created successfully:', createdProject);
 
+      // Add project immediately to the list if on projects page
+      if (page.name === 'projects' && addProjectToPage) {
+        addProjectToPage(createdProject);
+      }
+
       // Navigate back to projects page to show the new project
       navigateTo('projects', null);
       
@@ -226,7 +259,7 @@ const AppContent: React.FC = () => {
       console.error('Failed to create project:', error);
       throw new Error('Failed to create project. Please try again.');
     }
-  }, [api, user, navigateTo]);
+  }, [api, user, navigateTo, page.name, addProjectToPage]);
 
   const handleUpdateProject = useCallback((updatedProject: ProjectDashboardData) => {
     setCurrentProject(updatedProject);
@@ -333,14 +366,39 @@ const AppContent: React.FC = () => {
   }, [getProjectById]);
 
   const handleAddNewProject = useCallback(() => {
+    if (isGuest) {
+      Alert.alert(
+        'Sign Up Required',
+        'Create an account to start creating and managing projects.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign Up', onPress: handleNavigateToSignup },
+          { text: 'Sign In', onPress: handleNavigateToLogin },
+        ]
+      );
+      return;
+    }
     navigateTo('newProject', null);
-  }, [navigateTo]);
+  }, [navigateTo, isGuest, handleNavigateToSignup, handleNavigateToLogin]);
 
   const handleAddNewProjectEasy = useCallback(() => {
+    if (isGuest) {
+      Alert.alert(
+        'Sign Up Required',
+        'Create an account to start creating and managing projects.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign Up', onPress: handleNavigateToSignup },
+          { text: 'Sign In', onPress: handleNavigateToLogin },
+        ]
+      );
+      return;
+    }
     navigateTo('newProjectEasy', null);
-  }, [navigateTo]);
+  }, [navigateTo, isGuest, handleNavigateToSignup, handleNavigateToLogin]);
 
   const handleAddToTeam = useCallback((profile: any) => {
+    // Note: Guest checks are handled in ProfileDetailPage, this is called only for authenticated users
     setMyTeam(currentTeam => {
       const isAdded = currentTeam.some(m => m.id === profile.id);
       if (isAdded) {
@@ -352,11 +410,13 @@ const AppContent: React.FC = () => {
   }, []);
 
   const handleAssignToProject = useCallback((profile: any) => {
+    // Note: Guest checks are handled in ProfileDetailPage, this is called only for authenticated users
     // Handle assign to project logic
     console.log('Assign to project:', profile);
   }, []);
 
   const handleStartChat = useCallback((profile: any) => {
+    // Note: Guest checks are handled in ProfileDetailPage, this is called only for authenticated users
     navigateTo('chat', profile);
   }, [navigateTo]);
 
@@ -679,6 +739,9 @@ const AppContent: React.FC = () => {
               onRefresh={handleRefreshProjects}
               onNavigateToSignup={handleNavigateToSignup}
               onNavigateToLogin={handleNavigateToLogin}
+              onProjectCreated={(addFn: (project: any) => void) => {
+                setAddProjectToPage(() => addFn);
+              }}
             />
           )}
           {page.name === 'profile' && (
@@ -690,6 +753,15 @@ const AppContent: React.FC = () => {
               myTeam={myTeam}
               onStartChat={handleStartChat}
               onMediaSelect={() => {}}
+              onNavigate={(pageName: string, data?: any) => {
+                if (pageName === 'signup') {
+                  handleNavigateToSignup();
+                } else if (pageName === 'login') {
+                  handleNavigateToLogin();
+                } else {
+                  navigateTo(pageName, data);
+                }
+              }}
             />
           )}
           {page.name === 'projectDetail' && (
@@ -720,18 +792,31 @@ const AppContent: React.FC = () => {
               onMediaSelect={() => {}}
               isCurrentUser={true}
               onLogout={handleLogout}
-              onNavigate={navigateTo}
+              onNavigate={(pageName: string, data?: any) => {
+                if (pageName === 'signup') {
+                  handleNavigateToSignup();
+                } else if (pageName === 'login') {
+                  handleNavigateToLogin();
+                } else {
+                  navigateTo(pageName, data);
+                }
+              }}
             />
           )}
           {page.name === 'profileCompletion' && (
-            <ProfileCompletionPage
-              navigation={{ goBack: handleBack }}
-              user={page.data || user}
-              onProfileUpdated={() => {
-                // Refresh user data or navigate back
-                handleBack();
-              }}
-            />
+            isGuest ? (
+              // Guest protection - this should not render but if it does, navigate back
+              null
+            ) : (
+              <ProfileCompletionPage
+                navigation={{ goBack: handleBack }}
+                user={page.data || user}
+                onProfileUpdated={() => {
+                  // Refresh user data or navigate back
+                  handleBack();
+                }}
+              />
+            )
           )}
         </View>
 

@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import SearchBar from '../components/SearchBar';
 import { ProjectsPageProps } from '../types';
 import { useApi } from '../contexts/ApiContext';
+import ProjectMenuPopup from '../components/ProjectMenuPopup';
+import DeletedProjectsModal from '../components/DeletedProjectsModal';
 
 const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onProjectSelect,
@@ -18,11 +20,16 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onRefresh,
   onNavigateToSignup,
   onNavigateToLogin,
+  onProjectCreated,
 }) => {
   const { getAllProjects, getProjectById, user, api, isGuest } = useApi();
   const [projects, setProjects] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<any>(null);
+  const [showMenuPopup, setShowMenuPopup] = useState(false);
+  const [showDeletedProjects, setShowDeletedProjects] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>();
   // Removed loading progress and task loading states - now only loading basic project info
 
   // Removed retryWithBackoff function - no longer needed for basic project loading
@@ -42,9 +49,11 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
       const userProjects = await getAllProjects();
       
       // Filter to only show projects where user is owner or member (not just viewer)
+      // Also exclude soft-deleted projects
       const filteredProjects = userProjects.filter(project => {
         const accessLevel = getUserAccessLevel(project);
-        return accessLevel === 'owner' || accessLevel === 'member';
+        const isActive = !project.is_deleted && !project.deleted_at;
+        return (accessLevel === 'owner' || accessLevel === 'member') && isActive;
       });
 
       console.log(`✅ Loaded ${filteredProjects.length} projects (basic info only)`);
@@ -68,6 +77,25 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     }
   };
 
+  // Method to add project immediately without reload
+  const addProjectToList = React.useCallback((newProject: any) => {
+    setProjects(prev => [
+      {
+        ...newProject,
+        tasks: [],
+        isBasicData: true,
+      },
+      ...prev,
+    ]);
+  }, []);
+
+  // Expose addProjectToList to parent component via callback
+  useEffect(() => {
+    if (onProjectCreated && typeof onProjectCreated === 'function') {
+      onProjectCreated(addProjectToList);
+    }
+  }, [onProjectCreated, addProjectToList]);
+
   const handleProjectPress = (project: any) => {
     if (onNavigateToProjectDetail) {
       onNavigateToProjectDetail(project);
@@ -76,29 +104,43 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     }
   };
 
-  const handleDeleteProject = async (project: any) => {
+  const handleMenuPress = (project: any, event?: any) => {
+    setSelectedProject(project);
+    setShowMenuPopup(true);
+    // Menu will appear on the right side by default
+    setMenuAnchor({ x: 20, y: 200 });
+  };
+
+  const handleDeleteProject = async () => {
+    if (!selectedProject) return;
+
     Alert.alert(
-      'Delete Project',
-      `Are you sure you want to delete "${project.title}"? This action cannot be undone.`,
+      'Move to Recycle Bin',
+      `Are you sure you want to move "${selectedProject.title}" to the recycle bin?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Move to Bin',
           style: 'destructive',
           onPress: async () => {
             try {
-              console.log('🗑️ Deleting project:', project.id);
-              await api.deleteProject(project.id);
+              console.log('🗑️ Moving project to recycle bin:', selectedProject.id);
+              // Soft delete - move to recycle bin
+              await api.updateProject(selectedProject.id, {
+                is_deleted: true,
+                deleted_at: new Date().toISOString(),
+              });
               
               // Remove project from local state
-              setProjects(prev => prev.filter(p => p.id !== project.id));
+              setProjects(prev => prev.filter(p => p.id !== selectedProject.id));
               
-              console.log('✅ Project deleted successfully');
+              console.log('✅ Project moved to recycle bin');
+              setSelectedProject(null);
             } catch (error) {
-              console.error('❌ Failed to delete project:', error);
+              console.error('❌ Failed to move project to recycle bin:', error);
               Alert.alert(
                 'Delete Failed',
-                'Failed to delete project. Please try again.',
+                'Failed to move project to recycle bin. Please try again.',
                 [{ text: 'OK' }]
               );
             }
@@ -106,6 +148,54 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         },
       ]
     );
+  };
+
+  const handleEditName = () => {
+    if (!selectedProject) return;
+    Alert.prompt(
+      'Edit Project Name',
+      'Enter the new name:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: async (newName) => {
+            if (newName && newName.trim()) {
+              try {
+                const result = await api.updateProject(selectedProject.id, { title: newName.trim() });
+                setProjects(prev => prev.map(p => 
+                  p.id === selectedProject.id ? { ...p, title: newName.trim() } : p
+                ));
+              } catch (error) {
+                Alert.alert('Error', 'Failed to update project name.');
+              }
+            }
+          },
+        },
+      ],
+      'plain-text',
+      selectedProject.title
+    );
+  };
+
+  const handleProjectType = () => {
+    if (!selectedProject) return;
+    Alert.alert('Project Type', 'This feature will be implemented soon.');
+  };
+
+  const handleCoverPhoto = () => {
+    if (!selectedProject) return;
+    Alert.alert('Cover Photo', 'This feature will be implemented soon.');
+  };
+
+  const handleSave = () => {
+    if (!selectedProject) return;
+    Alert.alert('Save', 'Project saved successfully.');
+  };
+
+  const handleRestoreProject = (projectId: string) => {
+    // Reload projects to include restored project
+    loadProjects();
   };
 
   const getStatusColor = (status: string) => {
@@ -267,15 +357,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
       </View>
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.projectsContainer}>
-          <TouchableOpacity style={styles.addButton} onPress={onAddNewProject}>
-            <Ionicons name="add" size={24} color="#fff" />
-            <Text style={styles.addButtonText}>New Project</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.addButtonEasy} onPress={onAddNewProjectEasy}>
-            <Ionicons name="flash" size={24} color="#fff" />
-            <Text style={styles.addButtonText}>Quick Project</Text>
-          </TouchableOpacity>
-          
           {projects.length > 0 ? (
             projects.map((project) => {
               const accessLevel = getUserAccessLevel(project);
@@ -302,9 +383,12 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
                       </View>
                       <TouchableOpacity
                         style={styles.menuButton}
-                        onPress={() => handleDeleteProject(project)}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleMenuPress(project);
+                        }}
                       >
-                        <Ionicons name="ellipsis-horizontal" size={20} color="#71717a" />
+                        <Ionicons name="ellipsis-horizontal" size={20} color="#a1a1aa" />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -319,49 +403,23 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
                     <View style={styles.projectInfo}>
                       {project.type && (
                         <View style={styles.projectInfoItem}>
-                          <Ionicons name="film" size={16} color="#71717a" />
+                          <Ionicons name="film" size={16} color="#a1a1aa" />
                           <Text style={styles.projectInfoText}>{project.type}</Text>
                         </View>
                       )}
                       {project.location && (
                         <View style={styles.projectInfoItem}>
-                          <Ionicons name="location" size={16} color="#71717a" />
+                          <Ionicons name="location" size={16} color="#a1a1aa" />
                           <Text style={styles.projectInfoText}>{project.location}</Text>
                         </View>
                       )}
                       {project.owner && (
                         <View style={styles.projectInfoItem}>
-                          <Ionicons name="person" size={16} color="#71717a" />
+                          <Ionicons name="person" size={16} color="#a1a1aa" />
                           <Text style={styles.projectInfoText}>by {project.owner.name}</Text>
                         </View>
                       )}
                     </View>
-                    
-                    <View style={styles.projectProgress}>
-                      <View style={styles.progressBar}>
-                        <View 
-                          style={[
-                            styles.progressFill, 
-                            { width: `${project.progress || 0}%` }
-                          ]} 
-                        />
-                      </View>
-                      <Text style={styles.progressText}>{project.progress || 0}%</Text>
-                    </View>
-                  </View>
-                  
-                  {/* Quick Info Section */}
-                  <View style={styles.quickInfoSection}>
-                    <View style={styles.quickInfoItem}>
-                      <Ionicons name="list" size={16} color="#71717a" />
-                      <Text style={styles.quickInfoText}>Tap to view details & tasks</Text>
-                    </View>
-                    {project.isBasicData && (
-                      <View style={styles.quickInfoItem}>
-                        <Ionicons name="flash" size={16} color="#10b981" />
-                        <Text style={styles.quickInfoText}>Fast loading enabled</Text>
-                      </View>
-                    )}
                   </View>
 
                   <View style={styles.projectFooter}>
@@ -377,7 +435,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
                         </Text>
                       )}
                     </View>
-                    <Ionicons name="chevron-forward" size={20} color="#71717a" />
+                    <Ionicons name="chevron-forward" size={20} color="#a1a1aa" />
                   </View>
                 </TouchableOpacity>
               );
@@ -387,12 +445,53 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
               <Ionicons name="folder-open" size={64} color="#d4d4d8" />
               <Text style={styles.emptyTitle}>No Projects Yet</Text>
               <Text style={styles.emptyDescription}>
-                Create your first project to get started with organizing your work.
+                Start by creating a new dream project.
               </Text>
             </View>
           )}
         </View>
       </ScrollView>
+
+      {/* Floating Action Button */}
+      <TouchableOpacity 
+        style={styles.fab} 
+        onPress={onAddNewProject}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="sparkles" size={28} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Trash Button */}
+      <TouchableOpacity 
+        style={styles.trashButton} 
+        onPress={() => setShowDeletedProjects(true)}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="trash" size={22} color="#71717a" />
+        {/* Badge could be added here if needed */}
+      </TouchableOpacity>
+
+      {/* Menu Popup */}
+      <ProjectMenuPopup
+        visible={showMenuPopup}
+        onClose={() => {
+          setShowMenuPopup(false);
+          setSelectedProject(null);
+        }}
+        onEditName={handleEditName}
+        onProjectType={handleProjectType}
+        onCoverPhoto={handleCoverPhoto}
+        onSave={handleSave}
+        onDelete={handleDeleteProject}
+        anchorPosition={menuAnchor}
+      />
+
+      {/* Deleted Projects Modal */}
+      <DeletedProjectsModal
+        visible={showDeletedProjects}
+        onClose={() => setShowDeletedProjects(false)}
+        onRestore={handleRestoreProject}
+      />
     </View>
   );
 };
@@ -437,29 +536,39 @@ const styles = StyleSheet.create({
   projectsContainer: {
     padding: 12,
   },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  fab: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#a855f7',
     justifyContent: 'center',
-    backgroundColor: '#000',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  addButtonEasy: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#3b82f6',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
+  trashButton: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
   loadingContainer: {
     flex: 1,
@@ -497,15 +606,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   projectCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#000',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#333333',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 2,
   },
@@ -518,7 +627,7 @@ const styles = StyleSheet.create({
   projectTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#fff',
     flex: 1,
     marginRight: 12,
   },
@@ -557,7 +666,7 @@ const styles = StyleSheet.create({
   },
   projectDescription: {
     fontSize: 14,
-    color: '#71717a',
+    color: '#d4d4d8',
     marginBottom: 12,
     lineHeight: 20,
   },
@@ -577,30 +686,8 @@ const styles = StyleSheet.create({
   },
   projectInfoText: {
     fontSize: 12,
-    color: '#71717a',
+    color: '#a1a1aa',
     marginLeft: 4,
-  },
-  projectProgress: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  progressBar: {
-    flex: 1,
-    height: 6,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 3,
-    marginRight: 8,
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#3b82f6',
-    borderRadius: 3,
-  },
-  progressText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#000',
-    minWidth: 32,
   },
   projectFooter: {
     flexDirection: 'row',
@@ -608,14 +695,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
+    borderTopColor: '#333333',
   },
   projectDates: {
     flex: 1,
   },
   dateText: {
     fontSize: 11,
-    color: '#9ca3af',
+    color: '#71717a',
     marginBottom: 2,
   },
   emptyState: {
@@ -727,22 +814,6 @@ const styles = StyleSheet.create({
     color: '#92400e',
     marginLeft: 8,
     flex: 1,
-  },
-  quickInfoSection: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    gap: 6,
-  },
-  quickInfoItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  quickInfoText: {
-    fontSize: 13,
-    color: '#6b7280',
   },
   headerSpacer: {
     width: 24,

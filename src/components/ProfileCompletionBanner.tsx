@@ -5,12 +5,14 @@ import { Ionicons } from '@expo/vector-icons';
 interface ProfileCompletionBannerProps {
   completionPercentage: number;
   onCompleteProfile: () => void;
+  onSkip?: () => void;
   isVisible: boolean;
 }
 
 const ProfileCompletionBanner: React.FC<ProfileCompletionBannerProps> = ({
   completionPercentage,
   onCompleteProfile,
+  onSkip,
   isVisible,
 }) => {
   if (!isVisible || completionPercentage >= 100) {
@@ -40,6 +42,14 @@ const ProfileCompletionBanner: React.FC<ProfileCompletionBannerProps> = ({
   return (
     <View style={[styles.banner, { borderLeftColor: getCompletionColor() }]}>
       <View style={styles.bannerContent}>
+        {onSkip && (
+          <TouchableOpacity 
+            style={styles.skipButton}
+            onPress={onSkip}
+          >
+            <Ionicons name="close" size={20} color="#71717a" />
+          </TouchableOpacity>
+        )}
         <View style={styles.bannerLeft}>
           <View style={styles.iconContainer}>
             <Ionicons 
@@ -96,11 +106,21 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+    position: 'relative',
   },
   bannerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
+  },
+  skipButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 1,
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: '#f3f4f6',
   },
   bannerLeft: {
     flex: 1,

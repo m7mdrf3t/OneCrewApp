@@ -77,6 +77,7 @@ export interface ProjectsPageProps {
   onRefresh?: () => void;
   onNavigateToSignup?: () => void;
   onNavigateToLogin?: () => void;
+  onProjectCreated?: (project: any) => void;
 }
 
 export interface ProfileDetailPageProps {

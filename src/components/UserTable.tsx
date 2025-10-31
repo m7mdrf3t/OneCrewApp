@@ -249,7 +249,13 @@ const UserTable: React.FC<UserTableProps> = ({
                     <View style={styles.detailRow}>
                       <Ionicons name="star" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
                       <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]} numberOfLines={1}>
-                        {user.skills.slice(0, 2).join(', ')}{user.skills.length > 2 ? '...' : ''}
+                        {user.skills
+                          .map((skill: any) => {
+                            if (typeof skill === 'string') return skill;
+                            return skill?.skill_name || skill?.name || skill?.skills?.name || String(skill?.skill_id || skill?.id || '');
+                          })
+                          .slice(0, 2)
+                          .join(', ')}{user.skills.length > 2 ? '...' : ''}
                       </Text>
                     </View>
                   )}
