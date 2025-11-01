@@ -35,6 +35,8 @@ import SignupPage from './src/pages/SignupPage';
 import ForgotPasswordPage from './src/pages/ForgotPasswordPage';
 import ResetPasswordPage from './src/pages/ResetPasswordPage';
 import OnboardingPage from './src/pages/OnboardingPage';
+import CompanyRegistrationPage from './src/pages/CompanyRegistrationPage';
+import CompanyProfilePage from './src/pages/CompanyProfilePage';
 
 // Data
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
@@ -330,6 +332,15 @@ const AppContent: React.FC = () => {
 
   const handleProfileEdit = useCallback(() => {
     navigateTo('myProfile', MOCK_PROFILES[0]);
+  }, [navigateTo]);
+
+  const handleCreateCompany = useCallback(() => {
+    navigateTo('companyRegistration');
+  }, [navigateTo]);
+
+  const handleCompanyRegistrationSuccess = useCallback((companyId: string) => {
+    // After successful registration, navigate to company profile
+    navigateTo('companyProfile', { companyId });
   }, [navigateTo]);
 
   const handleHelpSupport = useCallback(() => {
@@ -818,6 +829,35 @@ const AppContent: React.FC = () => {
               />
             )
           )}
+          {page.name === 'companyRegistration' && (
+            <CompanyRegistrationPage
+              onBack={handleBack}
+              onSuccess={handleCompanyRegistrationSuccess}
+              onNavigateToProfile={() => navigateTo('profileCompletion', user)}
+            />
+          )}
+          {page.name === 'companyProfile' && (
+            <CompanyProfilePage
+              companyId={page.data?.companyId || page.data || ''}
+              onBack={handleBack}
+              onEdit={(company) => {
+                // Navigate to company edit page (can be added later)
+                console.log('Edit company:', company);
+              }}
+              onManageMembers={(company) => {
+                // Navigate to manage members (can be added later)
+                console.log('Manage members:', company);
+              }}
+              onManageServices={(company) => {
+                // Navigate to manage services (can be added later)
+                console.log('Manage services:', company);
+              }}
+              onInviteMember={(company) => {
+                // Navigate to invite member (can be added later)
+                console.log('Invite member:', company);
+              }}
+            />
+          )}
         </View>
 
         {/* Project Creation Modal */}
@@ -836,6 +876,7 @@ const AppContent: React.FC = () => {
           onProfileEdit={handleProfileEdit}
           onHelpSupport={handleHelpSupport}
           onLogout={handleLogout}
+          onCreateCompany={isAuthenticated ? handleCreateCompany : undefined}
         />
 
         {/* My Team Modal */}

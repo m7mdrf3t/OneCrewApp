@@ -46,9 +46,9 @@ const HomePageWithAPI: React.FC<HomePageProps> = ({
       ]);
 
       setUserStats({
-        totalUsers: usersResponse.pagination?.total || 0,
-        totalProjects: projectsResponse.pagination?.total || 0,
-        totalTeams: teamsResponse.pagination?.total || 0,
+        totalUsers: usersResponse.data?.pagination?.total || 0,
+        totalProjects: projectsResponse.data?.pagination?.total || 0,
+        totalTeams: teamsResponse.data?.pagination?.total || 0,
       });
     } catch (err: any) {
       console.error('Failed to load user stats:', err);

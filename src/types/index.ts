@@ -91,7 +91,7 @@ export interface ProfileDetailPageProps {
   isCurrentUser?: boolean;
 }
 
-// Task Management Types (from onecrew-api-client v1.5.0)
+// Task Management Types (from onecrew-api-client v2.1.0)
 export interface Task {
   id: string;
   project_id: string;
@@ -376,4 +376,120 @@ export interface SocialLinksModalProps {
   onClose: () => void;
   onSave: (links: SocialMediaLink[]) => Promise<void>;
   socialLinks: SocialMediaLink[];
+}
+
+// Company Profile Types (from onecrew-api-client v2.1.0)
+export type CompanySubcategory = 'production_house' | 'agency' | 'academy' | 'studio' | 'casting_agency' | 'management_company' | 'other';
+export type CompanyApprovalStatus = 'draft' | 'pending' | 'approved' | 'rejected' | 'suspended';
+export type CompanyDocumentType = 'business_license' | 'registration_certificate' | 'tax_id' | 'accreditation' | 'contract' | 'other';
+export type CompanyMemberRole = 'owner' | 'admin' | 'manager' | 'member';
+export type InvitationStatus = 'pending' | 'accepted' | 'rejected';
+
+export interface Company {
+  id: string;
+  name: string;
+  subcategory: CompanySubcategory;
+  description?: string;
+  bio?: string;
+  logo_url?: string;
+  website_url?: string;
+  location_text?: string;
+  email?: string;
+  phone?: string;
+  establishment_date?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  contact_address?: string;
+  approval_status: CompanyApprovalStatus;
+  approval_reason?: string;
+  approved_at?: string;
+  approved_by?: string;
+  documents_submitted_at?: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+  owner?: any; // User type
+  members_count?: number;
+  documents_count?: number;
+  services_count?: number;
+  services?: CompanyService[];
+  company_type_info?: CompanyTypeReference;
+}
+
+export interface CompanyDocument {
+  id: string;
+  company_id: string;
+  document_type: CompanyDocumentType;
+  file_url: string;
+  file_name?: string;
+  file_size?: number;
+  description?: string;
+  uploaded_by: string;
+  verified: boolean;
+  verified_at?: string;
+  verified_by?: string;
+  created_at: string;
+  deleted_at?: string;
+}
+
+export interface CompanyMember {
+  company_id: string;
+  user_id: string;
+  role: CompanyMemberRole;
+  invited_by?: string;
+  invitation_status: InvitationStatus;
+  invited_at: string;
+  accepted_at?: string;
+  rejected_at?: string;
+  joined_at: string;
+  created_at: string;
+  deleted_at?: string;
+  user?: any; // User type
+  company?: Company;
+}
+
+export interface AvailableCompanyService {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  applicable_types: CompanySubcategory[];
+  icon_name?: string;
+  display_order: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+}
+
+export interface CompanyService {
+  company_id: string;
+  service_id: string;
+  created_at: string;
+  deleted_at?: string;
+  service?: AvailableCompanyService;
+}
+
+export interface CompanyTypeReference {
+  code: CompanySubcategory;
+  name: string;
+  description: string;
+  required_documents: CompanyDocumentType[];
+  icon_name?: string;
+  display_order: number;
+}
+
+export interface CreateCompanyRequest {
+  name: string;
+  subcategory: CompanySubcategory;
+  description?: string;
+  bio?: string;
+  website_url?: string;
+  location_text?: string;
+  email?: string;
+  phone?: string;
+  establishment_date?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  contact_address?: string;
 }

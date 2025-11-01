@@ -103,6 +103,41 @@ interface ApiContextType {
   removePortfolioItem: (itemId: string) => Promise<any>;
   // File upload methods
   uploadFile: (file: { uri: string; type: string; name: string }) => Promise<any>;
+  // Profile switching
+  currentProfileType: 'user' | 'company';
+  activeCompany: any | null;
+  switchToUserProfile: () => void;
+  switchToCompanyProfile: (companyId: string) => Promise<void>;
+  getActiveCompany: () => any | null;
+  // Company management methods
+  getCompanyTypes: () => Promise<any>;
+  getCompanyType: (code: string) => Promise<any>;
+  getCompanyTypeServices: (code: string) => Promise<any>;
+  createCompany: (companyData: any) => Promise<any>;
+  getCompany: (companyId: string) => Promise<any>;
+  updateCompany: (companyId: string, updates: any) => Promise<any>;
+  getUserCompanies: (userId: string) => Promise<any>;
+  submitCompanyForApproval: (companyId: string) => Promise<any>;
+  getCompanies: (params?: any) => Promise<any>;
+  // Company services
+  getAvailableServicesForCompany: (companyId: string) => Promise<any>;
+  getCompanyServices: (companyId: string) => Promise<any>;
+  addCompanyService: (companyId: string, serviceId: string) => Promise<any>;
+  removeCompanyService: (companyId: string, serviceId: string) => Promise<any>;
+  // Company members
+  addCompanyMember: (companyId: string, memberData: any) => Promise<any>;
+  getCompanyMembers: (companyId: string, params?: any) => Promise<any>;
+  acceptInvitation: (companyId: string, userId: string) => Promise<any>;
+  rejectInvitation: (companyId: string, userId: string) => Promise<any>;
+  cancelInvitation: (companyId: string, userId: string) => Promise<any>;
+  getPendingInvitations: (userId: string) => Promise<any>;
+  updateCompanyMemberRole: (companyId: string, userId: string, role: string) => Promise<any>;
+  removeCompanyMember: (companyId: string, userId: string) => Promise<any>;
+  transferCompanyOwnership: (companyId: string, newOwnerId: string) => Promise<any>;
+  leaveCompany: (companyId: string) => Promise<any>;
+  // Company documents
+  getCompanyDocuments: (companyId: string) => Promise<any>;
+  deleteCompanyDocument: (companyId: string, documentId: string) => Promise<any>;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
@@ -135,6 +170,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Guest session state
   const [isGuest, setIsGuest] = useState(false);
   const [guestSessionId, setGuestSessionId] = useState<string | null>(null);
+  // Profile switching state
+  const [currentProfileType, setCurrentProfileType] = useState<'user' | 'company'>('user');
+  const [activeCompany, setActiveCompany] = useState<any | null>(null);
 
   // Test network connectivity
   const testConnectivity = async () => {
@@ -189,6 +227,33 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           });
           setUser(currentUser);
           setIsAuthenticated(true);
+          
+          // Restore profile type and active company from storage
+          const savedProfileType = await AsyncStorage.getItem('currentProfileType');
+          const savedCompanyId = await AsyncStorage.getItem('activeCompanyId');
+          
+          if (savedProfileType === 'company' && savedCompanyId) {
+            try {
+              const companyResponse = await api.getCompany(savedCompanyId);
+              if (companyResponse.success && companyResponse.data) {
+                setActiveCompany(companyResponse.data);
+                setCurrentProfileType('company');
+                console.log('✅ Restored company profile:', savedCompanyId);
+              } else {
+                // Company not found or access denied, switch to user profile
+                await AsyncStorage.setItem('currentProfileType', 'user');
+                await AsyncStorage.removeItem('activeCompanyId');
+                setCurrentProfileType('user');
+              }
+            } catch (error) {
+              console.warn('Failed to restore company profile:', error);
+              await AsyncStorage.setItem('currentProfileType', 'user');
+              await AsyncStorage.removeItem('activeCompanyId');
+              setCurrentProfileType('user');
+            }
+          } else {
+            setCurrentProfileType('user');
+          }
         } else {
           console.log('No authenticated user found');
         }
@@ -339,8 +404,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       return authResponse;
     } catch (err: any) {
-      console.error('❌ Login failed:', err);
-      console.error('❌ Error details:', {
+      console.error('Login failed:', err);
+      console.error('Error details:', {
         message: err.message,
         name: err.name,
         stack: err.stack,
@@ -2367,6 +2432,380 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Profile Switching Methods
+  const switchToUserProfile = () => {
+    setCurrentProfileType('user');
+    setActiveCompany(null);
+    AsyncStorage.setItem('currentProfileType', 'user');
+    AsyncStorage.removeItem('activeCompanyId');
+    console.log('✅ Switched to user profile');
+  };
+
+  const switchToCompanyProfile = async (companyId: string) => {
+    try {
+      const companyResponse = await api.getCompany(companyId);
+      if (companyResponse.success && companyResponse.data) {
+        setActiveCompany(companyResponse.data);
+        setCurrentProfileType('company');
+        await AsyncStorage.setItem('currentProfileType', 'company');
+        await AsyncStorage.setItem('activeCompanyId', companyId);
+        console.log('✅ Switched to company profile:', companyId);
+      } else {
+        throw new Error('Failed to load company');
+      }
+    } catch (error) {
+      console.error('Failed to switch to company profile:', error);
+      throw error;
+    }
+  };
+
+  const getActiveCompany = () => {
+    return activeCompany;
+  };
+
+  // Company Management Methods
+  const getCompanyTypes = async () => {
+    try {
+      const response = await api.getCompanyTypes();
+      return response;
+    } catch (error) {
+      console.error('Failed to get company types:', error);
+      throw error;
+    }
+  };
+
+  const getCompanyType = async (code: string) => {
+    try {
+      const response = await api.getCompanyType(code as any);
+      return response;
+    } catch (error) {
+      console.error('Failed to get company type:', error);
+      throw error;
+    }
+  };
+
+  const getCompanyTypeServices = async (code: string) => {
+    try {
+      const response = await api.getCompanyTypeServices(code as any);
+      return response;
+    } catch (error) {
+      console.error('Failed to get company type services:', error);
+      throw error;
+    }
+  };
+
+  const createCompany = async (companyData: any) => {
+    try {
+      console.log('🏢 Creating company:', companyData);
+      
+      // Ensure required fields are present
+      if (!companyData.name || !companyData.subcategory) {
+        return {
+          success: false,
+          error: 'Company name and subcategory are required',
+          data: null
+        };
+      }
+      
+      // Call the API client method
+      // According to the library, this will:
+      // - Return ApiResponse<Company> if successful
+      // - Throw ApiError if status is not OK (404, 500, etc.)
+      const response = await api.createCompany(companyData);
+      
+      // Handle successful response (should have success: true and data)
+      if (response && response.success && response.data) {
+        console.log('✅ Company created successfully:', response.data);
+        return response;
+      }
+      
+      // Handle response with success: false (shouldn't happen per library design, but handle it)
+      if (response && response.success === false) {
+        console.error('Company creation failed:', response.error);
+        return {
+          success: false,
+          error: response.error || 'Failed to create company',
+          data: null
+        };
+      }
+      
+      // Unexpected response format
+      console.warn('⚠️ Unexpected response format:', response);
+      return {
+        success: false,
+        error: 'Unexpected response from server',
+        data: null
+      };
+    } catch (error: any) {
+      console.error('Failed to create company:', error);
+      
+      // Handle ApiError from the library
+      if (error instanceof ApiError) {
+        // Check for 404 - endpoint not found
+        if (error.statusCode === 404) {
+          return {
+            success: false,
+            error: 'Company profile creation endpoint is not yet available on the backend. Please try again later or contact support.',
+            data: null
+          };
+        }
+        
+        // Other API errors (400, 500, etc.)
+        return {
+          success: false,
+          error: error.message || `Server error (${error.statusCode || 'unknown'})`,
+          data: null
+        };
+      }
+      
+      // Handle other error types
+      const errorMessage = error?.message || String(error) || 'Failed to create company';
+      
+      // Check for endpoint not found in error message (fallback)
+      if (errorMessage.includes('404') || 
+          (errorMessage.includes('Route') && errorMessage.includes('not found')) ||
+          errorMessage.includes('not found')) {
+        return {
+          success: false,
+          error: 'Company profile creation endpoint is not yet available on the backend. Please try again later or contact support.',
+          data: null
+        };
+      }
+      
+      // Generic error response
+      return {
+        success: false,
+        error: errorMessage,
+        data: null
+      };
+    }
+  };
+
+  const getCompany = async (companyId: string) => {
+    try {
+      const response = await api.getCompany(companyId);
+      return response;
+    } catch (error) {
+      console.error('Failed to get company:', error);
+      throw error;
+    }
+  };
+
+  const updateCompany = async (companyId: string, updates: any) => {
+    try {
+      const response = await api.updateCompany(companyId, updates);
+      if (response.success && activeCompany?.id === companyId) {
+        setActiveCompany(response.data);
+      }
+      return response;
+    } catch (error) {
+      console.error('Failed to update company:', error);
+      throw error;
+    }
+  };
+
+  const getUserCompanies = async (userId: string) => {
+    try {
+      const response = await api.getUserCompanies(userId);
+      return response;
+    } catch (error) {
+      console.error('Failed to get user companies:', error);
+      throw error;
+    }
+  };
+
+  const submitCompanyForApproval = async (companyId: string) => {
+    try {
+      const response = await api.submitCompanyForApproval(companyId);
+      if (response.success && activeCompany?.id === companyId) {
+        setActiveCompany(response.data);
+      }
+      return response;
+    } catch (error) {
+      console.error('Failed to submit company for approval:', error);
+      throw error;
+    }
+  };
+
+  const getCompanies = async (params?: any) => {
+    try {
+      const response = await api.getCompanies(params);
+      return response;
+    } catch (error) {
+      console.error('Failed to get companies:', error);
+      throw error;
+    }
+  };
+
+  // Company Services Methods
+  const getAvailableServicesForCompany = async (companyId: string) => {
+    try {
+      const response = await api.getAvailableServicesForCompany(companyId);
+      return response;
+    } catch (error) {
+      console.error('Failed to get available services for company:', error);
+      throw error;
+    }
+  };
+
+  const getCompanyServices = async (companyId: string) => {
+    try {
+      const response = await api.getCompanyServices(companyId);
+      return response;
+    } catch (error) {
+      console.error('Failed to get company services:', error);
+      throw error;
+    }
+  };
+
+  const addCompanyService = async (companyId: string, serviceId: string) => {
+    try {
+      const response = await api.addCompanyService(companyId, serviceId);
+      return response;
+    } catch (error) {
+      console.error('Failed to add company service:', error);
+      throw error;
+    }
+  };
+
+  const removeCompanyService = async (companyId: string, serviceId: string) => {
+    try {
+      const response = await api.removeCompanyService(companyId, serviceId);
+      return response;
+    } catch (error) {
+      console.error('Failed to remove company service:', error);
+      throw error;
+    }
+  };
+
+  // Company Members Methods
+  const addCompanyMember = async (companyId: string, memberData: any) => {
+    try {
+      const response = await api.addCompanyMember(companyId, memberData);
+      return response;
+    } catch (error) {
+      console.error('Failed to add company member:', error);
+      throw error;
+    }
+  };
+
+  const getCompanyMembers = async (companyId: string, params?: any) => {
+    try {
+      const response = await api.getCompanyMembers(companyId, params);
+      return response;
+    } catch (error) {
+      console.error('Failed to get company members:', error);
+      throw error;
+    }
+  };
+
+  const acceptInvitation = async (companyId: string, userId: string) => {
+    try {
+      const response = await api.acceptInvitation(companyId, userId);
+      return response;
+    } catch (error) {
+      console.error('Failed to accept invitation:', error);
+      throw error;
+    }
+  };
+
+  const rejectInvitation = async (companyId: string, userId: string) => {
+    try {
+      const response = await api.rejectInvitation(companyId, userId);
+      return response;
+    } catch (error) {
+      console.error('Failed to reject invitation:', error);
+      throw error;
+    }
+  };
+
+  const cancelInvitation = async (companyId: string, userId: string) => {
+    try {
+      const response = await api.cancelInvitation(companyId, userId);
+      return response;
+    } catch (error) {
+      console.error('Failed to cancel invitation:', error);
+      throw error;
+    }
+  };
+
+  const getPendingInvitations = async (userId: string) => {
+    try {
+      const response = await api.getPendingInvitations(userId);
+      return response;
+    } catch (error) {
+      console.error('Failed to get pending invitations:', error);
+      throw error;
+    }
+  };
+
+  const updateCompanyMemberRole = async (companyId: string, userId: string, role: string) => {
+    try {
+      const response = await api.updateCompanyMemberRole(companyId, userId, role as any);
+      return response;
+    } catch (error) {
+      console.error('Failed to update company member role:', error);
+      throw error;
+    }
+  };
+
+  const removeCompanyMember = async (companyId: string, userId: string) => {
+    try {
+      const response = await api.removeCompanyMember(companyId, userId);
+      return response;
+    } catch (error) {
+      console.error('Failed to remove company member:', error);
+      throw error;
+    }
+  };
+
+  const transferCompanyOwnership = async (companyId: string, newOwnerId: string) => {
+    try {
+      const response = await api.transferCompanyOwnership(companyId, newOwnerId);
+      if (response.success && activeCompany?.id === companyId) {
+        setActiveCompany(response.data);
+      }
+      return response;
+    } catch (error) {
+      console.error('Failed to transfer company ownership:', error);
+      throw error;
+    }
+  };
+
+  const leaveCompany = async (companyId: string) => {
+    try {
+      const response = await api.leaveCompany(companyId);
+      if (activeCompany?.id === companyId) {
+        switchToUserProfile();
+      }
+      return response;
+    } catch (error) {
+      console.error('Failed to leave company:', error);
+      throw error;
+    }
+  };
+
+  // Company Documents Methods
+  const getCompanyDocuments = async (companyId: string) => {
+    try {
+      const response = await api.getCompanyDocuments(companyId);
+      return response;
+    } catch (error) {
+      console.error('Failed to get company documents:', error);
+      throw error;
+    }
+  };
+
+  const deleteCompanyDocument = async (companyId: string, documentId: string) => {
+    try {
+      const response = await api.deleteCompanyDocument(companyId, documentId);
+      return response;
+    } catch (error) {
+      console.error('Failed to delete company document:', error);
+      throw error;
+    }
+  };
+
   const value: ApiContextType = {
     api,
     isAuthenticated,
@@ -2454,6 +2893,41 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     removePortfolioItem,
     // File upload methods
     uploadFile,
+    // Profile switching
+    currentProfileType,
+    activeCompany,
+    switchToUserProfile,
+    switchToCompanyProfile,
+    getActiveCompany,
+    // Company management methods
+    getCompanyTypes,
+    getCompanyType,
+    getCompanyTypeServices,
+    createCompany,
+    getCompany,
+    updateCompany,
+    getUserCompanies,
+    submitCompanyForApproval,
+    getCompanies,
+    // Company services
+    getAvailableServicesForCompany,
+    getCompanyServices,
+    addCompanyService,
+    removeCompanyService,
+    // Company members
+    addCompanyMember,
+    getCompanyMembers,
+    acceptInvitation,
+    rejectInvitation,
+    cancelInvitation,
+    getPendingInvitations,
+    updateCompanyMemberRole,
+    removeCompanyMember,
+    transferCompanyOwnership,
+    leaveCompany,
+    // Company documents
+    getCompanyDocuments,
+    deleteCompanyDocument,
   };
 
   return (

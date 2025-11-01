@@ -71,9 +71,9 @@ class ReferenceDataService {
     try {
       if (this.api) {
         const response = await this.api.getProjects({ limit: 100 });
-        if (response.success && response.data) {
+        if (response.success && response.data?.data) {
           const types = new Set<string>();
-          response.data.forEach(project => {
+          response.data.data.forEach((project: any) => {
             if (project.type) {
               types.add(project.type);
             }
