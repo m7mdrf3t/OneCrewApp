@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 
@@ -48,15 +48,31 @@ interface DirectoryPageProps {
   };
   onBack: () => void;
   onUserSelect: (user: User) => void;
+  onNavigate?: (page: string, data?: any) => void;
+}
+
+interface Company {
+  id: string;
+  name: string;
+  subcategory?: string;
+  description?: string;
+  bio?: string;
+  logo_url?: string;
+  company_type_info?: {
+    code?: string;
+    name?: string;
+  };
 }
 
 const DirectoryPage: React.FC<DirectoryPageProps> = ({
   section,
   onBack,
   onUserSelect,
+  onNavigate,
 }) => {
-  const { api, getUsersDirect, getMyTeam, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest } = useApi();
+  const { api, getUsersDirect, getMyTeam, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies } = useApi();
   const [users, setUsers] = useState<User[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,13 +148,50 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }
   };
 
+  const fetchCompanies = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      console.log('🏢 Fetching companies for directory...');
+      const response = await getCompanies({ limit: 100 });
+      
+      if (response.success && response.data) {
+        const companiesArray = Array.isArray(response.data) 
+          ? response.data 
+          : (Array.isArray(response.data?.data) ? response.data.data : []);
+        console.log('✅ Companies fetched successfully:', companiesArray.length);
+        setCompanies(companiesArray);
+      } else {
+        console.error('❌ Failed to fetch companies:', response.error);
+        setError('Failed to load companies');
+      }
+    } catch (err: any) {
+      console.error('❌ Error fetching companies:', err);
+      setError(err.message || 'Failed to load companies');
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+
   useEffect(() => {
-    fetchUsers();
+    setIsLoading(true);
+    // Only fetch users if not viewing companies section
+    if (section.key !== 'onehub' && section.key !== 'academy') {
+      fetchUsers().finally(() => setIsLoading(false));
+    }
+    
+    // Fetch companies for Studios & Agencies and Academy sections
+    if (section.key === 'onehub' || section.key === 'academy') {
+      fetchCompanies(); // fetchCompanies already handles setIsLoading
+    }
+    
     // Only load team members if authenticated (not guest)
     if (!isGuest) {
       loadTeamMembers();
     }
-  }, [isGuest]);
+  }, [isGuest, section.key]);
 
   const loadTeamMembers = async () => {
     // Skip loading team members if guest
@@ -159,7 +212,11 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchUsers();
+    if (section.key !== 'onehub' && section.key !== 'academy') {
+      fetchUsers();
+    } else {
+      fetchCompanies();
+    }
     // Only refresh team members if authenticated (not guest)
     if (!isGuest) {
       loadTeamMembers();
@@ -199,9 +256,63 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     return null;
   };
 
+  // Filter companies by type for Studios & Agencies and Academy
+  const filteredCompaniesByType = useMemo(() => {
+    if (!companies.length || (section.key !== 'onehub' && section.key !== 'academy')) {
+      return {};
+    }
+
+    const companiesByType: { [key: string]: Company[] } = {};
+
+    companies.forEach(company => {
+      const subcategory = company.subcategory || company.company_type_info?.code || '';
+      
+      if (section.key === 'onehub') {
+        // Studios & Agencies: production_house, agency, studio, casting_agency, management_company
+        if (subcategory === 'production_house') {
+          if (!companiesByType['Production Houses']) companiesByType['Production Houses'] = [];
+          companiesByType['Production Houses'].push(company);
+        } else if (subcategory === 'agency' || subcategory === 'casting_agency') {
+          if (!companiesByType['Agency']) companiesByType['Agency'] = [];
+          companiesByType['Agency'].push(company);
+        } else if (subcategory === 'studio') {
+          if (!companiesByType['Studio']) companiesByType['Studio'] = [];
+          companiesByType['Studio'].push(company);
+        } else if (subcategory === 'management_company') {
+          if (!companiesByType['Management Company']) companiesByType['Management Company'] = [];
+          companiesByType['Management Company'].push(company);
+        }
+      } else if (section.key === 'academy') {
+        // Academy: academy subcategory
+        if (subcategory === 'academy') {
+          // Group by company type name if available, otherwise just "Academy"
+          const typeName = company.company_type_info?.name || 'Academy';
+          if (!companiesByType[typeName]) companiesByType[typeName] = [];
+          companiesByType[typeName].push(company);
+        }
+      }
+    });
+
+    return companiesByType;
+  }, [companies, section.key]);
+
+  // Generate dynamic section items from companies
+  const sectionItems = useMemo(() => {
+    if (section.key === 'onehub' || section.key === 'academy') {
+      // Use companies to generate items
+      const items = Object.keys(filteredCompaniesByType).map(type => ({
+        label: type,
+        users: filteredCompaniesByType[type].length
+      }));
+      return items;
+    }
+    // For other sections, use original items
+    return section.items;
+  }, [section.items, section.key, filteredCompaniesByType]);
+
   // Filter users based on section and items
   const filteredUsers = useMemo(() => {
-    if (!users.length) return [];
+    if (!users.length || section.key === 'onehub' || section.key === 'academy') return {};
     
     // Map section items to actual user roles
     const roleMapping: { [key: string]: string[] } = {
@@ -222,11 +333,6 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       'Grip': ['grip'],
       'Makeup Artist': ['makeup_artist'],
       'Stylist': ['stylist'],
-      'Production House': ['production_house'],
-      'Agency': ['agency'],
-      'Studio': ['studio'],
-      'Post House': ['post_house'],
-      'Equipment Rental': ['equipment_rental'],
     };
 
     const sectionUsers: { [key: string]: User[] } = {};
@@ -236,8 +342,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       const categoryUsers = users.filter(user => {
         // Check if user's category matches section
         if (section.key === 'talent' && user.category !== 'talent') return false;
-        if (section.key === 'crew' && user.category !== 'crew') return false;
-        if (section.key === 'onehub' && user.category !== 'company') return false;
+        if (section.key === 'individuals' && user.category !== 'crew') return false;
         
         // Check if user's role matches the item
         return roles.some(role => 
@@ -329,7 +434,9 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           <View style={styles.placeholder} />
         </View>
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading users...</Text>
+          <Text style={styles.loadingText}>
+            {(section.key === 'onehub' || section.key === 'academy') ? 'Loading companies...' : 'Loading users...'}
+          </Text>
         </View>
       </View>
     );
@@ -370,8 +477,12 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         {!selectedSubcategory ? (
           // Show subcategories
           <View style={styles.subcategoriesContainer}>
-            {section.items.map((item) => {
+            {sectionItems.map((item) => {
               const itemUsers = (filteredUsers as any)[item.label] || [];
+              const itemCompanies = (filteredCompaniesByType as any)[item.label] || [];
+              const count = section.key === 'onehub' || section.key === 'academy' 
+                ? itemCompanies.length 
+                : itemUsers.length;
               
               return (
                 <TouchableOpacity
@@ -382,11 +493,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                 >
                   <View style={styles.subcategoryContent}>
                     <View style={styles.subcategoryIcon}>
-                      <Ionicons name="people" size={24} color="#3b82f6" />
+                      <Ionicons 
+                        name={(section.key === 'onehub' || section.key === 'academy') ? "business" : "people"} 
+                        size={24} 
+                        color="#3b82f6" 
+                      />
                     </View>
                     <View style={styles.subcategoryInfo}>
                       <Text style={styles.subcategoryTitle}>{item.label}</Text>
-                      <Text style={styles.subcategoryCount}>{itemUsers.length} profiles</Text>
+                      <Text style={styles.subcategoryCount}>{count} {(section.key === 'onehub' || section.key === 'academy') ? 'companies' : 'profiles'}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={20} color="#71717a" />
                   </View>
@@ -395,9 +510,69 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
             })}
           </View>
         ) : (
-          // Show users for selected subcategory
+          // Show users or companies for selected subcategory
           <View style={styles.usersContainer}>
             {(() => {
+              // Check if we're showing companies
+              if (section.key === 'onehub' || section.key === 'academy') {
+                const itemCompanies = (filteredCompaniesByType as any)[selectedSubcategory] || [];
+                
+                return itemCompanies.length > 0 ? (
+                  <View style={styles.usersGrid}>
+                    {itemCompanies.map((company: Company) => (
+                      <TouchableOpacity
+                        key={company.id}
+                        style={styles.userCard}
+                        onPress={() => {
+                          if (onNavigate) {
+                            onNavigate('companyProfile', { companyId: company.id });
+                          }
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.userCardContent}>
+                          <View style={styles.userInitials}>
+                            {company.logo_url ? (
+                              <Image 
+                                source={{ uri: company.logo_url }} 
+                                style={styles.companyLogoInCard}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <Text style={styles.initialsText}>
+                                {getInitials(company.name)}
+                              </Text>
+                            )}
+                          </View>
+                          
+                          <View style={styles.userInfo}>
+                            <View style={styles.statusRow}>
+                              <View style={[styles.statusDot, { backgroundColor: '#45b7d1' }]} />
+                              <Text style={styles.userName}>{company.name}</Text>
+                            </View>
+                            {company.company_type_info?.name && (
+                              <Text style={styles.userRole}>
+                                {company.company_type_info.name}
+                              </Text>
+                            )}
+                            {(company.description || company.bio) && (
+                              <Text style={styles.companyDescription} numberOfLines={2}>
+                                {company.description || company.bio}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} found</Text>
+                  </View>
+                );
+              }
+              
+              // Show users for other sections
               const itemUsers = (filteredUsers as any)[selectedSubcategory] || [];
               
               return itemUsers.length > 0 ? (
@@ -471,13 +646,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                               )}
                               {user.skills && user.skills.length > 0 && (
                                 <Text style={styles.talentDetailText} numberOfLines={1}>
-                                  {user.skills
-                                    .map((skill: any) => {
-                                      if (typeof skill === 'string') return skill;
-                                      return skill?.skill_name || skill?.name || skill?.skills?.name || String(skill?.skill_id || skill?.id || '');
-                                    })
-                                    .slice(0, 2)
-                                    .join(', ')}{user.skills.length > 2 ? '...' : ''}
+                                  {user.skills.slice(0, 2).join(', ')}{user.skills.length > 2 ? '...' : ''}
                                 </Text>
                               )}
                             </View>
@@ -739,6 +908,17 @@ const styles = StyleSheet.create({
   },
   usersContainer: {
     padding: 16,
+  },
+  companyLogoInCard: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  companyDescription: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginTop: 4,
+    lineHeight: 16,
   },
 });
 

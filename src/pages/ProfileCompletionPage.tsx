@@ -133,7 +133,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   visible = true,
   onClose,
 }) => {
-  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, uploadFile } = useApi();
+  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, uploadFile, getAccessToken } = useApi();
+  
+  // Check if user is a talent - only show talent-specific fields if category is 'talent'
+  const isTalent = user?.category === 'talent' || user?.category === 'Talent';
   const mediaPicker = MediaPickerService.getInstance();
   
   const [formData, setFormData] = useState<ProfileFormData>({
@@ -831,30 +834,37 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       console.log('🔍 Mapped gender value:', userDetailsData.gender);
 
       // 3. Prepare Talent Profile data (all other physical and professional details)
-      // Find the IDs for hair color and skin tone from reference data
-      const selectedHairColor = hairColors.find(color => color.id === formData.about.hairColor);
-      const selectedSkinTone = skinTones.find(tone => tone.id === formData.about.skinTone);
+      // Only prepare if user is a talent
+      let cleanedTalentData: any = {};
+      
+      if (isTalent) {
+        // Find the IDs for hair color and skin tone from reference data
+        const selectedHairColor = hairColors.find(color => color.id === formData.about.hairColor);
+        const selectedSkinTone = skinTones.find(tone => tone.id === formData.about.skinTone);
 
-      const talentProfileData = {
-        height_cm: Number(formData.about.height) || undefined,
-        weight_kg: Number(formData.about.weight) || undefined,
-        skin_tone_id: selectedSkinTone?.id || undefined,
-        hair_color_id: selectedHairColor?.id || undefined,
-        eye_color: formData.about.eyeColor || undefined,
-        chest_cm: Number(formData.about.chestCm) || undefined,
-        waist_cm: Number(formData.about.waistCm) || undefined,
-        hips_cm: Number(formData.about.hipsCm) || undefined,
-        shoe_size_eu: Number(formData.about.shoeSizeEu) || undefined,
-        reel_url: formData.about.reelUrl || undefined,
-        union_member: formData.about.unionMember,
-        dialects: formData.about.dialects || [],
-        travel_ready: formData.about.willingToTravel,
-      };
+        const talentProfileData = {
+          height_cm: Number(formData.about.height) || undefined,
+          weight_kg: Number(formData.about.weight) || undefined,
+          skin_tone_id: selectedSkinTone?.id || undefined,
+          hair_color_id: selectedHairColor?.id || undefined,
+          eye_color: formData.about.eyeColor || undefined,
+          chest_cm: Number(formData.about.chestCm) || undefined,
+          waist_cm: Number(formData.about.waistCm) || undefined,
+          hips_cm: Number(formData.about.hipsCm) || undefined,
+          shoe_size_eu: Number(formData.about.shoeSizeEu) || undefined,
+          reel_url: formData.about.reelUrl || undefined,
+          union_member: formData.about.unionMember,
+          dialects: formData.about.dialects || [],
+          travel_ready: formData.about.willingToTravel,
+        };
 
-      // Clean the talent profile data - remove undefined values
-      const cleanedTalentData = Object.fromEntries(
-        Object.entries(talentProfileData).filter(([_, value]) => value !== undefined && value !== null && value !== '')
-      );
+        // Clean the talent profile data - remove undefined values
+        cleanedTalentData = Object.fromEntries(
+          Object.entries(talentProfileData).filter(([_, value]) => value !== undefined && value !== null && value !== '')
+        );
+      } else {
+        console.log('⏭️ Skipping talent profile data preparation - user is not a talent (category: ' + (user?.category || 'unknown') + ')');
+      }
 
       console.log('🔄 Updating basic profile:', basicProfileData);
       console.log('🔄 Updating user details (age, nationality, gender):', userDetailsData);
@@ -892,28 +902,79 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       }
 
       // Update talent profile (physical details) using direct API call
-      const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
-      if (!accessToken) {
-        throw new Error('Access token required for talent profile update');
-      }
-
-      const talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(cleanedTalentData),
-      });
-
-      const talentResult = await talentResponse.json();
+      // Note: The updateProfile function already tries to update talent profile,
+      // but we need to do it separately here to get proper error handling
+      let talentResult: any = { data: {} };
       
-      if (!talentResponse.ok) {
-        console.error('❌ Talent profile update failed:', talentResult);
-        throw new Error(talentResult.error || 'Failed to update talent profile');
-      }
+      // Only try to update if user is talent and there's actual talent data
+      if (isTalent && Object.keys(cleanedTalentData).length > 0) {
+        let accessToken: string;
+        try {
+          accessToken = getAccessToken();
+          console.log('🔑 Access token retrieved for talent profile update');
+          console.log('🎭 Updating talent profile with data:', cleanedTalentData);
+          console.log('👤 Current user category:', user?.category);
+        } catch (tokenError: any) {
+          console.error('❌ Failed to get access token:', tokenError);
+          throw new Error('Access token required for talent profile update. Please log in again.');
+        }
 
-      console.log('✅ Talent profile updated:', talentResult);
+        // Try PUT first (update existing), if it fails with 404 or permission error, try POST (create new)
+        let talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify(cleanedTalentData),
+        });
+
+        talentResult = await talentResponse.json();
+        
+        console.log('🎭 Talent profile PUT response status:', talentResponse.status);
+        console.log('🎭 Talent profile PUT response:', JSON.stringify(talentResult, null, 2));
+        
+        // If PUT fails with 404 (not found) or 403 (permission), try POST to create
+        if (!talentResponse.ok && (talentResponse.status === 404 || talentResponse.status === 403)) {
+          console.log('🔄 PUT failed, trying POST to create talent profile...');
+          
+          talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(cleanedTalentData),
+          });
+
+          talentResult = await talentResponse.json();
+          console.log('🎭 Talent profile POST response status:', talentResponse.status);
+          console.log('🎭 Talent profile POST response:', JSON.stringify(talentResult, null, 2));
+        }
+        
+        if (!talentResponse.ok) {
+          console.error('❌ Talent profile update/create failed:', talentResult);
+          
+          // Check if it's a permissions error
+          if (talentResult.error === 'Insufficient permissions' || talentResponse.status === 403) {
+            console.error('❌ Permission denied. This might mean:');
+            console.error('   1. The user is not classified as "talent" in the system (current category: ' + (user?.category || 'unknown') + ')');
+            console.error('   2. The token does not have permission to access talent endpoints');
+            console.error('   3. The API requires the user to have category="talent" before accessing talent endpoints');
+            
+            // Don't throw error - just log warning like updateProfile does
+            // This allows the profile update to complete even if talent profile fails
+            console.warn('⚠️ Continuing without talent profile update - user can update it later when their category is set to "talent"');
+          } else {
+            // For other errors, log but don't block the profile update
+            console.warn('⚠️ Talent profile update failed, but continuing with other updates:', talentResult.error);
+          }
+        } else {
+          console.log('✅ Talent profile updated/created:', talentResult);
+        }
+      } else {
+        console.log('⏭️ Skipping talent profile update - no talent data to send');
+      }
 
       // Combine all responses
       const combinedData = {
@@ -1304,224 +1365,233 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           </View>
         </View>
 
-        <View style={styles.row}>
-          <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-            <Text style={styles.label}>Height (cm)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="170"
-              placeholderTextColor="#9ca3af"
-              value={formData.about.height}
-              onChangeText={(text) => handleInputChange('about.height', text)}
-              keyboardType="numeric"
-              editable={!isSubmitting}
-            />
-          </View>
-
-          <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-            <Text style={styles.label}>Weight (kg)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="70"
-              placeholderTextColor="#9ca3af"
-              value={formData.about.weight}
-              onChangeText={(text) => handleInputChange('about.weight', text)}
-              keyboardType="numeric"
-              editable={!isSubmitting}
-            />
-          </View>
-        </View>
-
-        <View style={styles.row}>
-          <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-            <Text style={styles.label}>Skin Tone</Text>
-            {loadingReferences ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#3b82f6" />
-                <Text style={styles.loadingText}>Loading...</Text>
-            </View>
-          ) : (
-              <CustomDropdown
-                options={skinTones}
-                value={formData.about.skinTone}
-                onValueChange={(value: string) => handleInputChange('about.skinTone', value)}
-                placeholder="Select skin tone"
-                      disabled={isSubmitting}
-              />
-                  )}
-                </View>
-
-          <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-            <Text style={styles.label}>Hair Color</Text>
-            {loadingReferences ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#3b82f6" />
-                <Text style={styles.loadingText}>Loading...</Text>
-            </View>
-            ) : (
-              <CustomDropdown
-                options={hairColors}
-                value={formData.about.hairColor}
-                onValueChange={(value: string) => handleInputChange('about.hairColor', value)}
-                placeholder="Select hair color"
-                disabled={isSubmitting}
-              />
-            )}
-          </View>
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Eye Color</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Brown/Blue/Green/Hazel"
-            placeholderTextColor="#9ca3af"
-            value={formData.about.eyeColor}
-            onChangeText={(text) => handleInputChange('about.eyeColor', text)}
-            editable={!isSubmitting}
-          />
-                </View>
-
-        {/* Body Measurements */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Body Measurements</Text>
-              </View>
-              
-        <View style={styles.row}>
-          <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-            <Text style={styles.label}>Chest (cm)</Text>
+        {/* Talent-specific physical details - only show if user is talent */}
+        {isTalent && (
+          <>
+            <View style={styles.row}>
+              <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+                <Text style={styles.label}>Height (cm)</Text>
                 <TextInput
-              style={styles.input}
-              placeholder="90"
+                  style={styles.input}
+                  placeholder="170"
                   placeholderTextColor="#9ca3af"
-              value={formData.about.chestCm}
-              onChangeText={(text) => handleInputChange('about.chestCm', text)}
-              keyboardType="numeric"
-              editable={!isSubmitting}
-            />
-          </View>
+                  value={formData.about.height}
+                  onChangeText={(text) => handleInputChange('about.height', text)}
+                  keyboardType="numeric"
+                  editable={!isSubmitting}
+                />
+              </View>
 
-          <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-            <Text style={styles.label}>Waist (cm)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="75"
-              placeholderTextColor="#9ca3af"
-              value={formData.about.waistCm}
-              onChangeText={(text) => handleInputChange('about.waistCm', text)}
-              keyboardType="numeric"
+              <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+                <Text style={styles.label}>Weight (kg)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="70"
+                  placeholderTextColor="#9ca3af"
+                  value={formData.about.weight}
+                  onChangeText={(text) => handleInputChange('about.weight', text)}
+                  keyboardType="numeric"
                   editable={!isSubmitting}
                 />
               </View>
             </View>
-            
-        <View style={styles.row}>
-          <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-            <Text style={styles.label}>Hips (cm)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="95"
-              placeholderTextColor="#9ca3af"
-              value={formData.about.hipsCm}
-              onChangeText={(text) => handleInputChange('about.hipsCm', text)}
-              keyboardType="numeric"
-              editable={!isSubmitting}
-            />
-          </View>
 
-          <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-            <Text style={styles.label}>Shoe Size (EU)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="42"
-              placeholderTextColor="#9ca3af"
-              value={formData.about.shoeSizeEu}
-              onChangeText={(text) => handleInputChange('about.shoeSizeEu', text)}
-              keyboardType="numeric"
-              editable={!isSubmitting}
-            />
-          </View>
-        </View>
+            <View style={styles.row}>
+              <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+                <Text style={styles.label}>Skin Tone</Text>
+                {loadingReferences ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#3b82f6" />
+                    <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+              ) : (
+                  <CustomDropdown
+                    options={skinTones}
+                    value={formData.about.skinTone}
+                    onValueChange={(value: string) => handleInputChange('about.skinTone', value)}
+                    placeholder="Select skin tone"
+                          disabled={isSubmitting}
+                  />
+                      )}
+                    </View>
 
-        {/* Professional Details */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Professional Details</Text>
-        </View>
+              <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+                <Text style={styles.label}>Hair Color</Text>
+                {loadingReferences ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#3b82f6" />
+                    <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+                ) : (
+                  <CustomDropdown
+                    options={hairColors}
+                    value={formData.about.hairColor}
+                    onValueChange={(value: string) => handleInputChange('about.hairColor', value)}
+                    placeholder="Select hair color"
+                    disabled={isSubmitting}
+                  />
+                )}
+              </View>
+            </View>
 
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Reel/Portfolio URL</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="https://example.com/reel"
-            placeholderTextColor="#9ca3af"
-            value={formData.about.reelUrl}
-            onChangeText={(text) => handleInputChange('about.reelUrl', text)}
-            keyboardType="url"
-            editable={!isSubmitting}
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <View style={styles.checkboxContainer}>
-              <TouchableOpacity
-              style={styles.checkbox}
-              onPress={() => handleInputChange('about.unionMember', !formData.about.unionMember)}
-                disabled={isSubmitting}
-              >
-              <Ionicons
-                name={formData.about.unionMember ? "checkbox" : "square-outline"}
-                size={20}
-                color={formData.about.unionMember ? "#8b5cf6" : "#9ca3af"}
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Eye Color</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Brown/Blue/Green/Hazel"
+                placeholderTextColor="#9ca3af"
+                value={formData.about.eyeColor}
+                onChangeText={(text) => handleInputChange('about.eyeColor', text)}
+                editable={!isSubmitting}
               />
-              <Text style={styles.checkboxLabel}>Union Member</Text>
-              </TouchableOpacity>
-          </View>
-        </View>
+                    </View>
 
-        {/* Dialects */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Dialects/Languages</Text>
-          <View style={styles.skillInputContainer}>
-          <TextInput
-              style={styles.skillInput}
-              placeholder="Add a dialect or language..."
-            placeholderTextColor="#9ca3af"
-              value={currentDialect}
-              onChangeText={setCurrentDialect}
-              onSubmitEditing={addDialect}
-            editable={!isSubmitting}
-          />
-            <TouchableOpacity style={styles.addButton} onPress={addDialect} disabled={isSubmitting}>
-              <Ionicons name="add" size={20} color="#fff" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.skillsList}>
-            {formData.about.dialects.map((dialect, index) => (
-              <View key={index} style={styles.skillTag}>
-                <Text style={styles.skillText}>{dialect}</Text>
-                <TouchableOpacity onPress={() => removeDialect(dialect)} disabled={isSubmitting}>
-                  <Ionicons name="close" size={16} color="#ef4444" />
+            {/* Body Measurements */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Body Measurements</Text>
+                  </View>
+                  
+            <View style={styles.row}>
+              <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+                <Text style={styles.label}>Chest (cm)</Text>
+                    <TextInput
+                  style={styles.input}
+                  placeholder="90"
+                      placeholderTextColor="#9ca3af"
+                  value={formData.about.chestCm}
+                  onChangeText={(text) => handleInputChange('about.chestCm', text)}
+                  keyboardType="numeric"
+                  editable={!isSubmitting}
+                />
+              </View>
+
+              <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+                <Text style={styles.label}>Waist (cm)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="75"
+                  placeholderTextColor="#9ca3af"
+                  value={formData.about.waistCm}
+                  onChangeText={(text) => handleInputChange('about.waistCm', text)}
+                  keyboardType="numeric"
+                      editable={!isSubmitting}
+                    />
+                  </View>
+                </View>
+                
+            <View style={styles.row}>
+              <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
+                <Text style={styles.label}>Hips (cm)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="95"
+                  placeholderTextColor="#9ca3af"
+                  value={formData.about.hipsCm}
+                  onChangeText={(text) => handleInputChange('about.hipsCm', text)}
+                  keyboardType="numeric"
+                  editable={!isSubmitting}
+                />
+              </View>
+
+              <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
+                <Text style={styles.label}>Shoe Size (EU)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="42"
+                  placeholderTextColor="#9ca3af"
+                  value={formData.about.shoeSizeEu}
+                  onChangeText={(text) => handleInputChange('about.shoeSizeEu', text)}
+                  keyboardType="numeric"
+                  editable={!isSubmitting}
+                />
+              </View>
+            </View>
+          </>
+        )}
+
+        {/* Professional Details - only show if user is talent */}
+        {isTalent && (
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Professional Details</Text>
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Reel/Portfolio URL</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="https://example.com/reel"
+                placeholderTextColor="#9ca3af"
+                value={formData.about.reelUrl}
+                onChangeText={(text) => handleInputChange('about.reelUrl', text)}
+                keyboardType="url"
+                editable={!isSubmitting}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <View style={styles.checkboxContainer}>
+                  <TouchableOpacity
+                  style={styles.checkbox}
+                  onPress={() => handleInputChange('about.unionMember', !formData.about.unionMember)}
+                    disabled={isSubmitting}
+                  >
+                  <Ionicons
+                    name={formData.about.unionMember ? "checkbox" : "square-outline"}
+                    size={20}
+                    color={formData.about.unionMember ? "#8b5cf6" : "#9ca3af"}
+                  />
+                  <Text style={styles.checkboxLabel}>Union Member</Text>
+                  </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Dialects */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Dialects/Languages</Text>
+              <View style={styles.skillInputContainer}>
+              <TextInput
+                  style={styles.skillInput}
+                  placeholder="Add a dialect or language..."
+                placeholderTextColor="#9ca3af"
+                  value={currentDialect}
+                  onChangeText={setCurrentDialect}
+                  onSubmitEditing={addDialect}
+                editable={!isSubmitting}
+              />
+                <TouchableOpacity style={styles.addButton} onPress={addDialect} disabled={isSubmitting}>
+                  <Ionicons name="add" size={20} color="#fff" />
                 </TouchableOpacity>
               </View>
-            ))}
-          </View>
-        </View>
-
-        {/* Willing to Travel */}
-        <View style={styles.inputContainer}>
-          <TouchableOpacity
-            style={styles.checkboxContainer}
-            onPress={() => handleInputChange('about.willingToTravel', !formData.about.willingToTravel)}
-            disabled={isSubmitting}
-          >
-            <View style={[styles.checkbox, formData.about.willingToTravel && styles.checkboxChecked]}>
-              {formData.about.willingToTravel && (
-                <Ionicons name="checkmark" size={16} color="#fff" />
-              )}
+              <View style={styles.skillsList}>
+                {formData.about.dialects.map((dialect, index) => (
+                  <View key={index} style={styles.skillTag}>
+                    <Text style={styles.skillText}>{dialect}</Text>
+                    <TouchableOpacity onPress={() => removeDialect(dialect)} disabled={isSubmitting}>
+                      <Ionicons name="close" size={16} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
             </View>
-            <Text style={styles.checkboxLabel}>Willing to travel for work</Text>
-          </TouchableOpacity>
-        </View>
+
+            {/* Willing to Travel */}
+            <View style={styles.inputContainer}>
+              <TouchableOpacity
+                style={styles.checkboxContainer}
+                onPress={() => handleInputChange('about.willingToTravel', !formData.about.willingToTravel)}
+                disabled={isSubmitting}
+              >
+                <View style={[styles.checkbox, formData.about.willingToTravel && styles.checkboxChecked]}>
+                  {formData.about.willingToTravel && (
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                  )}
+                </View>
+                <Text style={styles.checkboxLabel}>Willing to travel for work</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
 
         {/* Image URL */}
         <View style={styles.inputContainer}>

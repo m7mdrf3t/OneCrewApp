@@ -64,7 +64,9 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
     createCompany,
     submitCompanyForApproval,
     uploadFile,
+    addCompanyDocument,
     getAvailableServicesForCompany,
+    addCompanyService,
     getProfileCompleteness,
     user,
   } = useApi();
@@ -394,46 +396,99 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
 
       const companyId = createResponse.data.id;
 
-      // Upload documents
+      // Upload and attach documents to company
+      let documentsAttachedCount = 0;
       for (const doc of documents) {
         try {
+          // Step 1: Upload file to storage
           const uploadResponse = await uploadFile({
             uri: doc.file_uri,
             type: 'image/jpeg',
             name: doc.file_name,
           });
 
-          if (uploadResponse.success) {
-            // In a real implementation, you would need to attach the document to the company
-            // This might require an additional API call like addCompanyDocument
-            console.log('Document uploaded:', doc.document_type);
+          // uploadFile returns { data: { url, filename, size, type } }
+          // Check both structures for compatibility
+          const documentUrl = uploadResponse?.data?.url || uploadResponse?.url;
+          if (documentUrl) {
+            // Step 2: Attach the uploaded document to the company
+            const attachResponse = await addCompanyDocument(companyId, {
+              document_type: doc.document_type,
+              file_url: documentUrl,
+              file_name: doc.file_name,
+              description: doc.description || undefined,
+            });
+
+            if (attachResponse.success) {
+              documentsAttachedCount++;
+              console.log('✅ Document uploaded and attached:', doc.document_type);
+            } else {
+              console.error(`⚠️ Document uploaded but failed to attach: ${doc.document_type}`, attachResponse.error);
+            }
+          } else {
+            console.error(`⚠️ Document upload failed: ${doc.document_type}`);
           }
-        } catch (error) {
-          console.error(`Failed to upload document ${doc.document_type}:`, error);
-          // Don't block submission if document upload fails
+        } catch (error: any) {
+          console.error(`❌ Failed to upload/attach document ${doc.document_type}:`, error);
+          // Continue with other documents - don't block submission
         }
       }
 
-      // Add selected services
-      for (const serviceId of selectedServices) {
-        try {
-          await getAvailableServicesForCompany(companyId).then(async (servicesResponse) => {
-            if (servicesResponse.success) {
-              // Add service logic would go here
-              // await addCompanyService(companyId, serviceId);
+      console.log(`📄 Documents attached: ${documentsAttachedCount} of ${documents.length}`);
+
+      // Add selected services to the company
+      if (selectedServices.length > 0) {
+        console.log(`🔧 Adding ${selectedServices.length} services to company...`);
+        let servicesAddedCount = 0;
+        
+        for (const serviceId of selectedServices) {
+          try {
+            console.log(`🔧 Adding service ${serviceId} to company ${companyId}...`);
+            const addServiceResponse = await addCompanyService(companyId, serviceId);
+            
+            if (addServiceResponse.success) {
+              servicesAddedCount++;
+              console.log(`✅ Service ${serviceId} added successfully`);
+            } else {
+              console.error(`❌ Failed to add service ${serviceId}:`, addServiceResponse.error);
+              // Don't block submission if service addition fails
             }
-          });
-        } catch (error) {
-          console.error(`Failed to add service ${serviceId}:`, error);
-          // Don't block submission if service addition fails
+          } catch (error: any) {
+            console.error(`❌ Error adding service ${serviceId}:`, error.message || error);
+            // Don't block submission if service addition fails
+          }
         }
+        
+        console.log(`📊 Services added: ${servicesAddedCount} of ${selectedServices.length}`);
+      } else {
+        console.log('ℹ️ No services selected to add');
       }
 
       // Submit for approval
       try {
         const submitResponse = await submitCompanyForApproval(companyId);
         if (!submitResponse.success) {
-          // If submission fails, company was still created
+          // Check if it's a document requirement error
+          const errorMessage = submitResponse.error || '';
+          if (errorMessage.toLowerCase().includes('document')) {
+            Alert.alert(
+              'Documents Required',
+              errorMessage + '\n\nYou can upload documents later and submit for approval from your company profile.',
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    if (onSuccess) {
+                      onSuccess(companyId);
+                    }
+                  },
+                },
+              ]
+            );
+            return;
+          }
+          
+          // If submission fails for other reasons, company was still created
           Alert.alert(
             'Company Created',
             'Your company profile has been created successfully. However, automatic submission for approval failed. You can submit it manually from your company profile.',

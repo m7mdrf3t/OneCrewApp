@@ -45,18 +45,42 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
       setIsLoading(true);
       setError(null);
       console.log('📋 Loading basic project list...');
+      console.log('👤 Current user ID:', user?.id);
       
       const userProjects = await getAllProjects();
+      console.log(`📦 Received ${userProjects.length} projects from API`);
+      
+      // Debug: Log project details to understand structure
+      userProjects.forEach((project, index) => {
+        console.log(`📋 Project ${index + 1}:`, {
+          id: project.id,
+          title: project.title,
+          created_by: project.created_by,
+          members_count: project.members?.length || 0,
+          members: project.members?.map((m: any) => ({
+            user_id: m.user_id || m.id,
+            role: m.role,
+          })),
+        });
+      });
       
       // Filter to only show projects where user is owner or member (not just viewer)
       // Also exclude soft-deleted projects
       const filteredProjects = userProjects.filter(project => {
         const accessLevel = getUserAccessLevel(project);
         const isActive = !project.is_deleted && !project.deleted_at;
-        return (accessLevel === 'owner' || accessLevel === 'member') && isActive;
+        const shouldShow = (accessLevel === 'owner' || accessLevel === 'member') && isActive;
+        
+        if (!shouldShow) {
+          console.log(`🚫 Filtered out project ${project.id} - accessLevel: ${accessLevel}, isActive: ${isActive}`);
+        } else {
+          console.log(`✅ Including project ${project.id} - accessLevel: ${accessLevel}`);
+        }
+        
+        return shouldShow;
       });
 
-      console.log(`✅ Loaded ${filteredProjects.length} projects (basic info only)`);
+      console.log(`✅ Loaded ${filteredProjects.length} filtered projects (basic info only)`);
       
       // Only load basic project information - no tasks or detailed data
       const basicProjects = filteredProjects.map(project => ({
@@ -216,15 +240,37 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   };
 
   const getUserAccessLevel = (project: any) => {
-    if (!user) return 'viewer';
+    if (!user) {
+      console.log('🚫 No user found');
+      return 'viewer';
+    }
     
     // Check if user is the owner (created_by field)
-    if (project.created_by === user.id) return 'owner';
+    if (project.created_by === user.id) {
+      console.log(`✅ User ${user.id} is OWNER of project ${project.id}`);
+      return 'owner';
+    }
     
-    // Check if user is a member
-    if (project.members && project.members.some((member: any) => member.user_id === user.id)) {
+    // Check if user is a member - try multiple possible field structures
+    const members = project.members || project.project_members || [];
+    const isMember = members.some((member: any) => {
+      const memberUserId = member.user_id || member.user?.id || member.id;
+      const matches = memberUserId === user.id;
+      if (matches) {
+        console.log(`✅ User ${user.id} is MEMBER of project ${project.id} with role: ${member.role || 'member'}`);
+      }
+      return matches;
+    });
+    
+    if (isMember) {
       return 'member';
     }
+    
+    console.log(`🚫 User ${user.id} is VIEWER of project ${project.id} (not owner or member)`);
+    console.log(`   Project members:`, members.map((m: any) => ({
+      user_id: m.user_id || m.user?.id || m.id,
+      role: m.role,
+    })));
     
     return 'viewer';
   };
@@ -360,14 +406,23 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
           {projects.length > 0 ? (
             projects.map((project) => {
               const accessLevel = getUserAccessLevel(project);
+              const isOwner = accessLevel === 'owner';
+              const isMember = accessLevel === 'member';
               return (
                 <TouchableOpacity
                   key={project.id}
-                  style={styles.projectCard}
+                  style={[
+                    styles.projectCard,
+                    isOwner && styles.projectCardOwner,
+                    isMember && styles.projectCardMember,
+                  ]}
                   onPress={() => handleProjectPress(project)}
                 >
                   <View style={styles.projectHeader}>
-                    <Text style={styles.projectTitle}>{project.title}</Text>
+                    <Text style={[
+                      styles.projectTitle,
+                      isMember && styles.projectTitleMember,
+                    ]}>{project.title}</Text>
                     <View style={styles.projectHeaderRight}>
                       <View style={styles.projectBadges}>
                         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(project.status) }]}>
@@ -388,13 +443,20 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
                           handleMenuPress(project);
                         }}
                       >
-                        <Ionicons name="ellipsis-horizontal" size={20} color="#a1a1aa" />
+                        <Ionicons 
+                          name="ellipsis-horizontal" 
+                          size={20} 
+                          color={isMember ? "#fff" : "#a1a1aa"} 
+                        />
                       </TouchableOpacity>
                     </View>
                   </View>
                   
                   {project.description && (
-                    <Text style={styles.projectDescription} numberOfLines={2}>
+                    <Text style={[
+                      styles.projectDescription,
+                      isMember && styles.projectDescriptionMember,
+                    ]} numberOfLines={2}>
                       {project.description}
                     </Text>
                   )}
@@ -403,39 +465,57 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
                     <View style={styles.projectInfo}>
                       {project.type && (
                         <View style={styles.projectInfoItem}>
-                          <Ionicons name="film" size={16} color="#a1a1aa" />
-                          <Text style={styles.projectInfoText}>{project.type}</Text>
+                          <Ionicons name="film" size={16} color={isMember ? "#fff" : "#a1a1aa"} />
+                          <Text style={[
+                            styles.projectInfoText,
+                            isMember && styles.projectInfoTextMember,
+                          ]}>{project.type}</Text>
                         </View>
                       )}
                       {project.location && (
                         <View style={styles.projectInfoItem}>
-                          <Ionicons name="location" size={16} color="#a1a1aa" />
-                          <Text style={styles.projectInfoText}>{project.location}</Text>
+                          <Ionicons name="location" size={16} color={isMember ? "#fff" : "#a1a1aa"} />
+                          <Text style={[
+                            styles.projectInfoText,
+                            isMember && styles.projectInfoTextMember,
+                          ]}>{project.location}</Text>
                         </View>
                       )}
                       {project.owner && (
                         <View style={styles.projectInfoItem}>
-                          <Ionicons name="person" size={16} color="#a1a1aa" />
-                          <Text style={styles.projectInfoText}>by {project.owner.name}</Text>
+                          <Ionicons name="person" size={16} color={isMember ? "#fff" : "#a1a1aa"} />
+                          <Text style={[
+                            styles.projectInfoText,
+                            isMember && styles.projectInfoTextMember,
+                          ]}>by {project.owner.name}</Text>
                         </View>
                       )}
                     </View>
                   </View>
 
-                  <View style={styles.projectFooter}>
+                  <View style={[
+                    styles.projectFooter,
+                    isMember && styles.projectFooterMember,
+                  ]}>
                     <View style={styles.projectDates}>
                       {project.start_date && (
-                        <Text style={styles.dateText}>
+                        <Text style={[
+                          styles.dateText,
+                          isMember && styles.dateTextMember,
+                        ]}>
                           Start: {formatDate(project.start_date)}
                         </Text>
                       )}
                       {project.end_date && (
-                        <Text style={styles.dateText}>
+                        <Text style={[
+                          styles.dateText,
+                          isMember && styles.dateTextMember,
+                        ]}>
                           End: {formatDate(project.end_date)}
                         </Text>
                       )}
                     </View>
-                    <Ionicons name="chevron-forward" size={20} color="#a1a1aa" />
+                    <Ionicons name="chevron-forward" size={20} color={isMember ? "#fff" : "#a1a1aa"} />
                   </View>
                 </TouchableOpacity>
               );
@@ -618,6 +698,14 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  projectCardOwner: {
+    backgroundColor: '#000',
+    borderColor: '#333333',
+  },
+  projectCardMember: {
+    backgroundColor: '#f97316', // Orange color
+    borderColor: '#ea580c', // Darker orange for border
+  },
   projectHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -689,6 +777,12 @@ const styles = StyleSheet.create({
     color: '#a1a1aa',
     marginLeft: 4,
   },
+  projectTitleMember: {
+    color: '#fff',
+  },
+  projectDescriptionMember: {
+    color: '#fff',
+  },
   projectFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -696,6 +790,15 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: '#333333',
+  },
+  projectFooterMember: {
+    borderTopColor: '#ea580c',
+  },
+  projectInfoTextMember: {
+    color: '#fff',
+  },
+  dateTextMember: {
+    color: '#fff',
   },
   projectDates: {
     flex: 1,

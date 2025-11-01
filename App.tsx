@@ -14,6 +14,7 @@ import SplashScreen from './src/components/SplashScreen';
 // Pages
 import HomePage from './src/pages/HomePage';
 import HomePageWithUsers from './src/pages/HomePageWithUsers';
+import CompanyServicesModal from './src/components/CompanyServicesModal';
 import SectionServicesPage from './src/pages/SectionServicesPage';
 import DirectoryPage from './src/pages/DirectoryPage';
 import ServiceDetailPage from './src/pages/ServiceDetailPage';
@@ -60,6 +61,9 @@ const AppContent: React.FC = () => {
   const [selectedProject, setSelectedProject] = useState<any>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showMyTeam, setShowMyTeam] = useState(false);
+  const [showCompanyServicesModal, setShowCompanyServicesModal] = useState(false);
+  const [selectedCompanyForServices, setSelectedCompanyForServices] = useState<any>(null);
+  const [companyProfileRefreshTrigger, setCompanyProfileRefreshTrigger] = useState(0);
   const systemColorScheme = useColorScheme();
   const [theme, setTheme] = useState('light');
 
@@ -723,6 +727,7 @@ const AppContent: React.FC = () => {
               section={page.data}
               onBack={handleBack}
               onUserSelect={handleProfileSelect}
+              onNavigate={navigateTo}
             />
           )}
           {page.name === 'details' && (
@@ -840,6 +845,7 @@ const AppContent: React.FC = () => {
             <CompanyProfilePage
               companyId={page.data?.companyId || page.data || ''}
               onBack={handleBack}
+              refreshTrigger={companyProfileRefreshTrigger}
               onEdit={(company) => {
                 // Navigate to company edit page (can be added later)
                 console.log('Edit company:', company);
@@ -849,8 +855,8 @@ const AppContent: React.FC = () => {
                 console.log('Manage members:', company);
               }}
               onManageServices={(company) => {
-                // Navigate to manage services (can be added later)
-                console.log('Manage services:', company);
+                setSelectedCompanyForServices(company);
+                setShowCompanyServicesModal(true);
               }}
               onInviteMember={(company) => {
                 // Navigate to invite member (can be added later)
@@ -884,6 +890,23 @@ const AppContent: React.FC = () => {
           visible={showMyTeam}
           onClose={() => setShowMyTeam(false)}
         />
+
+        {/* Company Services Modal */}
+        {selectedCompanyForServices && (
+          <CompanyServicesModal
+            visible={showCompanyServicesModal}
+            company={selectedCompanyForServices}
+            onClose={() => {
+              setShowCompanyServicesModal(false);
+              setSelectedCompanyForServices(null);
+            }}
+            onServicesUpdated={() => {
+              // Trigger refresh of company profile page
+              console.log('🔄 Services updated, refreshing company profile...');
+              setCompanyProfileRefreshTrigger((prev) => prev + 1);
+            }}
+          />
+        )}
 
         <TabBar active={tab} onChange={handleTabChange} />
 

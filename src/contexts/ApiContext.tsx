@@ -39,6 +39,7 @@ interface ApiContextType {
   updateProfile: (profileData: any) => Promise<any>;
   updateSkills: (skills: string[]) => Promise<any>;
   getProfileCompleteness: (userId: string) => Promise<any>;
+  getAccessToken: () => string;
   // Reference data methods
   getSkinTones: () => Promise<any>;
   getHairColors: () => Promise<any>;
@@ -137,6 +138,7 @@ interface ApiContextType {
   leaveCompany: (companyId: string) => Promise<any>;
   // Company documents
   getCompanyDocuments: (companyId: string) => Promise<any>;
+  addCompanyDocument: (companyId: string, documentData: { document_type: string; file_url: string; file_name?: string; description?: string }) => Promise<any>;
   deleteCompanyDocument: (companyId: string, documentId: string) => Promise<any>;
 }
 
@@ -594,10 +596,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
       console.log('✅ Basic profile updated successfully:', basicResult);
 
-      // Only update talent profile if there's meaningful data to send
+      // Only update talent profile if user is a talent AND there's meaningful data to send
       let talentResult = { data: {} };
-      if (Object.keys(cleanedTalentData).length > 0) {
+      const userCategory = user?.category as string | undefined;
+      const isTalent = userCategory?.toLowerCase() === 'talent';
+      
+      if (isTalent && Object.keys(cleanedTalentData).length > 0) {
         console.log('🎭 Updating talent profile with data:', cleanedTalentData);
+        console.log('👤 User category is talent, proceeding with talent profile update');
         
         const talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
           method: 'PUT',
@@ -629,7 +635,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           console.log('✅ Talent profile updated successfully:', talentResult);
         }
       } else {
-        console.log('⏭️ Skipping talent profile update - no meaningful data to send');
+        if (!isTalent) {
+          console.log('⏭️ Skipping talent profile update - user is not a talent (category: ' + (user?.category || 'unknown') + ')');
+        } else {
+          console.log('⏭️ Skipping talent profile update - no meaningful data to send');
+        }
       }
 
       // Update skills using the correct API client methods
@@ -2040,7 +2050,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       };
       
       console.log('🔗 Extracted upload response:', uploadResponse);
-      return { data: uploadResponse };
+      return { 
+        success: true,
+        data: uploadResponse 
+      };
     } catch (error: any) {
       console.error('❌ Failed to upload file:', error);
       throw error;
@@ -2150,16 +2163,66 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getAllProjects = async (): Promise<any[]> => {
     try {
-      console.log('📋 Getting user projects');
-      const response = await api.getMyProjects();
-      if (response.success && response.data) {
-        // Handle both array and paginated response
-        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
-      } else {
-        throw new Error(response.error || 'Failed to fetch user projects');
+      console.log('📋 Getting all user projects (owned + member)...');
+      
+      // Try getMyProjects first (returns projects where user is owner or member)
+      // Note: In v2.1.1, getMyProjects returns ApiResponse<PaginatedResponse<Project>>
+      // so we need to access response.data.data for the array
+      let projects: any[] = [];
+      try {
+        const myProjectsResponse = await api.getMyProjects();
+        if (myProjectsResponse.success && myProjectsResponse.data) {
+          // Handle paginated response structure: response.data.data is the array
+          if (Array.isArray(myProjectsResponse.data)) {
+            projects = myProjectsResponse.data;
+          } else if (myProjectsResponse.data.data && Array.isArray(myProjectsResponse.data.data)) {
+            projects = myProjectsResponse.data.data;
+          } else if ((myProjectsResponse.data as any).items && Array.isArray((myProjectsResponse.data as any).items)) {
+            projects = (myProjectsResponse.data as any).items;
+          }
+          console.log(`✅ Found ${projects.length} projects from getMyProjects (owned + member)`);
+        }
+      } catch (err) {
+        console.warn('⚠️ Failed to get projects from getMyProjects:', err);
       }
+      
+      // The issue: getMyProjects() returns projects but without members array populated
+      // Since getMyProjects() ONLY returns projects where user is owner OR member,
+      // we need to fetch full project details (with members) to determine membership
+      // This is critical because if members is undefined/empty, we can't determine if user is a member
+      const enrichedProjects = await Promise.all(
+        projects.map(async (project) => {
+          // Always fetch full project details to get members array
+          // This ensures we can properly detect if user is a member
+          try {
+            console.log(`🔍 Fetching full details for project ${project.id} to get members array`);
+            const projectDetailsResponse = await api.getProjectById(project.id);
+            if (projectDetailsResponse.success && projectDetailsResponse.data) {
+              const fullProject = projectDetailsResponse.data;
+              console.log(`✅ Project ${project.id} - Found ${fullProject.members?.length || 0} members`);
+              // Merge the full project data (which includes members)
+              return {
+                ...project,
+                // Always use members from full project details
+                members: fullProject.members || [],
+                // Include other fields that might be missing
+                description: fullProject.description || project.description,
+                status: fullProject.status || project.status,
+                type: fullProject.type || project.type,
+              };
+            }
+          } catch (err) {
+            console.warn(`⚠️ Failed to fetch details for project ${project.id}:`, err);
+          }
+          // Return project as-is if fetch fails (fallback)
+          return project;
+        })
+      );
+      
+      console.log(`✅ Enriched ${enrichedProjects.length} projects with member data`);
+      return enrichedProjects;
     } catch (error) {
-      console.error('Failed to get user projects:', error);
+      console.error('❌ Failed to get all user projects:', error);
       throw error;
     }
   };
@@ -2616,14 +2679,84 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const submitCompanyForApproval = async (companyId: string) => {
     try {
-      const response = await api.submitCompanyForApproval(companyId);
-      if (response.success && activeCompany?.id === companyId) {
-        setActiveCompany(response.data);
+      // Use the correct endpoint: /api/companies/{id}/submit (not /submit-for-approval)
+      // Access the underlying apiClient directly to use the correct endpoint
+      const apiClient = (api as any).apiClient;
+      if (apiClient && typeof apiClient.post === 'function') {
+        const response = await apiClient.post(`/api/companies/${companyId}/submit`, {});
+        
+        if (response.success && response.data && activeCompany?.id === companyId) {
+          setActiveCompany(response.data);
+        }
+        return response;
+      } else {
+        // Fallback: try the library method (will fail with 404, but we'll handle it)
+        const response = await api.submitCompanyForApproval(companyId);
+        if (response.success && response.data && activeCompany?.id === companyId) {
+          setActiveCompany(response.data);
+        }
+        return response;
       }
-      return response;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to submit company for approval:', error);
-      throw error;
+      
+      // Handle ApiError from the library
+      if (error instanceof ApiError) {
+        // Check for 404 - endpoint not found
+        if (error.statusCode === 404) {
+          return {
+            success: false,
+            error: 'Company approval submission endpoint is not yet available on the backend.',
+            data: null
+          };
+        }
+        
+        // Check for 400 - validation error (e.g., documents required)
+        if (error.statusCode === 400) {
+          // Provide helpful message based on error content
+          const errorMessage = error.message || '';
+          if (errorMessage.toLowerCase().includes('document')) {
+            return {
+              success: false,
+              error: 'Please upload at least one document before submitting for approval. Go to the Documents step and upload the required company documents.',
+              data: null
+            };
+          }
+          return {
+            success: false,
+            error: errorMessage || 'Validation error: Please check your company information and try again.',
+            data: null
+          };
+        }
+        
+        // Other API errors (500, etc.)
+        return {
+          success: false,
+          error: error.message || `Server error (${error.statusCode || 'unknown'})`,
+          data: null
+        };
+      }
+      
+      // Handle other error types
+      const errorMessage = error?.message || String(error) || 'Failed to submit company for approval';
+      
+      // Check for endpoint not found in error message (fallback)
+      if (errorMessage.includes('404') || 
+          (errorMessage.includes('Route') && errorMessage.includes('not found')) ||
+          errorMessage.includes('not found')) {
+        return {
+          success: false,
+          error: 'Company approval submission endpoint is not yet available on the backend.',
+          data: null
+        };
+      }
+      
+      // Generic error response
+      return {
+        success: false,
+        error: errorMessage,
+        data: null
+      };
     }
   };
 
@@ -2691,11 +2824,93 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getCompanyMembers = async (companyId: string, params?: any) => {
     try {
-      const response = await api.getCompanyMembers(companyId, params);
-      return response;
-    } catch (error) {
+      // Access apiClient directly to disable retries for 500 errors
+      // The library retries 500 errors by default, but we want to handle them gracefully
+      const apiClient = (api as any).apiClient;
+      
+      // Try to call without retries if possible, or use the normal method
+      let response;
+      if (apiClient && typeof apiClient.get === 'function') {
+        // Make request with retries disabled for this specific call
+        // We'll handle errors ourselves
+        try {
+          response = await apiClient.get(`/api/companies/${companyId}/members${params ? '?' + new URLSearchParams(params).toString() : ''}`, {
+            retries: 0 // Disable retries - we'll handle errors
+          });
+        } catch (directError: any) {
+          // If direct call fails, handle it
+          if (directError instanceof ApiError) {
+            if (directError.statusCode === 500 || (directError.statusCode && directError.statusCode >= 500)) {
+              // Return gracefully for 500 errors instead of retrying
+              return {
+                success: false,
+                error: directError.message || 'Server error while fetching members',
+                data: []
+              };
+            }
+          }
+          throw directError; // Re-throw to be handled below
+        }
+      } else {
+        response = await api.getCompanyMembers(companyId, params);
+      }
+      
+      // Handle successful response
+      if (response && response.success) {
+        return response;
+      }
+      
+      // Handle response with success: false
+      if (response && response.success === false) {
+        return response;
+      }
+      
+      // Unexpected response format
+      return {
+        success: false,
+        error: 'Unexpected response from server',
+        data: []
+      };
+    } catch (error: any) {
       console.error('Failed to get company members:', error);
-      throw error;
+      
+      // Handle ApiError from the library
+      if (error instanceof ApiError) {
+        // Check for 404 - endpoint not found
+        if (error.statusCode === 404) {
+          return {
+            success: false,
+            error: 'Company members endpoint is not yet available on the backend.',
+            data: []
+          };
+        }
+        
+        // For 500 errors or other server errors, return empty array with error flag (no retries)
+        if (error.statusCode === 500 || (error.statusCode && error.statusCode >= 500)) {
+          return {
+            success: false,
+            error: error.message || 'Server error while fetching members',
+            data: []
+          };
+        }
+        
+        // Other API errors (400, etc.)
+        return {
+          success: false,
+          error: error.message || `Server error (${error.statusCode || 'unknown'})`,
+          data: []
+        };
+      }
+      
+      // Handle other error types
+      const errorMessage = error?.message || String(error) || 'Failed to get company members';
+      
+      // Return error response with empty array to prevent UI crashes
+      return {
+        success: false,
+        error: errorMessage,
+        data: []
+      };
     }
   };
 
@@ -2796,6 +3011,37 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const addCompanyDocument = async (companyId: string, documentData: { document_type: string; file_url: string; file_name?: string; description?: string }) => {
+    try {
+      // Use the apiClient directly to POST to /api/companies/{id}/documents
+      const apiClient = (api as any).apiClient;
+      if (apiClient && typeof apiClient.post === 'function') {
+        const response = await apiClient.post(`/api/companies/${companyId}/documents`, documentData);
+        return response;
+      } else {
+        throw new Error('API client not available');
+      }
+    } catch (error: any) {
+      console.error('Failed to add company document:', error);
+      
+      // Handle ApiError
+      if (error instanceof ApiError) {
+        return {
+          success: false,
+          error: error.message || `Failed to add document (${error.statusCode || 'unknown'})`,
+          data: null
+        };
+      }
+      
+      // Return error response instead of throwing
+      return {
+        success: false,
+        error: error?.message || 'Failed to add company document',
+        data: null
+      };
+    }
+  };
+
   const deleteCompanyDocument = async (companyId: string, documentId: string) => {
     try {
       const response = await api.deleteCompanyDocument(companyId, documentId);
@@ -2830,6 +3076,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     updateProfile,
     updateSkills,
     getProfileCompleteness,
+    getAccessToken,
     // Reference data methods
     getSkinTones,
     getHairColors,
@@ -2927,6 +3174,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     leaveCompany,
     // Company documents
     getCompanyDocuments,
+    addCompanyDocument,
     deleteCompanyDocument,
   };
 

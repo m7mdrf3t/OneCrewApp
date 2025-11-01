@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, RefreshControl, Text } from 'react-native';
 import SearchBar from '../components/SearchBar';
 import SectionCard from '../components/SectionCard';
-import UserTable from '../components/UserTable';
 import { HomePageProps } from '../types';
 import { SECTIONS } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
@@ -51,8 +50,9 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   user,
   onOpenMainMenu,
 }) => {
-  const { api, getUsersDirect, isGuest, browseUsersAsGuest } = useApi();
+  const { api, getUsersDirect, isGuest, browseUsersAsGuest, getCompanies } = useApi();
   const [users, setUsers] = useState<User[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,13 +126,36 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     }
   };
 
+  const fetchCompanies = async () => {
+    try {
+      console.log('🏢 Fetching companies...');
+      
+      const response = await getCompanies({ limit: 50 });
+      
+      if (response.success && response.data) {
+        const companiesArray = Array.isArray(response.data) 
+          ? response.data 
+          : (Array.isArray(response.data?.data) ? response.data.data : []);
+        console.log('✅ Companies fetched successfully:', companiesArray.length);
+        setCompanies(companiesArray);
+      } else {
+        console.error('❌ Failed to fetch companies:', response.error);
+      }
+    } catch (err: any) {
+      console.error('❌ Error fetching companies:', err);
+      // Don't set error state for companies, just log it
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
+    fetchCompanies();
   }, [isGuest]);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchUsers();
+    fetchCompanies();
   };
 
   const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
@@ -168,11 +191,16 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     return null;
   };
 
+  // Filter sections to only show: talent, individuals (Crew), onehub (Studios & Agencies), academy
+  const allowedSectionKeys = ['talent', 'individuals', 'onehub', 'academy'];
+  
   const filteredSections = useMemo(() => {
-    if (!searchQuery) return SECTIONS;
+    const allowedSections = SECTIONS.filter(section => allowedSectionKeys.includes(section.key));
+    
+    if (!searchQuery) return allowedSections;
     const lowerCaseQuery = searchQuery.toLowerCase();
 
-    return SECTIONS.filter(section => {
+    return allowedSections.filter(section => {
       const hasMatchingItem = section.items.some(item =>
         item.label.toLowerCase().includes(lowerCaseQuery)
       );
@@ -180,11 +208,25 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     });
   }, [searchQuery]);
 
+
   const usersByCategory = useMemo(() => {
+    const lowerCaseQuery = searchQuery?.toLowerCase() || '';
+    
+    const filterUser = (user: User) => {
+      if (!searchQuery) return true;
+      return (
+        user.name?.toLowerCase().includes(lowerCaseQuery) ||
+        user.email?.toLowerCase().includes(lowerCaseQuery) ||
+        user.primary_role?.toLowerCase().includes(lowerCaseQuery) ||
+        user.specialty?.toLowerCase().includes(lowerCaseQuery) ||
+        user.bio?.toLowerCase().includes(lowerCaseQuery)
+      );
+    };
+    
     const categorized = {
-      talent: users.filter(u => u.category === 'talent'),
-      crew: users.filter(u => u.category === 'crew'),
-      company: users.filter(u => u.category === 'company'),
+      talent: users.filter(u => u.category === 'talent' && filterUser(u)),
+      crew: users.filter(u => u.category === 'crew' && filterUser(u)),
+      company: users.filter(u => u.category === 'company' && filterUser(u)),
     };
     
     console.log('📊 Users by category:', {
@@ -194,19 +236,41 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     });
     
     return categorized;
-  }, [users]);
+  }, [users, searchQuery]);
+
+  // Categorize companies by type
+  const companiesByType = useMemo(() => {
+    const studiosAndAgencies = companies.filter(company => {
+      const subcategory = company.subcategory || company.company_type_info?.code || '';
+      return ['production_house', 'agency', 'studio', 'casting_agency', 'management_company'].includes(subcategory);
+    });
+    
+    const academy = companies.filter(company => {
+      const subcategory = company.subcategory || company.company_type_info?.code || '';
+      return subcategory === 'academy';
+    });
+    
+    return {
+      studiosAndAgencies,
+      academy
+    };
+  }, [companies]);
 
   const sectionsWithUserCounts = useMemo(() => {
-    return SECTIONS.map(section => {
+    return filteredSections.map(section => {
       let userCount = 0;
       
-      // Map section keys to user categories
+      // Map section keys to user categories and companies
       if (section.key === 'talent') {
         userCount = usersByCategory.talent.length;
-      } else if (section.key === 'crew' || section.key === 'individuals' || section.key === 'technicians' || section.key === 'specialized') {
+      } else if (section.key === 'individuals') {
         userCount = usersByCategory.crew.length;
       } else if (section.key === 'onehub') {
-        userCount = usersByCategory.company.length;
+        // Studios & Agencies: users with company category + companies matching this type
+        userCount = usersByCategory.company.length + companiesByType.studiosAndAgencies.length;
+      } else if (section.key === 'academy') {
+        // Academy: companies matching academy type
+        userCount = companiesByType.academy.length;
       }
       
       return {
@@ -214,7 +278,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
         userCount
       };
     });
-  }, [usersByCategory]);
+  }, [usersByCategory, companiesByType, filteredSections]);
 
   const handleUserSelect = async (selectedUser: User) => {
     console.log('👤 User selected:', selectedUser.name);
@@ -227,6 +291,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       onNavigate('profile', selectedUser);
     }
   };
+
 
   const isDark = theme === 'dark';
 

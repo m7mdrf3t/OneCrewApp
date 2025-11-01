@@ -28,6 +28,7 @@ interface CompanyProfilePageProps {
   onManageMembers?: (company: Company) => void;
   onManageServices?: (company: Company) => void;
   onInviteMember?: (company: Company) => void;
+  refreshTrigger?: number;
 }
 
 const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
@@ -37,6 +38,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   onManageMembers,
   onManageServices,
   onInviteMember,
+  refreshTrigger,
 }) => {
   const {
     getCompany,
@@ -58,7 +60,14 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   useEffect(() => {
     loadCompanyData();
-  }, [companyId]);
+  }, [companyId, refreshTrigger]);
+
+  // Reload services when refresh trigger changes
+  useEffect(() => {
+    if (company?.id) {
+      loadServices(company.id);
+    }
+  }, [refreshTrigger]);
 
   const loadCompanyData = async () => {
     try {
@@ -88,13 +97,26 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     try {
       setLoadingMembers(true);
       const response = await getCompanyMembers(id);
-      if (response.success && response.data?.data) {
-        setMembers(response.data.data);
-      } else if (response.success && Array.isArray(response.data)) {
-        setMembers(response.data);
+      
+      // Handle successful response with data
+      if (response.success) {
+        if (response.data?.data && Array.isArray(response.data.data)) {
+          setMembers(response.data.data);
+        } else if (Array.isArray(response.data)) {
+          setMembers(response.data);
+        } else {
+          // No data but successful - set empty array
+          setMembers([]);
+        }
+      } else {
+        // Error response - log but don't crash, show empty members list
+        console.warn('Failed to load members:', response.error);
+        setMembers([]);
       }
     } catch (err) {
+      // Fallback error handling (shouldn't happen now, but just in case)
       console.error('Failed to load members:', err);
+      setMembers([]);
     } finally {
       setLoadingMembers(false);
     }
@@ -103,12 +125,29 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const loadServices = async (id: string) => {
     try {
       setLoadingServices(true);
+      console.log('🔄 Loading company services for:', id);
       const response = await getCompanyServices(id);
+      
       if (response.success && response.data) {
-        setServices(response.data);
+        // Handle different response structures
+        let servicesArray: CompanyService[] = [];
+        if (Array.isArray(response.data)) {
+          servicesArray = response.data;
+        } else if (Array.isArray(response.data?.data)) {
+          servicesArray = response.data.data;
+        } else if (Array.isArray(response.data?.services)) {
+          servicesArray = response.data.services;
+        }
+        
+        console.log('✅ Company services loaded:', servicesArray.length, servicesArray);
+        setServices(servicesArray);
+      } else {
+        console.warn('⚠️ No services found or failed to load:', response.error);
+        setServices([]);
       }
     } catch (err) {
-      console.error('Failed to load services:', err);
+      console.error('❌ Failed to load services:', err);
+      setServices([]);
     } finally {
       setLoadingServices(false);
     }

@@ -20,7 +20,17 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   onLogout,
   onNavigate,
 }) => {
-  const { api, user: currentUser, isGuest, isAuthenticated } = useApi();
+  const { 
+    api, 
+    user: currentUser, 
+    isGuest, 
+    isAuthenticated,
+    getUserCompanies,
+    switchToCompanyProfile,
+    switchToUserProfile,
+    currentProfileType,
+    activeCompany
+  } = useApi();
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +41,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   const [promptAction, setPromptAction] = useState<string>('');
   const [galleryTab, setGalleryTab] = useState<'albums' | 'images' | 'videos' | 'audio'>('albums');
   const [showCompletionBanner, setShowCompletionBanner] = useState(true);
+  const [userCompanies, setUserCompanies] = useState<any[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
 
   // Fetch fresh user data if we have a user ID
   useEffect(() => {
@@ -268,6 +280,31 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     fetchUserProfile();
   }, [profile?.id, api]);
 
+  // Fetch user companies - for both own profile and other users' profiles
+  useEffect(() => {
+    const loadUserCompanies = async () => {
+      const userIdToFetch = isCurrentUser && currentUser?.id 
+        ? currentUser.id 
+        : (profile?.id || userProfile?.id);
+      
+      if (userIdToFetch && !isGuest && isAuthenticated) {
+        try {
+          setLoadingCompanies(true);
+          const response = await getUserCompanies(userIdToFetch);
+          if (response.success && response.data) {
+            const companies = Array.isArray(response.data) ? response.data : (response.data.data || []);
+            setUserCompanies(companies);
+          }
+        } catch (err) {
+          console.error('Failed to load user companies:', err);
+        } finally {
+          setLoadingCompanies(false);
+        }
+      }
+    };
+    loadUserCompanies();
+  }, [isCurrentUser, currentUser?.id, profile?.id, userProfile?.id, isGuest, isAuthenticated, getUserCompanies]);
+
   const isInTeam = myTeam.some(member => member.id === userProfile.id);
 
   // Calculate profile completeness
@@ -467,6 +504,53 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           <Text style={styles.lastSeen}>
             {userProfile.onlineStatus || (userProfile.online_last_seen ? formatLastSeen(userProfile.online_last_seen) : 'Last seen recently')}
           </Text>
+
+          {/* Switch to Company Profile Button */}
+          {isCurrentUser && !isGuest && (
+            <>
+              {currentProfileType === 'company' && activeCompany ? (
+                // Show switch back to user profile
+                <TouchableOpacity
+                  style={styles.switchToCompanyButton}
+                  onPress={() => {
+                    switchToUserProfile();
+                    // Refresh the profile view
+                    if (currentUser?.id) {
+                      onNavigate?.('myProfile', currentUser);
+                    }
+                  }}
+                >
+                  <Ionicons name="person" size={20} color="#fff" />
+                  <Text style={styles.switchToCompanyText}>
+                    Switch to Personal Profile
+                  </Text>
+                  <Ionicons name="chevron-forward" size={20} color="#fff" />
+                </TouchableOpacity>
+              ) : userCompanies.length > 0 ? (
+                // Show switch to company profile
+                <TouchableOpacity
+                  style={styles.switchToCompanyButton}
+                  onPress={async () => {
+                    try {
+                      // Switch to the first company or active company
+                      const companyToSwitch = activeCompany || userCompanies[0];
+                      const companyId = companyToSwitch.id || companyToSwitch.company_id;
+                      await switchToCompanyProfile(companyId);
+                      onNavigate?.('companyProfile', { companyId });
+                    } catch (error) {
+                      console.error('Failed to switch to company profile:', error);
+                    }
+                  }}
+                >
+                  <Ionicons name="business" size={20} color="#fff" />
+                  <Text style={styles.switchToCompanyText}>
+                    {loadingCompanies ? 'Loading...' : `Switch to ${userCompanies[0]?.name || 'Company'} Profile`}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={20} color="#fff" />
+                </TouchableOpacity>
+              ) : null}
+            </>
+          )}
 
           <View style={styles.ctaRow}>
             <TouchableOpacity
@@ -915,6 +999,83 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               <View style={styles.contactInfo}>
                 <Text style={styles.contactText}>Email: {userProfile.email}</Text>
               </View>
+            </View>
+          )}
+
+          {/* Companies Section */}
+          {(userCompanies.length > 0 || loadingCompanies) && (
+            <View style={styles.infoCard}>
+              <View style={styles.contactHeader}>
+                <Ionicons name="business" size={20} color="#000" />
+                <Text style={styles.infoSectionTitle}>Companies</Text>
+              </View>
+              {loadingCompanies ? (
+                <View style={styles.loadingCompaniesContainer}>
+                  <ActivityIndicator size="small" color="#000" />
+                  <Text style={styles.loadingCompaniesText}>Loading companies...</Text>
+                </View>
+              ) : userCompanies.length > 0 ? (
+                <View style={styles.companiesList}>
+                  {userCompanies.map((company: any) => {
+                    const companyId = company.id || company.company_id;
+                    const companyName = company.name || company.company_name || 'Unnamed Company';
+                    const companyLogo = company.logo_url || company.logo;
+                    // Try to get role from various possible locations in the API response
+                    const memberRole = company.role 
+                      || company.member?.role 
+                      || company.company_member?.role
+                      || company.membership?.role;
+                    
+                    return (
+                      <TouchableOpacity
+                        key={companyId}
+                        style={styles.companyCard}
+                        onPress={() => {
+                          if (companyId && onNavigate) {
+                            onNavigate('companyProfile', { companyId });
+                          }
+                        }}
+                      >
+                        <View style={styles.companyCardContent}>
+                          {companyLogo ? (
+                            <Image
+                              source={{ uri: companyLogo }}
+                              style={styles.companyLogo}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View style={styles.companyLogoPlaceholder}>
+                              <Text style={styles.companyLogoInitials}>
+                                {companyName.substring(0, 2).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={styles.companyInfo}>
+                            <Text style={styles.companyName} numberOfLines={1}>
+                              {companyName}
+                            </Text>
+                            {company.company_type_info?.name && (
+                              <Text style={styles.companyType} numberOfLines={1}>
+                                {company.company_type_info.name}
+                              </Text>
+                            )}
+                            {memberRole && (
+                              <View style={styles.companyRoleBadge}>
+                                <Text style={styles.companyRoleText}>
+                                  {typeof memberRole === 'string' 
+                                    ? memberRole.charAt(0).toUpperCase() + memberRole.slice(1)
+                                    : String(memberRole)}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Ionicons name="chevron-forward" size={20} color="#71717a" />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : null}
             </View>
           )}
 
@@ -1719,6 +1880,24 @@ const styles = StyleSheet.create({
     padding: 4,
     textAlign: 'center',
   },
+  switchToCompanyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  switchToCompanyText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
   // Modal styles
   modalOverlay: {
     flex: 1,
@@ -1763,6 +1942,81 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     textAlign: 'center',
+  },
+  // Companies section styles
+  loadingCompaniesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 8,
+  },
+  loadingCompaniesText: {
+    fontSize: 14,
+    color: '#71717a',
+  },
+  companiesList: {
+    gap: 12,
+    marginTop: 8,
+  },
+  companyCard: {
+    backgroundColor: '#f4f4f5',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e4e4e7',
+  },
+  companyCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  companyLogo: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    backgroundColor: '#f4f4f5',
+  },
+  companyLogoPlaceholder: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    backgroundColor: '#e4e4e7',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  companyLogoInitials: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#71717a',
+  },
+  companyInfo: {
+    flex: 1,
+    marginLeft: 4,
+  },
+  companyName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 4,
+  },
+  companyType: {
+    fontSize: 14,
+    color: '#71717a',
+    marginBottom: 4,
+  },
+  companyRoleBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#e0e7ff',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  companyRoleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4f46e5',
   },
 });
 
