@@ -11,6 +11,7 @@ interface ProjectMenuPopupProps {
   onSave: () => void;
   onDelete: () => void;
   anchorPosition?: { x: number; y: number };
+  canEdit?: boolean; // Whether user has permission to edit/delete
 }
 
 const ProjectMenuPopup: React.FC<ProjectMenuPopupProps> = ({
@@ -22,14 +23,15 @@ const ProjectMenuPopup: React.FC<ProjectMenuPopupProps> = ({
   onSave,
   onDelete,
   anchorPosition,
+  canEdit = true, // Default to true for backward compatibility
 }) => {
   const menuItems = [
-    { icon: 'pencil', label: 'Edit Name', onPress: onEditName },
-    { icon: 'briefcase', label: 'Project Type', onPress: onProjectType },
-    { icon: 'image', label: 'Cover Photo', onPress: onCoverPhoto },
-    { icon: 'folder', label: 'Save', onPress: onSave },
-    { icon: 'trash', label: 'Delete', onPress: onDelete, isDestructive: true },
-  ];
+    { icon: 'pencil', label: 'Edit Name', onPress: onEditName, requiresEdit: true },
+    { icon: 'briefcase', label: 'Project Type', onPress: onProjectType, requiresEdit: true },
+    { icon: 'image', label: 'Cover Photo', onPress: onCoverPhoto, requiresEdit: true },
+    { icon: 'folder', label: 'Save', onPress: onSave, requiresEdit: true },
+    { icon: 'trash', label: 'Delete', onPress: onDelete, isDestructive: true, requiresEdit: true },
+  ].filter(item => !item.requiresEdit || canEdit);
 
   return (
     <Modal

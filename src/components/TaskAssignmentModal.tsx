@@ -9,7 +9,8 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { TaskAssignmentModalProps, TaskAssignment } from '../types';
+import { TaskAssignmentModalProps, UITaskAssignment } from '../types';
+import { useApi } from '../contexts/ApiContext';
 import { TASK_TO_SERVICE_SUGGESTIONS } from '../data/mockData';
 import SearchModal from './SearchModal';
 import TaskDetailsForm from './TaskDetailsForm';
@@ -20,11 +21,12 @@ const TaskAssignmentModal: React.FC<TaskAssignmentModalProps> = ({
   stage,
   onAssign,
 }) => {
+  const { user } = useApi();
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [showTaskDetailsForm, setShowTaskDetailsForm] = useState(false);
   const [selectedRole, setSelectedRole] = useState('');
   const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [currentAssignments, setCurrentAssignments] = useState<TaskAssignment[]>([]);
+  const [currentAssignments, setCurrentAssignments] = useState<UITaskAssignment[]>([]);
 
   const handleRoleSelect = (role: string) => {
     setSelectedRole(role);
@@ -37,14 +39,15 @@ const TaskAssignmentModal: React.FC<TaskAssignmentModalProps> = ({
     setShowTaskDetailsForm(true);
   };
 
-  const handleTaskSubmit = async (taskData: Partial<TaskAssignment>) => {
+  const handleTaskSubmit = async (taskData: Partial<UITaskAssignment>) => {
     try {
-      const assignment: TaskAssignment = {
+      const assignment: UITaskAssignment = {
         id: taskData.id || Date.now().toString(),
         task_id: taskData.id || Date.now().toString(),
         user_id: taskData.userId || selectedUser.id,
         service_role: taskData.userRole || selectedUser.specialty || selectedUser.category,
         assigned_at: taskData.createdAt || new Date().toISOString(),
+        assigned_by: user?.id || '', // Add required field from v2.2.0
         // UI-specific fields
         userId: taskData.userId || selectedUser.id,
         userName: taskData.userName || selectedUser.name,

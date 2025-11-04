@@ -32,7 +32,7 @@ const TaskEditModal: React.FC<TaskEditModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
-    description: '',
+    description: '', // UI field - maps to timeline_text in API
     status: 'pending',
   });
 
@@ -40,7 +40,7 @@ const TaskEditModal: React.FC<TaskEditModalProps> = ({
     if (visible && task) {
       setFormData({
         title: task.title || '',
-        description: task.description || '',
+        description: task.timeline_text || task.description || '',
         status: task.status || 'pending',
       });
     }
@@ -54,34 +54,77 @@ const TaskEditModal: React.FC<TaskEditModalProps> = ({
 
     setIsLoading(true);
     try {
-      // Update the task
-      const updatedTask = {
-        ...task,
+      // Prepare updates - include title, timeline_text (from description field), and status
+      const updates: any = {
         title: formData.title.trim(),
-        description: formData.description.trim(),
-        status: formData.status,
       };
 
+      // Map description field to timeline_text (API expects timeline_text, not description)
+      if (formData.description.trim() || task.timeline_text || task.description) {
+        updates.timeline_text = formData.description.trim();
+      }
+
+      // Include status in the update
+      updates.status = formData.status;
+
+      // Determine the stage/type based on original task or title
+      // If original title was a stage name (e.g., "development", "pre_production"), preserve it as type
+      const stageNames = ['development', 'pre_production', 'production', 'post_production', 'distribution'];
+      const originalTitle = task.title || '';
+      const originalStage = stageNames.find(stage => originalTitle === stage);
+      
+      // If original title was a stage name, include it in updates to preserve stage categorization
+      if (originalStage && !updates.type && !updates.task_type) {
+        updates.type = originalStage;
+        updates.task_type = originalStage;
+      }
+
       // Call the API to update the task
-      const response = await updateTask(task.id, {
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-      });
+      const response = await updateTask(task.id, updates);
 
       if (response.success) {
-        // Update task status if it changed
-        if (formData.status !== task.status) {
-          await updateTaskStatus(task.id, { status: formData.status });
+        // Use the actual updated task from the API response
+        const updatedTaskFromApi = response.data || {};
+        
+        // Merge with existing task to preserve all fields (assignments, members, service, etc.)
+        const mergedTask = {
+          ...task,
+          ...updatedTaskFromApi,
+          // Ensure these fields are updated
+          title: formData.title.trim(),
+          timeline_text: formData.description.trim(),
+          status: formData.status,
+          // Preserve essential fields that are needed for filtering/display
+          id: task.id, // Ensure ID is preserved
+          project_id: task.project_id || projectId,
+          assignments: updatedTaskFromApi.assignments || task.assignments,
+          members: updatedTaskFromApi.members || task.members,
+          service: updatedTaskFromApi.service || task.service,
+          // Preserve stage/type fields so task doesn't disappear from stage view after title change
+          // Use original stage if title was a stage name, otherwise preserve existing type
+          type: updatedTaskFromApi.type || task.type || task.task_type || originalStage,
+          task_type: updatedTaskFromApi.task_type || task.task_type || task.type || originalStage,
+          stage: updatedTaskFromApi.stage || task.stage || originalStage,
+          stage_id: updatedTaskFromApi.stage_id || task.stage_id,
+          category: updatedTaskFromApi.category || task.category,
+        };
+
+        // Ensure description field is set for UI (maps from timeline_text)
+        if (mergedTask.timeline_text && !mergedTask.description) {
+          mergedTask.description = mergedTask.timeline_text;
         }
 
-        onSave(updatedTask);
+        onSave(mergedTask);
         onClose();
       } else {
         throw new Error(response.error || 'Failed to update task');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to update task:', error);
-      Alert.alert('Error', 'Failed to update task. Please try again.');
+      Alert.alert(
+        'Error',
+        error?.message || 'Failed to update task. Please try again.'
+      );
     } finally {
       setIsLoading(false);
     }

@@ -67,7 +67,6 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
     addCompanyDocument,
     getAvailableServicesForCompany,
     addCompanyService,
-    getProfileCompleteness,
     user,
   } = useApi();
 
@@ -964,72 +963,6 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
         return null;
     }
   };
-
-  // Check profile completion when component mounts
-  const [profileComplete, setProfileComplete] = useState<boolean | null>(null);
-  const [checkingProfile, setCheckingProfile] = useState(true);
-
-  useEffect(() => {
-    const checkCompletion = async () => {
-      if (!user?.id) {
-        setCheckingProfile(false);
-        setProfileComplete(false);
-        return;
-      }
-
-      try {
-        const response = await getProfileCompleteness(user.id);
-        const completenessValue = response.data?.completeness || response.data?.profile_completeness || 0;
-        setProfileComplete(completenessValue >= 50);
-      } catch (err) {
-        console.error('Failed to check profile completion:', err);
-        setProfileComplete(false);
-      } finally {
-        setCheckingProfile(false);
-      }
-    };
-
-    checkCompletion();
-  }, [user?.id]);
-
-  // Show profile completion gate if not complete
-  if (checkingProfile) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create Company Profile</Text>
-          <View style={styles.backButton} />
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#000" />
-          <Text style={styles.loadingText}>Checking profile completion...</Text>
-        </View>
-      </View>
-    );
-  }
-
-  if (profileComplete === false) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create Company Profile</Text>
-          <View style={styles.backButton} />
-        </View>
-        <ProfileCompletionGate
-          minimumCompletion={50}
-          onNavigateToProfile={onNavigateToProfile}
-        >
-          <View />
-        </ProfileCompletionGate>
-      </View>
-    );
-  }
 
   return (
     <View style={styles.container}>

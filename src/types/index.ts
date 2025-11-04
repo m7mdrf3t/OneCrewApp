@@ -113,6 +113,15 @@ export interface TaskAssignment {
   user_id: string;
   service_role: string;
   assigned_at: string;
+  assigned_by: string;
+  deleted_at?: string;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+    image_url?: string;
+    primary_role?: string;
+  };
 }
 
 export interface TaskWithAssignments extends Task {
@@ -127,8 +136,15 @@ export interface TaskWithAssignments extends Task {
 export interface ProjectMember {
   project_id: string;
   user_id: string;
+  role: 'admin' | 'supervisor' | 'member';
   added_at: string;
+  added_by: string;
   last_activity?: string;
+  users?: {
+    name: string;
+    image_url?: string;
+    primary_role?: string;
+  };
 }
 
 export interface ProjectWithDetails {
@@ -214,6 +230,9 @@ export interface UpdateTaskRequest {
   timeline_text?: string;
   status?: TaskStatus;
   sort_order?: number;
+  start_date?: string;
+  due_date?: string;
+  end_date?: string;
 }
 
 export interface AssignTaskServiceRequest {
@@ -254,12 +273,8 @@ export interface ProjectCreationData {
   stages: ProjectStage[];
 }
 
-export interface TaskAssignment {
-  id: string;
-  task_id: string;
-  user_id: string;
-  service_role: string;
-  assigned_at: string;
+// UI-specific TaskAssignment extends API TaskAssignment with additional fields
+export interface UITaskAssignment extends TaskAssignment {
   // Additional UI-specific fields
   userId?: string;
   userName?: string;
@@ -278,7 +293,7 @@ export interface TaskAssignment {
 
 export interface ProjectDashboardData {
   project: ProjectCreationData;
-  assignments: TaskAssignment[];
+  assignments: UITaskAssignment[];
   stages: ProjectStage[];
   messages: any[];
   legalServices: any[];
@@ -309,7 +324,7 @@ export interface SearchModalProps {
 export interface TaskDetailsFormProps {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (taskData: Partial<TaskAssignment>) => Promise<void>;
+  onSubmit: (taskData: Partial<UITaskAssignment>) => Promise<void>;
   assignedUser?: any;
   stage: ProjectStage;
 }
@@ -492,4 +507,131 @@ export interface CreateCompanyRequest {
   contact_email?: string;
   contact_phone?: string;
   contact_address?: string;
+}
+
+// Notification Types (from onecrew-api-client)
+export type NotificationType = 
+  | 'company_invitation'
+  | 'company_invitation_accepted'
+  | 'company_invitation_rejected'
+  | 'team_member_added'
+  | 'team_member_removed'
+  | 'user_liked'
+  | 'task_assigned'
+  | 'task_unassigned'
+  | 'task_completed'
+  | 'project_created'
+  | 'project_member_added'
+  | 'project_member_removed'
+  | 'certification_issued'
+  | 'certification_expiring'
+  | 'certification_expired'
+  | 'message_received'
+  | 'other';
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  data?: Record<string, any>;
+  link_url?: string;
+  is_read: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+}
+
+export interface NotificationParams {
+  page?: number;
+  limit?: number;
+  unread_only?: boolean;
+}
+
+// Certification Types (from onecrew-api-client)
+export interface CertificationTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  default_expiration_days?: number;
+  icon_name?: string;
+  display_order: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+}
+
+export interface UserCertification {
+  id: string;
+  user_id: string;
+  company_id: string;
+  certification_template_id: string;
+  certificate_url?: string;
+  issued_at: string;
+  issued_by: string;
+  expiration_date?: string;
+  verified: boolean;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+  user?: any;
+  company?: Company;
+  certification_template?: CertificationTemplate;
+  issued_by_user?: any;
+}
+
+export interface AcademyCertificationAuthorization {
+  company_id: string;
+  certification_template_id: string;
+  authorized_by: string;
+  authorized_at: string;
+  created_at: string;
+  deleted_at?: string;
+  company?: Company;
+  certification_template?: CertificationTemplate;
+  authorized_by_user?: any;
+}
+
+export interface CreateCertificationTemplateRequest {
+  name: string;
+  description?: string;
+  category?: string;
+  default_expiration_days?: number;
+  icon_name?: string;
+  display_order?: number;
+  active?: boolean;
+}
+
+export interface UpdateCertificationTemplateRequest {
+  name?: string;
+  description?: string;
+  category?: string;
+  default_expiration_days?: number;
+  icon_name?: string;
+  display_order?: number;
+  active?: boolean;
+}
+
+export interface CreateCertificationRequest {
+  user_id: string;
+  certification_template_id: string;
+  certificate_url?: string;
+  expiration_date?: string;
+  notes?: string;
+}
+
+export interface UpdateCertificationRequest {
+  certificate_url?: string;
+  expiration_date?: string;
+  notes?: string;
+  verified?: boolean;
+}
+
+export interface BulkAuthorizationRequest {
+  company_ids: string[];
+  certification_template_ids: string[];
 }

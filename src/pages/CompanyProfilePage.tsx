@@ -19,7 +19,10 @@ import {
   CompanyService,
   CompanyMemberRole,
   CompanyApprovalStatus,
+  UserCertification,
 } from '../types';
+import GrantCertificationModal from '../components/GrantCertificationModal';
+import CertificationCard from '../components/CertificationCard';
 
 interface CompanyProfilePageProps {
   companyId: string;
@@ -47,6 +50,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     user,
     activeCompany,
     currentProfileType,
+    getCompanyCertifications,
+    getAuthorizedCertifications,
   } = useApi();
 
   const [company, setCompany] = useState<Company | null>(null);
@@ -56,16 +61,22 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [loadingServices, setLoadingServices] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedSection, setExpandedSection] = useState<'services' | 'members' | null>(null);
+  const [expandedSection, setExpandedSection] = useState<'services' | 'members' | 'certifications' | null>(null);
+  const [certifications, setCertifications] = useState<UserCertification[]>([]);
+  const [loadingCertifications, setLoadingCertifications] = useState(false);
+  const [showGrantCertificationModal, setShowGrantCertificationModal] = useState(false);
 
   useEffect(() => {
     loadCompanyData();
   }, [companyId, refreshTrigger]);
 
-  // Reload services when refresh trigger changes
+  // Reload services and certifications when refresh trigger changes
   useEffect(() => {
     if (company?.id) {
       loadServices(company.id);
+      if (company.subcategory === 'academy') {
+        loadCertifications(company.id);
+      }
     }
   }, [refreshTrigger]);
 
@@ -82,8 +93,13 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
       setCompany(companyResponse.data);
 
-      // Load members and services in parallel
-      await Promise.all([loadMembers(companyId), loadServices(companyId)]);
+      // Load members, services, and certifications in parallel
+      const loadPromises = [loadMembers(companyId), loadServices(companyId)];
+      // Only load certifications if company is an academy
+      if (companyResponse.data.subcategory === 'academy') {
+        loadPromises.push(loadCertifications(companyId));
+      }
+      await Promise.all(loadPromises);
     } catch (err: any) {
       console.error('Failed to load company data:', err);
       setError(err.message || 'Failed to load company profile');
@@ -119,6 +135,19 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       setMembers([]);
     } finally {
       setLoadingMembers(false);
+    }
+  };
+
+  const loadCertifications = async (id: string) => {
+    try {
+      setLoadingCertifications(true);
+      const certs = await getCompanyCertifications(id);
+      setCertifications(Array.isArray(certs) ? certs : []);
+    } catch (err) {
+      console.error('Failed to load certifications:', err);
+      setCertifications([]);
+    } finally {
+      setLoadingCertifications(false);
     }
   };
 
@@ -557,6 +586,52 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           )}
         </View>
 
+        {/* Certifications Section (Academy Only) */}
+        {company.subcategory === 'academy' && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                Certifications Granted {certifications.length > 0 && `(${certifications.length})`}
+              </Text>
+              {canEdit() && (
+                <TouchableOpacity
+                  style={styles.manageButton}
+                  onPress={() => setShowGrantCertificationModal(true)}
+                >
+                  <Ionicons name="trophy-outline" size={18} color="#000" />
+                  <Text style={styles.manageButtonText}>Grant</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {loadingCertifications ? (
+              <ActivityIndicator size="small" color="#000" />
+            ) : certifications.length > 0 ? (
+              <View style={styles.certificationsList}>
+                {certifications.map((certification) => (
+                  <CertificationCard
+                    key={certification.id}
+                    certification={certification}
+                  />
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="trophy-outline" size={48} color="#e4e4e7" />
+                <Text style={styles.emptyStateText}>No certifications granted yet</Text>
+                {canEdit() && (
+                  <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => setShowGrantCertificationModal(true)}
+                  >
+                    <Text style={styles.addButtonText}>Grant Certification</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Additional Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Company Information</Text>
@@ -575,6 +650,20 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           )}
         </View>
       </ScrollView>
+
+      {/* Grant Certification Modal */}
+      {company && (
+        <GrantCertificationModal
+          visible={showGrantCertificationModal}
+          onClose={() => setShowGrantCertificationModal(false)}
+          company={company}
+          onCertificationGranted={() => {
+            if (company.id) {
+              loadCertifications(company.id);
+            }
+          }}
+        />
+      )}
     </View>
   );
 };
@@ -917,6 +1006,11 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 14,
     color: '#000',
+  },
+  // Certifications section styles
+  certificationsList: {
+    gap: 12,
+    marginTop: 8,
   },
 });
 

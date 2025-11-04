@@ -28,6 +28,9 @@ import CommunicationComponent from './src/components/CommunicationComponent';
 import LegalTracker from './src/components/LegalTracker';
 import UserMenuModal from './src/components/UserMenuModal';
 import MyTeamModal from './src/components/MyTeamModal';
+import NotificationModal from './src/components/NotificationModal';
+import InvitationModal from './src/components/InvitationModal';
+import InvitationListModal from './src/components/InvitationListModal';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
 import ProfileCompletionPage from './src/pages/ProfileCompletionPage';
 import SpotPage from './src/pages/SpotPage';
@@ -41,11 +44,11 @@ import CompanyProfilePage from './src/pages/CompanyProfilePage';
 
 // Data
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
-import { NavigationState, User, ProjectCreationData, ProjectDashboardData } from './src/types';
+import { NavigationState, User, ProjectCreationData, ProjectDashboardData, Notification } from './src/types';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -64,6 +67,10 @@ const AppContent: React.FC = () => {
   const [showCompanyServicesModal, setShowCompanyServicesModal] = useState(false);
   const [selectedCompanyForServices, setSelectedCompanyForServices] = useState<any>(null);
   const [companyProfileRefreshTrigger, setCompanyProfileRefreshTrigger] = useState(0);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showInvitationModal, setShowInvitationModal] = useState(false);
+  const [selectedCompanyForInvitation, setSelectedCompanyForInvitation] = useState<any>(null);
+  const [showInvitationListModal, setShowInvitationListModal] = useState(false);
   const systemColorScheme = useColorScheme();
   const [theme, setTheme] = useState('light');
 
@@ -695,9 +702,18 @@ const AppContent: React.FC = () => {
             <TouchableOpacity style={styles.topBarButton}>
               <Ionicons name="chatbubble" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.topBarButton}>
+            <TouchableOpacity 
+              style={styles.topBarButton}
+              onPress={() => setShowNotificationModal(true)}
+            >
               <Ionicons name="notifications" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
-              <View style={styles.notificationBadge} />
+              {unreadNotificationCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
             <TouchableOpacity onPress={handleLogout} style={styles.topBarButton}>
               <Ionicons name="log-out" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
@@ -859,8 +875,8 @@ const AppContent: React.FC = () => {
                 setShowCompanyServicesModal(true);
               }}
               onInviteMember={(company) => {
-                // Navigate to invite member (can be added later)
-                console.log('Invite member:', company);
+                setSelectedCompanyForInvitation(company);
+                setShowInvitationModal(true);
               }}
             />
           )}
@@ -889,6 +905,88 @@ const AppContent: React.FC = () => {
         <MyTeamModal
           visible={showMyTeam}
           onClose={() => setShowMyTeam(false)}
+        />
+
+        {/* Invitation Modal */}
+        {selectedCompanyForInvitation && (
+          <InvitationModal
+            visible={showInvitationModal}
+            onClose={() => {
+              setShowInvitationModal(false);
+              setSelectedCompanyForInvitation(null);
+            }}
+            company={selectedCompanyForInvitation}
+            onInvitationSent={() => {
+              setCompanyProfileRefreshTrigger((prev) => prev + 1);
+            }}
+          />
+        )}
+
+        {/* Invitation List Modal */}
+        {user && (
+          <InvitationListModal
+            visible={showInvitationListModal}
+            onClose={() => setShowInvitationListModal(false)}
+            userId={user.id}
+            onInvitationResponded={() => {
+              // Refresh notifications and company profile if needed
+              setCompanyProfileRefreshTrigger((prev) => prev + 1);
+            }}
+          />
+        )}
+
+        {/* Notification Modal */}
+        <NotificationModal
+          visible={showNotificationModal}
+          onClose={() => setShowNotificationModal(false)}
+          onNotificationPress={(notification: Notification) => {
+            // Handle invitation notifications
+            if (notification.type === 'company_invitation' && user) {
+              setShowNotificationModal(false);
+              setShowInvitationListModal(true);
+              return;
+            }
+            // Handle navigation based on notification type
+            if (notification.link_url) {
+              // If notification has a link, navigate to it
+              console.log('Navigate to:', notification.link_url);
+            } else {
+              // Handle different notification types
+              switch (notification.type) {
+                case 'company_invitation':
+                case 'company_invitation_accepted':
+                case 'company_invitation_rejected':
+                  // Navigate to company profile or invitations page
+                  if (notification.data?.company_id) {
+                    navigateTo('companyProfile', { companyId: notification.data.company_id });
+                  }
+                  break;
+                case 'project_created':
+                case 'project_member_added':
+                  // Navigate to project
+                  if (notification.data?.project_id) {
+                    navigateTo('projectDetail', { projectId: notification.data.project_id });
+                  }
+                  break;
+                case 'task_assigned':
+                case 'task_completed':
+                  // Navigate to project/task
+                  if (notification.data?.project_id) {
+                    navigateTo('projectDetail', { projectId: notification.data.project_id });
+                  }
+                  break;
+                case 'certification_issued':
+                  // Navigate to profile
+                  if (notification.data?.user_id) {
+                    navigateTo('profileDetail', { userId: notification.data.user_id });
+                  }
+                  break;
+                default:
+                  console.log('Notification type:', notification.type);
+              }
+            }
+            setShowNotificationModal(false);
+          }}
         />
 
         {/* Company Services Modal */}
@@ -999,12 +1097,22 @@ const styles = StyleSheet.create({
   },
   notificationBadge: {
     position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#ef4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  notificationBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '600',
   },
   content: {
     flex: 1,

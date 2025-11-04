@@ -7,6 +7,8 @@ import { getInitials } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
 import ProfileCompletionBanner from '../components/ProfileCompletionBanner';
 import SignUpPromptModal from '../components/SignUpPromptModal';
+import CertificationCard from '../components/CertificationCard';
+import { UserCertification } from '../types';
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void; onNavigate?: (page: string, data?: any) => void }> = ({
   profile,
@@ -29,7 +31,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     switchToCompanyProfile,
     switchToUserProfile,
     currentProfileType,
-    activeCompany
+    activeCompany,
+    getUserCertifications,
   } = useApi();
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
@@ -43,6 +46,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   const [showCompletionBanner, setShowCompletionBanner] = useState(true);
   const [userCompanies, setUserCompanies] = useState<any[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const [certifications, setCertifications] = useState<UserCertification[]>([]);
+  const [loadingCertifications, setLoadingCertifications] = useState(false);
 
   // Fetch fresh user data if we have a user ID
   useEffect(() => {
@@ -304,6 +309,29 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
     loadUserCompanies();
   }, [isCurrentUser, currentUser?.id, profile?.id, userProfile?.id, isGuest, isAuthenticated, getUserCompanies]);
+
+  // Load certifications for the user
+  useEffect(() => {
+    const loadCertifications = async () => {
+      const userIdToFetch = isCurrentUser && currentUser?.id 
+        ? currentUser.id 
+        : (profile?.id || userProfile?.id);
+      
+      if (userIdToFetch) {
+        try {
+          setLoadingCertifications(true);
+          const certs = await getUserCertifications(userIdToFetch);
+          setCertifications(Array.isArray(certs) ? certs : []);
+        } catch (err) {
+          console.error('Failed to load certifications:', err);
+          setCertifications([]);
+        } finally {
+          setLoadingCertifications(false);
+        }
+      }
+    };
+    loadCertifications();
+  }, [profile?.id, userProfile?.id, isCurrentUser, currentUser?.id, getUserCertifications]);
 
   const isInTeam = myTeam.some(member => member.id === userProfile.id);
 
@@ -755,6 +783,30 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               </View>
             </View>
           )}
+
+          {/* Certifications Section */}
+          <View style={styles.infoCard}>
+            <Text style={styles.infoSectionTitle}>Certifications</Text>
+            {loadingCertifications ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+              </View>
+            ) : certifications.length > 0 ? (
+              <View style={styles.certificationsList}>
+                {certifications.map((certification) => (
+                  <CertificationCard
+                    key={certification.id}
+                    certification={certification}
+                  />
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="trophy-outline" size={32} color="#d1d5db" />
+                <Text style={styles.emptyStateText}>No certifications yet</Text>
+              </View>
+            )}
+          </View>
 
           {/* Gallery/Portfolio Section */}
           {((userProfile.portfolio && userProfile.portfolio.length > 0) || userProfile.category === 'talent') && (
@@ -1958,6 +2010,28 @@ const styles = StyleSheet.create({
   companiesList: {
     gap: 12,
     marginTop: 8,
+  },
+  // Certifications section styles
+  certificationsList: {
+    gap: 12,
+    marginTop: 8,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    gap: 8,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#9ca3af',
+    textAlign: 'center',
   },
   companyCard: {
     backgroundColor: '#f4f4f5',

@@ -160,11 +160,25 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
               
               console.log('✅ Project moved to recycle bin');
               setSelectedProject(null);
-            } catch (error) {
+            } catch (error: any) {
               console.error('❌ Failed to move project to recycle bin:', error);
+              
+              // Check if it's a permission error
+              const errorMessage = error?.message || String(error) || '';
+              let alertMessage = 'Failed to move project to recycle bin. Please try again.';
+              
+              if (errorMessage.includes('Access denied') || errorMessage.includes('permission') || errorMessage.includes('canEditProjectDetails')) {
+                const accessLevel = getUserAccessLevel(selectedProject);
+                if (accessLevel === 'viewer') {
+                  alertMessage = 'You do not have permission to delete this project. Only project owners and members can delete projects.';
+                } else {
+                  alertMessage = 'You do not have permission to delete this project. The backend requires additional permissions that your account does not have.';
+                }
+              }
+              
               Alert.alert(
                 'Delete Failed',
-                'Failed to move project to recycle bin. Please try again.',
+                alertMessage,
                 [{ text: 'OK' }]
               );
             }
@@ -564,6 +578,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         onSave={handleSave}
         onDelete={handleDeleteProject}
         anchorPosition={menuAnchor}
+        canEdit={selectedProject ? (getUserAccessLevel(selectedProject) === 'owner' || getUserAccessLevel(selectedProject) === 'member') : false}
       />
 
       {/* Deleted Projects Modal */}

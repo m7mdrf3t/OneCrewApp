@@ -1,0 +1,736 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  Modal,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  ActivityIndicator,
+  Alert,
+  Image,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useApi } from '../contexts/ApiContext';
+import { Company, CertificationTemplate, CreateCertificationRequest } from '../types';
+
+interface GrantCertificationModalProps {
+  visible: boolean;
+  onClose: () => void;
+  company: Company;
+  onCertificationGranted?: () => void;
+}
+
+const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
+  visible,
+  onClose,
+  company,
+  onCertificationGranted,
+}) => {
+  const {
+    api,
+    getAuthorizedCertifications,
+    grantCertification,
+    uploadFile,
+  } = useApi();
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [authorizedTemplates, setAuthorizedTemplates] = useState<CertificationTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<CertificationTemplate | null>(null);
+  const [expirationDate, setExpirationDate] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
+  const [certificateUrl, setCertificateUrl] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [granting, setGranting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      loadAuthorizedCertifications();
+      resetForm();
+    }
+  }, [visible, company.id]);
+
+  // Search users using API q parameter when search query changes
+  useEffect(() => {
+    const searchUsers = async () => {
+      if (!searchQuery.trim()) {
+        setFilteredUsers([]);
+        return;
+      }
+
+      try {
+        setSearching(true);
+        // Use the API's q parameter for full-text search
+        const response = await api.getUsers({
+          q: searchQuery,
+          limit: 20,
+        });
+
+        if (response.success && response.data) {
+          // Handle both array and paginated response
+          const usersArray = Array.isArray(response.data) 
+            ? response.data 
+            : (response.data.data || []);
+          setFilteredUsers(usersArray.slice(0, 10)); // Limit to 10 results for display
+        } else {
+          setFilteredUsers([]);
+        }
+      } catch (error) {
+        console.error('Failed to search users:', error);
+        setFilteredUsers([]);
+      } finally {
+        setSearching(false);
+      }
+    };
+
+    // Debounce search to avoid too many API calls
+    const timeoutId = setTimeout(() => {
+      searchUsers();
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, api]);
+
+  const resetForm = () => {
+    setSearchQuery('');
+    setSelectedUser(null);
+    setSelectedTemplate(null);
+    setExpirationDate('');
+    setNotes('');
+    setCertificateUrl('');
+    setFilteredUsers([]);
+  };
+
+  const loadAuthorizedCertifications = async () => {
+    try {
+      setLoadingTemplates(true);
+      const templates = await getAuthorizedCertifications(company.id);
+      setAuthorizedTemplates(Array.isArray(templates) ? templates : []);
+    } catch (error) {
+      console.error('Failed to load authorized certifications:', error);
+      Alert.alert('Error', 'Failed to load authorized certifications. Please try again.');
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const handleSelectUser = (user: any) => {
+    setSelectedUser(user);
+    setSearchQuery(user.name || user.email);
+    setFilteredUsers([]);
+  };
+
+  const handleSelectTemplate = (template: CertificationTemplate) => {
+    setSelectedTemplate(template);
+    // Auto-set expiration date if template has default_expiration_days
+    if (template.default_expiration_days && !expirationDate) {
+      const expiration = new Date();
+      expiration.setDate(expiration.getDate() + template.default_expiration_days);
+      setExpirationDate(expiration.toISOString().split('T')[0]);
+    }
+  };
+
+  const handleUploadCertificate = async () => {
+    // Note: This is a placeholder - you'll need to implement file picker
+    // For now, we'll use a text input for the URL
+    Alert.alert(
+      'Upload Certificate',
+      'Please provide the certificate document URL. File upload will be implemented separately.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Enter URL',
+          onPress: () => {
+            // In a real implementation, this would open a file picker
+            // For now, we'll just allow manual URL entry
+          },
+        },
+      ]
+    );
+  };
+
+  const handleGrantCertification = async () => {
+    if (!selectedUser) {
+      Alert.alert('Error', 'Please select a user to certify');
+      return;
+    }
+
+    if (!selectedTemplate) {
+      Alert.alert('Error', 'Please select a certification template');
+      return;
+    }
+
+    try {
+      setGranting(true);
+      const certificationData: CreateCertificationRequest = {
+        user_id: selectedUser.id,
+        certification_template_id: selectedTemplate.id,
+        expiration_date: expirationDate || undefined,
+        notes: notes || undefined,
+        certificate_url: certificateUrl || undefined,
+      };
+
+      const response = await grantCertification(company.id, certificationData);
+
+      if (response) {
+        Alert.alert('Success', `Certification granted to ${selectedUser.name || selectedUser.email}`);
+        resetForm();
+        onClose();
+        if (onCertificationGranted) {
+          onCertificationGranted();
+        }
+      } else {
+        throw new Error('Failed to grant certification');
+      }
+    } catch (error: any) {
+      console.error('Failed to grant certification:', error);
+      Alert.alert('Error', error.message || 'Failed to grant certification. Please try again.');
+    } finally {
+      setGranting(false);
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Grant Certification</Text>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <Ionicons name="close" size={24} color="#111827" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
+          {/* Company Info */}
+          <View style={styles.companyInfo}>
+            <Text style={styles.companyName}>{company.name}</Text>
+            <Text style={styles.companySubcategory}>
+              {company.subcategory?.replace(/_/g, ' ')}
+            </Text>
+          </View>
+
+          {/* User Selection */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Select User</Text>
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color="#9ca3af" style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by name, email, or role..."
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholderTextColor="#9ca3af"
+              />
+            </View>
+
+            {selectedUser && (
+              <View style={styles.selectedUserContainer}>
+                <View style={styles.selectedUserInfo}>
+                  {selectedUser.image_url ? (
+                    <Image
+                      source={{ uri: selectedUser.image_url }}
+                      style={styles.userAvatar}
+                    />
+                  ) : (
+                    <View style={[styles.userAvatar, styles.userAvatarPlaceholder]}>
+                      <Text style={styles.userAvatarText}>
+                        {(selectedUser.name || selectedUser.email || 'U').charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.userDetails}>
+                    <Text style={styles.userName}>
+                      {selectedUser.name || selectedUser.email || 'Unknown User'}
+                    </Text>
+                    {selectedUser.primary_role && (
+                      <Text style={styles.userRole}>
+                        {selectedUser.primary_role.replace(/_/g, ' ')}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedUser(null);
+                    setSearchQuery('');
+                  }}
+                  style={styles.clearButton}
+                >
+                  <Ionicons name="close-circle" size={24} color="#ef4444" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {searching ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+              </View>
+            ) : filteredUsers.length > 0 && !selectedUser ? (
+              <View style={styles.resultsContainer}>
+                {filteredUsers.map((user) => (
+                  <TouchableOpacity
+                    key={user.id}
+                    style={styles.userItem}
+                    onPress={() => handleSelectUser(user)}
+                  >
+                    {user.image_url ? (
+                      <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} />
+                    ) : (
+                      <View style={[styles.userItemAvatar, styles.userItemAvatarPlaceholder]}>
+                        <Text style={styles.userItemAvatarText}>
+                          {(user.name || user.email || 'U').charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.userItemInfo}>
+                      <Text style={styles.userItemName}>
+                        {user.name || user.email || 'Unknown User'}
+                      </Text>
+                      {user.primary_role && (
+                        <Text style={styles.userItemRole}>
+                          {user.primary_role.replace(/_/g, ' ')}
+                        </Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+          </View>
+
+          {/* Certification Template Selection */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Certification Template</Text>
+            {loadingTemplates ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+              </View>
+            ) : authorizedTemplates.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="trophy-outline" size={32} color="#d1d5db" />
+                <Text style={styles.emptyStateText}>
+                  No authorized certifications available
+                </Text>
+                <Text style={styles.emptyStateSubtext}>
+                  Contact an administrator to get authorization for certification templates
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.templatesList}>
+                {authorizedTemplates.map((template) => (
+                  <TouchableOpacity
+                    key={template.id}
+                    style={[
+                      styles.templateItem,
+                      selectedTemplate?.id === template.id && styles.templateItemSelected,
+                    ]}
+                    onPress={() => handleSelectTemplate(template)}
+                  >
+                    <View style={styles.templateIcon}>
+                      <Ionicons
+                        name={template.icon_name || 'trophy'}
+                        size={24}
+                        color={selectedTemplate?.id === template.id ? '#3b82f6' : '#6b7280'}
+                      />
+                    </View>
+                    <View style={styles.templateInfo}>
+                      <Text
+                        style={[
+                          styles.templateName,
+                          selectedTemplate?.id === template.id && styles.templateNameSelected,
+                        ]}
+                      >
+                        {template.name}
+                      </Text>
+                      {template.description && (
+                        <Text style={styles.templateDescription}>{template.description}</Text>
+                      )}
+                      {template.default_expiration_days && (
+                        <Text style={styles.templateExpiration}>
+                          Default expiration: {template.default_expiration_days} days
+                        </Text>
+                      )}
+                    </View>
+                    {selectedTemplate?.id === template.id && (
+                      <Ionicons name="checkmark-circle" size={24} color="#3b82f6" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Expiration Date */}
+          {selectedTemplate && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Expiration Date (Optional)</Text>
+              <TextInput
+                style={styles.dateInput}
+                placeholder="YYYY-MM-DD"
+                value={expirationDate}
+                onChangeText={setExpirationDate}
+                placeholderTextColor="#9ca3af"
+              />
+              <Text style={styles.inputHint}>
+                Leave empty if certification doesn't expire
+              </Text>
+            </View>
+          )}
+
+          {/* Certificate URL */}
+          {selectedTemplate && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Certificate Document URL (Optional)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="https://..."
+                value={certificateUrl}
+                onChangeText={setCertificateUrl}
+                placeholderTextColor="#9ca3af"
+                keyboardType="url"
+                autoCapitalize="none"
+              />
+              <Text style={styles.inputHint}>
+                URL to the certificate document (PDF, image, etc.)
+              </Text>
+            </View>
+          )}
+
+          {/* Notes */}
+          {selectedTemplate && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Notes (Optional)</Text>
+              <TextInput
+                style={[styles.textInput, styles.notesInput]}
+                placeholder="Additional notes about this certification..."
+                value={notes}
+                onChangeText={setNotes}
+                placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[
+              styles.grantButton,
+              (!selectedUser || !selectedTemplate || granting) && styles.grantButtonDisabled,
+            ]}
+            onPress={handleGrantCertification}
+            disabled={!selectedUser || !selectedTemplate || granting}
+          >
+            {granting ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <>
+                <Ionicons name="trophy" size={18} color="#ffffff" />
+                <Text style={styles.grantButtonText}>Grant Certification</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  companyInfo: {
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  companyName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  companySubcategory: {
+    fontSize: 14,
+    color: '#6b7280',
+    textTransform: 'capitalize',
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#111827',
+  },
+  selectedUserContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#eff6ff',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
+  selectedUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  userAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  userAvatarPlaceholder: {
+    backgroundColor: '#3b82f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userAvatarText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  userDetails: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  userRole: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  clearButton: {
+    padding: 4,
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  resultsContainer: {
+    marginTop: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    maxHeight: 300,
+  },
+  userItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  userItemAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  userItemAvatarPlaceholder: {
+    backgroundColor: '#d1d5db',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userItemAvatarText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  userItemInfo: {
+    flex: 1,
+  },
+  userItemName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  userItemRole: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  templatesList: {
+    gap: 12,
+  },
+  templateItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#ffffff',
+  },
+  templateItemSelected: {
+    borderColor: '#3b82f6',
+    backgroundColor: '#eff6ff',
+  },
+  templateIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  templateInfo: {
+    flex: 1,
+  },
+  templateName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  templateNameSelected: {
+    color: '#3b82f6',
+  },
+  templateDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 4,
+  },
+  templateExpiration: {
+    fontSize: 12,
+    color: '#9ca3af',
+  },
+  dateInput: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#111827',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  textInput: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    color: '#111827',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  notesInput: {
+    minHeight: 100,
+  },
+  inputHint: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginTop: 4,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    gap: 8,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#9ca3af',
+    textAlign: 'center',
+  },
+  footer: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    backgroundColor: '#ffffff',
+  },
+  grantButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 14,
+    borderRadius: 8,
+    gap: 8,
+  },
+  grantButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    opacity: 0.6,
+  },
+  grantButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
+
+export default GrantCertificationModal;
+

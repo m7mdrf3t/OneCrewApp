@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { TaskDetailsFormProps, TaskAssignment, TaskStatus } from '../types';
+import { TaskDetailsFormProps, UITaskAssignment, TaskStatus } from '../types';
 
 const { width } = Dimensions.get('window');
 
@@ -31,7 +31,7 @@ const TaskDetailsForm: React.FC<TaskDetailsFormProps> = ({
   assignedUser,
   stage,
 }) => {
-  const [formData, setFormData] = useState<Partial<TaskAssignment>>({
+  const [formData, setFormData] = useState<Partial<UITaskAssignment>>({
     taskTitle: '',
     inTime: '',
     outTime: '',
@@ -66,7 +66,7 @@ const TaskDetailsForm: React.FC<TaskDetailsFormProps> = ({
     }
   }, [visible, assignedUser, stage]);
 
-  const handleInputChange = (field: keyof TaskAssignment, value: any) => {
+  const handleInputChange = (field: keyof UITaskAssignment, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -115,7 +115,7 @@ const TaskDetailsForm: React.FC<TaskDetailsFormProps> = ({
 
     setIsLoading(true);
     try {
-      const taskData: Partial<TaskAssignment> = {
+      const taskData: Partial<UITaskAssignment> = {
         ...formData,
         id: Date.now().toString(), // Generate temporary ID
         createdAt: new Date().toISOString(),

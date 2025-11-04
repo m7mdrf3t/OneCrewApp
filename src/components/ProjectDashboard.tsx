@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import TaskTypeModal from './TaskTypeModal';
 import TaskCard from './TaskCard';
 import TaskEditModal from './TaskEditModal';
+import SimplifiedTaskCard from './SimplifiedTaskCard';
 import { useApi } from '../contexts/ApiContext';
 
 interface ProjectDashboardProps {
@@ -29,7 +30,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   onEditProjectDetails,
   onRefreshProject,
 }) => {
-  const { getProjectById, getProjectTasks, getTaskAssignments } = useApi();
+  const { getProjectById, getProjectTasks, getTaskAssignments, fetchCompleteUserProfile, getUsersDirect, updateTask, deleteTask } = useApi();
   const [selectedTab, setSelectedTab] = useState('details');
   const [showTaskTypeModal, setShowTaskTypeModal] = useState(false);
   const [showTaskCard, setShowTaskCard] = useState(false);
@@ -40,6 +41,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   const [tasks, setTasks] = useState<any[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
+  const [newTaskCards, setNewTaskCards] = useState<any[]>([]); // Track new task cards being created
 
   // Load tasks when component mounts
   useEffect(() => {
@@ -49,9 +51,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
   const loadProjectData = async () => {
     try {
-      console.log('📋 Loading latest project data for:', project.id);
-      const latestProjectData = await getProjectById(project.id);
-      console.log('✅ Latest project data loaded:', latestProjectData);
+      await getProjectById(project.id);
       // Note: We can't update the project prop directly, but we can use this data for display
     } catch (error) {
       console.error('❌ Failed to load latest project data:', error);
@@ -63,61 +63,43 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     
     setIsLoadingTasks(true);
     try {
-      console.log('📋 Loading tasks for project:', project.id);
       
-      // First try to get tasks from project data
+      // Use getProjectTasks() to get tasks with full assignment.user structure
+      // This endpoint: GET /api/projects/{projectId}/tasks returns assignments with full user objects
       let projectTasks: any[] = [];
       
       try {
-        const projectData = await getProjectById(project.id);
-        console.log('✅ Project data loaded:', projectData);
-        projectTasks = projectData.tasks || [];
-        console.log('📋 Found tasks in project data:', projectTasks.length);
-      } catch (projectError) {
-        console.warn('⚠️ Failed to load project data, trying direct task loading:', projectError);
-      }
-      
-      // If no tasks found in project data, try direct task loading
-      if (projectTasks.length === 0) {
-        try {
-          console.log('📋 Trying direct task loading...');
-          const directTasks = await getProjectTasks(project.id);
-          projectTasks = directTasks || [];
-          console.log('📋 Found tasks via direct loading:', projectTasks.length);
-        } catch (taskError) {
-          console.error('❌ Failed to load tasks directly:', taskError);
-        }
-      }
-      
-        console.log('📋 Final tasks to set:', projectTasks.length);
-        console.log('📋 Task details:', projectTasks.map(t => ({ 
-          id: t.id, 
-          title: t.title, 
-          type: t.type, 
-          status: t.status,
-          service: t.service,
-          members: t.members,
-          assignments: t.assignments,
-          service_role: t.service_role,
-          user_id: t.user_id
-        })));
+        // Use the dedicated tasks endpoint which has the updated structure with assignment.user
+        projectTasks = await getProjectTasks(project.id);
         
-        // Log full task structure for debugging
-        if (projectTasks.length > 0) {
-          console.log('📋 Full first task structure:', JSON.stringify(projectTasks[0], null, 2));
-        }
-        
-        // Transform tasks to include service and member data
-        const transformedTasks = await Promise.all(projectTasks.map(async (task) => {
-          console.log('🔍 Transforming task:', task.id, 'Raw task data:', JSON.stringify(task, null, 2));
-          console.log('🔍 Task type fields:', {
-            type: task.type,
-            task_type: task.task_type,
-            category: task.category,
-            stage: task.stage,
-            stage_id: task.stage_id
+        // Log raw assignment structure from API
+        if (projectTasks.length > 0 && projectTasks[0].assignments?.length > 0) {
+          console.log('📋 TASK ASSIGNMENTS (FROM GET /api/projects/{id}/tasks):');
+          projectTasks[0].assignments.forEach((assignment: any, idx: number) => {
+            console.log(`  Assignment ${idx + 1}:`, {
+              id: assignment.id,
+              user_id: assignment.user_id,
+              hasUser: !!assignment.user,
+              userName: assignment.user?.name || 'MISSING',
+              user_id_from_user: assignment.user?.id,
+              service_role: assignment.service_role
+            });
           });
-          
+        }
+      } catch (taskError) {
+        console.error('❌ Failed to load tasks:', taskError);
+        // Fallback: try getting tasks from project data if dedicated endpoint fails
+        try {
+          const projectData = await getProjectById(project.id);
+          projectTasks = projectData.tasks || [];
+          console.log('⚠️ Using tasks from getProjectById (fallback)');
+        } catch (projectError) {
+          console.error('❌ Failed to load tasks from project data:', projectError);
+        }
+      }
+        
+      // Transform tasks to include service and member data
+      let transformedTasks = await Promise.all(projectTasks.map(async (task) => {
           // Extract service information
           let service = null;
           if (task.service_role) {
@@ -128,83 +110,236 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             service = task.service;
           }
           
-          // Extract member information - skip assignments endpoint due to permission issues
-          // Use data already available from the main task endpoint
+          // Extract member information from assignments
           let members = [];
-          console.log('🔍 Skipping assignments endpoint due to permission restrictions');
-          console.log('🔍 Available task data for members:', {
-            assignments: task.assignments,
-            user_id: task.user_id,
-            users: task.users,
-            user: task.user,
-            members: task.members
-          });
           
-          // Fallback to existing data if assignments endpoint failed
+          // Extract member information from assignments
+          // Based on library types, TaskAssignment has an optional user object
           if (members.length === 0) {
             if (task.assignments && Array.isArray(task.assignments)) {
-              members = task.assignments.map((assignment: any) => ({
-                id: assignment.user_id,
-                name: assignment.users?.name || assignment.user?.name || assignment.user_name || `User ${assignment.user_id.substring(0, 8)}`,
-                user: assignment.users || assignment.user,
-                service_role: assignment.service_role,
-                image_url: assignment.users?.image_url || assignment.user?.image_url,
-                primary_role: assignment.users?.primary_role || assignment.user?.primary_role
-              }));
+              // Backend now returns assignment.user with full details
+              members = task.assignments.map((assignment: any) => {
+                const userId = assignment.user_id || assignment.user?.id;
+                
+                // Helper function to validate if a name is a placeholder
+                const isPlaceholderName = (name: string | null | undefined): boolean => {
+                  if (!name) return true;
+                  const nameTrimmed = name.trim();
+                  return nameTrimmed.startsWith('User ') && nameTrimmed.length > 10;
+                };
+                
+                // Priority 1: assignment.user (backend standard structure - NEW)
+                let userName = null;
+                let userObj = null;
+                
+                if (assignment.user && assignment.user.name) {
+                  userName = assignment.user.name;
+                  userObj = assignment.user;
+                  console.log(`✅ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: Found name "${userName}" from assignment.user`);
+                }
+                // Priority 2: assignment.users (legacy/alternative structure)
+                else if (assignment.users && assignment.users.name) {
+                  userName = assignment.users.name;
+                  userObj = assignment.users;
+                  console.log(`✅ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: Found name "${userName}" from assignment.users`);
+                }
+                // Priority 3: assignment.user_name (direct field)
+                else if (assignment.user_name) {
+                  userName = assignment.user_name;
+                  console.log(`✅ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: Found name "${userName}" from assignment.user_name`);
+                }
+                // Priority 4: User object exists but name is missing
+                else if (assignment.user && assignment.user.id) {
+                  userName = null;
+                  userObj = assignment.user;
+                  console.log(`⚠️ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: User object exists but no name for ${userId}`);
+                }
+                // Fallback: No user data
+                else if (userId) {
+                  userName = null;
+                  console.log(`⚠️ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: No user data found for ${userId}`);
+                }
+                
+                // Determine final name and fetch flag
+                const finalName = userName || `User ${userId?.substring(0, 8) || 'Unknown'}`;
+                const shouldFetch = !userName || isPlaceholderName(finalName);
+                
+                if (shouldFetch && userId) {
+                  console.log(`🔍 Task ${task.id} → Will fetch user ${userId} (current: "${finalName}")`);
+                }
+                
+                return {
+                  id: userId,
+                  name: finalName,
+                  user: userObj || assignment.user || assignment.users,
+                  service_role: assignment.service_role,
+                  image_url: userObj?.image_url || assignment.user?.image_url || assignment.users?.image_url,
+                  primary_role: userObj?.primary_role || assignment.user?.primary_role || assignment.users?.primary_role,
+                  needsUserFetch: shouldFetch
+                };
+              });
             } else if (task.user_id) {
               members = [{
                 id: task.user_id,
-                name: task.users?.name || task.user?.name || task.user_name || `User ${task.user_id.substring(0, 8)}`,
-                user: task.users || task.user,
+                name: task.user?.name || task.users?.name || task.user_name || `User ${task.user_id.substring(0, 8)}`,
+                user: task.user || task.users,
                 service_role: task.service_role,
-                image_url: task.users?.image_url || task.user?.image_url,
-                primary_role: task.users?.primary_role || task.user?.primary_role
+                image_url: task.user?.image_url || task.users?.image_url,
+                primary_role: task.user?.primary_role || task.users?.primary_role,
+                needsUserFetch: !task.user?.name && !task.users?.name && task.user_id
               }];
             } else if (task.members && Array.isArray(task.members)) {
-              members = task.members;
+              // If task.members already has the data, use it but ensure proper structure
+              members = task.members.map((member: any) => ({
+                ...member,
+                name: member.name || member.user?.name || (member.id ? `User ${member.id.substring(0, 8)}` : 'Unknown'),
+                needsUserFetch: !member.name && !member.user?.name && member.id
+              }));
             }
           }
           
-          const transformedTask = {
+          return {
             ...task,
             service,
             members,
-            // Keep original fields for debugging
             service_role: task.service_role,
             user_id: task.user_id,
             assignments: task.assignments
           };
-          
-          console.log('🔍 Transformed task:', task.id, 'Service:', service, 'Members:', members);
-          return transformedTask;
         }));
         
-        console.log('📋 Transformed tasks:', transformedTasks.length);
+        // Fetch user details for tasks that have user_ids but no proper names
+        // Only fetch if name is missing or it's clearly a placeholder (starts with "User " + ID)
+        const isPlaceholderName = (name: string | null | undefined): boolean => {
+          if (!name) return true;
+          const nameTrimmed = name.trim();
+          return nameTrimmed.startsWith('User ') && nameTrimmed.length > 10; // "User " + 8+ chars
+        };
         
-        // Try to fetch user details for tasks that have user_ids but no names
+        // Filter tasks that need user fetching - only for missing names or placeholder names
         const tasksNeedingUserDetails = transformedTasks.filter(task => 
-          task.members && task.members.some((member: any) => 
-            member.name.includes('User ') && member.id
-          )
+          task.members && task.members.some((member: any) => {
+            if (!member.id) return false;
+            
+            const currentName = member.name || member.user?.name;
+            const isPlaceholder = isPlaceholderName(currentName);
+            const hasNoName = !currentName;
+            return member.needsUserFetch || isPlaceholder || hasNoName;
+          })
         );
         
         if (tasksNeedingUserDetails.length > 0) {
-          console.log('🔍 Fetching user details for tasks:', tasksNeedingUserDetails.length);
-          // For now, we'll keep the user ID-based names, but in the future we could fetch actual user details
+          // Collect all unique user IDs that need names
+          const userIdsToFetch = new Set<string>();
+          tasksNeedingUserDetails.forEach(task => {
+            task.members?.forEach((member: any) => {
+              if (member.id) {
+                const currentName = member.name || member.user?.name;
+                const isPlaceholder = isPlaceholderName(currentName);
+                const hasNoName = !currentName;
+                const shouldFetch = member.needsUserFetch || isPlaceholder || hasNoName;
+                
+                if (shouldFetch) {
+                  userIdsToFetch.add(member.id);
+                }
+              }
+            });
+          });
+          
+          if (userIdsToFetch.size > 0) {
+            console.log(`🔍 Fetching ${userIdsToFetch.size} user names:`, Array.from(userIdsToFetch).map(id => id.substring(0, 8)).join(', '));
+          }
+          
+          // Fetch user details for all missing users
+          const userDetailsMap = new Map<string, any>();
+          await Promise.all(Array.from(userIdsToFetch).map(async (userId) => {
+            try {
+              // Try to fetch complete user profile
+              const userProfile = await fetchCompleteUserProfile(userId);
+              if (userProfile && userProfile.name && !isPlaceholderName(userProfile.name)) {
+                userDetailsMap.set(userId, userProfile);
+                console.log(`✅ Fetched name for ${userId.substring(0, 8)}: "${userProfile.name}"`);
+              }
+            } catch (error) {
+              // Try alternative method - get all users and find the one we need
+              try {
+                const usersResponse = await getUsersDirect({ limit: 1000 });
+                if (usersResponse && usersResponse.data) {
+                  const users = Array.isArray(usersResponse.data) ? usersResponse.data : usersResponse.data.data || [];
+                  const foundUser = users.find((u: any) => u.id === userId);
+                  if (foundUser && foundUser.name && !isPlaceholderName(foundUser.name)) {
+                    userDetailsMap.set(userId, foundUser);
+                    console.log(`✅ Found name for ${userId.substring(0, 8)}: "${foundUser.name}"`);
+                  }
+                }
+              } catch (altError) {
+                // Silently fail - will use placeholder name
+              }
+            }
+          }));
+          
+          // Update member names with fetched user details
+          // IMPORTANT: Create new task objects to ensure React detects the change
+          let updatedTasks = transformedTasks.map(task => {
+            if (task.members && task.members.length > 0) {
+              const updatedMembers = task.members.map((member: any) => {
+                if (member.id && userDetailsMap.has(member.id)) {
+                  const userDetails = userDetailsMap.get(member.id);
+                  // Validate the fetched name - only reject if it's clearly a placeholder
+                  const fetchedName = userDetails.name;
+                  const nameIsValid = fetchedName && !isPlaceholderName(fetchedName);
+                  
+                  if (nameIsValid) {
+                    console.log(`✅ Updated ${member.id.substring(0, 8)}: "${member.name}" → "${fetchedName}"`);
+                    return {
+                      ...member,
+                      name: fetchedName,
+                      user: userDetails || member.user,
+                      image_url: userDetails.image_url || userDetails.about?.image_url || member.image_url,
+                      primary_role: userDetails.primary_role || member.primary_role,
+                      needsUserFetch: false // Clear the flag since we fetched it
+                    };
+                  } else {
+                    // Keep existing name if it's not a placeholder, otherwise use fetched or fallback
+                    const fallbackName = !isPlaceholderName(member.name) ? member.name : (fetchedName || `User ${member.id.substring(0, 8)}`);
+                    return {
+                      ...member,
+                      name: fallbackName,
+                      user: userDetails || member.user,
+                      image_url: userDetails.image_url || userDetails.about?.image_url || member.image_url,
+                      primary_role: userDetails.primary_role || member.primary_role
+                    };
+                  }
+                }
+                return member;
+              });
+              
+              // Return new task object with updated members
+              return {
+                ...task,
+                members: updatedMembers
+              };
+            }
+            return task;
+          });
+          
+          if (userDetailsMap.size > 0) {
+            console.log(`✅ Updated ${userDetailsMap.size} user name(s) in tasks`);
+          }
+          
+          // Use updated tasks for state
+          transformedTasks = updatedTasks;
         }
       
       if (replaceExisting) {
         // Replace all tasks (used on initial load)
         setTasks(transformedTasks);
-        console.log('✅ Tasks replaced in state');
       } else {
         // Merge with existing tasks (used for refresh)
         setTasks(prev => {
           const existingTaskIds = new Set(prev.map(t => t.id));
           const newTasks = transformedTasks.filter(t => !existingTaskIds.has(t.id));
-          const merged = [...prev, ...newTasks];
-          console.log('✅ Tasks merged in state, total:', merged.length);
-          return merged;
+          return [...prev, ...newTasks];
         });
       }
     } catch (error) {
@@ -253,7 +388,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     
     // Don't reload from backend immediately - keep the local state
     // The task will persist in the UI with all the service information
-    console.log('✅ Task added to local state, not reloading from backend');
   };
 
   const handleTaskCancel = () => {
@@ -262,20 +396,18 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   };
 
   const handleEditTask = (task: any) => {
-    console.log('🔍 Editing task:', task);
     setSelectedTask(task);
     setShowTaskEditModal(true);
   };
 
   const handleTaskUpdated = (updatedTask: any) => {
-    console.log('✅ Task updated:', updatedTask);
     // Update the task in local state
     setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
     setShowTaskEditModal(false);
     setSelectedTask(null);
   };
 
-  const handleDeleteTask = (task: any) => {
+  const handleDeleteTask = async (task: any) => {
     Alert.alert(
       'Delete Task',
       `Are you sure you want to delete "${task.title}"?`,
@@ -284,11 +416,19 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         { 
           text: 'Delete', 
           style: 'destructive',
-          onPress: () => {
-            console.log('🗑️ Deleting task:', task.id);
-            // Remove from local state
-            setTasks(prev => prev.filter(t => t.id !== task.id));
-            // TODO: Call API to delete from backend
+          onPress: async () => {
+            try {
+              // Call API to delete from backend
+              await deleteTask(task.id);
+              // Remove from local state on success
+              setTasks(prev => prev.filter(t => t.id !== task.id));
+            } catch (error: any) {
+              Alert.alert(
+                'Delete Failed',
+                error?.message || 'Failed to delete task. Please try again.',
+                [{ text: 'OK' }]
+              );
+            }
           }
         }
       ]
@@ -308,18 +448,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   };
 
   const getStageTasks = (stageId: string) => {
-    console.log('🔍 Getting tasks for stage:', stageId);
-    console.log('🔍 All tasks:', tasks);
-    console.log('🔍 Task titles:', tasks.map(t => ({ 
-      id: t.id, 
-      title: t.title,
-      type: t.type, 
-      task_type: t.task_type,
-      category: t.category,
-      stage: t.stage,
-      stage_id: t.stage_id
-    })));
-    
     const stageTasks = tasks.filter(task => {
       // Use task title as the primary categorization method
       // Fallback to type field for backward compatibility
@@ -330,12 +458,9 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       const matchesByTitle = taskTitle === stageId;
       const matchesByType = taskType === stageId;
       
-      console.log(`🔍 Task ${task.id}: title="${taskTitle}" type="${taskType}" stage="${stageId}" - title match: ${matchesByTitle}, type match: ${matchesByType}`);
-      
       return matchesByTitle || matchesByType;
     });
     
-    console.log('🔍 Filtered tasks for stage', stageId, ':', stageTasks.length);
     return stageTasks;
   };
 
@@ -434,242 +559,86 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* Project Stages - Only show stages with tasks */}
-        {getStagesWithTasks().length > 0 ? (
-          <View style={styles.stagesSection}>
-            <Text style={styles.sectionTitle}>Project Stages</Text>
-            {getStagesWithTasks().map((stage) => {
-              const stageTasks = getStageTasks(stage.id);
-              const isExpanded = expandedStages.has(stage.id);
-              
-              return (
-                <View key={stage.id} style={styles.stageContainer}>
-                  {/* Stage Header - Clickable to expand/collapse */}
-                  <TouchableOpacity 
-                    style={[styles.stageHeader, { backgroundColor: stage.color }]}
-                    onPress={() => handleToggleStageExpanded(stage.id)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.stageHeaderLeft}>
-                      <Ionicons name={stage.icon as any} size={20} color="#fff" />
-                      <Text style={styles.stageName}>{stage.name}</Text>
-                    </View>
-                    <View style={styles.stageHeaderRight}>
-                      <View style={styles.statusBadge}>
-                        <Text style={styles.statusBadgeText}>{stageTasks.length} TASK{stageTasks.length !== 1 ? 'S' : ''}</Text>
-                      </View>
-                      <Ionicons 
-                        name={isExpanded ? "chevron-up" : "chevron-down"} 
-                        size={20} 
-                        color="#fff" 
-                        style={styles.stageExpandIcon} 
-                      />
-                    </View>
-                  </TouchableOpacity>
+        {/* All tasks displayed as SimplifiedTaskCard components - no separate list */}
 
-                  {/* Stage Content - Show tasks when expanded */}
-                  {isExpanded && (
-                    <View style={styles.stageContent}>
-                      {isLoadingTasks ? (
-                        <View style={styles.loadingContainer}>
-                          <ActivityIndicator size="small" color="#3b82f6" />
-                          <Text style={styles.loadingText}>Loading tasks...</Text>
-                        </View>
-                      ) : stageTasks.length > 0 ? (
-                        stageTasks.map((task) => (
-                          <View key={task.id} style={styles.taskCard}>
-                            <View style={styles.taskHeader}>
-                              <Text style={styles.taskTitle}>
-                                {task.description || task.title || 'Task'}
-                              </Text>
-                              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(task.status) }]}>
-                                <Text style={styles.statusBadgeText}>{task.status?.toUpperCase() || 'PENDING'}</Text>
-                              </View>
-                            </View>
-                            
-                            {/* Service Assignment */}
-                            {task.service && (
-                              <View style={styles.assignmentInfo}>
-                                <Ionicons name="briefcase" size={16} color="#6b7280" />
-                                <Text style={styles.assignmentText}>Role: {task.service.name}</Text>
-                              </View>
-                            )}
-                            
-                            {/* Member Assignment - Show all assigned members */}
-                            {task.members && task.members.length > 0 ? (
-                              <View style={styles.assignmentInfo}>
-                                <Ionicons name="people" size={16} color="#6b7280" />
-                                <Text style={styles.assignmentText}>
-                                  Users: {task.members.map((member: any) => {
-                                    const name = member.name || member.user?.name || 'Unknown';
-                                    const role = member.service_role || member.primary_role;
-                                    return role ? `${name} (${role})` : name;
-                                  }).join(', ')}
-                                </Text>
-                              </View>
-                            ) : task.member && (
-                              <View style={styles.assignmentInfo}>
-                                <Ionicons name="person" size={16} color="#6b7280" />
-                                <Text style={styles.assignmentText}>
-                                  User: {(() => {
-                                    const name = task.member.name || task.member.user?.name || 'Unknown';
-                                    const role = task.member.service_role || task.member.primary_role;
-                                    return role ? `${name} (${role})` : name;
-                                  })()}
-                                </Text>
-                              </View>
-                            )}
-                            
-                            
-                            {/* Task Actions */}
-                            <View style={styles.taskActions}>
-                              <TouchableOpacity 
-                                style={styles.taskActionButton}
-                                onPress={() => handleEditTask(task)}
-                              >
-                                <Ionicons name="create" size={16} color="#3b82f6" />
-                              </TouchableOpacity>
-                              <TouchableOpacity 
-                                style={styles.taskActionButton}
-                                onPress={() => handleDeleteTask(task)}
-                              >
-                                <Ionicons name="trash" size={16} color="#ef4444" />
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-                        ))
-                      ) : (
-                        <View style={styles.noTasksContainer}>
-                          <Text style={styles.noTasksText}>No tasks yet</Text>
-                        </View>
-                      )}
-                      
-                      {/* Add Task Button for this stage */}
-                      <TouchableOpacity
-                        style={styles.addTaskButton}
-                        onPress={handleCreateTaskForStage(stage.id)}
-                      >
-                        <Ionicons name="add" size={20} color="#6b7280" />
-                        <Text style={styles.addTaskButtonText}>Add Task</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-          </View>
-        ) : (
-          /* Fallback: Show all tasks if no stages have tasks */
-          tasks.length > 0 && (
-            <View style={styles.stagesSection}>
-              <Text style={styles.sectionTitle}>All Tasks</Text>
-              <View style={styles.stageContainer}>
-                <View style={[styles.stageHeader, { backgroundColor: '#6b7280' }]}>
-                  <View style={styles.stageHeaderLeft}>
-                    <Ionicons name="list" size={20} color="#fff" />
-                    <Text style={styles.stageName}>All Tasks ({tasks.length})</Text>
-                  </View>
-                </View>
-                <View style={styles.stageContent}>
-                  {isLoadingTasks ? (
-                    <View style={styles.loadingContainer}>
-                      <ActivityIndicator size="small" color="#3b82f6" />
-                      <Text style={styles.loadingText}>Loading tasks...</Text>
-                    </View>
-                  ) : tasks.length > 0 ? (
-                    tasks.map((task) => (
-                      <View key={task.id} style={styles.taskCard}>
-                        <View style={styles.taskHeader}>
-                          <Text style={styles.taskTitle}>{task.title}</Text>
-                          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(task.status) }]}>
-                            <Text style={styles.statusBadgeText}>{task.status?.toUpperCase() || 'PENDING'}</Text>
-                          </View>
-                        </View>
-                        
-                        {/* Service Assignment */}
-                        {task.service && (
-                          <View style={styles.assignmentInfo}>
-                            <Ionicons name="briefcase" size={16} color="#6b7280" />
-                            <Text style={styles.assignmentText}>Role: {task.service.name}</Text>
-                          </View>
-                        )}
-                        
-                        {/* Member Assignment - Show all assigned members */}
-                        {task.members && task.members.length > 0 ? (
-                          <View style={styles.assignmentInfo}>
-                            <Ionicons name="people" size={16} color="#6b7280" />
-                            <Text style={styles.assignmentText}>
-                              Users: {task.members.map((member: any) => {
-                                const name = member.name || member.user?.name || 'Unknown';
-                                const role = member.service_role || member.primary_role;
-                                return role ? `${name} (${role})` : name;
-                              }).join(', ')}
-                            </Text>
-                          </View>
-                        ) : task.member && (
-                          <View style={styles.assignmentInfo}>
-                            <Ionicons name="person" size={16} color="#6b7280" />
-                            <Text style={styles.assignmentText}>
-                              User: {(() => {
-                                const name = task.member.name || task.member.user?.name || 'Unknown';
-                                const role = task.member.service_role || task.member.primary_role;
-                                return role ? `${name} (${role})` : name;
-                              })()}
-                            </Text>
-                          </View>
-                        )}
-                        
-                        
-                        {/* Task Actions */}
-                        <View style={styles.taskActions}>
-                          <TouchableOpacity 
-                            style={styles.taskActionButton}
-                            onPress={() => handleEditTask(task)}
-                          >
-                            <Ionicons name="create" size={16} color="#3b82f6" />
-                          </TouchableOpacity>
-                          <TouchableOpacity 
-                            style={styles.taskActionButton}
-                            onPress={() => handleDeleteTask(task)}
-                          >
-                            <Ionicons name="trash" size={16} color="#ef4444" />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))
-                  ) : (
-                    <View style={styles.noTasksContainer}>
-                      <Text style={styles.noTasksText}>No tasks yet</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </View>
-          )
-        )}
+        {/* Show all tasks as SimplifiedTaskCard components */}
+        {tasks.map((task) => {
+          // Transform task data to match SimplifiedTaskCard format
+          const assignments = (task.assignments || []).map((assignment: any) => ({
+            id: assignment.id || Date.now().toString(),
+            service: assignment.service || { name: assignment.service_role },
+            user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+          }));
 
-        {/* Show Task Card if creating a new task */}
-        {showTaskCard && (
-          <View style={styles.taskCardContainer}>
-            <TaskCard
-              taskType={selectedTaskType}
+          // Ensure task type is preserved - try multiple fields
+          const taskType = task.type || task.task_type || task.title?.toLowerCase()?.replace(/\s+/g, '_');
+          
+          console.log('📋 Rendering task card:', {
+            id: task.id,
+            title: task.title,
+            type: task.type,
+            task_type: task.task_type,
+            inferredType: taskType
+          });
+
+          return (
+            <SimplifiedTaskCard
+              key={task.id}
               projectId={project.id}
-              onTaskCreated={handleTaskCreated}
-              onCancel={handleTaskCancel}
+              existingTask={{
+                ...task,
+                type: taskType, // Ensure type is set
+                task_type: taskType, // Also set task_type for compatibility
+                assignments,
+              }}
+              onTaskCreated={(updatedTask) => {
+                console.log('📋 Received updated task in ProjectDashboard:', updatedTask);
+                // Preserve type when updating and ensure all fields are maintained
+                const taskWithType = {
+                  ...task, // Preserve original task data
+                  ...updatedTask, // Override with updated data
+                  type: updatedTask.type || taskType || task.type || task.task_type,
+                  task_type: updatedTask.task_type || taskType || task.task_type || task.type,
+                  id: updatedTask.id || task.id, // Ensure ID is always present
+                };
+                console.log('📋 Updating task in list:', taskWithType);
+                setTasks(prev => {
+                  const updated = prev.map(t => t.id === taskWithType.id ? taskWithType : t);
+                  console.log('📋 Tasks after update:', updated.map(t => ({ id: t.id, title: t.title, type: t.type })));
+                  return updated;
+                });
+              }}
+              onDelete={(taskId) => {
+                setTasks(prev => prev.filter(t => t.id !== taskId));
+              }}
             />
-          </View>
-        )}
+          );
+        })}
 
-        {/* Create Task Button - Only show if not currently creating a task */}
-        {!showTaskCard && (
-          <TouchableOpacity
-            style={styles.createTaskButton}
-            onPress={() => handleCreateTask()}
-          >
-            <Text style={styles.createTaskText}>Create Task</Text>
-          </TouchableOpacity>
-        )}
+        {/* Show new task cards being created */}
+        {newTaskCards.map((taskCard, index) => (
+          <SimplifiedTaskCard
+            key={`new-task-${index}`}
+            projectId={project.id}
+            isNewTask={true}
+            onTaskCreated={(newTask) => {
+              setTasks(prev => [...prev, newTask]);
+              setNewTaskCards(prev => prev.filter((_, i) => i !== index));
+            }}
+          />
+        ))}
+
       </ScrollView>
+
+      {/* Big Create Task Button at Bottom - Fixed Position */}
+      <TouchableOpacity
+        style={styles.bigCreateTaskButton}
+        onPress={() => {
+          setNewTaskCards(prev => [...prev, { id: Date.now() }]);
+        }}
+      >
+        <Ionicons name="add" size={32} color="#fff" />
+      </TouchableOpacity>
 
       {/* Task Type Modal */}
       <TaskTypeModal
@@ -786,6 +755,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  bigCreateTaskButton: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#ef4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    zIndex: 1000,
   },
   stagesSection: {
     marginTop: 16,

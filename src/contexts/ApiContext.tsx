@@ -11,9 +11,22 @@ import {
   CreateTaskRequest,
   UpdateTaskRequest,
   AssignTaskServiceRequest,
-  UpdateTaskStatusRequest
+  UpdateTaskStatusRequest,
+  Notification,
+  NotificationParams,
+  NotificationType,
+  CertificationTemplate,
+  UserCertification,
+  AcademyCertificationAuthorization,
+  CreateCertificationTemplateRequest,
+  UpdateCertificationTemplateRequest,
+  CreateCertificationRequest,
+  UpdateCertificationRequest,
+  BulkAuthorizationRequest,
 } from '../types';
 import ReferenceDataService from '../services/ReferenceDataService';
+import supabaseService from '../services/SupabaseService';
+import { rateLimiter } from '../utils/rateLimiter';
 
 interface ApiContextType {
   api: OneCrewApi;
@@ -83,6 +96,7 @@ interface ApiContextType {
   updateTask: (taskId: string, updates: UpdateTaskRequest) => Promise<any>;
   deleteTask: (taskId: string) => Promise<void>;
   assignTaskService: (projectId: string, taskId: string, assignment: AssignTaskServiceRequest) => Promise<any>;
+  deleteTaskAssignment: (projectId: string, taskId: string, assignmentId: string) => Promise<any>;
   updateTaskStatus: (taskId: string, status: UpdateTaskStatusRequest) => Promise<any>;
   getTaskAssignments: (projectId: string, taskId: string) => Promise<any>;
   // Debug methods
@@ -140,6 +154,34 @@ interface ApiContextType {
   getCompanyDocuments: (companyId: string) => Promise<any>;
   addCompanyDocument: (companyId: string, documentData: { document_type: string; file_url: string; file_name?: string; description?: string }) => Promise<any>;
   deleteCompanyDocument: (companyId: string, documentId: string) => Promise<any>;
+  // Notification methods
+  getNotifications: (params?: NotificationParams) => Promise<any>;
+  getUnreadNotificationCount: () => Promise<number>;
+  markNotificationAsRead: (notificationId: string) => Promise<any>;
+  markAllNotificationsAsRead: () => Promise<any>;
+  deleteNotification: (notificationId: string) => Promise<any>;
+  // Notification state
+  notifications: Notification[];
+  unreadNotificationCount: number;
+  // Certification Template Management (Admin)
+  getCertificationTemplates: (query?: { active?: boolean; category?: string }) => Promise<any>;
+  getCertificationTemplate: (templateId: string) => Promise<any>;
+  createCertificationTemplate: (templateData: CreateCertificationTemplateRequest) => Promise<any>;
+  updateCertificationTemplate: (templateId: string, updates: UpdateCertificationTemplateRequest) => Promise<any>;
+  deleteCertificationTemplate: (templateId: string) => Promise<any>;
+  // Academy Authorization Management (Admin)
+  authorizeAcademyForCertification: (academyId: string, templateId: string) => Promise<any>;
+  revokeAcademyAuthorization: (academyId: string, templateId: string) => Promise<any>;
+  bulkAuthorizeAcademies: (bulkData: BulkAuthorizationRequest) => Promise<any>;
+  getAcademyAuthorizations: (academyId: string) => Promise<any>;
+  // Certification Management (Academy/Company)
+  getAuthorizedCertifications: (companyId: string) => Promise<any>;
+  grantCertification: (companyId: string, certificationData: CreateCertificationRequest) => Promise<any>;
+  getCompanyCertifications: (companyId: string) => Promise<any>;
+  updateCertification: (companyId: string, certificationId: string, updates: UpdateCertificationRequest) => Promise<any>;
+  revokeCertification: (companyId: string, certificationId: string) => Promise<any>;
+  // User Certification Access
+  getUserCertifications: (userId: string) => Promise<any>;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
@@ -175,24 +217,63 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Profile switching state
   const [currentProfileType, setCurrentProfileType] = useState<'user' | 'company'>('user');
   const [activeCompany, setActiveCompany] = useState<any | null>(null);
+  // Notification state
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  // Real-time subscription state
+  const [notificationChannelId, setNotificationChannelId] = useState<string | null>(null);
 
-  // Test network connectivity
+  // Test network connectivity - try multiple endpoints
   const testConnectivity = async () => {
-    try {
-      console.log('🔍 Testing network connectivity...');
-      const response = await fetch(`${baseUrl}/health`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      console.log('🌐 Health check response status:', response.status);
-      console.log('🌐 Health check response headers:', Object.fromEntries(response.headers.entries()));
-      return response.ok;
-    } catch (error) {
-      console.error('Network connectivity test failed:', error);
-      return false;
+    const endpointsToTry = [
+      '/health',
+      '/api/health',
+      '/api',
+      '/',
+    ];
+
+    for (const endpoint of endpointsToTry) {
+      try {
+        console.log(`🔍 Testing connectivity to ${baseUrl}${endpoint}...`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+        const response = await fetch(`${baseUrl}${endpoint}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+        
+        // If we get any response (even 404), it means the server is reachable
+        if (response.status >= 200 && response.status < 500) {
+          console.log(`✅ Connectivity confirmed via ${endpoint} (status: ${response.status})`);
+          return true;
+        }
+        
+        // Even 404 means server is reachable
+        if (response.status === 404) {
+          console.log(`✅ Server is reachable (404 on ${endpoint} - endpoint may not exist, but server is up)`);
+          return true;
+        }
+      } catch (error: any) {
+        // Network errors or timeouts
+        if (error.name === 'AbortError') {
+          console.warn(`⏱️ Timeout checking ${endpoint}`);
+        } else {
+          console.warn(`⚠️ Failed to connect to ${endpoint}:`, error.message);
+        }
+        // Continue to next endpoint
+        continue;
+      }
     }
+
+    // If all endpoints failed, try to initialize the API directly as a fallback
+    console.warn('⚠️ Direct health checks failed, but will try to initialize API anyway...');
+    return null; // null means "unknown, try anyway"
   };
 
   // Initialize API client
@@ -201,18 +282,27 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('🚀 Initializing API client...');
       console.log('🌐 API Base URL:', baseUrl);
       
-      // Test connectivity first
-      const isConnected = await testConnectivity();
-      if (!isConnected) {
-        console.error('No network connectivity to backend');
-        setError('Cannot connect to server. Please check your internet connection.');
-        setIsLoading(false);
-        return;
+      // Test connectivity (non-blocking - if it fails, we'll still try to initialize)
+      const connectivityResult = await testConnectivity();
+      if (connectivityResult !== true) {
+        // Only warn if we got false (definite failure), not if it's null (unknown)
+        if (connectivityResult === false) {
+          console.warn('⚠️ Network connectivity test failed, but continuing with API initialization...');
+          console.warn('⚠️ This may be a false positive if /health endpoint does not exist.');
+        } else {
+          console.warn('⚠️ Network connectivity test inconclusive, continuing with API initialization...');
+        }
+        // Don't block - let the API initialization try anyway
       }
       
       try {
         await api.initialize();
-        console.log('API client initialized successfully');
+        console.log('✅ API client initialized successfully');
+        
+        // Clear any previous connectivity errors since initialization succeeded
+        if (error && error.includes('Cannot connect to server')) {
+          setError(null);
+        }
         
         // Initialize ReferenceDataService with the API
         ReferenceDataService.setApi(api);
@@ -347,12 +437,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       if (!userData) {
-        console.error('❌ No user data found in login response');
+        console.error(' No user data found in login response');
         throw new Error('Login response missing user data');
       }
       
       if (!token) {
-        console.error('❌ No token found in login response');
+        console.error(' No token found in login response');
         throw new Error('Login response missing authentication token');
       }
       
@@ -465,11 +555,31 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const logout = async () => {
     setIsLoading(true);
     try {
+      // Unsubscribe from real-time notifications
+      if (notificationChannelId) {
+        supabaseService.unsubscribe(notificationChannelId);
+        setNotificationChannelId(null);
+      }
+      
       await api.auth.logout();
       setUser(null);
       setIsAuthenticated(false);
+      // Clear notification state
+      setNotifications([]);
+      setUnreadNotificationCount(0);
     } catch (err) {
       console.error('Logout failed:', err);
+      // Clear local state even if API call fails
+      setUser(null);
+      setIsAuthenticated(false);
+      setNotifications([]);
+      setUnreadNotificationCount(0);
+      
+      // Unsubscribe from real-time notifications on error
+      if (notificationChannelId) {
+        supabaseService.unsubscribe(notificationChannelId);
+        setNotificationChannelId(null);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -1702,107 +1812,161 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Fetch complete user profile data
   const fetchCompleteUserProfile = async (userId: string, userData?: any) => {
-    try {
-      console.log('👤 Fetching complete user profile for:', userId);
-      const accessToken = getAccessToken();
-      
-      // Fetch user details
-      const userDetailsResponse = await fetch(`${baseUrl}/api/user-details/${userId}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-
-      if (!userDetailsResponse.ok) {
-        console.warn('⚠️ Failed to fetch user details:', userDetailsResponse.status);
-        return null;
-      }
-
-      const userDetails = await userDetailsResponse.json();
-      console.log('✅ User details fetched:', userDetails);
-
-      // Fetch talent profile if user is talent
-      let talentProfile = null;
-      const currentUser = userData || user;
-      if (currentUser?.category === 'talent') {
-        try {
-          const talentResponse = await fetch(`${baseUrl}/api/talent/profile`, {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${accessToken}`,
-            },
-          });
-
-          if (talentResponse.ok) {
-            talentProfile = await talentResponse.json();
-            console.log('✅ Talent profile fetched:', talentProfile);
+    const cacheKey = `complete-user-profile-${userId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('👤 Fetching complete user profile for:', userId);
+        const accessToken = getAccessToken();
+        
+        // First, fetch the user's basic info from users list
+        let userBasicInfo = userData || null;
+        if (!userBasicInfo || userBasicInfo.id !== userId) {
+          // Fetch from users endpoint - search for this specific user
+          try {
+            const usersResponse = await fetch(`${baseUrl}/api/users?limit=1000`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            });
+            
+            if (usersResponse.ok) {
+              const usersData = await usersResponse.json();
+              const users = Array.isArray(usersData.data) ? usersData.data : (usersData.data?.data || []);
+              userBasicInfo = users.find((u: any) => u.id === userId);
+            } else if (usersResponse.status === 429) {
+              console.warn('⚠️ Rate limited on fetchCompleteUserProfile (users list)');
+              return userData || null;
+            }
+          } catch (err) {
+            console.warn('⚠️ Failed to fetch user from users list:', err);
           }
-        } catch (err) {
-          console.warn('⚠️ Failed to fetch talent profile:', err);
         }
+        
+        // If still not found, return null
+        if (!userBasicInfo || userBasicInfo.id !== userId) {
+          console.warn(`⚠️ User ${userId} not found in users list`);
+          return null;
+        }
+        
+        // Add delay between requests
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Fetch user details (about section)
+        const userDetailsResponse = await fetch(`${baseUrl}/api/user-details/${userId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        });
+
+        let userDetails = null;
+        if (userDetailsResponse.ok) {
+          const detailsData = await userDetailsResponse.json();
+          userDetails = detailsData.data || detailsData;
+        } else if (userDetailsResponse.status === 429) {
+          console.warn('⚠️ Rate limited on fetchCompleteUserProfile (user details)');
+        }
+
+        // Add delay before next request
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Fetch talent profile if user is talent
+        let talentProfile = null;
+        if (userBasicInfo?.category === 'talent') {
+          try {
+            const talentResponse = await fetch(`${baseUrl}/api/talent/profile?user_id=${userId}`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            });
+
+            if (talentResponse.ok) {
+              const talentData = await talentResponse.json();
+              talentProfile = talentData.data || talentData;
+            } else if (talentResponse.status === 429) {
+              console.warn('⚠️ Rate limited on fetchCompleteUserProfile (talent profile)');
+            }
+          } catch (err) {
+            console.warn('⚠️ Failed to fetch talent profile:', err);
+          }
+        }
+
+        // Combine user data with details and talent profile
+        const completeUser = {
+          ...userBasicInfo,
+          id: userId, // Ensure ID matches the requested user
+          about: userDetails || {},
+          ...(talentProfile && { talentProfile })
+        };
+
+        return completeUser;
+      } catch (err: any) {
+        console.error('❌ Failed to fetch complete user profile:', err);
+        // Return existing userData if available, otherwise null
+        return userData || null;
       }
-
-      // Combine user data with details and talent profile
-      const completeUser = {
-        ...currentUser,
-        about: {
-          ...userDetails.data,
-          ...talentProfile?.data
-        }
-      };
-
-      console.log('✅ Complete user profile:', completeUser);
-      return completeUser;
-    } catch (err: any) {
-      console.error('❌ Failed to fetch complete user profile:', err);
-      return null;
-    }
+    });
   };
 
   // Direct fetch method for getting users
   const getUsersDirect = async (params: { limit?: number; page?: number } = {}) => {
-    try {
-      console.log('👥 Fetching users with direct fetch...');
-      
-      // Debug: Check if user is authenticated
-      console.log('🔍 Auth state check:', {
-        isAuthenticated: (api as any).auth?.isAuthenticated?.(),
-        hasToken: !!(api as any).auth?.getAuthToken?.(),
-        hasUser: !!(api as any).auth?.getCurrentUser?.()
-      });
-      
-      const accessToken = getAccessToken();
-      
-      const queryParams = new URLSearchParams();
-      if (params.limit) queryParams.append('limit', params.limit.toString());
-      if (params.page) queryParams.append('page', params.page.toString());
-      
-      const url = `${baseUrl}/api/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-      console.log('🌐 Fetching from URL:', url);
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
+    const cacheKey = `users-direct-${params.limit || 'all'}-${params.page || 1}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('👥 Fetching users with direct fetch...');
+        
+        // Debug: Check if user is authenticated
+        console.log('🔍 Auth state check:', {
+          isAuthenticated: (api as any).auth?.isAuthenticated?.(),
+          hasToken: !!(api as any).auth?.getAuthToken?.(),
+          hasUser: !!(api as any).auth?.getCurrentUser?.()
+        });
+        
+        const accessToken = getAccessToken();
+        
+        const queryParams = new URLSearchParams();
+        if (params.limit) queryParams.append('limit', params.limit.toString());
+        if (params.page) queryParams.append('page', params.page.toString());
+        
+        const url = `${baseUrl}/api/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+        console.log('🌐 Fetching from URL:', url);
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+        if (!response.ok) {
+          // Handle rate limiting
+          if (response.status === 429) {
+            console.warn('⚠️ Rate limited on getUsersDirect');
+            throw new Error('Rate limited. Please try again later.');
+          }
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log('✅ Users fetched successfully:', result);
+        return result;
+      } catch (err: any) {
+        console.error('❌ Failed to fetch users:', err);
+        // If rate limited, return empty result
+        if (err.message?.includes('429') || err.message?.includes('Rate limited')) {
+          console.warn('⚠️ Rate limited on getUsersDirect, returning empty result');
+          return { success: true, data: [] };
+        }
+        throw err;
       }
-
-      const result = await response.json();
-      console.log('✅ Users fetched successfully:', result);
-      return result;
-    } catch (err: any) {
-      console.error('❌ Failed to fetch users:', err);
-      throw err;
-    }
+    });
   };
 
   // Debug method to check authentication state
@@ -2131,10 +2295,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateProject = async (projectId: string, updates: any) => {
     try {
-      console.log('📝 Updating project:', projectId, updates);
       const response = await api.updateProject(projectId, updates);
       if (response.success && response.data) {
-        console.log('✅ Project updated successfully:', response.data);
         return response;
       } else {
         throw new Error(response.error || 'Failed to update project');
@@ -2147,7 +2309,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getProjects = async (): Promise<any[]> => {
     try {
-      console.log('📋 Getting user projects');
       const response = await api.getProjects();
       if (response.success && response.data) {
         // Handle both array and paginated response
@@ -2163,11 +2324,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getAllProjects = async (): Promise<any[]> => {
     try {
-      console.log('📋 Getting all user projects (owned + member)...');
-      
       // Try getMyProjects first (returns projects where user is owner or member)
-      // Note: In v2.1.1, getMyProjects returns ApiResponse<PaginatedResponse<Project>>
-      // so we need to access response.data.data for the array
       let projects: any[] = [];
       try {
         const myProjectsResponse = await api.getMyProjects();
@@ -2180,46 +2337,33 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           } else if ((myProjectsResponse.data as any).items && Array.isArray((myProjectsResponse.data as any).items)) {
             projects = (myProjectsResponse.data as any).items;
           }
-          console.log(`✅ Found ${projects.length} projects from getMyProjects (owned + member)`);
         }
       } catch (err) {
-        console.warn('⚠️ Failed to get projects from getMyProjects:', err);
+        // Silently fail - will try fallback
       }
       
-      // The issue: getMyProjects() returns projects but without members array populated
-      // Since getMyProjects() ONLY returns projects where user is owner OR member,
-      // we need to fetch full project details (with members) to determine membership
-      // This is critical because if members is undefined/empty, we can't determine if user is a member
+      // Fetch full project details to get members array
       const enrichedProjects = await Promise.all(
         projects.map(async (project) => {
-          // Always fetch full project details to get members array
-          // This ensures we can properly detect if user is a member
           try {
-            console.log(`🔍 Fetching full details for project ${project.id} to get members array`);
             const projectDetailsResponse = await api.getProjectById(project.id);
             if (projectDetailsResponse.success && projectDetailsResponse.data) {
               const fullProject = projectDetailsResponse.data;
-              console.log(`✅ Project ${project.id} - Found ${fullProject.members?.length || 0} members`);
-              // Merge the full project data (which includes members)
               return {
                 ...project,
-                // Always use members from full project details
                 members: fullProject.members || [],
-                // Include other fields that might be missing
                 description: fullProject.description || project.description,
                 status: fullProject.status || project.status,
                 type: fullProject.type || project.type,
               };
             }
           } catch (err) {
-            console.warn(`⚠️ Failed to fetch details for project ${project.id}:`, err);
+            // Silently fail - return project as-is
           }
-          // Return project as-is if fetch fails (fallback)
           return project;
         })
       );
       
-      console.log(`✅ Enriched ${enrichedProjects.length} projects with member data`);
       return enrichedProjects;
     } catch (error) {
       console.error('❌ Failed to get all user projects:', error);
@@ -2229,7 +2373,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getProjectTasks = async (projectId: string): Promise<TaskWithAssignments[]> => {
     try {
-      console.log('📋 Getting project tasks for:', projectId);
       const response = await api.getProjectTasks(projectId);
       if (response.success && response.data) {
         // Handle both array and paginated response
@@ -2245,9 +2388,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getProjectById = async (projectId: string): Promise<ProjectWithDetails> => {
     try {
-      console.log('📋 Getting project details for:', projectId);
       const response = await api.getProjectById(projectId);
-      console.log('📋 Project details response:', response);
       
       if (response.success && response.data) {
         // getProjectById should return a single project object, not an array
@@ -2263,7 +2404,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getProjectMembers = async (projectId: string): Promise<ProjectMember[]> => {
     try {
-      console.log('👥 Getting project members for:', projectId);
       const response = await api.getProjectMembers(projectId);
       if (response.success && response.data) {
         // Handle both array and paginated response
@@ -2279,12 +2419,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const createTask = async (projectId: string, taskData: CreateTaskRequest) => {
     try {
-      console.log('📋 Creating task for project:', projectId);
       const response = await api.createTask(projectId, taskData);
-      console.log('📋 Create task response:', response);
       
       if (response.success && response.data) {
-        console.log('✅ Task created successfully:', response.data);
         return {
           success: true,
           data: response.data
@@ -2307,80 +2444,51 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateTask = async (taskId: string, updates: UpdateTaskRequest) => {
     try {
-      console.log('🔍 ===== TASK UPDATE DEBUG =====');
-      console.log('📋 Task ID:', taskId);
-      console.log('📋 Updates:', updates);
-      console.log('👤 Current User:', {
-        id: user?.id,
-        name: user?.name,
-        email: user?.email
+      const accessToken = getAccessToken();
+      const response = await fetch(`${baseUrl}/api/projects/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(updates),
       });
-      console.log('🔑 Authentication Status:', {
-        isAuthenticated,
-        hasToken: !!user?.id,
-        tokenLength: user?.id?.length || 0
-      });
-      console.log('🎯 API Client Status:', {
-        hasApiClient: !!api,
-        hasUpdateTask: typeof api?.updateTask === 'function'
-      });
+
+      const data = await response.json();
       
-      // Check project members to see if user is a member
-      try {
-        // First get the task to find the project ID
-        const taskResponse = await api.getTaskById(taskId);
-        console.log('📋 Task details:', taskResponse);
-        
-        if (taskResponse.success && taskResponse.data) {
-          const projectId = taskResponse.data.project_id;
-          console.log('🔍 Checking project membership for project:', projectId);
-          const membersResponse = await api.getProjectMembers(projectId);
-          console.log('👥 Project Members:', membersResponse);
-          
-          const isMember = membersResponse.data?.some(member => member.user_id === user?.id);
-          console.log('✅ Is current user a project member?', isMember);
-          
-          if (!isMember) {
-            console.log('❌ USER IS NOT A PROJECT MEMBER - This is why the update is failing!');
-          }
-        }
-      } catch (memberError) {
-        console.log('❌ Failed to check project members:', memberError);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
       }
       
-      console.log('🔍 ===============================');
-      
-      const response = await api.updateTask(taskId, updates);
-      console.log('📋 Update task response:', response);
-      
-      if (response.success && response.data) {
-        // Handle both array and paginated response
-        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
-      } else {
-        console.error('❌ Update task failed:', response.error);
-        throw new Error(response.error || 'Failed to update task');
-      }
+      // Return in the format expected by components
+      return {
+        success: true,
+        data: data.data || data
+      };
     } catch (error: any) {
       console.error('❌ Failed to update task:', error);
-      console.error('❌ Error details:', {
-        message: error.message,
-        status: error.status,
-        response: error.response
-      });
       throw error;
     }
   };
 
   const deleteTask = async (taskId: string): Promise<void> => {
     try {
-      console.log('📋 Deleting task:', taskId);
-      console.log('🔍 Current user:', user?.id);
-      const response = await api.deleteTask(taskId);
-      if (!response.success) {
-        throw new Error(response.error || 'Failed to delete task');
+      const accessToken = getAccessToken();
+      const response = await fetch(`${baseUrl}/api/projects/tasks/${taskId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
       }
-    } catch (error) {
-      console.error('Failed to delete task:', error);
+    } catch (error: any) {
+      console.error('❌ Failed to delete task:', error);
       throw error;
     }
   };
@@ -2406,68 +2514,55 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const deleteTaskAssignment = async (projectId: string, taskId: string, assignmentId: string) => {
+    try {
+      console.log('🗑️ Deleting task assignment:', assignmentId);
+      const accessToken = getAccessToken();
+      const response = await fetch(`${baseUrl}/api/projects/${projectId}/tasks/${taskId}/assignments/${assignmentId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      return {
+        success: true,
+        data: data.data || data
+      };
+    } catch (error: any) {
+      console.error('❌ Failed to delete task assignment:', error);
+      throw error;
+    }
+  };
+
   const updateTaskStatus = async (taskId: string, status: UpdateTaskStatusRequest) => {
     try {
-      console.log('🔍 ===== TASK STATUS UPDATE DEBUG =====');
-      console.log('📋 Task ID:', taskId);
-      console.log('📋 New Status:', status);
-      console.log('👤 Current User:', {
-        id: user?.id,
-        name: user?.name,
-        email: user?.email
+      const accessToken = getAccessToken();
+      const response = await fetch(`${baseUrl}/api/projects/tasks/${taskId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(typeof status === 'object' ? status : { status }),
       });
-      console.log('🔑 Authentication Status:', {
-        isAuthenticated,
-        hasToken: !!user?.id,
-        tokenLength: user?.id?.length || 0
-      });
-      console.log('🎯 API Client Status:', {
-        hasApiClient: !!api,
-        hasUpdateTaskStatus: typeof api?.updateTaskStatus === 'function'
-      });
+
+      const data = await response.json();
       
-      // Check project members to see if user is a member
-      try {
-        // First get the task to find the project ID
-        const taskResponse = await api.getTaskById(taskId);
-        console.log('📋 Task details:', taskResponse);
-        
-        if (taskResponse.success && taskResponse.data) {
-          const projectId = taskResponse.data.project_id;
-          console.log('🔍 Checking project membership for project:', projectId);
-          const membersResponse = await api.getProjectMembers(projectId);
-          console.log('👥 Project Members:', membersResponse);
-          
-          const isMember = membersResponse.data?.some(member => member.user_id === user?.id);
-          console.log('✅ Is current user a project member?', isMember);
-          
-          if (!isMember) {
-            console.log('❌ USER IS NOT A PROJECT MEMBER - This is why the update is failing!');
-          }
-        }
-      } catch (memberError) {
-        console.log('❌ Failed to check project members:', memberError);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
       }
       
-      console.log('🔍 ======================================');
-      
-      const response = await api.updateTaskStatus(taskId, status);
-      console.log('📋 Update task status response:', response);
-      
-      if (response.success && response.data) {
-        // Handle both array and paginated response
-        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
-      } else {
-        console.error('❌ Update task status failed:', response.error);
-        throw new Error(response.error || 'Failed to update task status');
-      }
+      return data;
     } catch (error: any) {
       console.error('❌ Failed to update task status:', error);
-      console.error('❌ Error details:', {
-        message: error.message,
-        status: error.status,
-        response: error.response
-      });
       throw error;
     }
   };
@@ -2559,7 +2654,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const createCompany = async (companyData: any) => {
     try {
-      console.log('🏢 Creating company:', companyData);
+      console.log('🏢 Creating company (quick create - bypasses profile completeness):', companyData);
       
       // Ensure required fields are present
       if (!companyData.name || !companyData.subcategory) {
@@ -2570,11 +2665,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         };
       }
       
-      // Call the API client method
-      // According to the library, this will:
-      // - Return ApiResponse<Company> if successful
+      // Use quickCreateCompany instead of createCompany to bypass profile completeness requirement
+      // According to the library, quickCreateCompany:
+      // - Bypasses the profile completeness check
+      // - Returns ApiResponse<Company> if successful
       // - Throw ApiError if status is not OK (404, 500, etc.)
-      const response = await api.createCompany(companyData);
+      const response = await api.quickCreateCompany(companyData);
       
       // Handle successful response (should have success: true and data)
       if (response && response.success && response.data) {
@@ -2668,13 +2764,21 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const getUserCompanies = async (userId: string) => {
-    try {
-      const response = await api.getUserCompanies(userId);
-      return response;
-    } catch (error) {
-      console.error('Failed to get user companies:', error);
-      throw error;
-    }
+    const cacheKey = `user-companies-${userId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getUserCompanies(userId);
+        return response;
+      } catch (error: any) {
+        console.error('Failed to get user companies:', error);
+        // If rate limited, return empty result instead of throwing
+        if (error.status === 429 || error.message?.includes('429')) {
+          console.warn('⚠️ Rate limited on getUserCompanies, returning empty result');
+          return { success: true, data: [] };
+        }
+        throw error;
+      }
+    });
   };
 
   const submitCompanyForApproval = async (companyId: string) => {
@@ -3052,6 +3156,387 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Certification Template Management (Admin)
+  const getCertificationTemplates = async (query?: { active?: boolean; category?: string }) => {
+    try {
+      const response = await api.getCertificationTemplates(query);
+      if (response.success && response.data) {
+        const data = response.data as any;
+        return Array.isArray(data) ? data : (data.data || []);
+      }
+      throw new Error(response.error || 'Failed to get certification templates');
+    } catch (error) {
+      console.error('Failed to get certification templates:', error);
+      throw error;
+    }
+  };
+
+  const getCertificationTemplate = async (templateId: string) => {
+    try {
+      const response = await api.getCertificationTemplate(templateId);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      throw new Error(response.error || 'Failed to get certification template');
+    } catch (error) {
+      console.error('Failed to get certification template:', error);
+      throw error;
+    }
+  };
+
+  const createCertificationTemplate = async (templateData: CreateCertificationTemplateRequest) => {
+    try {
+      const response = await api.createCertificationTemplate(templateData);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      throw new Error(response.error || 'Failed to create certification template');
+    } catch (error) {
+      console.error('Failed to create certification template:', error);
+      throw error;
+    }
+  };
+
+  const updateCertificationTemplate = async (templateId: string, updates: UpdateCertificationTemplateRequest) => {
+    try {
+      const response = await api.updateCertificationTemplate(templateId, updates);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      throw new Error(response.error || 'Failed to update certification template');
+    } catch (error) {
+      console.error('Failed to update certification template:', error);
+      throw error;
+    }
+  };
+
+  const deleteCertificationTemplate = async (templateId: string) => {
+    try {
+      const response = await api.deleteCertificationTemplate(templateId);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to delete certification template');
+    } catch (error) {
+      console.error('Failed to delete certification template:', error);
+      throw error;
+    }
+  };
+
+  // Academy Authorization Management (Admin)
+  const authorizeAcademyForCertification = async (academyId: string, templateId: string) => {
+    try {
+      const response = await api.authorizeAcademyForCertification(academyId, templateId);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      throw new Error(response.error || 'Failed to authorize academy');
+    } catch (error) {
+      console.error('Failed to authorize academy:', error);
+      throw error;
+    }
+  };
+
+  const revokeAcademyAuthorization = async (academyId: string, templateId: string) => {
+    try {
+      const response = await api.revokeAcademyAuthorization(academyId, templateId);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to revoke academy authorization');
+    } catch (error) {
+      console.error('Failed to revoke academy authorization:', error);
+      throw error;
+    }
+  };
+
+  const bulkAuthorizeAcademies = async (bulkData: BulkAuthorizationRequest) => {
+    try {
+      const response = await api.bulkAuthorizeAcademies(bulkData);
+      if (response.success && response.data) {
+        const data = response.data as any;
+        return Array.isArray(data) ? data : (data.data || []);
+      }
+      throw new Error(response.error || 'Failed to bulk authorize academies');
+    } catch (error) {
+      console.error('Failed to bulk authorize academies:', error);
+      throw error;
+    }
+  };
+
+  const getAcademyAuthorizations = async (academyId: string) => {
+    try {
+      const response = await api.getAcademyAuthorizations(academyId);
+      if (response.success && response.data) {
+        const data = response.data as any;
+        return Array.isArray(data) ? data : (data.data || []);
+      }
+      throw new Error(response.error || 'Failed to get academy authorizations');
+    } catch (error) {
+      console.error('Failed to get academy authorizations:', error);
+      throw error;
+    }
+  };
+
+  // Certification Management (Academy/Company)
+  const getAuthorizedCertifications = async (companyId: string) => {
+    try {
+      const response = await api.getAuthorizedCertifications(companyId);
+      if (response.success && response.data) {
+        const data = response.data as any;
+        return Array.isArray(data) ? data : (data.data || []);
+      }
+      throw new Error(response.error || 'Failed to get authorized certifications');
+    } catch (error) {
+      console.error('Failed to get authorized certifications:', error);
+      throw error;
+    }
+  };
+
+  const grantCertification = async (companyId: string, certificationData: CreateCertificationRequest) => {
+    try {
+      const response = await api.grantCertification(companyId, certificationData);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      throw new Error(response.error || 'Failed to grant certification');
+    } catch (error) {
+      console.error('Failed to grant certification:', error);
+      throw error;
+    }
+  };
+
+  const getCompanyCertifications = async (companyId: string) => {
+    try {
+      const response = await api.getCompanyCertifications(companyId);
+      if (response.success && response.data) {
+        const data = response.data as any;
+        return Array.isArray(data) ? data : (data.data || []);
+      }
+      throw new Error(response.error || 'Failed to get company certifications');
+    } catch (error) {
+      console.error('Failed to get company certifications:', error);
+      throw error;
+    }
+  };
+
+  const updateCertification = async (companyId: string, certificationId: string, updates: UpdateCertificationRequest) => {
+    try {
+      const response = await api.updateCertification(companyId, certificationId, updates);
+      if (response.success && response.data) {
+        return response.data;
+      }
+      throw new Error(response.error || 'Failed to update certification');
+    } catch (error) {
+      console.error('Failed to update certification:', error);
+      throw error;
+    }
+  };
+
+  const revokeCertification = async (companyId: string, certificationId: string) => {
+    try {
+      const response = await api.revokeCertification(companyId, certificationId);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to revoke certification');
+    } catch (error) {
+      console.error('Failed to revoke certification:', error);
+      throw error;
+    }
+  };
+
+  // User Certification Access
+  const getUserCertifications = async (userId: string) => {
+    const cacheKey = `user-certifications-${userId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getUserCertifications(userId);
+        if (response.success && response.data) {
+          const data = response.data as any;
+          return Array.isArray(data) ? data : (data.data || []);
+        }
+        throw new Error(response.error || 'Failed to get user certifications');
+      } catch (error: any) {
+        console.error('Failed to get user certifications:', error);
+        // If rate limited, return empty array instead of throwing
+        if (error.status === 429 || error.message?.includes('429')) {
+          console.warn('⚠️ Rate limited on getUserCertifications, returning empty array');
+          return [];
+        }
+        throw error;
+      }
+    });
+  };
+
+  // Notification methods
+  const getNotifications = async (params?: NotificationParams) => {
+    try {
+      const response = await api.getNotifications(params);
+      if (response.success && response.data) {
+        // Handle paginated response
+        let notificationsList: Notification[] = [];
+        if (Array.isArray(response.data)) {
+          notificationsList = response.data;
+        } else if (response.data.data && Array.isArray(response.data.data)) {
+          notificationsList = response.data.data;
+        } else if ((response.data as any).notifications && Array.isArray((response.data as any).notifications)) {
+          notificationsList = (response.data as any).notifications;
+        }
+        setNotifications(notificationsList);
+        return notificationsList;
+      }
+      throw new Error(response.error || 'Failed to get notifications');
+    } catch (error) {
+      console.error('Failed to get notifications:', error);
+      throw error;
+    }
+  };
+
+  const getUnreadNotificationCount = async (): Promise<number> => {
+    try {
+      const response = await api.getUnreadNotificationCount();
+      if (response.success && response.data) {
+        const count = response.data.count || 0;
+        setUnreadNotificationCount(count);
+        return count;
+      }
+      return 0;
+    } catch (error) {
+      console.error('Failed to get unread notification count:', error);
+      return 0;
+    }
+  };
+
+  const markNotificationAsRead = async (notificationId: string) => {
+    try {
+      const response = await api.markNotificationAsRead(notificationId);
+      if (response.success && response.data) {
+        // Update local state
+        setNotifications(prev => 
+          prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
+        );
+        // Update unread count
+        setUnreadNotificationCount(prev => Math.max(0, prev - 1));
+        return response.data;
+      }
+      throw new Error(response.error || 'Failed to mark notification as read');
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+      throw error;
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      const response = await api.markAllNotificationsAsRead();
+      if (response.success) {
+        // Update local state
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+        setUnreadNotificationCount(0);
+        return response;
+      }
+      throw new Error(response.error || 'Failed to mark all notifications as read');
+    } catch (error) {
+      console.error('Failed to mark all notifications as read:', error);
+      throw error;
+    }
+  };
+
+  const deleteNotification = async (notificationId: string) => {
+    try {
+      const response = await api.deleteNotification(notificationId);
+      if (response.success) {
+        // Update local state
+        const deletedNotification = notifications.find(n => n.id === notificationId);
+        if (deletedNotification && !deletedNotification.is_read) {
+          setUnreadNotificationCount(prev => Math.max(0, prev - 1));
+        }
+        setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        return response;
+      }
+      throw new Error(response.error || 'Failed to delete notification');
+    } catch (error) {
+      console.error('Failed to delete notification:', error);
+      throw error;
+    }
+  };
+
+  // Load notifications and unread count on user login
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      getUnreadNotificationCount();
+      getNotifications({ limit: 20, page: 1 });
+    }
+  }, [isAuthenticated, user?.id]);
+
+  // Setup real-time subscription for notifications
+  useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      // Initialize Supabase if not already initialized
+      // Note: Supabase URL and key should be set via environment variables or config
+      try {
+        if (!supabaseService.isInitialized()) {
+          // Try to initialize with environment variables
+          // In production, these should be set via environment config
+          const supabaseUrl = process.env.SUPABASE_URL || '';
+          const supabaseKey = process.env.SUPABASE_ANON_KEY || '';
+          
+          if (supabaseUrl && supabaseKey) {
+            supabaseService.initialize(supabaseUrl, supabaseKey);
+          } else {
+            console.warn('⚠️ Supabase credentials not configured. Real-time notifications will not work.');
+            console.warn('Set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.');
+          }
+        }
+
+        // Subscribe to notifications for this user
+        if (supabaseService.isInitialized()) {
+          const channelId = supabaseService.subscribeToNotifications(
+            user.id,
+            (newNotification: Notification) => {
+              console.log('📨 New notification received via real-time:', newNotification);
+              
+              // Add new notification to the list
+              setNotifications(prev => {
+                // Check if notification already exists
+                const exists = prev.find(n => n.id === newNotification.id);
+                if (exists) {
+                  return prev;
+                }
+                // Add to beginning of list
+                return [newNotification, ...prev];
+              });
+
+              // Update unread count if notification is unread
+              if (!newNotification.is_read) {
+                setUnreadNotificationCount(prev => prev + 1);
+              }
+
+              // Refresh notifications list to get latest data
+              getNotifications({ limit: 20, page: 1 });
+              getUnreadNotificationCount();
+            }
+          );
+
+          setNotificationChannelId(channelId);
+          console.log('✅ Real-time notification subscription established');
+        }
+      } catch (error) {
+        console.error('Failed to setup real-time notifications:', error);
+      }
+    }
+
+    // Cleanup subscription on unmount or when user changes
+    return () => {
+      if (notificationChannelId) {
+        supabaseService.unsubscribe(notificationChannelId);
+        setNotificationChannelId(null);
+        console.log('🔌 Unsubscribed from real-time notifications');
+      }
+    };
+  }, [isAuthenticated, user?.id]);
+
   const value: ApiContextType = {
     api,
     isAuthenticated,
@@ -3120,6 +3605,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     updateTask,
     deleteTask,
     assignTaskService,
+    deleteTaskAssignment,
     updateTaskStatus,
     getTaskAssignments,
     // Debug methods
@@ -3176,6 +3662,34 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getCompanyDocuments,
     addCompanyDocument,
     deleteCompanyDocument,
+    // Notification methods
+    getNotifications,
+    getUnreadNotificationCount,
+    markNotificationAsRead,
+    markAllNotificationsAsRead,
+    deleteNotification,
+    // Notification state
+    notifications,
+    unreadNotificationCount,
+    // Certification Template Management (Admin)
+    getCertificationTemplates,
+    getCertificationTemplate,
+    createCertificationTemplate,
+    updateCertificationTemplate,
+    deleteCertificationTemplate,
+    // Academy Authorization Management (Admin)
+    authorizeAcademyForCertification,
+    revokeAcademyAuthorization,
+    bulkAuthorizeAcademies,
+    getAcademyAuthorizations,
+    // Certification Management (Academy/Company)
+    getAuthorizedCertifications,
+    grantCertification,
+    getCompanyCertifications,
+    updateCertification,
+    revokeCertification,
+    // User Certification Access
+    getUserCertifications,
   };
 
   return (
