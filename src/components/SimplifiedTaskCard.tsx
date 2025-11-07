@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import DatePicker from './DatePicker';
 
 interface SimplifiedTaskCardProps {
   projectId: string;
@@ -1061,23 +1062,24 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
             </View>
             <View style={styles.modalContent}>
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Start Date</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={taskStartDate}
-                  onChangeText={setTaskStartDate}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#9ca3af"
+                <DatePicker
+                  label="Start Date"
+                  value={taskStartDate || null}
+                  onChange={(date) => setTaskStartDate(date || '')}
+                  placeholder="Select start date"
+                  mode="date"
+                  style={styles.datePicker}
                 />
               </View>
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>End Date / Due Date</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={taskEndDate}
-                  onChangeText={setTaskEndDate}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#9ca3af"
+                <DatePicker
+                  label="End Date / Due Date"
+                  value={taskEndDate || null}
+                  onChange={(date) => setTaskEndDate(date || '')}
+                  placeholder="Select end date"
+                  mode="date"
+                  minimumDate={taskStartDate ? new Date(taskStartDate) : undefined}
+                  style={styles.datePicker}
                 />
               </View>
               <TouchableOpacity
@@ -1415,6 +1417,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
     marginBottom: 8,
+  },
+  datePicker: {
+    marginBottom: 0,
   },
   textInput: {
     backgroundColor: '#fff',

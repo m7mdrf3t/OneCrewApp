@@ -19,11 +19,13 @@
     "@supabase/supabase-js": "^2.76.1",
     "expo": "54.0.20",
     "expo-av": "~16.0.7",
+    "expo-constants": "^18.0.10",
     "expo-dev-client": "~6.0.16",
     "expo-font": "~14.0.9",
     "expo-image-picker": "~17.0.8",
     "expo-secure-store": "~15.0.7",
     "expo-status-bar": "~3.0.8",
+    "expo-updates": "~29.0.12",
     "onecrew-api-client": "^2.2.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
@@ -36,7 +38,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
-    "eas-cli": "^16.20.1",
+    "eas-cli": "^16.26.0",
     "typescript": "~5.9.2"
   }
 }

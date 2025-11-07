@@ -95,6 +95,13 @@ interface ProfileFormData {
     caption?: string;
     sort_order?: number;
   }>;
+  socialLinks: Array<{
+    id?: string; // Backend ID (for updates/deletes)
+    platform: 'instagram' | 'twitter' | 'facebook' | 'linkedin' | 'youtube' | 'tiktok' | 'website' | 'other';
+    url: string;
+    username?: string;
+    is_custom?: boolean;
+  }>;
   about: {
     gender: string;
     age: string;
@@ -133,7 +140,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   visible = true,
   onClose,
 }) => {
-  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, uploadFile, getAccessToken } = useApi();
+  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, uploadFile, getAccessToken, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, isAuthenticated, isGuest } = useApi();
   
   // Check if user is a talent - only show talent-specific fields if category is 'talent'
   const isTalent = user?.category === 'talent' || user?.category === 'Talent';
@@ -143,6 +150,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     bio: '',
     skills: [],
     portfolio: [],
+    socialLinks: [],
     about: {
       gender: '',
       age: '',
@@ -171,6 +179,14 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  // Social media links state
+  const [editingSocialLinkIndex, setEditingSocialLinkIndex] = useState<number | null>(null);
+  const [newSocialLink, setNewSocialLink] = useState({
+    platform: 'instagram' as 'instagram' | 'twitter' | 'facebook' | 'linkedin' | 'youtube' | 'tiktok' | 'website' | 'other',
+    url: '',
+    username: '',
+  });
+  
   // Portfolio state
   const [currentPortfolioUrl, setCurrentPortfolioUrl] = useState('');
   const [currentPortfolioCaption, setCurrentPortfolioCaption] = useState('');
@@ -184,6 +200,40 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   const [abilities, setAbilities] = useState<Array<{id: string, name: string}>>([]);
   const [languages, setLanguages] = useState<Array<{id: string, name: string}>>([]);
   const [loadingReferences, setLoadingReferences] = useState(false);
+
+  // Load social links from API
+  useEffect(() => {
+    const loadSocialLinks = async () => {
+      if (!user?.id || isGuest || !isAuthenticated) return;
+      try {
+        console.log('🔗 Loading social links from API...');
+        const response = await getUserSocialLinks();
+        if (response.success && response.data) {
+          const links = Array.isArray(response.data) ? response.data : response.data.data || [];
+          // Map backend UserSocialLink to form format
+          const mappedLinks = links.map((link: any) => ({
+            id: link.id,
+            platform: link.platform,
+            url: link.url,
+            username: undefined, // Backend doesn't store username separately
+            is_custom: link.is_custom || false,
+          }));
+          setFormData(prev => ({
+            ...prev,
+            socialLinks: mappedLinks,
+          }));
+          console.log('✅ Social links loaded:', mappedLinks.length);
+        }
+      } catch (error) {
+        console.error('Failed to load social links:', error);
+        // Don't throw - just log, user can still add links
+      }
+    };
+
+    if (visible && user?.id) {
+      loadSocialLinks();
+    }
+  }, [visible, user?.id, getUserSocialLinks, isGuest, isAuthenticated]);
 
   // Initialize form data when user changes
   useEffect(() => {
@@ -219,6 +269,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         bio: user.bio || '',
         skills: normalizedSkills,
         portfolio: user.portfolio || user.user_portfolios || [],
+        socialLinks: [], // Will be loaded separately from API
         about: {
           gender: aboutData.gender || userDetails.gender || '',
           age: aboutData.age?.toString() || userDetails.age?.toString() || '',
@@ -404,6 +455,131 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         dialects: prev.about.dialects.filter(dialect => dialect !== dialectToRemove),
       },
     }));
+  };
+
+  // Social media links management functions
+  const handleAddSocialLink = async () => {
+    if (!newSocialLink.url.trim()) {
+      Alert.alert('Error', 'Please enter a URL for the social media link');
+      return;
+    }
+
+    // Validate URL format
+    const urlPattern = /^https?:\/\/.+\..+/;
+    if (!urlPattern.test(newSocialLink.url.trim())) {
+      Alert.alert('Error', 'Please enter a valid URL (must start with http:// or https://)');
+      return;
+    }
+
+    try {
+      if (editingSocialLinkIndex !== null) {
+        // Update existing link via API
+        const linkToUpdate = formData.socialLinks[editingSocialLinkIndex];
+        if (linkToUpdate.id) {
+          await updateSocialLink(linkToUpdate.id, {
+            platform: newSocialLink.platform,
+            url: newSocialLink.url.trim(),
+            is_custom: newSocialLink.platform === 'other',
+          });
+          
+          // Update local state
+          setFormData(prev => ({
+            ...prev,
+            socialLinks: prev.socialLinks.map((link, index) =>
+              index === editingSocialLinkIndex
+                ? { ...link, platform: newSocialLink.platform, url: newSocialLink.url.trim() }
+                : link
+            ),
+          }));
+          setEditingSocialLinkIndex(null);
+          Alert.alert('Success', 'Social link updated successfully!');
+        }
+      } else {
+        // Add new link via API
+        const response = await addSocialLink({
+          platform: newSocialLink.platform,
+          url: newSocialLink.url.trim(),
+          is_custom: newSocialLink.platform === 'other',
+        });
+        
+        // Add to local state with the ID from response
+        if (response.data) {
+          setFormData(prev => ({
+            ...prev,
+            socialLinks: [...prev.socialLinks, {
+              id: response.data.id,
+              platform: newSocialLink.platform,
+              url: newSocialLink.url.trim(),
+              is_custom: newSocialLink.platform === 'other',
+            }],
+          }));
+          Alert.alert('Success', 'Social link added successfully!');
+        }
+      }
+
+      // Reset form
+      setNewSocialLink({
+        platform: 'instagram',
+        url: '',
+        username: '',
+      });
+    } catch (error: any) {
+      console.error('Failed to save social link:', error);
+      Alert.alert('Error', error.message || 'Failed to save social link. Please try again.');
+    }
+  };
+
+  const handleEditSocialLink = (index: number) => {
+    const link = formData.socialLinks[index];
+    setNewSocialLink({
+      platform: link.platform as any,
+      url: link.url,
+      username: link.username || '',
+    });
+    setEditingSocialLinkIndex(index);
+  };
+
+  const handleRemoveSocialLink = async (index: number) => {
+    const link = formData.socialLinks[index];
+    
+    if (link.id) {
+      // Delete from API
+      try {
+        await deleteSocialLink(link.id);
+        // Remove from local state
+        setFormData(prev => ({
+          ...prev,
+          socialLinks: prev.socialLinks.filter((_, i) => i !== index),
+        }));
+        if (editingSocialLinkIndex === index) {
+          setEditingSocialLinkIndex(null);
+          setNewSocialLink({
+            platform: 'instagram',
+            url: '',
+            username: '',
+          });
+        }
+        Alert.alert('Success', 'Social link removed successfully!');
+      } catch (error: any) {
+        console.error('Failed to delete social link:', error);
+        Alert.alert('Error', error.message || 'Failed to delete social link. Please try again.');
+      }
+    } else {
+      // If no ID, just remove from local state (newly added but not saved)
+      setFormData(prev => ({
+        ...prev,
+        socialLinks: prev.socialLinks.filter((_, i) => i !== index),
+      }));
+    }
+  };
+
+  const cancelEditSocialLink = () => {
+    setEditingSocialLinkIndex(null);
+    setNewSocialLink({
+      platform: 'instagram',
+      url: '',
+      username: '',
+    });
   };
 
   // Portfolio management functions
@@ -795,6 +971,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       console.log('🔄 Starting profile update with separated data sources...');
       
       // 1. Prepare basic profile data (bio, specialty, skills, imageUrl)
+      // Note: social_links are handled separately via dedicated endpoints
       const basicProfileData = {
         bio: formData.bio.trim(),
         specialty: formData.specialty.trim(),
@@ -868,6 +1045,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
       console.log('🔄 Updating basic profile:', basicProfileData);
       console.log('🔄 Updating user details (age, nationality, gender):', userDetailsData);
+      console.log('🔗 Social links are managed separately via dedicated endpoints');
       console.log('🔄 Updating talent profile (physical details):', cleanedTalentData);
       console.log('🔍 Talent profile data being sent:', JSON.stringify(cleanedTalentData, null, 2));
       console.log('🔍 Form data values being used:', {
@@ -1294,6 +1472,142 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                   <Text style={styles.removePortfolioButtonText}>×</Text>
               </TouchableOpacity>
             </View>
+            ))}
+          </View>
+        )}
+
+        {/* Social Media Links Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Social Media & Links</Text>
+          <Text style={styles.sectionDescription}>
+            Add your social media profiles and website links
+          </Text>
+        </View>
+
+        {/* Platform Selection */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>Platform</Text>
+          <CustomDropdown
+            options={[
+              { id: 'instagram', name: '📷 Instagram' },
+              { id: 'twitter', name: '🐦 Twitter' },
+              { id: 'facebook', name: '📘 Facebook' },
+              { id: 'linkedin', name: '💼 LinkedIn' },
+              { id: 'youtube', name: '📺 YouTube' },
+              { id: 'tiktok', name: '🎵 TikTok' },
+              { id: 'website', name: '🌐 Website' },
+              { id: 'other', name: '🔗 Other' },
+            ]}
+            value={newSocialLink.platform}
+            onValueChange={(value: string) => setNewSocialLink(prev => ({ ...prev, platform: value as any }))}
+            placeholder="Select platform"
+            disabled={isSubmitting}
+          />
+        </View>
+
+        {/* URL Input */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>URL *</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="https://example.com/profile"
+            placeholderTextColor="#9ca3af"
+            value={newSocialLink.url}
+            onChangeText={(text) => setNewSocialLink(prev => ({ ...prev, url: text }))}
+            keyboardType="url"
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!isSubmitting}
+          />
+        </View>
+
+        {/* Username Input (Optional) */}
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>Username (Optional)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="@username"
+            placeholderTextColor="#9ca3af"
+            value={newSocialLink.username}
+            onChangeText={(text) => setNewSocialLink(prev => ({ ...prev, username: text }))}
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!isSubmitting}
+          />
+        </View>
+
+        {/* Add/Update Button */}
+        <View style={styles.row}>
+          <TouchableOpacity
+            style={[styles.addSocialLinkButton, isSubmitting && styles.addSocialLinkButtonDisabled]}
+            onPress={handleAddSocialLink}
+            disabled={isSubmitting}
+          >
+            <Ionicons 
+              name={editingSocialLinkIndex !== null ? "checkmark" : "add"} 
+              size={20} 
+              color="#fff" 
+            />
+            <Text style={styles.addSocialLinkButtonText}>
+              {editingSocialLinkIndex !== null ? 'Update Link' : 'Add Link'}
+            </Text>
+          </TouchableOpacity>
+          
+          {editingSocialLinkIndex !== null && (
+            <TouchableOpacity
+              style={[styles.cancelSocialLinkButton, isSubmitting && styles.cancelSocialLinkButtonDisabled]}
+              onPress={cancelEditSocialLink}
+              disabled={isSubmitting}
+            >
+              <Text style={styles.cancelSocialLinkButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Social Links List */}
+        {formData.socialLinks.length > 0 && (
+          <View style={styles.socialLinksList}>
+            <Text style={styles.socialLinksListTitle}>
+              Your Social Links ({formData.socialLinks.length})
+            </Text>
+            {formData.socialLinks.map((link, index) => (
+              <View key={index} style={styles.socialLinkItem}>
+                <View style={styles.socialLinkItemInfo}>
+                  <Text style={styles.socialLinkItemPlatform}>
+                    {link.platform === 'instagram' ? '📷 Instagram' :
+                     link.platform === 'twitter' ? '🐦 Twitter' :
+                     link.platform === 'facebook' ? '📘 Facebook' :
+                     link.platform === 'linkedin' ? '💼 LinkedIn' :
+                     link.platform === 'youtube' ? '📺 YouTube' :
+                     link.platform === 'tiktok' ? '🎵 TikTok' :
+                     link.platform === 'website' ? '🌐 Website' : '🔗 Other'}
+                  </Text>
+                  <Text style={styles.socialLinkItemUrl} numberOfLines={1}>
+                    {link.url}
+                  </Text>
+                  {link.username && (
+                    <Text style={styles.socialLinkItemUsername} numberOfLines={1}>
+                      @{link.username}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.socialLinkItemActions}>
+                  <TouchableOpacity
+                    style={styles.editSocialLinkButton}
+                    onPress={() => handleEditSocialLink(index)}
+                    disabled={isSubmitting}
+                  >
+                    <Ionicons name="create-outline" size={18} color="#3b82f6" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.removeSocialLinkButton}
+                    onPress={() => handleRemoveSocialLink(index)}
+                    disabled={isSubmitting}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              </View>
             ))}
           </View>
         )}
@@ -2111,6 +2425,101 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // Social media links styles
+  addSocialLinkButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginRight: 8,
+    gap: 8,
+  },
+  addSocialLinkButtonDisabled: {
+    backgroundColor: '#9ca3af',
+  },
+  addSocialLinkButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cancelSocialLinkButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f3f4f6',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+  },
+  cancelSocialLinkButtonDisabled: {
+    backgroundColor: '#f9fafb',
+    borderColor: '#e5e7eb',
+  },
+  cancelSocialLinkButtonText: {
+    color: '#374151',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  socialLinksList: {
+    marginTop: 16,
+  },
+  socialLinksListTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  socialLinkItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  socialLinkItemInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  socialLinkItemPlatform: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  socialLinkItemUrl: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 2,
+  },
+  socialLinkItemUsername: {
+    fontSize: 12,
+    color: '#9ca3af',
+    fontStyle: 'italic',
+  },
+  socialLinkItemActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  editSocialLinkButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#eff6ff',
+  },
+  removeSocialLinkButton: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: '#fef2f2',
   },
   // Debug styles
   debugContainer: {

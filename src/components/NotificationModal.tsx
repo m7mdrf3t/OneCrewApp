@@ -29,6 +29,7 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
     notifications,
     unreadNotificationCount,
     getNotifications,
+    getUnreadNotificationCount,
     markNotificationAsRead,
     markAllNotificationsAsRead,
     deleteNotification,
@@ -41,6 +42,8 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
   useEffect(() => {
     if (visible) {
       loadNotifications();
+      // Refresh unread count when modal opens
+      getUnreadNotificationCount();
     }
   }, [visible, filter]);
 

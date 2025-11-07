@@ -120,10 +120,11 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
       if (response.success) {
         Alert.alert('Success', `Invitation sent to ${selectedUser.name || selectedUser.email}`);
         resetForm();
-        onClose();
+        // Call callback BEFORE closing to ensure refresh happens
         if (onInvitationSent) {
           onInvitationSent();
         }
+        onClose();
       } else {
         throw new Error(response.error || 'Failed to send invitation');
       }

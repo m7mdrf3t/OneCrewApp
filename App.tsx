@@ -31,6 +31,7 @@ import MyTeamModal from './src/components/MyTeamModal';
 import NotificationModal from './src/components/NotificationModal';
 import InvitationModal from './src/components/InvitationModal';
 import InvitationListModal from './src/components/InvitationListModal';
+import AccountSwitcherModal from './src/components/AccountSwitcherModal';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
 import ProfileCompletionPage from './src/pages/ProfileCompletionPage';
 import SpotPage from './src/pages/SpotPage';
@@ -48,7 +49,7 @@ import { NavigationState, User, ProjectCreationData, ProjectDashboardData, Notif
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, currentProfileType, activeCompany } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -71,6 +72,7 @@ const AppContent: React.FC = () => {
   const [showInvitationModal, setShowInvitationModal] = useState(false);
   const [selectedCompanyForInvitation, setSelectedCompanyForInvitation] = useState<any>(null);
   const [showInvitationListModal, setShowInvitationListModal] = useState(false);
+  const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
   const systemColorScheme = useColorScheme();
   const [theme, setTheme] = useState('light');
 
@@ -342,8 +344,10 @@ const AppContent: React.FC = () => {
   }, []);
 
   const handleProfileEdit = useCallback(() => {
-    navigateTo('myProfile', MOCK_PROFILES[0]);
-  }, [navigateTo]);
+    if (user) {
+      navigateTo('profileCompletion', user);
+    }
+  }, [navigateTo, user]);
 
   const handleCreateCompany = useCallback(() => {
     navigateTo('companyRegistration');
@@ -691,9 +695,32 @@ const AppContent: React.FC = () => {
             <TouchableOpacity style={styles.topBarButton} onPress={handleUserMenuPress}>
               <Ionicons name="menu" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
-            <Text style={styles.topBarTitle}>
-              One Crew, <Text style={styles.userName}>{isGuest ? 'Guest User' : (user?.name || 'Guest')}</Text>
-            </Text>
+            <TouchableOpacity 
+              style={styles.topBarTitleContainer}
+              onPress={() => {
+                if (isAuthenticated && !isGuest) {
+                  setShowAccountSwitcher(true);
+                }
+              }}
+              disabled={isGuest || !isAuthenticated}
+            >
+              <Text style={styles.topBarTitle}>
+                One Crew, <Text style={styles.userName}>
+                  {currentProfileType === 'company' && activeCompany
+                    ? activeCompany.name
+                    : isGuest ? 'Guest User' : (user?.name || 'Guest')
+                  }
+                </Text>
+              </Text>
+              {isAuthenticated && !isGuest && (
+                <Ionicons 
+                  name="chevron-down" 
+                  size={16} 
+                  color={isDark ? '#9ca3af' : '#71717a'} 
+                  style={styles.chevronIcon}
+                />
+              )}
+            </TouchableOpacity>
           </View>
           <View style={styles.topBarRight}>
             <TouchableOpacity onPress={toggleTheme} style={styles.topBarButton}>
@@ -935,6 +962,22 @@ const AppContent: React.FC = () => {
           />
         )}
 
+        {/* Account Switcher Modal */}
+        <AccountSwitcherModal
+          visible={showAccountSwitcher}
+          onClose={() => setShowAccountSwitcher(false)}
+          onCreateCompany={isAuthenticated ? handleCreateCompany : undefined}
+          onNavigate={(pageName: string, data?: any) => {
+            if (pageName === 'signup') {
+              handleNavigateToSignup();
+            } else if (pageName === 'login') {
+              handleNavigateToLogin();
+            } else {
+              navigateTo(pageName, data);
+            }
+          }}
+        />
+
         {/* Notification Modal */}
         <NotificationModal
           visible={showNotificationModal}
@@ -1086,14 +1129,21 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     position: 'relative',
   },
+  topBarTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
   topBarTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#000',
-    marginLeft: 12,
   },
   userName: {
     fontWeight: '400',
+  },
+  chevronIcon: {
+    marginLeft: 4,
   },
   notificationBadge: {
     position: 'absolute',

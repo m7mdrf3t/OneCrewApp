@@ -52,6 +52,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     currentProfileType,
     getCompanyCertifications,
     getAuthorizedCertifications,
+    removeCompanyMember,
+    grantCertification,
   } = useApi();
 
   const [company, setCompany] = useState<Company | null>(null);
@@ -65,20 +67,61 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const [certifications, setCertifications] = useState<UserCertification[]>([]);
   const [loadingCertifications, setLoadingCertifications] = useState(false);
   const [showGrantCertificationModal, setShowGrantCertificationModal] = useState(false);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  const [selectedUserIdForCertification, setSelectedUserIdForCertification] = useState<string | null>(null);
 
   useEffect(() => {
     loadCompanyData();
   }, [companyId, refreshTrigger]);
 
-  // Reload services and certifications when refresh trigger changes
+  // Reload services, members, and certifications when refresh trigger changes
   useEffect(() => {
     if (company?.id) {
       loadServices(company.id);
+      loadMembers(company.id);
       if (company.subcategory === 'academy') {
         loadCertifications(company.id);
       }
     }
-  }, [refreshTrigger]);
+  }, [refreshTrigger, company?.id]);
+
+  const handleRemoveMember = async (member: CompanyMember) => {
+    if (!company?.id) return;
+
+    Alert.alert(
+      'Remove Member',
+      `Are you sure you want to remove ${member.user?.name || 'this member'} from ${company.name}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setRemovingMemberId(member.user_id);
+              const response = await removeCompanyMember(company.id, member.user_id);
+              
+              if (response.success) {
+                Alert.alert('Success', 'Member removed successfully');
+                // Reload members
+                await loadMembers(company.id);
+              } else {
+                throw new Error(response.error || 'Failed to remove member');
+              }
+            } catch (error: any) {
+              console.error('Failed to remove member:', error);
+              Alert.alert('Error', error.message || 'Failed to remove member. Please try again.');
+            } finally {
+              setRemovingMemberId(null);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const loadCompanyData = async () => {
     try {
@@ -112,26 +155,61 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const loadMembers = async (id: string) => {
     try {
       setLoadingMembers(true);
-      const response = await getCompanyMembers(id);
+      // Use API parameters: page, limit, sort, order
+      // API automatically filters for invitation_status = 'accepted' and excludes soft-deleted members
+      let response = await getCompanyMembers(id, {
+        page: 1,
+        limit: 50,
+        sort: 'joined_at',
+        order: 'asc'
+      });
+      
+      // If first attempt fails with 500, try without sort parameters (in case sort field doesn't exist)
+      if (!response.success && response.error?.includes('500')) {
+        console.warn('⚠️ Retrying without sort parameters...');
+        response = await getCompanyMembers(id, {
+          page: 1,
+          limit: 50
+          // Removed sort and order - might be causing the 500 error
+        });
+      }
       
       // Handle successful response with data
       if (response.success) {
+        // API returns paginated results - check both nested data structure and direct array
+        let membersArray: CompanyMember[] = [];
+        
         if (response.data?.data && Array.isArray(response.data.data)) {
-          setMembers(response.data.data);
+          // Paginated response structure: { data: { data: [...], pagination: {...} } }
+          membersArray = response.data.data;
         } else if (Array.isArray(response.data)) {
-          setMembers(response.data);
-        } else {
-          // No data but successful - set empty array
-          setMembers([]);
+          // Direct array response
+          membersArray = response.data;
+        } else if (response.data?.members && Array.isArray(response.data.members)) {
+          // Alternative structure with members key
+          membersArray = response.data.members;
         }
+        
+        // API already filters for accepted members, so we don't need to filter again
+        // But we'll keep a safety check just in case
+        setMembers(membersArray.filter(m => m.invitation_status === 'accepted'));
       } else {
-        // Error response - log but don't crash, show empty members list
-        console.warn('Failed to load members:', response.error);
+        // Error response (500, 403, etc.) 
+        // The ApiContext already handles these gracefully and returns success: true with empty data
+        // So if we get here with success: false, it's a non-500 error
+        if (response.error && !response.error.includes('500')) {
+          console.warn('⚠️ Failed to load members:', response.error);
+        }
         setMembers([]);
       }
-    } catch (err) {
-      // Fallback error handling (shouldn't happen now, but just in case)
-      console.error('Failed to load members:', err);
+    } catch (err: any) {
+      // Fallback error handling
+      // Check if it's a 500 error
+      if (err.status === 500 || err.statusCode === 500 || err.message?.includes('500') || err.message?.includes('Failed to fetch members')) {
+        console.warn('⚠️ Server error loading members (500). Showing empty list.');
+      } else {
+        console.error('Failed to load members:', err);
+      }
       setMembers([]);
     } finally {
       setLoadingMembers(false);
@@ -240,6 +318,23 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       default:
         return '#71717a';
     }
+  };
+
+  // Map invalid icon names to valid Ionicons names
+  const getValidIconName = (iconName: string | undefined | null): string => {
+    if (!iconName) return 'briefcase-outline'; // Default icon
+    
+    const iconMap: Record<string, string> = {
+      'pen': 'pencil-outline',
+      'pencil': 'pencil-outline',
+      'create': 'create-outline',
+      'edit': 'create-outline',
+      'write': 'pencil-outline',
+    };
+    
+    const lowerIconName = iconName.toLowerCase();
+    // Return mapped icon if exists, otherwise return the original with fallback
+    return iconMap[lowerIconName] || iconName || 'briefcase-outline';
   };
 
   const handleWebsitePress = () => {
@@ -466,7 +561,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 return (
                   <View key={companyService.service_id} style={styles.serviceCard}>
                     {service.icon_name && (
-                      <Ionicons name={service.icon_name as any} size={24} color="#000" />
+                      <Ionicons 
+                        name={getValidIconName(service.icon_name) as any} 
+                        size={24} 
+                        color="#000" 
+                      />
                     )}
                     <Text style={styles.serviceName}>{service.name}</Text>
                     {service.description && (
@@ -498,7 +597,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
-              Our Team {members.length > 0 && `(${members.length})`}
+              Team Members {members.length > 0 ? `(${members.length})` : ''}
             </Text>
             {canEdit() && onInviteMember && (
               <TouchableOpacity
@@ -515,9 +614,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             <ActivityIndicator size="small" color="#000" />
           ) : members.length > 0 ? (
             <View style={styles.membersList}>
-              {members
-                .filter((member) => member.invitation_status === 'accepted')
-                .map((member) => (
+              {members.map((member) => (
                   <View key={member.user_id} style={styles.memberCard}>
                     <View style={styles.memberAvatar}>
                       {member.user?.image_url ? (
@@ -559,14 +656,34 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                       </View>
                     </View>
 
-                    {isOwner() && member.role !== 'owner' && onManageMembers && (
-                      <TouchableOpacity
-                        style={styles.memberActionButton}
-                        onPress={() => onManageMembers(company)}
-                      >
-                        <Ionicons name="ellipsis-vertical" size={20} color="#71717a" />
-                      </TouchableOpacity>
-                    )}
+                    <View style={styles.memberActions}>
+                      {isOwner() && member.role !== 'owner' && (
+                        <>
+                          {company.subcategory === 'academy' && (
+                            <TouchableOpacity
+                              style={styles.memberActionButton}
+                              onPress={() => {
+                                setSelectedUserIdForCertification(member.user_id);
+                                setShowGrantCertificationModal(true);
+                              }}
+                            >
+                              <Ionicons name="trophy-outline" size={20} color="#3b82f6" />
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            style={styles.memberActionButton}
+                            onPress={() => handleRemoveMember(member)}
+                            disabled={removingMemberId === member.user_id}
+                          >
+                            {removingMemberId === member.user_id ? (
+                              <ActivityIndicator size="small" color="#ef4444" />
+                            ) : (
+                              <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                            )}
+                          </TouchableOpacity>
+                        </>
+                      )}
+                    </View>
                   </View>
                 ))}
             </View>
@@ -955,6 +1072,11 @@ const styles = StyleSheet.create({
   roleText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  memberActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   memberActionButton: {
     padding: 8,

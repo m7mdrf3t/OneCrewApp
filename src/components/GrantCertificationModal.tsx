@@ -14,12 +14,14 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { Company, CertificationTemplate, CreateCertificationRequest } from '../types';
+import DatePicker from './DatePicker';
 
 interface GrantCertificationModalProps {
   visible: boolean;
   onClose: () => void;
   company: Company;
   onCertificationGranted?: () => void;
+  preselectedUserId?: string; // Optional: pre-select a user when opening the modal
 }
 
 const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
@@ -27,6 +29,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
   onClose,
   company,
   onCertificationGranted,
+  preselectedUserId,
 }) => {
   const {
     api,
@@ -53,8 +56,33 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     if (visible) {
       loadAuthorizedCertifications();
       resetForm();
+      
+      // If a user ID is preselected, fetch and set that user
+      if (preselectedUserId) {
+        loadPreselectedUser(preselectedUserId);
+      }
     }
-  }, [visible, company.id]);
+  }, [visible, company.id, preselectedUserId]);
+
+  const loadPreselectedUser = async (userId: string) => {
+    try {
+      // Try to get user by ID using the API
+      const response = await api.getUsers({ id: userId, limit: 1 });
+      if (response?.success && response.data) {
+        const usersArray = Array.isArray(response.data) ? response.data : (response.data.data || []);
+        const userData = usersArray.find((u: any) => u.id === userId) || usersArray[0];
+        if (userData) {
+          setSelectedUser(userData);
+          setSearchQuery(userData.name || userData.email || '');
+          setFilteredUsers([]); // Clear search results since we have a preselected user
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load preselected user:', error);
+      // If API call fails, at least set the search query to show we're trying to load
+      setSearchQuery('Loading user...');
+    }
+  };
 
   // Search users using API q parameter when search query changes
   useEffect(() => {
@@ -107,14 +135,54 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     setFilteredUsers([]);
   };
 
+  // Map invalid icon names to valid Ionicons names
+  const getValidIconName = (iconName: string | undefined | null): string => {
+    if (!iconName) return 'trophy-outline'; // Default icon
+    
+    const iconMap: Record<string, string> = {
+      'pen': 'pencil-outline',
+      'pencil': 'pencil-outline',
+      'create': 'create-outline',
+      'edit': 'create-outline',
+      'write': 'pencil-outline',
+    };
+    
+    const lowerIconName = iconName.toLowerCase();
+    // Return mapped icon if exists, otherwise return the original with fallback
+    return iconMap[lowerIconName] || iconName || 'trophy-outline';
+  };
+
   const loadAuthorizedCertifications = async () => {
     try {
       setLoadingTemplates(true);
+      console.log('🔍 Loading authorized certifications for company:', company.id, company.name);
       const templates = await getAuthorizedCertifications(company.id);
-      setAuthorizedTemplates(Array.isArray(templates) ? templates : []);
-    } catch (error) {
-      console.error('Failed to load authorized certifications:', error);
-      Alert.alert('Error', 'Failed to load authorized certifications. Please try again.');
+      console.log('✅ Authorized certifications response:', {
+        isArray: Array.isArray(templates),
+        count: Array.isArray(templates) ? templates.length : 'not an array',
+        data: templates
+      });
+      const templatesArray = Array.isArray(templates) ? templates : [];
+      setAuthorizedTemplates(templatesArray);
+      
+      if (templatesArray.length === 0) {
+        console.warn('⚠️ No authorized certifications found. This means:');
+        console.warn('   1. There are no authorization records in academy_certification_authorizations table');
+        console.warn('   2. An admin needs to authorize this academy to grant certifications');
+        console.warn('   3. Even if certifications exist in certification_templates, they need authorization');
+      }
+    } catch (error: any) {
+      console.error('❌ Failed to load authorized certifications:', error);
+      console.error('   Error details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response
+      });
+      Alert.alert(
+        'Error Loading Certifications',
+        `Failed to load authorized certifications.\n\n${error.message || 'Please try again.'}\n\nNote: Certifications must be authorized by an admin before they can be granted.`,
+        [{ text: 'OK' }]
+      );
     } finally {
       setLoadingTemplates(false);
     }
@@ -181,10 +249,11 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
       if (response) {
         Alert.alert('Success', `Certification granted to ${selectedUser.name || selectedUser.email}`);
         resetForm();
-        onClose();
+        // Call the callback BEFORE closing to ensure refresh happens
         if (onCertificationGranted) {
           onCertificationGranted();
         }
+        onClose();
       } else {
         throw new Error('Failed to grant certification');
       }
@@ -325,7 +394,9 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                   No authorized certifications available
                 </Text>
                 <Text style={styles.emptyStateSubtext}>
-                  Contact an administrator to get authorization for certification templates
+                  This academy has not been authorized to grant any certifications yet.{'\n\n'}
+                  Even if certifications exist in the database, an administrator must authorize this academy to grant them.{'\n\n'}
+                  Contact an administrator to request authorization for certification templates.
                 </Text>
               </View>
             ) : (
@@ -341,7 +412,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                   >
                     <View style={styles.templateIcon}>
                       <Ionicons
-                        name={template.icon_name || 'trophy'}
+                        name={getValidIconName(template.icon_name || 'trophy')}
                         size={24}
                         color={selectedTemplate?.id === template.id ? '#3b82f6' : '#6b7280'}
                       />
@@ -376,13 +447,14 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
           {/* Expiration Date */}
           {selectedTemplate && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Expiration Date (Optional)</Text>
-              <TextInput
-                style={styles.dateInput}
-                placeholder="YYYY-MM-DD"
-                value={expirationDate}
-                onChangeText={setExpirationDate}
-                placeholderTextColor="#9ca3af"
+              <DatePicker
+                label="Expiration Date (Optional)"
+                value={expirationDate || null}
+                onChange={(date) => setExpirationDate(date || '')}
+                placeholder="Select expiration date"
+                mode="date"
+                minimumDate={new Date()}
+                style={styles.datePickerContainer}
               />
               <Text style={styles.inputHint}>
                 Leave empty if certification doesn't expire
@@ -671,6 +743,9 @@ const styles = StyleSheet.create({
     color: '#111827',
     borderWidth: 1,
     borderColor: '#e5e7eb',
+  },
+  datePickerContainer: {
+    marginBottom: 0,
   },
   textInput: {
     backgroundColor: '#f9fafb',

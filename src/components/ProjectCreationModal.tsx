@@ -19,6 +19,7 @@ import {
   ProjectStatus
 } from '../types';
 import ReferenceDataService from '../services/ReferenceDataService';
+import DatePicker from './DatePicker';
 
 const { width } = Dimensions.get('window');
 
@@ -269,24 +270,27 @@ const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
       {/* Dates */}
       <View style={styles.dateRow}>
         <View style={styles.dateInput}>
-          <Text style={styles.label}>Start Date *</Text>
-          <TextInput
-            style={styles.dateTextInput}
-            value={formData.startDate}
-            onChangeText={(text) => handleInputChange('startDate', text)}
-            placeholder="YYYY-MM-DD (e.g., 2024-01-15)"
-            placeholderTextColor="#9ca3af"
+          <DatePicker
+            label="Start Date"
+            value={formData.startDate || null}
+            onChange={(date) => handleInputChange('startDate', date || '')}
+            placeholder="Select start date"
+            mode="date"
+            required
+            style={styles.datePicker}
           />
         </View>
 
         <View style={styles.dateInput}>
-          <Text style={styles.label}>End Date *</Text>
-          <TextInput
-            style={styles.dateTextInput}
-            value={formData.endDate}
-            onChangeText={(text) => handleInputChange('endDate', text)}
-            placeholder="YYYY-MM-DD (e.g., 2024-12-31)"
-            placeholderTextColor="#9ca3af"
+          <DatePicker
+            label="End Date"
+            value={formData.endDate || null}
+            onChange={(date) => handleInputChange('endDate', date || '')}
+            placeholder="Select end date"
+            mode="date"
+            required
+            minimumDate={formData.startDate ? new Date(formData.startDate) : undefined}
+            style={styles.datePicker}
           />
         </View>
       </View>
@@ -586,6 +590,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: '#374151',
+  },
+  datePicker: {
+    marginBottom: 0,
   },
   stageDateTextInput: {
     backgroundColor: '#f9fafb',

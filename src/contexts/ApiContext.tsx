@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+// @ts-ignore - expo-constants types may not be available in all environments
+import Constants from 'expo-constants';
 import OneCrewApi, { User, AuthResponse, LoginRequest, SignupRequest, ApiError } from 'onecrew-api-client';
 import { 
   GuestSessionData, 
@@ -26,7 +28,7 @@ import {
 } from '../types';
 import ReferenceDataService from '../services/ReferenceDataService';
 import supabaseService from '../services/SupabaseService';
-import { rateLimiter } from '../utils/rateLimiter';
+import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
 
 interface ApiContextType {
   api: OneCrewApi;
@@ -116,6 +118,11 @@ interface ApiContextType {
   addPortfolioItem: (item: { kind: 'image' | 'video'; url: string; caption?: string; sort_order?: number }) => Promise<any>;
   updatePortfolioItem: (itemId: string, updates: { caption?: string; sort_order?: number }) => Promise<any>;
   removePortfolioItem: (itemId: string) => Promise<any>;
+  // Social media links management methods
+  getUserSocialLinks: () => Promise<any>;
+  addSocialLink: (linkData: { platform: string; url: string; is_custom?: boolean }) => Promise<any>;
+  updateSocialLink: (linkId: string, updates: { platform?: string; url?: string; is_custom?: boolean }) => Promise<any>;
+  deleteSocialLink: (linkId: string) => Promise<any>;
   // File upload methods
   uploadFile: (file: { uri: string; type: string; name: string }) => Promise<any>;
   // Profile switching
@@ -642,7 +649,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const accessToken = getAccessToken();
 
       // Separate basic profile data from talent-specific data
-      const basicProfileData = {
+      // Note: social_links are handled separately via dedicated endpoints
+      const basicProfileData: any = {
         bio: profileData.bio,
         specialty: profileData.specialty,
         image_url: profileData.imageUrl, // Map imageUrl to image_url for API
@@ -694,6 +702,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       });
 
       const basicResult = await basicResponse.json();
+      
+      console.log('📤 Profile update request sent to:', `PUT /api/users/${userId}`);
+      console.log('📥 Profile update response status:', basicResponse.status);
       
       if (!basicResponse.ok) {
         console.error('❌ Basic profile update failed:', basicResult);
@@ -1682,23 +1693,31 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const getMyTeamMembers = async () => {
-    try {
-      console.log('🔍 Fetching personal team members...');
-      const response = await api.getMyTeamMembers();
-      
-      if (response.success && response.data) {
-        console.log('✅ Personal team members fetched:', response.data.length);
-        return {
-          success: true,
-          data: response.data
-        };
-      } else {
-        throw new Error(response.error || 'Failed to fetch personal team members');
+    const cacheKey = 'my-team-members';
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('🔍 Fetching personal team members...');
+        const response = await api.getMyTeamMembers();
+        
+        if (response.success && response.data) {
+          console.log('✅ Personal team members fetched:', response.data.length);
+          return {
+            success: true,
+            data: response.data
+          };
+        } else {
+          throw new Error(response.error || 'Failed to fetch personal team members');
+        }
+      } catch (err: any) {
+        // Handle rate limiting gracefully
+        if (err.status === 429 || err.statusCode === 429 || err.message?.includes('429')) {
+          console.warn('⚠️ Rate limited on getMyTeamMembers, returning empty result');
+          return { success: true, data: [] };
+        }
+        console.error('❌ Failed to fetch personal team members:', err);
+        return { success: false, data: [], error: 'Failed to fetch personal team members' };
       }
-    } catch (err: any) {
-      console.error('❌ Failed to fetch personal team members:', err);
-      return { success: false, data: [], error: 'Failed to fetch personal team members' };
-    }
+    }, { ttl: CacheTTL.MEDIUM, persistent: true });
   };
 
   // New skill management methods using the correct API client
@@ -1910,7 +1929,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Return existing userData if available, otherwise null
         return userData || null;
       }
-    });
+    }, { ttl: CacheTTL.MEDIUM, persistent: true });
   };
 
   // Direct fetch method for getting users
@@ -1966,7 +1985,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         throw err;
       }
-    });
+    }, { ttl: CacheTTL.SHORT }); // Users list changes frequently
   };
 
   // Debug method to check authentication state
@@ -2152,6 +2171,133 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       return response;
     } catch (error: any) {
       console.error('❌ Failed to remove portfolio item:', error);
+      throw error;
+    }
+  };
+
+  // Social media links management methods
+  const getUserSocialLinks = async () => {
+    const cacheKey = 'user-social-links';
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('🔗 Fetching user social links...');
+        const accessToken = getAccessToken();
+        const response = await fetch(`${baseUrl}/api/social-links`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
+        });
+
+        const result = await response.json();
+        
+        if (!response.ok) {
+          console.error('❌ Failed to fetch social links:', result);
+          throw new Error(result.error || 'Failed to fetch social links');
+        }
+
+        console.log('✅ Social links fetched successfully:', result.data?.length || 0, 'links');
+        return result;
+      } catch (error: any) {
+        console.error('❌ Failed to fetch social links:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.MEDIUM, persistent: true });
+  };
+
+  const addSocialLink = async (linkData: { platform: string; url: string; is_custom?: boolean }) => {
+    try {
+      console.log('➕ Adding social link:', linkData);
+      const accessToken = getAccessToken();
+      const response = await fetch(`${baseUrl}/api/social-links`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          platform: linkData.platform,
+          url: linkData.url,
+          is_custom: linkData.is_custom || false,
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ Failed to add social link:', result);
+        throw new Error(result.error || 'Failed to add social link');
+      }
+
+      // Invalidate social links cache
+      await rateLimiter.clearCache('user-social-links');
+      
+      console.log('✅ Social link added successfully:', result.data);
+      return result;
+    } catch (error: any) {
+      console.error('❌ Failed to add social link:', error);
+      throw error;
+    }
+  };
+
+  const updateSocialLink = async (linkId: string, updates: { platform?: string; url?: string; is_custom?: boolean }) => {
+    try {
+      console.log('✏️ Updating social link:', linkId, updates);
+      const accessToken = getAccessToken();
+      const response = await fetch(`${baseUrl}/api/social-links/${linkId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(updates),
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ Failed to update social link:', result);
+        throw new Error(result.error || 'Failed to update social link');
+      }
+
+      // Invalidate social links cache
+      await rateLimiter.clearCache('user-social-links');
+      
+      console.log('✅ Social link updated successfully:', result.data);
+      return result;
+    } catch (error: any) {
+      console.error('❌ Failed to update social link:', error);
+      throw error;
+    }
+  };
+
+  const deleteSocialLink = async (linkId: string) => {
+    try {
+      console.log('🗑️ Deleting social link:', linkId);
+      const accessToken = getAccessToken();
+      const response = await fetch(`${baseUrl}/api/social-links/${linkId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ Failed to delete social link:', result);
+        throw new Error(result.error || 'Failed to delete social link');
+      }
+
+      // Invalidate social links cache
+      await rateLimiter.clearCache('user-social-links');
+      
+      console.log('✅ Social link deleted successfully');
+      return result;
+    } catch (error: any) {
+      console.error('❌ Failed to delete social link:', error);
       throw error;
     }
   };
@@ -2601,6 +2747,36 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const switchToCompanyProfile = async (companyId: string) => {
     try {
+      // Verify user is owner of this company before allowing switch
+      if (!user?.id) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Get user's companies to check ownership
+      const userCompaniesResponse = await getUserCompanies(user.id);
+      if (userCompaniesResponse.success && userCompaniesResponse.data) {
+        const responseData = userCompaniesResponse.data as any;
+        const companies = Array.isArray(responseData) 
+          ? responseData 
+          : (responseData.data || []);
+        
+        // Find the company and check if user is owner
+        const companyMember = companies.find((cm: any) => {
+          const cmCompanyId = cm.companies?.id || cm.company_id || cm.id;
+          return cmCompanyId === companyId;
+        });
+        
+        if (!companyMember) {
+          throw new Error('Company not found in your companies list');
+        }
+        
+        const role = companyMember.role || companyMember.member?.role;
+        if (role !== 'owner') {
+          throw new Error('Only company owners can switch to company profiles');
+        }
+      }
+      
+      // Load and switch to company
       const companyResponse = await api.getCompany(companyId);
       if (companyResponse.success && companyResponse.data) {
         setActiveCompany(companyResponse.data);
@@ -2741,20 +2917,28 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const getCompany = async (companyId: string) => {
-    try {
-      const response = await api.getCompany(companyId);
-      return response;
-    } catch (error) {
-      console.error('Failed to get company:', error);
-      throw error;
-    }
+    const cacheKey = `company-${companyId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getCompany(companyId);
+        return response;
+      } catch (error) {
+        console.error('Failed to get company:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.LONG, persistent: true });
   };
 
   const updateCompany = async (companyId: string, updates: any) => {
     try {
       const response = await api.updateCompany(companyId, updates);
-      if (response.success && activeCompany?.id === companyId) {
-        setActiveCompany(response.data);
+      if (response.success) {
+        if (activeCompany?.id === companyId) {
+          setActiveCompany(response.data);
+        }
+        // Invalidate company cache
+        await rateLimiter.clearCache(`company-${companyId}`);
+        await rateLimiter.clearCacheByPattern(`companies-`);
       }
       return response;
     } catch (error) {
@@ -2770,15 +2954,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const response = await api.getUserCompanies(userId);
         return response;
       } catch (error: any) {
-        console.error('Failed to get user companies:', error);
+        // Handle 403 (Unauthorized) - users can only view their own companies
+        if (error.status === 403 || error.statusCode === 403 || error.message?.includes('403') || error.message?.includes('Unauthorized')) {
+          console.warn('⚠️ Unauthorized to view companies for this user (403). Only showing companies for own profile.');
+          return { success: true, data: [] };
+        }
         // If rate limited, return empty result instead of throwing
         if (error.status === 429 || error.message?.includes('429')) {
           console.warn('⚠️ Rate limited on getUserCompanies, returning empty result');
           return { success: true, data: [] };
         }
+        console.error('Failed to get user companies:', error);
         throw error;
       }
-    });
+    }, { ttl: CacheTTL.LONG, persistent: true });
   };
 
   const submitCompanyForApproval = async (companyId: string) => {
@@ -2865,13 +3054,21 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const getCompanies = async (params?: any) => {
-    try {
-      const response = await api.getCompanies(params);
-      return response;
-    } catch (error) {
-      console.error('Failed to get companies:', error);
-      throw error;
-    }
+    const cacheKey = `companies-${JSON.stringify(params || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getCompanies(params);
+        return response;
+      } catch (error: any) {
+        // Handle rate limiting gracefully
+        if (error.status === 429 || error.statusCode === 429 || error.message?.includes('429')) {
+          console.warn('⚠️ Rate limited on getCompanies, returning empty result');
+          return { success: true, data: [] };
+        }
+        console.error('Failed to get companies:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.LONG, persistent: true });
   };
 
   // Company Services Methods
@@ -2886,18 +3083,25 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const getCompanyServices = async (companyId: string) => {
-    try {
-      const response = await api.getCompanyServices(companyId);
-      return response;
-    } catch (error) {
-      console.error('Failed to get company services:', error);
-      throw error;
-    }
+    const cacheKey = `company-services-${companyId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getCompanyServices(companyId);
+        return response;
+      } catch (error) {
+        console.error('Failed to get company services:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.MEDIUM });
   };
 
   const addCompanyService = async (companyId: string, serviceId: string) => {
     try {
       const response = await api.addCompanyService(companyId, serviceId);
+      if (response.success) {
+        // Invalidate company services cache
+        await rateLimiter.clearCache(`company-services-${companyId}`);
+      }
       return response;
     } catch (error) {
       console.error('Failed to add company service:', error);
@@ -2908,6 +3112,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const removeCompanyService = async (companyId: string, serviceId: string) => {
     try {
       const response = await api.removeCompanyService(companyId, serviceId);
+      if (response.success) {
+        // Invalidate company services cache
+        await rateLimiter.clearCache(`company-services-${companyId}`);
+      }
       return response;
     } catch (error) {
       console.error('Failed to remove company service:', error);
@@ -2919,6 +3127,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const addCompanyMember = async (companyId: string, memberData: any) => {
     try {
       const response = await api.addCompanyMember(companyId, memberData);
+      if (response.success) {
+        // Invalidate company members cache
+        await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
+      }
       return response;
     } catch (error) {
       console.error('Failed to add company member:', error);
@@ -2927,45 +3139,98 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const getCompanyMembers = async (companyId: string, params?: any) => {
-    try {
-      // Access apiClient directly to disable retries for 500 errors
-      // The library retries 500 errors by default, but we want to handle them gracefully
+    const cacheKey = `company-members-${companyId}-${JSON.stringify(params || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      // Always use direct apiClient to have better control over error handling
+      // This prevents the library from logging errors before we can handle them
       const apiClient = (api as any).apiClient;
-      
-      // Try to call without retries if possible, or use the normal method
-      let response;
-      if (apiClient && typeof apiClient.get === 'function') {
-        // Make request with retries disabled for this specific call
-        // We'll handle errors ourselves
-        try {
-          response = await apiClient.get(`/api/companies/${companyId}/members${params ? '?' + new URLSearchParams(params).toString() : ''}`, {
-            retries: 0 // Disable retries - we'll handle errors
-          });
-        } catch (directError: any) {
-          // If direct call fails, handle it
-          if (directError instanceof ApiError) {
-            if (directError.statusCode === 500 || (directError.statusCode && directError.statusCode >= 500)) {
-              // Return gracefully for 500 errors instead of retrying
-              return {
-                success: false,
-                error: directError.message || 'Server error while fetching members',
-                data: []
-              };
-            }
-          }
-          throw directError; // Re-throw to be handled below
+    
+    if (!apiClient || typeof apiClient.get !== 'function') {
+      // Fallback: try library method, but wrap it to catch errors early
+      try {
+        const response = await api.getCompanyMembers(companyId, params);
+        if (response && response.success) {
+          return response;
         }
-      } else {
-        response = await api.getCompanyMembers(companyId, params);
+        // If response has success: false, check if it's a 500 error
+        if (response && response.success === false && response.error?.includes('500')) {
+          console.warn('⚠️ Server error fetching members (500). Returning empty list.');
+          return { success: true, data: [] };
+        }
+        return response;
+      } catch (error: any) {
+        // Handle errors from library method
+        if (error.status === 500 || error.statusCode === 500 || error.message?.includes('500') || error.message?.includes('Failed to fetch members')) {
+          console.warn('⚠️ Server error fetching members (500). Returning empty list.');
+          return { success: true, data: [] };
+        }
+        throw error;
       }
+    }
+    
+    try {
+      // Build query string from params object
+      let queryString = '';
+      if (params) {
+        const queryParams = new URLSearchParams();
+        Object.keys(params).forEach(key => {
+          if (params[key] !== undefined && params[key] !== null) {
+            queryParams.append(key, params[key].toString());
+          }
+        });
+        queryString = queryParams.toString();
+      }
+      
+      const url = `/api/companies/${companyId}/members${queryString ? '?' + queryString : ''}`;
+      console.log('🔍 Fetching company members:', {
+        companyId,
+        url,
+        params,
+        queryString
+      });
+      
+      // Use direct apiClient.get to have full control over error handling
+      const response = await apiClient.get(url, {
+        retries: 0 // Disable retries - we'll handle errors ourselves
+      });
+      
+      console.log('✅ Company members response:', {
+        success: response?.success,
+        hasData: !!response?.data,
+        dataType: Array.isArray(response?.data) ? 'array' : typeof response?.data,
+        dataStructure: response?.data ? Object.keys(response.data) : 'no data'
+      });
       
       // Handle successful response
       if (response && response.success) {
         return response;
       }
       
-      // Handle response with success: false
+      // Handle response with success: false (from API)
+      // This happens when the API returns an error response (like 500)
       if (response && response.success === false) {
+        // Check if it's a 500 error or any server error
+        const errorMessage = response.error || '';
+        console.error('❌ API returned error response:', {
+          success: response.success,
+          error: errorMessage,
+          fullResponse: JSON.stringify(response, null, 2)
+        });
+        
+        if (errorMessage.includes('500') || 
+            errorMessage.includes('Failed to fetch') || 
+            errorMessage.includes('Server error') ||
+            errorMessage.toLowerCase().includes('internal server error')) {
+          // Return gracefully for server errors - don't propagate the error
+          console.warn('⚠️ Server error from API response (500). Returning empty list.');
+          console.warn('⚠️ This is likely a backend issue. Check backend logs for:', {
+            endpoint: `/api/companies/${companyId}/members`,
+            params: params,
+            companyId
+          });
+          return { success: true, data: [] };
+        }
+        // For other errors (400, 401, etc.), return the response as-is
         return response;
       }
       
@@ -2976,51 +3241,96 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         data: []
       };
     } catch (error: any) {
-      console.error('Failed to get company members:', error);
-      
       // Handle ApiError from the library
       if (error instanceof ApiError) {
         // Check for 404 - endpoint not found
         if (error.statusCode === 404) {
+          console.warn('⚠️ Company members endpoint not found (404). Returning empty list.');
           return {
-            success: false,
-            error: 'Company members endpoint is not yet available on the backend.',
+            success: true, // Return success with empty data
             data: []
           };
         }
         
-        // For 500 errors or other server errors, return empty array with error flag (no retries)
+        // For 500 errors or other server errors, return empty array gracefully
         if (error.statusCode === 500 || (error.statusCode && error.statusCode >= 500)) {
+          console.error('❌ HTTP 500 Error fetching company members:', {
+            companyId,
+            params,
+            errorMessage: error.message,
+            statusCode: error.statusCode,
+            fullError: JSON.stringify(error, null, 2)
+          });
+          console.warn('⚠️ Server error fetching members (500). Returning empty list.');
+          console.warn('⚠️ POTENTIAL BACKEND ISSUES:');
+          console.warn('   - Database query might be failing');
+          console.warn('   - Invalid sort parameter (joined_at might not exist)');
+          console.warn('   - Missing database relationships');
+          console.warn('   - Company record might have issues');
           return {
-            success: false,
-            error: error.message || 'Server error while fetching members',
+            success: true, // Return success with empty data to avoid UI errors
             data: []
           };
         }
         
-        // Other API errors (400, etc.)
+        // For 403 (Unauthorized) - user might not have permission
+        if (error.statusCode === 403) {
+          console.warn('⚠️ Unauthorized to view company members (403). Returning empty list.');
+          return {
+            success: true,
+            data: []
+          };
+        }
+      }
+      
+      // Check for error status in error object (from direct apiClient call)
+      if (error.status === 500 || error.statusCode === 500 || error.message?.includes('500') || error.message?.includes('Failed to fetch members')) {
+        console.warn('⚠️ Server error fetching members (500). Returning empty list.');
         return {
-          success: false,
-          error: error.message || `Server error (${error.statusCode || 'unknown'})`,
+          success: true,
           data: []
         };
       }
       
-      // Handle other error types
-      const errorMessage = error?.message || String(error) || 'Failed to get company members';
+      // For 404 - endpoint not found
+      if (error.status === 404 || error.statusCode === 404) {
+        console.warn('⚠️ Company members endpoint not found (404). Returning empty list.');
+        return {
+          success: true,
+          data: []
+        };
+      }
       
-      // Return error response with empty array to prevent UI crashes
+      // For 403 - unauthorized
+      if (error.status === 403 || error.statusCode === 403) {
+        console.warn('⚠️ Unauthorized to view company members (403). Returning empty list.');
+        return {
+          success: true,
+          data: []
+        };
+      }
+      
+      // Log other errors but still return gracefully
+      console.warn('⚠️ Error fetching company members:', error.message || error);
+      
+      // For any other error, return empty array gracefully
       return {
-        success: false,
-        error: errorMessage,
+        success: true, // Return success with empty data to prevent UI errors
         data: []
       };
     }
+    }, { ttl: CacheTTL.MEDIUM });
   };
 
   const acceptInvitation = async (companyId: string, userId: string) => {
     try {
       const response = await api.acceptInvitation(companyId, userId);
+      if (response.success) {
+        // Invalidate company members cache
+        await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
+        // Invalidate user companies cache
+        await rateLimiter.clearCache(`user-companies-${userId}`);
+      }
       return response;
     } catch (error) {
       console.error('Failed to accept invitation:', error);
@@ -3071,6 +3381,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const removeCompanyMember = async (companyId: string, userId: string) => {
     try {
       const response = await api.removeCompanyMember(companyId, userId);
+      if (response.success) {
+        // Invalidate company members cache
+        await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
+      }
       return response;
     } catch (error) {
       console.error('Failed to remove company member:', error);
@@ -3158,8 +3472,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Certification Template Management (Admin)
   const getCertificationTemplates = async (query?: { active?: boolean; category?: string }) => {
-    try {
-      const response = await api.getCertificationTemplates(query);
+    const cacheKey = `certification-templates-${JSON.stringify(query || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getCertificationTemplates(query);
       if (response.success && response.data) {
         const data = response.data as any;
         return Array.isArray(data) ? data : (data.data || []);
@@ -3169,6 +3485,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.error('Failed to get certification templates:', error);
       throw error;
     }
+    }, { ttl: CacheTTL.VERY_LONG, persistent: true }); // Templates rarely change
   };
 
   const getCertificationTemplate = async (templateId: string) => {
@@ -3280,23 +3597,47 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Certification Management (Academy/Company)
   const getAuthorizedCertifications = async (companyId: string) => {
-    try {
+    const cacheKey = `authorized-certifications-${companyId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('🔍 API: Fetching authorized certifications for company:', companyId);
       const response = await api.getAuthorizedCertifications(companyId);
+      console.log('🔍 API: Response received:', {
+        success: response.success,
+        hasData: !!response.data,
+        dataType: Array.isArray(response.data) ? 'array' : typeof response.data,
+        dataLength: Array.isArray(response.data) ? response.data.length : 'N/A'
+      });
+      
       if (response.success && response.data) {
         const data = response.data as any;
-        return Array.isArray(data) ? data : (data.data || []);
+        const result = Array.isArray(data) ? data : (data.data || []);
+        console.log('✅ API: Returning authorized certifications:', result.length);
+        return result;
       }
+      
+      console.warn('⚠️ API: Response indicates failure:', response.error);
       throw new Error(response.error || 'Failed to get authorized certifications');
-    } catch (error) {
-      console.error('Failed to get authorized certifications:', error);
+    } catch (error: any) {
+      console.error('❌ API: Failed to get authorized certifications:', {
+        message: error.message,
+        statusCode: error.statusCode,
+        status: error.status
+      });
       throw error;
     }
+    }, { ttl: CacheTTL.LONG, persistent: true });
   };
 
   const grantCertification = async (companyId: string, certificationData: CreateCertificationRequest) => {
     try {
       const response = await api.grantCertification(companyId, certificationData);
       if (response.success && response.data) {
+        // Invalidate certification caches
+        await rateLimiter.clearCache(`company-certifications-${companyId}`);
+        if (certificationData.user_id) {
+          await rateLimiter.clearCache(`user-certifications-${certificationData.user_id}`);
+        }
         return response.data;
       }
       throw new Error(response.error || 'Failed to grant certification');
@@ -3307,23 +3648,31 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const getCompanyCertifications = async (companyId: string) => {
-    try {
-      const response = await api.getCompanyCertifications(companyId);
-      if (response.success && response.data) {
-        const data = response.data as any;
-        return Array.isArray(data) ? data : (data.data || []);
+    const cacheKey = `company-certifications-${companyId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getCompanyCertifications(companyId);
+        if (response.success && response.data) {
+          const data = response.data as any;
+          return Array.isArray(data) ? data : (data.data || []);
+        }
+        throw new Error(response.error || 'Failed to get company certifications');
+      } catch (error) {
+        console.error('Failed to get company certifications:', error);
+        throw error;
       }
-      throw new Error(response.error || 'Failed to get company certifications');
-    } catch (error) {
-      console.error('Failed to get company certifications:', error);
-      throw error;
-    }
+    }, { ttl: CacheTTL.MEDIUM });
   };
 
   const updateCertification = async (companyId: string, certificationId: string, updates: UpdateCertificationRequest) => {
     try {
       const response = await api.updateCertification(companyId, certificationId, updates);
       if (response.success && response.data) {
+        // Invalidate certification caches
+        await rateLimiter.clearCache(`company-certifications-${companyId}`);
+        if (response.data.user_id) {
+          await rateLimiter.clearCache(`user-certifications-${response.data.user_id}`);
+        }
         return response.data;
       }
       throw new Error(response.error || 'Failed to update certification');
@@ -3337,6 +3686,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       const response = await api.revokeCertification(companyId, certificationId);
       if (response.success) {
+        // Invalidate certification caches
+        await rateLimiter.clearCache(`company-certifications-${companyId}`);
+        // Note: We can't easily get userId from certificationId, so we clear all user certification caches
+        // In production, you might want to fetch the certification first to get userId
+        await rateLimiter.clearCacheByPattern(`user-certifications-`);
         return response;
       }
       throw new Error(response.error || 'Failed to revoke certification');
@@ -3366,7 +3720,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         throw error;
       }
-    });
+    }, { ttl: CacheTTL.LONG, persistent: true });
   };
 
   // Notification methods
@@ -3467,6 +3821,22 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     if (isAuthenticated && user) {
       getUnreadNotificationCount();
       getNotifications({ limit: 20, page: 1 });
+      
+      // Cache warming: Pre-fetch frequently accessed data
+      const warmCache = async () => {
+        try {
+          // Pre-fetch user's companies (with caching)
+          if (user.id) {
+            getUserCompanies(user.id);
+            getUserCertifications(user.id);
+            getMyTeamMembers();
+          }
+        } catch (error) {
+          console.warn('Cache warming failed:', error);
+        }
+      };
+      
+      warmCache();
     }
   }, [isAuthenticated, user?.id]);
 
@@ -3477,16 +3847,22 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Note: Supabase URL and key should be set via environment variables or config
       try {
         if (!supabaseService.isInitialized()) {
-          // Try to initialize with environment variables
-          // In production, these should be set via environment config
-          const supabaseUrl = process.env.SUPABASE_URL || '';
-          const supabaseKey = process.env.SUPABASE_ANON_KEY || '';
+          // Try to initialize with credentials from app.json or environment variables
+          const supabaseUrl = 
+            Constants.expoConfig?.extra?.supabaseUrl || 
+            process.env.SUPABASE_URL || 
+            '';
+          const supabaseKey = 
+            Constants.expoConfig?.extra?.supabaseAnonKey || 
+            process.env.SUPABASE_ANON_KEY || 
+            '';
           
           if (supabaseUrl && supabaseKey) {
             supabaseService.initialize(supabaseUrl, supabaseKey);
+            console.log('✅ Supabase initialized for real-time notifications');
           } else {
             console.warn('⚠️ Supabase credentials not configured. Real-time notifications will not work.');
-            console.warn('Set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.');
+            console.warn('Set SUPABASE_URL and SUPABASE_ANON_KEY in app.json extra section or as environment variables.');
           }
         }
 
@@ -3513,9 +3889,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 setUnreadNotificationCount(prev => prev + 1);
               }
 
-              // Refresh notifications list to get latest data
+              // Refresh notifications list and count asynchronously to avoid race conditions
+              setTimeout(() => {
               getNotifications({ limit: 20, page: 1 });
               getUnreadNotificationCount();
+              }, 500);
             }
           );
 
@@ -3624,6 +4002,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     addPortfolioItem,
     updatePortfolioItem,
     removePortfolioItem,
+    // Social media links management methods
+    getUserSocialLinks,
+    addSocialLink,
+    updateSocialLink,
+    deleteSocialLink,
     // File upload methods
     uploadFile,
     // Profile switching

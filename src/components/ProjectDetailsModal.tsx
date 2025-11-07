@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import DatePicker from './DatePicker';
 
 interface ProjectDetailsModalProps {
   visible: boolean;
@@ -198,25 +199,26 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({
 
             {/* Start Date */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Start Date</Text>
-              <TextInput
-                style={styles.textInput}
-                value={formData.startDate}
-                onChangeText={(text) => handleInputChange('startDate', text)}
-                placeholder="YYYY-MM-DD (e.g., 2024-01-15)"
-                placeholderTextColor="#9ca3af"
+              <DatePicker
+                label="Start Date"
+                value={formData.startDate || null}
+                onChange={(date) => handleInputChange('startDate', date || '')}
+                placeholder="Select start date"
+                mode="date"
+                style={styles.datePicker}
               />
             </View>
 
             {/* End Date */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>End Date</Text>
-              <TextInput
-                style={styles.textInput}
-                value={formData.endDate}
-                onChangeText={(text) => handleInputChange('endDate', text)}
-                placeholder="YYYY-MM-DD (e.g., 2024-12-31)"
-                placeholderTextColor="#9ca3af"
+              <DatePicker
+                label="End Date"
+                value={formData.endDate || null}
+                onChange={(date) => handleInputChange('endDate', date || '')}
+                placeholder="Select end date"
+                mode="date"
+                minimumDate={formData.startDate ? new Date(formData.startDate) : undefined}
+                style={styles.datePicker}
               />
             </View>
           </View>
@@ -269,6 +271,9 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     marginBottom: 20,
+  },
+  datePicker: {
+    marginBottom: 0,
   },
   label: {
     fontSize: 16,

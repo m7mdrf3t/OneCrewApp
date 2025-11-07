@@ -352,6 +352,18 @@ export interface SocialMediaLink {
   username?: string;
 }
 
+// Backend UserSocialLink interface (matches backend structure)
+export interface UserSocialLink {
+  id: string;
+  user_id: string;
+  platform: string;
+  url: string;
+  is_custom: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;

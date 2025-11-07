@@ -34,11 +34,19 @@
     "extra": {
       "eas": {
         "projectId": "bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
-      }
+      },
+      "supabaseUrl": "https://uwdzkrferlogqasrxcve.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3ZHprcmZlcmxvZ3Fhc3J4Y3ZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzMzAzOTMsImV4cCI6MjA3NDkwNjM5M30.SKmWMfWFTDgPEsxgUzPi-Y5k9oHMMCFYuLhIXONPTyU"
     },
     "plugins": [
       "expo-secure-store",
       "expo-font"
-    ]
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
+    }
   }
 }

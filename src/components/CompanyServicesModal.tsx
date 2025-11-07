@@ -244,6 +244,23 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
 
   const isServiceSelected = (serviceId: string) => selectedServices.has(serviceId);
 
+  // Map invalid icon names to valid Ionicons names
+  const getValidIconName = (iconName: string | undefined | null): string => {
+    if (!iconName) return 'briefcase-outline'; // Default icon
+    
+    const iconMap: Record<string, string> = {
+      'pen': 'pencil-outline',
+      'pencil': 'pencil-outline',
+      'create': 'create-outline',
+      'edit': 'create-outline',
+      'write': 'pencil-outline',
+    };
+    
+    const lowerIconName = iconName.toLowerCase();
+    // Return mapped icon if exists, otherwise return the original with fallback
+    return iconMap[lowerIconName] || iconName || 'briefcase-outline';
+  };
+
   return (
     <Modal
       visible={visible}
@@ -301,7 +318,7 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
                       <View style={styles.serviceContent}>
                         {service.icon_name && (
                           <Ionicons
-                            name={service.icon_name as any}
+                            name={getValidIconName(service.icon_name) as any}
                             size={24}
                             color={selected ? '#000' : '#71717a'}
                             style={styles.serviceIcon}

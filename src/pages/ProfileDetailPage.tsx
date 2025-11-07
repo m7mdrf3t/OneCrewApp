@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking, Modal, Dimensions } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking, Modal, Dimensions, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import { ProfileDetailPageProps } from '../types';
@@ -27,7 +27,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     user: currentUser, 
     isGuest, 
     isAuthenticated,
-    getUserCompanies,
+    getUserSocialLinks,
     switchToCompanyProfile,
     switchToUserProfile,
     currentProfileType,
@@ -44,10 +44,10 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   const [promptAction, setPromptAction] = useState<string>('');
   const [galleryTab, setGalleryTab] = useState<'albums' | 'images' | 'videos' | 'audio'>('albums');
   const [showCompletionBanner, setShowCompletionBanner] = useState(true);
-  const [userCompanies, setUserCompanies] = useState<any[]>([]);
-  const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [certifications, setCertifications] = useState<UserCertification[]>([]);
   const [loadingCertifications, setLoadingCertifications] = useState(false);
+  const [socialLinks, setSocialLinks] = useState<any[]>([]);
+  const [loadingSocialLinks, setLoadingSocialLinks] = useState(false);
 
   // Fetch fresh user data if we have a user ID
   useEffect(() => {
@@ -285,31 +285,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     fetchUserProfile();
   }, [profile?.id, api]);
 
-  // Fetch user companies - for both own profile and other users' profiles
-  useEffect(() => {
-    const loadUserCompanies = async () => {
-      const userIdToFetch = isCurrentUser && currentUser?.id 
-        ? currentUser.id 
-        : (profile?.id || userProfile?.id);
-      
-      if (userIdToFetch && !isGuest && isAuthenticated) {
-        try {
-          setLoadingCompanies(true);
-          const response = await getUserCompanies(userIdToFetch);
-          if (response.success && response.data) {
-            const companies = Array.isArray(response.data) ? response.data : (response.data.data || []);
-            setUserCompanies(companies);
-          }
-        } catch (err) {
-          console.error('Failed to load user companies:', err);
-        } finally {
-          setLoadingCompanies(false);
-        }
-      }
-    };
-    loadUserCompanies();
-  }, [isCurrentUser, currentUser?.id, profile?.id, userProfile?.id, isGuest, isAuthenticated, getUserCompanies]);
-
   // Load certifications for the user
   useEffect(() => {
     const loadCertifications = async () => {
@@ -332,6 +307,38 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
     loadCertifications();
   }, [profile?.id, userProfile?.id, isCurrentUser, currentUser?.id, getUserCertifications]);
+
+  // Load social links from API
+  useEffect(() => {
+    const loadSocialLinks = async () => {
+      // Only load for current user (API requires authentication)
+      if (!isCurrentUser || !currentUser?.id || isGuest || !isAuthenticated) {
+        // For other users, use data from userProfile if available
+        setSocialLinks(userProfile?.social_links || []);
+        return;
+      }
+
+      try {
+        setLoadingSocialLinks(true);
+        const response = await getUserSocialLinks();
+        if (response.success && response.data) {
+          const links = Array.isArray(response.data) ? response.data : response.data.data || [];
+          setSocialLinks(links);
+        } else {
+          // Fallback to userProfile data if available
+          setSocialLinks(userProfile?.social_links || []);
+        }
+      } catch (error) {
+        console.error('Failed to load social links:', error);
+        // Fallback to userProfile data if available
+        setSocialLinks(userProfile?.social_links || []);
+      } finally {
+        setLoadingSocialLinks(false);
+      }
+    };
+
+    loadSocialLinks();
+  }, [isCurrentUser, currentUser?.id, getUserSocialLinks, isGuest, isAuthenticated, userProfile?.social_links]);
 
   const isInTeam = myTeam.some(member => member.id === userProfile.id);
 
@@ -533,51 +540,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             {userProfile.onlineStatus || (userProfile.online_last_seen ? formatLastSeen(userProfile.online_last_seen) : 'Last seen recently')}
           </Text>
 
-          {/* Switch to Company Profile Button */}
-          {isCurrentUser && !isGuest && (
-            <>
-              {currentProfileType === 'company' && activeCompany ? (
-                // Show switch back to user profile
-                <TouchableOpacity
-                  style={styles.switchToCompanyButton}
-                  onPress={() => {
-                    switchToUserProfile();
-                    // Refresh the profile view
-                    if (currentUser?.id) {
-                      onNavigate?.('myProfile', currentUser);
-                    }
-                  }}
-                >
-                  <Ionicons name="person" size={20} color="#fff" />
-                  <Text style={styles.switchToCompanyText}>
-                    Switch to Personal Profile
-                  </Text>
-                  <Ionicons name="chevron-forward" size={20} color="#fff" />
-                </TouchableOpacity>
-              ) : userCompanies.length > 0 ? (
-                // Show switch to company profile
-                <TouchableOpacity
-                  style={styles.switchToCompanyButton}
-                  onPress={async () => {
-                    try {
-                      // Switch to the first company or active company
-                      const companyToSwitch = activeCompany || userCompanies[0];
-                      const companyId = companyToSwitch.id || companyToSwitch.company_id;
-                      await switchToCompanyProfile(companyId);
-                      onNavigate?.('companyProfile', { companyId });
-                    } catch (error) {
-                      console.error('Failed to switch to company profile:', error);
-                    }
-                  }}
-                >
-                  <Ionicons name="business" size={20} color="#fff" />
-                  <Text style={styles.switchToCompanyText}>
-                    {loadingCompanies ? 'Loading...' : `Switch to ${userCompanies[0]?.name || 'Company'} Profile`}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={20} color="#fff" />
-                </TouchableOpacity>
-              ) : null}
-            </>
+          {/* Note: Account switching is now available via the top bar (Instagram-style) */}
+          {/* Only show a simple indicator if viewing company profile */}
+          {isCurrentUser && !isGuest && currentProfileType === 'company' && activeCompany && (
+            <View style={styles.profileTypeIndicator}>
+              <Ionicons name="business" size={16} color="#71717a" />
+              <Text style={styles.profileTypeText}>
+                Viewing as {activeCompany.name}
+              </Text>
+            </View>
           )}
 
           <View style={styles.ctaRow}>
@@ -784,21 +755,41 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             </View>
           )}
 
-          {/* Certifications Section */}
+          {/* Certificates & Awards Section */}
           <View style={styles.infoCard}>
-            <Text style={styles.infoSectionTitle}>Certifications</Text>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="trophy-outline" size={20} color="#000" />
+              <Text style={styles.infoSectionTitle}>Certificates & Awards</Text>
+            </View>
             {loadingCertifications ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color="#3b82f6" />
               </View>
             ) : certifications.length > 0 ? (
-              <View style={styles.certificationsList}>
-                {certifications.map((certification) => (
-                  <CertificationCard
-                    key={certification.id}
-                    certification={certification}
-                  />
-                ))}
+              <View style={styles.certificatesGrid}>
+                {certifications.slice(0, 3).map((certification, index) => {
+                  // Get icon based on index or certification type
+                  const icons = ['medal-outline', 'star-outline', 'sparkles-outline'];
+                  const iconName = icons[index % icons.length] as any;
+                  
+                  // Extract year from issued_at or use a default
+                  const year = certification.issued_at 
+                    ? new Date(certification.issued_at).getFullYear().toString()
+                    : new Date().getFullYear().toString();
+                  
+                  // Get certification name
+                  const certName = certification.certification_template?.name || 
+                                   certification.name || 
+                                   'Certification';
+                  
+                  return (
+                    <View key={certification.id} style={styles.certificateCard}>
+                      <Ionicons name={iconName} size={24} color="#fff" />
+                      <Text style={styles.certificateTitle}>{certName}</Text>
+                      <Text style={styles.certificateYear}>{year}</Text>
+                    </View>
+                  );
+                })}
               </View>
             ) : (
               <View style={styles.emptyState}>
@@ -810,8 +801,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
           {/* Gallery/Portfolio Section */}
           {((userProfile.portfolio && userProfile.portfolio.length > 0) || userProfile.category === 'talent') && (
-            <View style={styles.galleryContainer}>
-              <Text style={styles.galleryTitle}>Gallery</Text>
+            <View style={styles.infoCard}>
+              <Text style={styles.infoSectionTitle}>Gallery</Text>
               
               {/* Gallery Tabs */}
               <View style={styles.galleryTabs}>
@@ -942,41 +933,93 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           )}
 
           {/* Social Media Links */}
-          {userProfile.social_links && userProfile.social_links.length > 0 && (
-            <View style={styles.socialLinksContainer}>
-              <Text style={styles.sectionHeader}>Social Media & Links</Text>
-              <View style={styles.socialLinksList}>
-                {userProfile.social_links.map((link: any, index: number) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.socialLinkItem}
-                    onPress={() => Linking.openURL(link.url)}
-                  >
-                    <View style={styles.socialLinkHeader}>
-                      <Text style={styles.socialLinkPlatform}>
-                        {link.platform === 'instagram' ? '📷 Instagram' :
-                         link.platform === 'twitter' ? '🐦 Twitter' :
-                         link.platform === 'facebook' ? '📘 Facebook' :
-                         link.platform === 'linkedin' ? '💼 LinkedIn' :
-                         link.platform === 'youtube' ? '📺 YouTube' :
-                         link.platform === 'tiktok' ? '🎵 TikTok' :
-                         link.platform === 'website' ? '🌐 Website' : '🔗 Other'}
-                      </Text>
-                      <Ionicons name="open-outline" size={16} color="#6b7280" />
-                    </View>
-                    <Text style={styles.socialLinkUrl} numberOfLines={1}>
-                      {link.url}
-                    </Text>
-                    {link.username && (
-                      <Text style={styles.socialLinkUsername} numberOfLines={1}>
-                        @{link.username}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
+          <View style={styles.infoCard}>
+            <View style={styles.sectionTitleRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="globe-outline" size={20} color="#000" />
+                <Text style={styles.infoSectionTitle}>Social Media</Text>
+              </View>
+              {isCurrentUser && (
+                <TouchableOpacity
+                  style={styles.editSectionButton}
+                  onPress={() => {
+                    if (isGuest) {
+                      setPromptAction('add social media links');
+                      setShowSignUpPrompt(true);
+                    } else {
+                      onNavigate?.('profileCompletion', userProfile);
+                    }
+                  }}
+                >
+                  <Ionicons name="create-outline" size={16} color="#3b82f6" />
+                </TouchableOpacity>
+              )}
+            </View>
+            
+            {loadingSocialLinks ? (
+              <View style={styles.emptySocialLinksContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+                <Text style={styles.emptySocialLinksText}>Loading social links...</Text>
+              </View>
+            ) : socialLinks && socialLinks.length > 0 ? (
+              <View style={styles.socialMediaGrid}>
+                {socialLinks.slice(0, 4).map((link: any, index: number) => {
+                  // Map platform to icon and display name
+                  const platformMap: { [key: string]: { icon: string; name: string } } = {
+                    'facebook': { icon: 'logo-facebook', name: 'Facebook' },
+                    'twitter': { icon: 'logo-twitter', name: 'Twitter' },
+                    'instagram': { icon: 'logo-instagram', name: 'Instagram' },
+                    'linkedin': { icon: 'logo-linkedin', name: 'Linkedin' },
+                    'youtube': { icon: 'logo-youtube', name: 'YouTube' },
+                    'tiktok': { icon: 'musical-notes', name: 'TikTok' },
+                    'website': { icon: 'globe-outline', name: 'Website' },
+                    'other': { icon: 'link-outline', name: 'Other' },
+                  };
+                  
+                  const platformInfo = platformMap[link.platform] || platformMap['other'];
+                  
+                  return (
+                    <TouchableOpacity
+                      key={link.id || index}
+                      style={styles.socialMediaButton}
+                      onPress={() => {
+                        try {
+                          Linking.openURL(link.url);
+                        } catch (error) {
+                          console.error('Failed to open URL:', error);
+                        }
+                      }}
+                    >
+                      <Ionicons name={platformInfo.icon as any} size={24} color="#000" />
+                      <Text style={styles.socialMediaButtonText}>{platformInfo.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {/* Fill remaining slots if less than 4 links */}
+                {socialLinks.length < 4 && Array.from({ length: 4 - socialLinks.length }).map((_, idx) => (
+                  <View key={`empty-${idx}`} style={[styles.socialMediaButton, styles.socialMediaButtonEmpty]} />
                 ))}
               </View>
-            </View>
-          )}
+            ) : (
+              <View style={styles.emptySocialLinksContainer}>
+                <Ionicons name="share-social-outline" size={32} color="#9ca3af" />
+                <Text style={styles.emptySocialLinksText}>
+                  {isCurrentUser 
+                    ? 'No social media links added yet. Tap the edit icon to add your profiles.'
+                    : 'No social media links available'}
+                </Text>
+                {isCurrentUser && !isGuest && (
+                  <TouchableOpacity
+                    style={styles.addSocialLinksButton}
+                    onPress={() => onNavigate?.('profileCompletion', userProfile)}
+                  >
+                    <Ionicons name="add" size={18} color="#fff" />
+                    <Text style={styles.addSocialLinksButtonText}>Add Social Links</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
 
           {/* Accent Section */}
           {userProfile.category === 'talent' && userProfile.about?.dialects && userProfile.about.dialects.length > 0 && (
@@ -1042,92 +1085,23 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           )}
 
           {/* Contact Section */}
-          {userProfile.email && (
+          {(userProfile.email || userProfile.phone || (userProfile as any).agent_phone) && (
             <View style={styles.infoCard}>
-              <View style={styles.contactHeader}>
-                <Ionicons name="call" size={20} color="#000" />
+              <View style={styles.sectionTitleRow}>
+                <Ionicons name="call-outline" size={20} color="#000" />
                 <Text style={styles.infoSectionTitle}>Contact</Text>
               </View>
               <View style={styles.contactInfo}>
-                <Text style={styles.contactText}>Email: {userProfile.email}</Text>
+                {(userProfile as any).agent_phone && (
+                  <Text style={styles.contactText}>Agent: {(userProfile as any).agent_phone}</Text>
+                )}
+                {userProfile.phone && !(userProfile as any).agent_phone && (
+                  <Text style={styles.contactText}>Agent: {userProfile.phone}</Text>
+                )}
+                {userProfile.email && (
+                  <Text style={styles.contactText}>Email: {userProfile.email}</Text>
+                )}
               </View>
-            </View>
-          )}
-
-          {/* Companies Section */}
-          {(userCompanies.length > 0 || loadingCompanies) && (
-            <View style={styles.infoCard}>
-              <View style={styles.contactHeader}>
-                <Ionicons name="business" size={20} color="#000" />
-                <Text style={styles.infoSectionTitle}>Companies</Text>
-              </View>
-              {loadingCompanies ? (
-                <View style={styles.loadingCompaniesContainer}>
-                  <ActivityIndicator size="small" color="#000" />
-                  <Text style={styles.loadingCompaniesText}>Loading companies...</Text>
-                </View>
-              ) : userCompanies.length > 0 ? (
-                <View style={styles.companiesList}>
-                  {userCompanies.map((company: any) => {
-                    const companyId = company.id || company.company_id;
-                    const companyName = company.name || company.company_name || 'Unnamed Company';
-                    const companyLogo = company.logo_url || company.logo;
-                    // Try to get role from various possible locations in the API response
-                    const memberRole = company.role 
-                      || company.member?.role 
-                      || company.company_member?.role
-                      || company.membership?.role;
-                    
-                    return (
-                      <TouchableOpacity
-                        key={companyId}
-                        style={styles.companyCard}
-                        onPress={() => {
-                          if (companyId && onNavigate) {
-                            onNavigate('companyProfile', { companyId });
-                          }
-                        }}
-                      >
-                        <View style={styles.companyCardContent}>
-                          {companyLogo ? (
-                            <Image
-                              source={{ uri: companyLogo }}
-                              style={styles.companyLogo}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <View style={styles.companyLogoPlaceholder}>
-                              <Text style={styles.companyLogoInitials}>
-                                {companyName.substring(0, 2).toUpperCase()}
-                              </Text>
-                            </View>
-                          )}
-                          <View style={styles.companyInfo}>
-                            <Text style={styles.companyName} numberOfLines={1}>
-                              {companyName}
-                            </Text>
-                            {company.company_type_info?.name && (
-                              <Text style={styles.companyType} numberOfLines={1}>
-                                {company.company_type_info.name}
-                              </Text>
-                            )}
-                            {memberRole && (
-                              <View style={styles.companyRoleBadge}>
-                                <Text style={styles.companyRoleText}>
-                                  {typeof memberRole === 'string' 
-                                    ? memberRole.charAt(0).toUpperCase() + memberRole.slice(1)
-                                    : String(memberRole)}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                          <Ionicons name="chevron-forward" size={20} color="#71717a" />
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ) : null}
             </View>
           )}
 
@@ -1455,32 +1429,35 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
     borderRadius: 12,
     padding: 16,
-    paddingTop: 20,
     borderWidth: 2,
     borderColor: '#d4d4d8',
+    width: Dimensions.get('window').width - 16, // Full width minus horizontal margins
   },
   galleryTitle: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '800',
     color: '#000',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   galleryTabs: {
     flexDirection: 'row',
     gap: 8,
     marginBottom: 16,
     alignItems: 'center',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
+    width: '100%',
   },
   galleryTab: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     paddingVertical: 10,
     borderRadius: 20,
     backgroundColor: '#f4f4f5',
     gap: 6,
+    minWidth: 0,
   },
   galleryTabActive: {
     backgroundColor: '#000',
@@ -1826,6 +1803,26 @@ const styles = StyleSheet.create({
   socialLinksContainer: {
     marginBottom: 24,
   },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  editSectionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#eff6ff',
+  },
+  editSectionButtonText: {
+    fontSize: 14,
+    color: '#3b82f6',
+    fontWeight: '500',
+  },
   socialLinksList: {
     marginTop: 12,
     gap: 8,
@@ -1858,6 +1855,103 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     fontStyle: 'italic',
   },
+  emptySocialLinksContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderStyle: 'dashed',
+  },
+  emptySocialLinksText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  addSocialLinksButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  addSocialLinksButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  // Section Title Row (with icon)
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    justifyContent: 'space-between',
+  },
+  // Certificates & Awards Styles
+  certificatesGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  certificateCard: {
+    flex: 1,
+    backgroundColor: '#000',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 100,
+  },
+  certificateTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  certificateYear: {
+    fontSize: 12,
+    color: '#fff',
+    textAlign: 'center',
+    opacity: 0.8,
+  },
+  // Social Media Grid Styles
+  socialMediaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 8,
+  },
+  socialMediaButton: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  socialMediaButtonEmpty: {
+    opacity: 0,
+    borderWidth: 0,
+  },
+  socialMediaButtonText: {
+    fontSize: 14,
+    color: '#000',
+    fontWeight: '500',
+  },
   // Media sections styles
   mediaContainer: {
     marginBottom: 24,
@@ -1869,9 +1963,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
+    width: '100%',
   },
   imageGridItem: {
-    width: (Dimensions.get('window').width - 64 - 16) / 3, // 3 columns with gaps, accounting for gallery padding
+    width: '31%', // 3 columns with gaps: approximately 31% per item to account for 8px gaps
     aspectRatio: 1,
     backgroundColor: '#f4f4f5',
     borderRadius: 8,
@@ -1932,23 +2027,20 @@ const styles = StyleSheet.create({
     padding: 4,
     textAlign: 'center',
   },
-  switchToCompanyButton: {
+  profileTypeIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#3b82f6',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginTop: 16,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 12,
     marginBottom: 8,
   },
-  switchToCompanyText: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
+  profileTypeText: {
+    fontSize: 14,
+    color: '#71717a',
+    marginLeft: 6,
+    fontStyle: 'italic',
   },
   // Modal styles
   modalOverlay: {
@@ -1995,22 +2087,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
   },
-  // Companies section styles
-  loadingCompaniesContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
-    gap: 8,
-  },
-  loadingCompaniesText: {
-    fontSize: 14,
-    color: '#71717a',
-  },
-  companiesList: {
-    gap: 12,
-    marginTop: 8,
-  },
   // Certifications section styles
   certificationsList: {
     gap: 12,
@@ -2032,65 +2108,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9ca3af',
     textAlign: 'center',
-  },
-  companyCard: {
-    backgroundColor: '#f4f4f5',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e4e4e7',
-  },
-  companyCardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  companyLogo: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
-    backgroundColor: '#f4f4f5',
-  },
-  companyLogoPlaceholder: {
-    width: 50,
-    height: 50,
-    borderRadius: 8,
-    backgroundColor: '#e4e4e7',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  companyLogoInitials: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#71717a',
-  },
-  companyInfo: {
-    flex: 1,
-    marginLeft: 4,
-  },
-  companyName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
-  },
-  companyType: {
-    fontSize: 14,
-    color: '#71717a',
-    marginBottom: 4,
-  },
-  companyRoleBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#e0e7ff',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 4,
-  },
-  companyRoleText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#4f46e5',
   },
 });
 
