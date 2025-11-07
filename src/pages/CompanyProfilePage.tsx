@@ -77,12 +77,25 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   // Reload services, members, and certifications when refresh trigger changes
   useEffect(() => {
     if (company?.id) {
-      loadServices(company.id);
-      loadMembers(company.id);
-      if (company.subcategory === 'academy') {
-        loadCertifications(company.id);
-      }
+      // Clear cache first to ensure fresh data
+      const clearCacheAndReload = async () => {
+        try {
+          const { rateLimiter } = await import('../utils/rateLimiter');
+          await rateLimiter.clearCacheByPattern(`company-members-${company.id}`);
+          console.log('🔄 Cleared cache and reloading members due to refresh trigger');
+        } catch (err) {
+          console.warn('⚠️ Could not clear cache:', err);
+        }
+        // Reload data
+        loadServices(company.id);
+        loadMembers(company.id);
+        if (company.subcategory === 'academy') {
+          loadCertifications(company.id);
+        }
+      };
+      clearCacheAndReload();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger, company?.id]);
 
   const handleRemoveMember = async (member: CompanyMember) => {
@@ -190,9 +203,13 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           membersArray = response.data.members;
         }
         
-        // API already filters for accepted members, so we don't need to filter again
-        // But we'll keep a safety check just in case
-        setMembers(membersArray.filter(m => m.invitation_status === 'accepted'));
+        // Filter for accepted members
+        // Note: API should already filter, but we'll do it client-side as well for safety
+        // Show both accepted and pending members so admins can see all invitations
+        const acceptedMembers = membersArray.filter(m => m.invitation_status === 'accepted');
+        const pendingMembers = membersArray.filter(m => m.invitation_status === 'pending');
+        // Combine accepted and pending members (accepted first)
+        setMembers([...acceptedMembers, ...pendingMembers]);
       } else {
         // Error response (500, 403, etc.) 
         // The ApiContext already handles these gracefully and returns success: true with empty data

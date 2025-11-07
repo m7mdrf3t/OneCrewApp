@@ -58,6 +58,8 @@ interface Company {
   description?: string;
   bio?: string;
   logo_url?: string;
+  location_text?: string;
+  location?: string;
   company_type_info?: {
     code?: string;
     name?: string;
@@ -518,52 +520,63 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                 const itemCompanies = (filteredCompaniesByType as any)[selectedSubcategory] || [];
                 
                 return itemCompanies.length > 0 ? (
-                  <View style={styles.usersGrid}>
-                    {itemCompanies.map((company: Company) => (
-                      <TouchableOpacity
-                        key={company.id}
-                        style={styles.userCard}
-                        onPress={() => {
-                          if (onNavigate) {
-                            onNavigate('companyProfile', { companyId: company.id });
-                          }
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.userCardContent}>
-                          <View style={styles.userInitials}>
-                            {company.logo_url ? (
-                              <Image 
-                                source={{ uri: company.logo_url }} 
-                                style={styles.companyLogoInCard}
-                                resizeMode="cover"
-                              />
-                            ) : (
-                              <Text style={styles.initialsText}>
-                                {getInitials(company.name)}
-                              </Text>
-                            )}
+                  <View style={styles.companiesListContainer}>
+                    {itemCompanies.map((company: Company) => {
+                      const location = company.location_text || company.location || '';
+                      const companyType = company.company_type_info?.name || '';
+                      
+                      return (
+                        <TouchableOpacity
+                          key={company.id}
+                          style={styles.companyCardTwoTone}
+                          onPress={() => {
+                            if (onNavigate) {
+                              onNavigate('companyProfile', { companyId: company.id });
+                            }
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          {/* Top Section - Dark Grey */}
+                          <View style={styles.companyCardTop}>
+                            <Text style={styles.companyCardTopName} numberOfLines={2}>
+                              {company.name}
+                            </Text>
+                            {/* Navigation Button */}
+                            <TouchableOpacity
+                              style={styles.companyNavButton}
+                              onPress={() => {
+                                if (onNavigate) {
+                                  onNavigate('companyProfile', { companyId: company.id });
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons name="arrow-back" size={16} color="#fff" />
+                            </TouchableOpacity>
                           </View>
                           
-                          <View style={styles.userInfo}>
-                            <View style={styles.statusRow}>
-                              <View style={[styles.statusDot, { backgroundColor: '#45b7d1' }]} />
-                              <Text style={styles.userName}>{company.name}</Text>
-                            </View>
-                            {company.company_type_info?.name && (
-                              <Text style={styles.userRole}>
-                                {company.company_type_info.name}
+                          {/* Bottom Section - Light Grey */}
+                          <View style={styles.companyCardBottom}>
+                            <Text style={styles.companyCardBottomName} numberOfLines={1}>
+                              {company.name}
+                            </Text>
+                            {companyType ? (
+                              <Text style={styles.companyCardType} numberOfLines={1}>
+                                {companyType}
                               </Text>
-                            )}
-                            {(company.description || company.bio) && (
-                              <Text style={styles.companyDescription} numberOfLines={2}>
-                                {company.description || company.bio}
-                              </Text>
-                            )}
+                            ) : null}
+                            {location ? (
+                              <View style={styles.companyCardLocation}>
+                                <Ionicons name="location" size={14} color="#000" />
+                                <Text style={styles.companyCardLocationText} numberOfLines={1}>
+                                  {location}
+                                </Text>
+                              </View>
+                            ) : null}
                           </View>
-                        </View>
-                      </TouchableOpacity>
-                    ))}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 ) : (
                   <View style={styles.emptyState}>
@@ -594,9 +607,17 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                     >
                       <View style={styles.userCardContent}>
                         <View style={styles.userInitials}>
-                          <Text style={styles.initialsText}>
-                            {getInitials(user.name)}
-                          </Text>
+                          {user.image_url ? (
+                            <Image
+                              source={{ uri: user.image_url }}
+                              style={styles.userImage}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <Text style={styles.initialsText}>
+                              {getInitials(user.name)}
+                            </Text>
+                          )}
                         </View>
                         
                         <View style={styles.userInfo}>
@@ -791,16 +812,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     borderRadius: 12,
     marginBottom: 8,
+    minHeight: 220,
   },
   userCardContent: {
     padding: 12,
+    flex: 1,
   },
   userInitials: {
     alignItems: 'center',
-    marginBottom: 8,
+    justifyContent: 'center',
+    marginBottom: 12,
+    height: 100,
+    width: '100%',
+  },
+  userImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#1f2937',
   },
   initialsText: {
-    fontSize: 32,
+    fontSize: 48,
     fontWeight: 'bold',
     color: '#fff',
   },
@@ -919,6 +951,78 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginTop: 4,
     lineHeight: 16,
+  },
+  // Two-tone company card styles
+  companiesListContainer: {
+    padding: 8,
+    gap: 12,
+  },
+  companyCardTwoTone: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    borderWidth: 1,
+    borderColor: '#000',
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  companyCardTop: {
+    backgroundColor: '#262626',
+    padding: 20,
+    paddingBottom: 16,
+    height: 160,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  companyCardTopName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+    flex: 1,
+  },
+  companyNavButton: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  companyCardBottom: {
+    backgroundColor: '#f5f5f5',
+    padding: 16,
+    paddingTop: 12,
+    gap: 6,
+  },
+  companyCardBottomName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 2,
+  },
+  companyCardType: {
+    fontSize: 14,
+    color: '#000',
+    opacity: 0.7,
+  },
+  companyCardLocation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  companyCardLocationText: {
+    fontSize: 14,
+    color: '#000',
+    opacity: 0.7,
+    flex: 1,
   },
 });
 

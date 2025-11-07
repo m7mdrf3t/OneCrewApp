@@ -119,7 +119,7 @@ interface ApiContextType {
   updatePortfolioItem: (itemId: string, updates: { caption?: string; sort_order?: number }) => Promise<any>;
   removePortfolioItem: (itemId: string) => Promise<any>;
   // Social media links management methods
-  getUserSocialLinks: () => Promise<any>;
+  getUserSocialLinks: (userId?: string) => Promise<any>;
   addSocialLink: (linkData: { platform: string; url: string; is_custom?: boolean }) => Promise<any>;
   updateSocialLink: (linkId: string, updates: { platform?: string; url?: string; is_custom?: boolean }) => Promise<any>;
   deleteSocialLink: (linkId: string) => Promise<any>;
@@ -189,6 +189,11 @@ interface ApiContextType {
   revokeCertification: (companyId: string, certificationId: string) => Promise<any>;
   // User Certification Access
   getUserCertifications: (userId: string) => Promise<any>;
+  // News/Blog methods (v2.3.0)
+  getPublishedNews: (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest' }) => Promise<any>;
+  getNewsPostBySlug: (slug: string) => Promise<any>;
+  getNewsCategories: () => Promise<any>;
+  getNewsTags: () => Promise<any>;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
@@ -2176,13 +2181,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // Social media links management methods
-  const getUserSocialLinks = async () => {
-    const cacheKey = 'user-social-links';
+  const getUserSocialLinks = async (userId?: string) => {
+    const targetUserId = userId || user?.id;
+    const cacheKey = userId ? `user-social-links-${userId}` : 'user-social-links';
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('🔗 Fetching user social links...');
+        console.log('🔗 Fetching user social links...', userId ? `for user ${userId}` : 'for current user');
         const accessToken = getAccessToken();
-        const response = await fetch(`${baseUrl}/api/social-links`, {
+        const url = userId 
+          ? `${baseUrl}/api/social-links?user_id=${userId}`
+          : `${baseUrl}/api/social-links`;
+        const response = await fetch(url, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -3127,13 +3136,61 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const addCompanyMember = async (companyId: string, memberData: any) => {
     try {
       const response = await api.addCompanyMember(companyId, memberData);
+      
+      // Check if response indicates an error (even if no exception was thrown)
+      if (response && !response.success && response.error) {
+        const errorMsg = response.error || '';
+        if (errorMsg.includes('duplicate key') || errorMsg.includes('company_members_pkey')) {
+          console.warn('⚠️ Duplicate key error detected - member record may still exist');
+          return {
+            success: false,
+            error: 'This user was previously a member. The record may still exist in the database. Please contact support or wait a moment before trying again.',
+          };
+        }
+      }
+      
       if (response.success) {
-        // Invalidate company members cache
+        // Invalidate company members cache - clear all variations
         await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
+        // Also clear any cache with different parameter combinations
+        await rateLimiter.clearCacheByPattern(`company-members-${companyId}-`);
+        console.log('🔄 Cleared company members cache after adding member');
       }
       return response;
-    } catch (error) {
-      console.error('Failed to add company member:', error);
+    } catch (error: any) {
+      console.error('❌ Failed to add company member:', error);
+      
+      // Check if error response contains the duplicate key error
+      // Handle different error formats (ApiError, fetch error, etc.)
+      let errorMsg = '';
+      if (error.response?.data?.error) {
+        errorMsg = error.response.data.error;
+      } else if (error.message) {
+        errorMsg = error.message;
+      } else if (typeof error === 'string') {
+        errorMsg = error;
+      } else if (error.error) {
+        errorMsg = error.error;
+      }
+      
+      // Try to parse JSON error if it's a string
+      if (typeof errorMsg === 'string' && errorMsg.includes('{')) {
+        try {
+          const parsed = JSON.parse(errorMsg);
+          errorMsg = parsed.error || errorMsg;
+        } catch {
+          // Not JSON, use as is
+        }
+      }
+      
+      if (errorMsg.includes('duplicate key') || errorMsg.includes('company_members_pkey')) {
+        console.warn('⚠️ Duplicate key error detected - member record may still exist');
+        return {
+          success: false,
+          error: 'This user was previously a member. The record may still exist in the database. Please contact support or wait a moment before trying again.',
+        };
+      }
+      
       throw error;
     }
   };
@@ -3723,6 +3780,67 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }, { ttl: CacheTTL.LONG, persistent: true });
   };
 
+  // News/Blog methods (v2.3.0)
+  const getPublishedNews = async (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest' }) => {
+    const cacheKey = `published-news-${JSON.stringify(filters || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('📰 Fetching published news...', filters);
+        const response = await api.getPublishedNews(filters);
+        console.log('✅ Published news fetched successfully:', response.data?.pagination?.total || 0, 'posts');
+        return response;
+      } catch (error: any) {
+        console.error('❌ Failed to fetch published news:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.MEDIUM, persistent: true });
+  };
+
+  const getNewsPostBySlug = async (slug: string) => {
+    const cacheKey = `news-post-${slug}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('📰 Fetching news post by slug:', slug);
+        const response = await api.getNewsPostBySlug(slug);
+        console.log('✅ News post fetched successfully');
+        return response;
+      } catch (error: any) {
+        console.error('❌ Failed to fetch news post:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.MEDIUM, persistent: true });
+  };
+
+  const getNewsCategories = async () => {
+    const cacheKey = 'news-categories';
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('📰 Fetching news categories...');
+        const response = await api.getNewsCategories();
+        console.log('✅ News categories fetched successfully:', response.data?.length || 0, 'categories');
+        return response;
+      } catch (error: any) {
+        console.error('❌ Failed to fetch news categories:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.VERY_LONG, persistent: true });
+  };
+
+  const getNewsTags = async () => {
+    const cacheKey = 'news-tags';
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('📰 Fetching news tags...');
+        const response = await api.getNewsTags();
+        console.log('✅ News tags fetched successfully:', response.data?.length || 0, 'tags');
+        return response;
+      } catch (error: any) {
+        console.error('❌ Failed to fetch news tags:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.VERY_LONG, persistent: true });
+  };
+
   // Notification methods
   const getNotifications = async (params?: NotificationParams) => {
     try {
@@ -4073,6 +4191,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     revokeCertification,
     // User Certification Access
     getUserCertifications,
+    // News/Blog methods (v2.3.0)
+    getPublishedNews,
+    getNewsPostBySlug,
+    getNewsCategories,
+    getNewsTags,
   };
 
   return (

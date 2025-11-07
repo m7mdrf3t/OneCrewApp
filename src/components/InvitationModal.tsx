@@ -121,16 +121,32 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
         Alert.alert('Success', `Invitation sent to ${selectedUser.name || selectedUser.email}`);
         resetForm();
         // Call callback BEFORE closing to ensure refresh happens
-        if (onInvitationSent) {
-          onInvitationSent();
-        }
+        // Add a small delay to ensure backend has processed the request
+        setTimeout(() => {
+          if (onInvitationSent) {
+            onInvitationSent();
+          }
+        }, 500);
         onClose();
       } else {
         throw new Error(response.error || 'Failed to send invitation');
       }
     } catch (error: any) {
       console.error('Failed to send invitation:', error);
-      Alert.alert('Error', error.message || 'Failed to send invitation. Please try again.');
+      
+      // Handle duplicate key error (member was previously removed but record still exists)
+      const errorMessage = error.message || error.error || '';
+      if (errorMessage.includes('duplicate key') || errorMessage.includes('company_members_pkey')) {
+        Alert.alert(
+          'Member Already Exists',
+          'This user was previously a member. The backend may need to restore their membership. Please contact support or try again in a moment.',
+          [
+            { text: 'OK', style: 'default' }
+          ]
+        );
+      } else {
+        Alert.alert('Error', errorMessage || 'Failed to send invitation. Please try again.');
+      }
     } finally {
       setSending(false);
     }

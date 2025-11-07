@@ -35,6 +35,7 @@ import AccountSwitcherModal from './src/components/AccountSwitcherModal';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
 import ProfileCompletionPage from './src/pages/ProfileCompletionPage';
 import SpotPage from './src/pages/SpotPage';
+import NewsDetailPage from './src/pages/NewsDetailPage';
 import LoginPage from './src/pages/LoginPage';
 import SignupPage from './src/pages/SignupPage';
 import ForgotPasswordPage from './src/pages/ForgotPasswordPage';
@@ -763,7 +764,15 @@ const AppContent: React.FC = () => {
             />
           )}
           {page.name === 'spot' && (
-            <SpotPage isDark={isDark} />
+            <SpotPage isDark={isDark} onNavigate={navigateTo} />
+          )}
+          {page.name === 'newsDetail' && (
+            <NewsDetailPage
+              slug={page.data?.slug}
+              post={page.data?.post}
+              onBack={handleBack}
+              isDark={isDark}
+            />
           )}
           {page.name === 'sectionServices' && (
             <DirectoryPage

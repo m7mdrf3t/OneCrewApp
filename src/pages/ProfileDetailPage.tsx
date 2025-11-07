@@ -311,16 +311,26 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   // Load social links from API
   useEffect(() => {
     const loadSocialLinks = async () => {
-      // Only load for current user (API requires authentication)
-      if (!isCurrentUser || !currentUser?.id || isGuest || !isAuthenticated) {
-        // For other users, use data from userProfile if available
+      const userIdToFetch = isCurrentUser && currentUser?.id 
+        ? currentUser.id 
+        : (profile?.id || userProfile?.id);
+      
+      // Skip if no user ID available
+      if (!userIdToFetch) {
+        setSocialLinks(userProfile?.social_links || []);
+        return;
+      }
+
+      // For guests, try to use data from userProfile if available
+      if (isGuest) {
         setSocialLinks(userProfile?.social_links || []);
         return;
       }
 
       try {
         setLoadingSocialLinks(true);
-        const response = await getUserSocialLinks();
+        // Fetch social links for the specific user (current user or other user)
+        const response = await getUserSocialLinks(userIdToFetch);
         if (response.success && response.data) {
           const links = Array.isArray(response.data) ? response.data : response.data.data || [];
           setSocialLinks(links);
@@ -338,7 +348,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
 
     loadSocialLinks();
-  }, [isCurrentUser, currentUser?.id, getUserSocialLinks, isGuest, isAuthenticated, userProfile?.social_links]);
+  }, [isCurrentUser, currentUser?.id, getUserSocialLinks, isGuest, isAuthenticated, userProfile?.social_links, profile?.id, userProfile?.id]);
 
   const isInTeam = myTeam.some(member => member.id === userProfile.id);
 
@@ -486,13 +496,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title}>{userProfile.name}</Text>
-        {isCurrentUser && onLogout ? (
-          <TouchableOpacity onPress={onLogout} style={styles.logoutButton}>
-            <Ionicons name="log-out" size={24} color="#ff4444" />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.placeholder} />
-        )}
+        <View style={styles.placeholder} />
       </View>
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Profile Completion Banner */}
@@ -1681,11 +1685,6 @@ const styles = StyleSheet.create({
     gap: 12,
     marginHorizontal: 8,
     marginBottom: 16,
-  },
-  logoutButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#ffe6e6',
   },
   actionButton: {
     flexDirection: 'row',

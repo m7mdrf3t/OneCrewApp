@@ -206,7 +206,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     const loadSocialLinks = async () => {
       if (!user?.id || isGuest || !isAuthenticated) return;
       try {
-        console.log('🔗 Loading social links from API...');
         const response = await getUserSocialLinks();
         if (response.success && response.data) {
           const links = Array.isArray(response.data) ? response.data : response.data.data || [];
@@ -222,7 +221,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             ...prev,
             socialLinks: mappedLinks,
           }));
-          console.log('✅ Social links loaded:', mappedLinks.length);
         }
       } catch (error) {
         console.error('Failed to load social links:', error);
@@ -238,7 +236,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   // Initialize form data when user changes
   useEffect(() => {
     if (user) {
-      console.log('🔄 Initializing form data with user:', user);
       
       // The user object is already the direct user data (not nested under 'data')
       const aboutData = user.about || {};
@@ -262,8 +259,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         return String(skill); // Fallback to string conversion
       });
       
-      console.log('🔍 User skills from profile:', userSkills);
-      console.log('🔍 Normalized skills for form:', normalizedSkills);
       
       const newFormData = {
         bio: user.bio || '',
@@ -293,16 +288,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         imageUrl: user.imageUrl || user.image_url || '',
       };
       
-      console.log('✅ Form data to be set:', newFormData);
-      console.log('🔍 User details available:', userDetails);
-      console.log('🔍 About data available:', aboutData);
       
       setFormData(newFormData);
-      
-      // Log after state update
-      setTimeout(() => {
-        console.log('🔍 Form data state after update:', newFormData);
-      }, 100);
     }
   }, [user]);
 
@@ -311,7 +298,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     const loadReferenceData = async () => {
       setLoadingReferences(true);
       try {
-        console.log('🔄 Loading reference data...');
         
         const [skinTonesRes, hairColorsRes, skillsRes, abilitiesRes, languagesRes] = await Promise.all([
           getSkinTones(),
@@ -327,13 +313,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         setAbilities(abilitiesRes.data || []);
         setLanguages(languagesRes.data || []);
         
-        console.log('🔍 Reference data loaded:', {
-          skinTones: skinTonesRes.data?.length || 0,
-          hairColors: hairColorsRes.data?.length || 0,
-          skills: skillsRes.data?.length || 0,
-          abilities: abilitiesRes.data?.length || 0,
-          languages: languagesRes.data?.length || 0,
-        });
       } catch (error) {
         console.error('Error loading reference data:', error);
       } finally {
@@ -610,12 +589,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       if (!isLocalFile) {
         try {
           await api.addPortfolioItem(newItem);
-          console.log('✅ Portfolio item saved to API');
         } catch (apiError) {
-          console.log('⚠️ Portfolio item saved locally only:', apiError);
         }
       } else {
-        console.log('📱 Local file detected, saving locally only. Upload to cloud service to sync with API.');
       }
 
       // Clear form
@@ -647,9 +623,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       if ((item as any).id) {
         try {
           await api.removePortfolioItem((item as any).id);
-          console.log('✅ Portfolio item removed from API');
         } catch (apiError) {
-          console.log('⚠️ Portfolio item removed locally only:', apiError);
         }
       }
 
@@ -761,8 +735,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         }
 
         // Debug: Log the actual duration value
-        console.log('🔍 Video duration from picker:', result.duration);
-        console.log('🔍 Duration type:', typeof result.duration);
         
         // Handle duration validation - check if it's in seconds or milliseconds
         if (result.duration) {
@@ -772,13 +744,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           // Most video durations in seconds would be reasonable numbers, but milliseconds are typically much larger
           if (result.duration > 100) {
             durationInSeconds = result.duration / 1000;
-            console.log('🔍 Converted duration from milliseconds to seconds:', durationInSeconds);
           }
           
-          console.log('🔍 Final duration in seconds:', durationInSeconds);
-          
           if (durationInSeconds > 300) {
-            console.log('❌ Video duration exceeds 5 minutes:', durationInSeconds, 'seconds');
             Alert.alert('Video Too Long', 'Please select a video shorter than 5 minutes.');
             return;
           }
@@ -826,8 +794,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         }
 
         // Debug: Log the actual duration value
-        console.log('🔍 Recorded video duration:', result.duration);
-        console.log('🔍 Duration type:', typeof result.duration);
         
         // Handle duration validation - check if it's in seconds or milliseconds
         if (result.duration) {
@@ -837,13 +803,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           // Most video durations in seconds would be reasonable numbers, but milliseconds are typically much larger
           if (result.duration > 100) {
             durationInSeconds = result.duration / 1000;
-            console.log('🔍 Converted recorded duration from milliseconds to seconds:', durationInSeconds);
           }
           
-          console.log('🔍 Final recorded duration in seconds:', durationInSeconds);
-          
           if (durationInSeconds > 300) {
-            console.log('❌ Recorded video duration exceeds 5 minutes:', durationInSeconds, 'seconds');
             Alert.alert('Video Too Long', 'Please record a video shorter than 5 minutes.');
             return;
           }
@@ -968,8 +930,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
     setIsSubmitting(true);
     try {
-      console.log('🔄 Starting profile update with separated data sources...');
-      
       // 1. Prepare basic profile data (bio, specialty, skills, imageUrl)
       // Note: social_links are handled separately via dedicated endpoints
       const basicProfileData = {
@@ -1007,8 +967,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         nationality: formData.about.nationality,
       };
 
-      console.log('🔍 Form gender value:', formData.about.gender);
-      console.log('🔍 Mapped gender value:', userDetailsData.gender);
 
       // 3. Prepare Talent Profile data (all other physical and professional details)
       // Only prepare if user is a talent
@@ -1039,44 +997,19 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         cleanedTalentData = Object.fromEntries(
           Object.entries(talentProfileData).filter(([_, value]) => value !== undefined && value !== null && value !== '')
         );
-      } else {
-        console.log('⏭️ Skipping talent profile data preparation - user is not a talent (category: ' + (user?.category || 'unknown') + ')');
       }
 
-      console.log('🔄 Updating basic profile:', basicProfileData);
-      console.log('🔄 Updating user details (age, nationality, gender):', userDetailsData);
-      console.log('🔗 Social links are managed separately via dedicated endpoints');
-      console.log('🔄 Updating talent profile (physical details):', cleanedTalentData);
-      console.log('🔍 Talent profile data being sent:', JSON.stringify(cleanedTalentData, null, 2));
-      console.log('🔍 Form data values being used:', {
-        skinTone: formData.about.skinTone,
-        hairColor: formData.about.hairColor,
-        skills: formData.skills,
-      });
-      
-      console.log('🔍 Reference data for matching:', {
-        skinTones: skinTones.map(t => ({ id: t.id, name: t.name })),
-        hairColors: hairColors.map(c => ({ id: c.id, name: c.name })),
-      });
 
       // Update basic profile
       const profileResponse = await updateProfile(basicProfileData);
-      console.log('✅ Basic profile updated:', profileResponse);
 
       // Update or create user details (age, nationality, gender)
       let userDetailsResponse;
       try {
         userDetailsResponse = await api.updateUserDetails(userDetailsData);
-        console.log('✅ User details updated:', userDetailsResponse);
       } catch (updateError: any) {
         // If update fails (404 - user details don't exist), create new ones
-        if (updateError.message?.includes('404') || updateError.message?.includes('not found')) {
-          console.log('ℹ️ User details don\'t exist, creating new ones...');
-        } else {
-          console.log('⚠️ Update failed, trying to create new user details:', updateError.message);
-        }
         userDetailsResponse = await api.createUserDetails(userDetailsData);
-        console.log('✅ User details created:', userDetailsResponse);
       }
 
       // Update talent profile (physical details) using direct API call
@@ -1089,9 +1022,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         let accessToken: string;
         try {
           accessToken = getAccessToken();
-          console.log('🔑 Access token retrieved for talent profile update');
-          console.log('🎭 Updating talent profile with data:', cleanedTalentData);
-          console.log('👤 Current user category:', user?.category);
         } catch (tokenError: any) {
           console.error('❌ Failed to get access token:', tokenError);
           throw new Error('Access token required for talent profile update. Please log in again.');
@@ -1109,12 +1039,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
         talentResult = await talentResponse.json();
         
-        console.log('🎭 Talent profile PUT response status:', talentResponse.status);
-        console.log('🎭 Talent profile PUT response:', JSON.stringify(talentResult, null, 2));
-        
         // If PUT fails with 404 (not found) or 403 (permission), try POST to create
         if (!talentResponse.ok && (talentResponse.status === 404 || talentResponse.status === 403)) {
-          console.log('🔄 PUT failed, trying POST to create talent profile...');
           
           talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
             method: 'POST',
@@ -1126,8 +1052,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           });
 
           talentResult = await talentResponse.json();
-          console.log('🎭 Talent profile POST response status:', talentResponse.status);
-          console.log('🎭 Talent profile POST response:', JSON.stringify(talentResult, null, 2));
         }
         
         if (!talentResponse.ok) {
@@ -1147,11 +1071,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             // For other errors, log but don't block the profile update
             console.warn('⚠️ Talent profile update failed, but continuing with other updates:', talentResult.error);
           }
-        } else {
-          console.log('✅ Talent profile updated/created:', talentResult);
         }
-      } else {
-        console.log('⏭️ Skipping talent profile update - no talent data to send');
       }
 
       // Combine all responses
