@@ -25,6 +25,9 @@ import {
   CreateCertificationRequest,
   UpdateCertificationRequest,
   BulkAuthorizationRequest,
+  CreateCourseRequest,
+  UpdateCourseRequest,
+  CourseStatus,
 } from '../types';
 import ReferenceDataService from '../services/ReferenceDataService';
 import supabaseService from '../services/SupabaseService';
@@ -189,6 +192,17 @@ interface ApiContextType {
   revokeCertification: (companyId: string, certificationId: string) => Promise<any>;
   // User Certification Access
   getUserCertifications: (userId: string) => Promise<any>;
+  // Course Management methods (v2.4.0)
+  getAcademyCourses: (companyId: string, filters?: { status?: CourseStatus; category?: string }) => Promise<any>;
+  createCourse: (companyId: string, courseData: CreateCourseRequest) => Promise<any>;
+  getCourseById: (courseId: string, companyId?: string) => Promise<any>;
+  updateCourse: (companyId: string, courseId: string, updates: UpdateCourseRequest) => Promise<any>;
+  deleteCourse: (companyId: string, courseId: string) => Promise<any>;
+  getPublicCourses: (filters?: { category?: string; company_id?: string; page?: number; limit?: number }) => Promise<any>;
+  registerForCourse: (courseId: string) => Promise<any>;
+  unregisterFromCourse: (courseId: string) => Promise<any>;
+  getCourseRegistrations: (courseId: string) => Promise<any>;
+  getMyRegisteredCourses: () => Promise<any>;
   // News/Blog methods (v2.3.0)
   getPublishedNews: (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest' }) => Promise<any>;
   getNewsPostBySlug: (slug: string) => Promise<any>;
@@ -3780,6 +3794,204 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }, { ttl: CacheTTL.LONG, persistent: true });
   };
 
+  // Course Management Methods (v2.4.0)
+  const getAcademyCourses = async (companyId: string, filters?: { status?: CourseStatus; category?: string }) => {
+    const cacheKey = `academy-courses-${companyId}-${JSON.stringify(filters || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getAcademyCourses(companyId, filters);
+        if (response.success && response.data) {
+          const data = response.data as any;
+          return Array.isArray(data) ? data : (data.data || []);
+        }
+        throw new Error(response.error || 'Failed to get academy courses');
+      } catch (error) {
+        console.error('Failed to get academy courses:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT });
+  };
+
+  const createCourse = async (companyId: string, courseData: CreateCourseRequest) => {
+    try {
+      const response = await api.createCourse(companyId, courseData);
+      if (response.success && response.data) {
+        // Invalidate courses cache
+        await rateLimiter.clearCacheByPattern(`academy-courses-${companyId}`);
+        return {
+          success: true,
+          data: response.data,
+        };
+      }
+      throw new Error(response.error || 'Failed to create course');
+    } catch (error: any) {
+      console.error('Failed to create course:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to create course',
+      };
+    }
+  };
+
+  const getCourseById = async (courseId: string, companyId?: string) => {
+    const cacheKey = `course-${courseId}-${companyId || ''}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getCourseById(courseId, companyId);
+        if (response.success && response.data) {
+          return {
+            success: true,
+            data: response.data,
+          };
+        }
+        throw new Error(response.error || 'Failed to get course');
+      } catch (error: any) {
+        console.error('Failed to get course:', error);
+        return {
+          success: false,
+          error: error.message || 'Failed to get course',
+        };
+      }
+    }, { ttl: CacheTTL.SHORT });
+  };
+
+  const updateCourse = async (companyId: string, courseId: string, updates: UpdateCourseRequest) => {
+    try {
+      const response = await api.updateCourse(companyId, courseId, updates);
+      if (response.success && response.data) {
+        // Invalidate courses cache
+        await rateLimiter.clearCacheByPattern(`academy-courses-${companyId}`);
+        await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+        return {
+          success: true,
+          data: response.data,
+        };
+      }
+      throw new Error(response.error || 'Failed to update course');
+    } catch (error: any) {
+      console.error('Failed to update course:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to update course',
+      };
+    }
+  };
+
+  const deleteCourse = async (companyId: string, courseId: string) => {
+    try {
+      const response = await api.deleteCourse(companyId, courseId);
+      if (response.success) {
+        // Invalidate courses cache
+        await rateLimiter.clearCacheByPattern(`academy-courses-${companyId}`);
+        await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+        return {
+          success: true,
+        };
+      }
+      throw new Error(response.error || 'Failed to delete course');
+    } catch (error: any) {
+      console.error('Failed to delete course:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to delete course',
+      };
+    }
+  };
+
+  const getPublicCourses = async (filters?: { category?: string; company_id?: string; page?: number; limit?: number }) => {
+    const cacheKey = `public-courses-${JSON.stringify(filters || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getPublicCourses(filters);
+        if (response.success && response.data) {
+          const data = response.data as any;
+          return Array.isArray(data) ? data : (data.data || []);
+        }
+        throw new Error(response.error || 'Failed to get public courses');
+      } catch (error) {
+        console.error('Failed to get public courses:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT });
+  };
+
+  const registerForCourse = async (courseId: string) => {
+    try {
+      const response = await api.registerForCourse(courseId);
+      if (response.success && response.data) {
+        // Invalidate caches
+        await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+        await rateLimiter.clearCache('my-registered-courses');
+        return {
+          success: true,
+          data: response.data,
+        };
+      }
+      throw new Error(response.error || 'Failed to register for course');
+    } catch (error: any) {
+      console.error('Failed to register for course:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to register for course',
+      };
+    }
+  };
+
+  const unregisterFromCourse = async (courseId: string) => {
+    try {
+      const response = await api.unregisterFromCourse(courseId);
+      if (response.success) {
+        // Invalidate caches
+        await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+        await rateLimiter.clearCache('my-registered-courses');
+        return {
+          success: true,
+        };
+      }
+      throw new Error(response.error || 'Failed to unregister from course');
+    } catch (error: any) {
+      console.error('Failed to unregister from course:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to unregister from course',
+      };
+    }
+  };
+
+  const getCourseRegistrations = async (courseId: string) => {
+    const cacheKey = `course-registrations-${courseId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getCourseRegistrations(courseId);
+        if (response.success && response.data) {
+          const data = response.data as any;
+          return Array.isArray(data) ? data : (data.data || []);
+        }
+        throw new Error(response.error || 'Failed to get course registrations');
+      } catch (error) {
+        console.error('Failed to get course registrations:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT });
+  };
+
+  const getMyRegisteredCourses = async () => {
+    const cacheKey = 'my-registered-courses';
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        const response = await api.getMyRegisteredCourses();
+        if (response.success && response.data) {
+          const data = response.data as any;
+          return Array.isArray(data) ? data : (data.data || []);
+        }
+        throw new Error(response.error || 'Failed to get registered courses');
+      } catch (error) {
+        console.error('Failed to get registered courses:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT });
+  };
+
   // News/Blog methods (v2.3.0)
   const getPublishedNews = async (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest' }) => {
     const cacheKey = `published-news-${JSON.stringify(filters || {})}`;
@@ -4191,6 +4403,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     revokeCertification,
     // User Certification Access
     getUserCertifications,
+    // Course Management methods (v2.4.0)
+    getAcademyCourses,
+    createCourse,
+    getCourseById,
+    updateCourse,
+    deleteCourse,
+    getPublicCourses,
+    registerForCourse,
+    unregisterFromCourse,
+    getCourseRegistrations,
+    getMyRegisteredCourses,
     // News/Blog methods (v2.3.0)
     getPublishedNews,
     getNewsPostBySlug,

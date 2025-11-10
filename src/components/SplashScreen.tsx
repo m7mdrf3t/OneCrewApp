@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import { View, StyleSheet, Animated, Image } from 'react-native';
 
 interface SplashScreenProps {
   onFinished: () => void;
@@ -30,8 +30,11 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinished }) => {
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY }] }]}>
-        <Text style={styles.one}>ONE</Text>
-        <Text style={styles.crew}>CREW</Text>
+        <Image 
+          source={require('../../assets/Steps_02.gif')} 
+          style={styles.splashImage}
+          resizeMode="contain"
+        />
       </Animated.View>
     </View>
   );
@@ -46,21 +49,11 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  one: {
-    fontSize: 48,
-    fontWeight: '900',
-    color: '#fff',
-    textTransform: 'uppercase',
-    letterSpacing: 4,
-  },
-  crew: {
-    fontSize: 40,
-    fontWeight: '600',
-    color: '#d1d5db',
-    textTransform: 'uppercase',
-    letterSpacing: 6,
-    marginTop: 4,
+  splashImage: {
+    width: '100%',
+    height: '100%',
   },
 });
 

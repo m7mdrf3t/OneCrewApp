@@ -421,7 +421,6 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       setIsCreating(true);
       const response = await updateTask(taskId, {
         title: taskName.trim(),
-        description: taskName.trim(),
       });
       
       if (response.success && response.data) {
@@ -1372,6 +1371,17 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     textAlign: 'center',
   },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginLeft: 12,
+  },
   menuOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
@@ -1430,6 +1440,23 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: '#000',
+  },
+  saveButton: {
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    opacity: 0.6,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

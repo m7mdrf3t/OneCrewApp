@@ -18,6 +18,7 @@ export interface SearchBarProps {
   value: string;
   onChange: (value: string) => void;
   onOpenFilter?: () => void;
+  onClose?: () => void;
 }
 
 export interface SectionCardProps {
@@ -646,4 +647,121 @@ export interface UpdateCertificationRequest {
 export interface BulkAuthorizationRequest {
   company_ids: string[];
   certification_template_ids: string[];
+}
+
+// Course Management Types (from onecrew-api-client v2.4.0)
+export type CourseStatus = 'draft' | 'published' | 'completed' | 'cancelled';
+
+export interface Course {
+  id: string;
+  company_id: string;
+  title: string;
+  description?: string;
+  price: number;
+  total_seats: number;
+  available_seats: number;
+  poster_url?: string;
+  start_date?: string;
+  end_date?: string;
+  duration?: string;
+  category?: string;
+  status: CourseStatus;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+  company?: Company;
+}
+
+export interface CourseWithDetails extends Course {
+  instructors?: User[];
+  registration_count?: number;
+  is_registered?: boolean;
+}
+
+export interface CourseRegistration {
+  id: string;
+  course_id: string;
+  user_id: string;
+  registered_at: string;
+  status: string;
+  cancelled_at?: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+  course?: Course;
+  user?: User;
+}
+
+export interface CreateCourseRequest {
+  title: string;
+  description?: string;
+  price?: number;
+  total_seats: number;
+  poster_url?: string;
+  start_date?: string;
+  end_date?: string;
+  duration?: string;
+  category?: string;
+  status?: CourseStatus;
+  instructor_ids?: string[];
+}
+
+export interface UpdateCourseRequest {
+  title?: string;
+  description?: string;
+  price?: number;
+  total_seats?: number;
+  poster_url?: string;
+  start_date?: string;
+  end_date?: string;
+  duration?: string;
+  category?: string;
+  status?: CourseStatus;
+  instructor_ids?: string[];
+}
+
+// Course UI Component Props
+export interface CourseCardProps {
+  course: CourseWithDetails;
+  onSelect: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  showActions?: boolean;
+}
+
+export interface CourseManagementPageProps {
+  companyId: string;
+  onBack: () => void;
+  onCourseSelect?: (course: CourseWithDetails) => void;
+}
+
+export interface CourseEditPageProps {
+  courseId: string;
+  companyId: string;
+  onBack: () => void;
+  onCourseUpdated?: () => void;
+}
+
+export interface CourseDetailPageProps {
+  courseId: string;
+  companyId?: string;
+  onBack: () => void;
+  onRegister?: () => void;
+  onUnregister?: () => void;
+}
+
+export interface PublicCoursesPageProps {
+  onBack: () => void;
+  onCourseSelect: (course: CourseWithDetails) => void;
+  filters?: {
+    category?: string;
+    company_id?: string;
+  };
+}
+
+export interface CourseCreationModalProps {
+  visible: boolean;
+  companyId: string;
+  onClose: () => void;
+  onSubmit: (courseData: CreateCourseRequest) => Promise<void>;
 }

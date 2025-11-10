@@ -72,13 +72,15 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
   };
 
   const handleSwitchToUser = async () => {
-    if (currentProfileType === 'user') {
-      onClose();
-      return;
-    }
     try {
       setSwitching('user');
-      await switchToUserProfile();
+      if (currentProfileType !== 'user') {
+        await switchToUserProfile();
+      }
+      // Navigate to profile page
+      if (onNavigate) {
+        onNavigate('myProfile');
+      }
       onClose();
     } catch (error) {
       console.error('Failed to switch to user profile:', error);

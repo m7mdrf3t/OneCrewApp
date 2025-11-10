@@ -20,9 +20,11 @@ import {
   CompanyMemberRole,
   CompanyApprovalStatus,
   UserCertification,
+  CourseWithDetails,
 } from '../types';
 import GrantCertificationModal from '../components/GrantCertificationModal';
 import CertificationCard from '../components/CertificationCard';
+import CourseCard from '../components/CourseCard';
 
 interface CompanyProfilePageProps {
   companyId: string;
@@ -31,6 +33,7 @@ interface CompanyProfilePageProps {
   onManageMembers?: (company: Company) => void;
   onManageServices?: (company: Company) => void;
   onInviteMember?: (company: Company) => void;
+  onManageCourses?: (company: Company) => void;
   refreshTrigger?: number;
 }
 
@@ -41,6 +44,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   onManageMembers,
   onManageServices,
   onInviteMember,
+  onManageCourses,
   refreshTrigger,
 }) => {
   const {
@@ -54,6 +58,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     getAuthorizedCertifications,
     removeCompanyMember,
     grantCertification,
+    getAcademyCourses,
   } = useApi();
 
   const [company, setCompany] = useState<Company | null>(null);
@@ -69,6 +74,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const [showGrantCertificationModal, setShowGrantCertificationModal] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [selectedUserIdForCertification, setSelectedUserIdForCertification] = useState<string | null>(null);
+  const [courses, setCourses] = useState<CourseWithDetails[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(false);
 
   useEffect(() => {
     loadCompanyData();
@@ -91,6 +98,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         loadMembers(company.id);
         if (company.subcategory === 'academy') {
           loadCertifications(company.id);
+          loadCourses(company.id);
         }
       };
       clearCacheAndReload();
@@ -149,11 +157,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
       setCompany(companyResponse.data);
 
-      // Load members, services, and certifications in parallel
+      // Load members, services, certifications, and courses in parallel
       const loadPromises = [loadMembers(companyId), loadServices(companyId)];
-      // Only load certifications if company is an academy
+      // Only load certifications and courses if company is an academy
       if (companyResponse.data.subcategory === 'academy') {
         loadPromises.push(loadCertifications(companyId));
+        loadPromises.push(loadCourses(companyId));
       }
       await Promise.all(loadPromises);
     } catch (err: any) {
@@ -243,6 +252,19 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       setCertifications([]);
     } finally {
       setLoadingCertifications(false);
+    }
+  };
+
+  const loadCourses = async (id: string) => {
+    try {
+      setLoadingCourses(true);
+      const coursesData = await getAcademyCourses(id);
+      setCourses(Array.isArray(coursesData) ? coursesData : []);
+    } catch (err) {
+      console.error('Failed to load courses:', err);
+      setCourses([]);
+    } finally {
+      setLoadingCourses(false);
     }
   };
 
@@ -766,6 +788,70 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           </View>
         )}
 
+        {/* Courses Section (Academy Only) */}
+        {company.subcategory === 'academy' && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                Courses {courses.length > 0 && `(${courses.length})`}
+              </Text>
+              {canEdit() && onManageCourses && (
+                <TouchableOpacity
+                  style={styles.manageButton}
+                  onPress={() => onManageCourses(company)}
+                >
+                  <Ionicons name="school-outline" size={18} color="#000" />
+                  <Text style={styles.manageButtonText}>Manage</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {loadingCourses ? (
+              <ActivityIndicator size="small" color="#000" />
+            ) : courses.length > 0 ? (
+              <View style={styles.coursesList}>
+                {courses.slice(0, 3).map((course) => (
+                  <CourseCard
+                    key={course.id}
+                    course={course}
+                    onSelect={() => {
+                      // Navigate to course detail - will be handled by parent
+                      if (onManageCourses) {
+                        // For now, navigate to management page, but could navigate to detail
+                        onManageCourses(company);
+                      }
+                    }}
+                  />
+                ))}
+                {courses.length > 3 && (
+                  <TouchableOpacity
+                    style={styles.viewAllButton}
+                    onPress={() => onManageCourses && onManageCourses(company)}
+                  >
+                    <Text style={styles.viewAllButtonText}>
+                      View All {courses.length} Courses
+                    </Text>
+                    <Ionicons name="arrow-forward" size={16} color="#3b82f6" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="school-outline" size={48} color="#e4e4e7" />
+                <Text style={styles.emptyStateText}>No courses available yet</Text>
+                {canEdit() && onManageCourses && (
+                  <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => onManageCourses(company)}
+                  >
+                    <Text style={styles.addButtonText}>Create Course</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Additional Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Company Information</Text>
@@ -1150,6 +1236,27 @@ const styles = StyleSheet.create({
   certificationsList: {
     gap: 12,
     marginTop: 8,
+  },
+  // Courses section styles
+  coursesList: {
+    gap: 12,
+    marginTop: 8,
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#f4f4f5',
+    borderRadius: 8,
+    gap: 8,
+    marginTop: 8,
+  },
+  viewAllButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#3b82f6',
   },
 });
 

@@ -10,7 +10,6 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange }) => {
     { key: 'home', label: 'Home', icon: 'home' },
     { key: 'projects', label: 'Projects', icon: 'folder' },
     { key: 'spot', label: 'Spot', icon: 'search' },
-    { key: 'profile', label: 'Star', icon: 'star' },
   ];
 
   return (

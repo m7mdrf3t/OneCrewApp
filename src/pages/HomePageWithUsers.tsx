@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, ScrollView, StyleSheet, RefreshControl, Text } from 'react-native';
+import { View, ScrollView, StyleSheet, RefreshControl, Text, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import SearchBar from '../components/SearchBar';
 import SectionCard from '../components/SectionCard';
 import { HomePageProps } from '../types';
@@ -57,6 +58,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingCompleteData, setLoadingCompleteData] = useState<Set<string>>(new Set());
+  const [showSearch, setShowSearch] = useState(false);
 
   const fetchUsers = async () => {
     try {
@@ -298,13 +300,33 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
-        <View style={styles.header}>
-          <SearchBar
-            value={searchQuery}
-            onChange={onSearchChange}
-            onOpenFilter={onOpenFilter}
-          />
-        </View>
+        <ScrollView 
+          style={styles.content} 
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.sectionsContainer}>
+            {!showSearch ? (
+              <TouchableOpacity 
+                style={styles.searchButton}
+                onPress={() => setShowSearch(true)}
+              >
+                <View style={styles.searchIconContainer}>
+                  <Ionicons name="search" size={16} color="#000" />
+                </View>
+                <Text style={styles.searchButtonText}>Search</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.searchBarContainer}>
+                <SearchBar
+                  value={searchQuery}
+                  onChange={onSearchChange}
+                  onOpenFilter={onOpenFilter}
+                  onClose={() => setShowSearch(false)}
+                />
+              </View>
+            )}
+          </View>
+        </ScrollView>
         <View style={styles.loadingContainer}>
           <Text style={[styles.loadingText, { color: isDark ? '#fff' : '#000' }]}>
             Loading users...
@@ -316,14 +338,6 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
 
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
-      <View style={[styles.header, { backgroundColor: isDark ? '#000' : '#fff' }]}>
-        <SearchBar
-          value={searchQuery}
-          onChange={onSearchChange}
-          onOpenFilter={onOpenFilter}
-        />
-      </View>
-      
       <ScrollView 
         style={styles.content} 
         showsVerticalScrollIndicator={false}
@@ -333,6 +347,26 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       >
         {/* Dynamic Directory Sections */}
         <View style={styles.sectionsContainer}>
+          {!showSearch ? (
+            <TouchableOpacity 
+              style={styles.searchButton}
+              onPress={() => setShowSearch(true)}
+            >
+              <View style={styles.searchIconContainer}>
+                <Ionicons name="search" size={16} color="#000" />
+              </View>
+              <Text style={styles.searchButtonText}>Search</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.searchBarContainer}>
+              <SearchBar
+                value={searchQuery}
+                onChange={onSearchChange}
+                onOpenFilter={onOpenFilter}
+                onClose={() => setShowSearch(false)}
+              />
+            </View>
+          )}
           {sectionsWithUserCounts.map((section) => (
             <SectionCard
               key={section.key}
@@ -352,26 +386,54 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f4f4f5',
   },
-  header: {
-    backgroundColor: '#fff',
-    borderBottomWidth: 2,
-    borderBottomColor: '#000',
-    padding: 12,
-  },
   content: {
     flex: 1,
   },
-  loadingContainer: {
+  sectionsContainer: {
+    padding: 12,
+  },
+  searchButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#d4d4d8',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  searchIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: '#f4f4f5',
+    borderWidth: 1,
+    borderColor: '#d4d4d8',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  searchButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
     flex: 1,
+  },
+  searchBarContainer: {
+    marginBottom: 8,
+  },
+  loadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
     fontSize: 16,
     fontWeight: '500',
-  },
-  sectionsContainer: {
-    padding: 12,
   },
   usersSection: {
     padding: 12,

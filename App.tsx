@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, Image } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -43,6 +43,10 @@ import ResetPasswordPage from './src/pages/ResetPasswordPage';
 import OnboardingPage from './src/pages/OnboardingPage';
 import CompanyRegistrationPage from './src/pages/CompanyRegistrationPage';
 import CompanyProfilePage from './src/pages/CompanyProfilePage';
+import CoursesManagementPage from './src/pages/CoursesManagementPage';
+import CourseEditPage from './src/pages/CourseEditPage';
+import CourseDetailPage from './src/pages/CourseDetailPage';
+import PublicCoursesPage from './src/pages/PublicCoursesPage';
 
 // Data
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
@@ -138,11 +142,9 @@ const AppContent: React.FC = () => {
       if (prevHistory.length > 1) {
         const newHistory = prevHistory.slice(0, -1);
         const newCurrentPage = newHistory[newHistory.length - 1];
-        const tabPages = ['home', 'projects', 'spot', 'profile'];
+        const tabPages = ['home', 'projects', 'spot'];
         if (tabPages.includes(newCurrentPage.name)) {
           setTab(newCurrentPage.name);
-        } else if (newCurrentPage.name === 'myProfile') {
-          setTab('profile');
         } else {
           setTab('');
         }
@@ -548,12 +550,7 @@ const AppContent: React.FC = () => {
     setTab(newTab);
     setSearchQuery('');
     
-    let rootPage;
-    if (newTab === 'profile') {
-      rootPage = { name: 'myProfile', data: MOCK_PROFILES[0] };
-    } else {
-      rootPage = { name: newTab, data: null };
-    }
+    const rootPage = { name: newTab, data: null };
     setHistory([rootPage]);
   }, []);
 
@@ -694,7 +691,11 @@ const AppContent: React.FC = () => {
         <View style={[styles.topBar, { backgroundColor: isDark ? '#000' : '#fff', borderBottomColor: isDark ? '#1f2937' : '#000' }]}>
           <View style={styles.topBarLeft}>
             <TouchableOpacity style={styles.topBarButton} onPress={handleUserMenuPress}>
-              <Ionicons name="menu" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
+              <Image 
+                source={require('./assets/Logo_alpha.png')} 
+                style={{ width: 20, height: 20 }}
+                resizeMode="contain"
+              />
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.topBarTitleContainer}
@@ -706,7 +707,7 @@ const AppContent: React.FC = () => {
               disabled={isGuest || !isAuthenticated}
             >
               <Text style={styles.topBarTitle}>
-                One Crew, <Text style={styles.userName}>
+                <Text style={styles.userName}>
                   {currentProfileType === 'company' && activeCompany
                     ? activeCompany.name
                     : isGuest ? 'Guest User' : (user?.name || 'Guest')
@@ -724,9 +725,6 @@ const AppContent: React.FC = () => {
             </TouchableOpacity>
           </View>
           <View style={styles.topBarRight}>
-            <TouchableOpacity onPress={toggleTheme} style={styles.topBarButton}>
-              <Ionicons name={theme === 'light' ? 'moon' : 'sunny'} size={20} color={isDark ? '#9ca3af' : '#71717a'} />
-            </TouchableOpacity>
             <TouchableOpacity style={styles.topBarButton}>
               <Ionicons name="chatbubble" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
@@ -742,9 +740,6 @@ const AppContent: React.FC = () => {
                   </Text>
                 </View>
               )}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={handleLogout} style={styles.topBarButton}>
-              <Ionicons name="log-out" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
           </View>
         </View>
@@ -914,6 +909,59 @@ const AppContent: React.FC = () => {
                 setSelectedCompanyForInvitation(company);
                 setShowInvitationModal(true);
               }}
+              onManageCourses={(company) => {
+                navigateTo('coursesManagement', { companyId: company.id });
+              }}
+            />
+          )}
+          {page.name === 'coursesManagement' && (
+            <CoursesManagementPage
+              companyId={page.data?.companyId || page.data || ''}
+              onBack={handleBack}
+              onCourseSelect={(course) => {
+                navigateTo('courseEdit', {
+                  courseId: course.id,
+                  companyId: page.data?.companyId || page.data || '',
+                });
+              }}
+            />
+          )}
+          {page.name === 'courseEdit' && (
+            <CourseEditPage
+              courseId={page.data?.courseId || ''}
+              companyId={page.data?.companyId || ''}
+              onBack={handleBack}
+              onCourseUpdated={() => {
+                // Refresh courses management page if needed
+                handleBack();
+              }}
+            />
+          )}
+          {page.name === 'courseDetail' && (
+            <CourseDetailPage
+              courseId={page.data?.courseId || ''}
+              companyId={page.data?.companyId}
+              onBack={handleBack}
+              onRegister={() => {
+                // Refresh course detail or navigate back
+                handleBack();
+              }}
+              onUnregister={() => {
+                // Refresh course detail or navigate back
+                handleBack();
+              }}
+            />
+          )}
+          {page.name === 'publicCourses' && (
+            <PublicCoursesPage
+              onBack={handleBack}
+              onCourseSelect={(course) => {
+                navigateTo('courseDetail', {
+                  courseId: course.id,
+                  companyId: course.company_id,
+                });
+              }}
+              filters={page.data?.filters}
             />
           )}
         </View>
