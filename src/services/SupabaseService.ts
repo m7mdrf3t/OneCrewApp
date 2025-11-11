@@ -173,6 +173,138 @@ class SupabaseService {
   }
 
   /**
+   * Subscribe to chat messages for a specific conversation
+   * @param conversationId Conversation ID to filter messages
+   * @param onNewMessage Callback when new message is created
+   * @param onMessageUpdate Callback when message is updated
+   * @param onMessageDelete Callback when message is deleted
+   * @returns Channel subscription ID
+   */
+  subscribeToChatMessages(
+    conversationId: string,
+    onNewMessage?: (message: any) => void,
+    onMessageUpdate?: (message: any) => void,
+    onMessageDelete?: (message: any) => void
+  ): string {
+    if (!this.client) {
+      console.warn('⚠️ Supabase client not initialized. Cannot subscribe to chat messages.');
+      return '';
+    }
+
+    const channelName = `chat:${conversationId}:${Date.now()}`;
+    const channel = this.client.channel(channelName);
+
+    // Subscribe to INSERT events (new messages)
+    if (onNewMessage) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          console.log('💬 New message received via real-time:', payload.new);
+          onNewMessage(payload.new);
+        }
+      );
+    }
+
+    // Subscribe to UPDATE events (message edits)
+    if (onMessageUpdate) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          console.log('💬 Message updated via real-time:', payload.new);
+          onMessageUpdate(payload.new);
+        }
+      );
+    }
+
+    // Subscribe to DELETE events (message deletions)
+    if (onMessageDelete) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          console.log('💬 Message deleted via real-time:', payload);
+          // Pass the entire payload, the handler will extract the ID
+          onMessageDelete(payload.old || payload);
+        }
+      );
+    }
+
+    channel.subscribe((status) => {
+      console.log(`📡 Chat subscription status for conversation ${conversationId}:`, status);
+      if (status === 'SUBSCRIBED') {
+        console.log(`✅ Successfully subscribed to chat messages for conversation ${conversationId}`);
+      } else if (status === 'CHANNEL_ERROR') {
+        console.error(`❌ Error subscribing to chat messages for conversation ${conversationId}`);
+      }
+    });
+
+    this.channels.set(channelName, channel);
+    return channelName;
+  }
+
+  /**
+   * Subscribe to conversation updates (for conversation list)
+   * @param userId User ID to filter conversations
+   * @param onConversationUpdate Callback when conversation is updated
+   * @returns Channel subscription ID
+   */
+  subscribeToConversations(
+    userId: string,
+    onConversationUpdate?: (conversation: any) => void
+  ): string {
+    if (!this.client) {
+      console.warn('⚠️ Supabase client not initialized. Cannot subscribe to conversations.');
+      return '';
+    }
+
+    const channelName = `conversations:${userId}:${Date.now()}`;
+    const channel = this.client.channel(channelName);
+
+    // Subscribe to conversation updates
+    if (onConversationUpdate) {
+      channel.on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'chat_conversations',
+        },
+        (payload) => {
+          console.log('💬 Conversation updated via real-time:', payload.new);
+          onConversationUpdate(payload.new);
+        }
+      );
+    }
+
+    channel.subscribe((status) => {
+      console.log(`📡 Conversations subscription status:`, status);
+      if (status === 'SUBSCRIBED') {
+        console.log(`✅ Successfully subscribed to conversations`);
+      }
+    });
+
+    this.channels.set(channelName, channel);
+    return channelName;
+  }
+
+  /**
    * Unsubscribe from a channel
    * @param channelId Channel ID returned from subscribeToTable
    */

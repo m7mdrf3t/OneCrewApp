@@ -249,18 +249,10 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
       }
     }
 
+    // Documents step is now optional - no validation required
     if (step === 'documents') {
-      const requiredDocs = requiredDocuments.filter((docType) => {
-        return !documents.some((doc) => doc.document_type === docType);
-      });
-
-      if (requiredDocs.length > 0) {
-        Alert.alert(
-          'Missing Documents',
-          `Please upload the following required documents: ${requiredDocs.join(', ')}`
-        );
-        return false;
-      }
+      // Documents are optional, so always return true
+      return true;
     }
 
     setErrors(newErrors);
@@ -841,9 +833,9 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
 
   const renderDocuments = () => (
     <ScrollView style={styles.formContainer}>
-      <Text style={styles.sectionTitle}>Required Documents</Text>
+      <Text style={styles.sectionTitle}>Documents (Optional)</Text>
       <Text style={styles.sectionDescription}>
-        Upload the following documents for approval
+        You can upload documents now or add them later from your company profile. Documents help speed up the approval process.
       </Text>
 
       {requiredDocuments.length === 0 ? (

@@ -141,6 +141,7 @@ interface ApiContextType {
   createCompany: (companyData: any) => Promise<any>;
   getCompany: (companyId: string) => Promise<any>;
   updateCompany: (companyId: string, updates: any) => Promise<any>;
+  uploadCompanyLogo: (companyId: string, file: { uri: string; type: string; name: string }) => Promise<any>;
   getUserCompanies: (userId: string) => Promise<any>;
   submitCompanyForApproval: (companyId: string) => Promise<any>;
   getCompanies: (params?: any) => Promise<any>;
@@ -173,6 +174,8 @@ interface ApiContextType {
   // Notification state
   notifications: Notification[];
   unreadNotificationCount: number;
+  // Chat unread count
+  unreadConversationCount: number;
   // Certification Template Management (Admin)
   getCertificationTemplates: (query?: { active?: boolean; category?: string }) => Promise<any>;
   getCertificationTemplate: (templateId: string) => Promise<any>;
@@ -203,11 +206,19 @@ interface ApiContextType {
   unregisterFromCourse: (courseId: string) => Promise<any>;
   getCourseRegistrations: (courseId: string) => Promise<any>;
   getMyRegisteredCourses: () => Promise<any>;
-  // News/Blog methods (v2.3.0)
+  // News/Blog methods (v2.4.0)
   getPublishedNews: (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest' }) => Promise<any>;
   getNewsPostBySlug: (slug: string) => Promise<any>;
   getNewsCategories: () => Promise<any>;
   getNewsTags: () => Promise<any>;
+  // Chat/Messaging methods (v2.5.0)
+  getConversations: (params?: { page?: number; limit?: number }) => Promise<any>;
+  getConversationById: (conversationId: string) => Promise<any>;
+  createConversation: (request: { conversation_type: 'user_user' | 'user_company' | 'company_company'; participant_ids: string[]; name?: string }) => Promise<any>;
+  getMessages: (conversationId: string, params?: { page?: number; limit?: number; before?: string }) => Promise<any>;
+  sendMessage: (conversationId: string, messageData: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; file_url?: string; file_name?: string; file_size?: number; reply_to_message_id?: string }) => Promise<any>;
+  editMessage: (messageId: string, content: string) => Promise<any>;
+  deleteMessage: (messageId: string) => Promise<any>;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
@@ -248,6 +259,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   // Real-time subscription state
   const [notificationChannelId, setNotificationChannelId] = useState<string | null>(null);
+  // Chat unread count state
+  const [unreadConversationCount, setUnreadConversationCount] = useState(0);
 
   // Test network connectivity - try multiple endpoints
   const testConnectivity = async () => {
@@ -324,6 +337,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         await api.initialize();
         console.log('✅ API client initialized successfully');
+        
+        // Verify chat service is available
+        if (api.chat) {
+          console.log('✅ Chat service is available');
+          console.log('💬 Chat service methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(api.chat)).filter(m => m !== 'constructor'));
+        } else {
+          console.warn('⚠️ Chat service is not available after initialization');
+          console.warn('⚠️ API object keys:', Object.keys(api));
+        }
         
         // Clear any previous connectivity errors since initialization succeeded
         if (error && error.includes('Cannot connect to server')) {
@@ -760,9 +782,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.log('🎭 Talent profile response:', JSON.stringify(talentResult, null, 2));
         
         if (!talentResponse.ok) {
-          console.error('❌ Talent profile update failed:', talentResult);
+          console.error('Talent profile update failed:', talentResult);
           if ((talentResult as any).errors) {
-            console.error('❌ Talent profile validation errors:', (talentResult as any).errors);
+            console.error('Talent profile validation errors:', (talentResult as any).errors);
             // Show specific validation errors to user
             const errorMessages = Object.entries((talentResult as any).errors).map(([field, message]) => 
               `${field}: ${message}`
@@ -789,7 +811,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.log('🔍 Skills data to process:', skillsData.skills);
         
         // Get current user skills to see what needs to be removed
-        let currentSkills = [];
+        let currentSkills: any[] = [];
         try {
           const currentSkillsResponse = await api.getUserSkills();
           currentSkills = currentSkillsResponse.data || [];
@@ -848,7 +870,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         );
         
         // Add new skills (only add ones not already present)
-        const skillsToActuallyAdd = skillIdsToAdd.filter(skillId => 
+        const skillsToActuallyAdd = skillIdsToAdd.filter((skillId: string) => 
           !currentSkillIds.includes(skillId)
         );
         
@@ -2970,6 +2992,97 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const uploadCompanyLogo = async (companyId: string, file: { uri: string; type: string; name: string }) => {
+    try {
+      console.log('📤 Uploading company logo:', file.name);
+      console.log('🔍 File details:', {
+        uri: file.uri,
+        type: file.type,
+        name: file.name,
+        uriType: typeof file.uri,
+      });
+      
+      // Ensure we have a proper file name
+      const fileName = file.name || `company_logo_${Date.now()}.jpg`;
+      // Ensure we have a proper MIME type
+      const fileType = file.type || 'image/jpeg';
+      
+      // Handle React Native file URI - ensure it's in the correct format
+      // For React Native, the URI might be file:// or content://
+      let fileUri = file.uri;
+      if (Platform.OS === 'android' && fileUri.startsWith('content://')) {
+        // Android content URI - should work as is
+        console.log('📱 Using Android content URI');
+      } else if (fileUri.startsWith('file://')) {
+        // File URI - should work as is
+        console.log('📁 Using file URI');
+      }
+      
+      const formData = new FormData();
+      
+      // Append file in React Native format
+      // React Native FormData expects: { uri, type, name }
+      formData.append('logo', {
+        uri: fileUri,
+        type: fileType,
+        name: fileName,
+      } as any);
+      
+      formData.append('company_id', companyId);
+
+      const accessToken = getAccessToken();
+      
+      console.log('🔍 FormData prepared:', {
+        hasLogo: true,
+        companyId: companyId,
+        fileName: fileName,
+        fileType: fileType,
+      });
+      
+      const response = await fetch(`${baseUrl}/api/upload/company`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          // Don't set Content-Type - let fetch() handle it with proper boundary
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ Company logo upload failed with status:', response.status);
+        console.error('❌ Response:', result);
+        console.error('❌ Full error details:', JSON.stringify(result, null, 2));
+        throw new Error(result.error || result.message || `Upload failed with status ${response.status}`);
+      }
+
+      console.log('✅ Company logo uploaded successfully:', result);
+      
+      // Invalidate company cache to refresh with new logo
+      await rateLimiter.clearCache(`company-${companyId}`);
+      await rateLimiter.clearCacheByPattern(`companies-`);
+      
+      // Update active company if it matches
+      if (activeCompany?.id === companyId && result.data?.url) {
+        setActiveCompany({ ...activeCompany, logo_url: result.data.url });
+      }
+      
+      return {
+        success: true,
+        data: {
+          url: result.data?.url || result.url,
+          filename: result.data?.filename || result.filename || fileName,
+        },
+        message: result.message || 'Company logo uploaded successfully',
+      };
+    } catch (error: any) {
+      console.error('❌ Failed to upload company logo:', error);
+      console.error('❌ Error stack:', error.stack);
+      throw error;
+    }
+  };
+
   const getUserCompanies = async (userId: string) => {
     const cacheKey = `user-companies-${userId}`;
     return rateLimiter.execute(cacheKey, async () => {
@@ -4053,6 +4166,194 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }, { ttl: CacheTTL.VERY_LONG, persistent: true });
   };
 
+  // Chat/Messaging methods (v2.5.0)
+  const getConversations = async (params?: { page?: number; limit?: number }) => {
+    const cacheKey = `conversations-${JSON.stringify(params || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        if (!api.chat) {
+          throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+        }
+        console.log('💬 Fetching conversations...', params);
+        const response = await api.chat.getConversations(params);
+        if (response.success && response.data) {
+          // Calculate unread count
+          const conversations = response.data.data || response.data;
+          if (Array.isArray(conversations)) {
+            const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+            const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
+            
+            let unreadCount = 0;
+            conversations.forEach((conv: any) => {
+              if (conv.participants && Array.isArray(conv.participants)) {
+                const participant = conv.participants.find((p: any) => 
+                  p.participant_id === currentUserId && p.participant_type === currentUserType
+                );
+                
+                if (participant && conv.last_message_at) {
+                  const lastReadAt = participant.last_read_at ? new Date(participant.last_read_at).getTime() : 0;
+                  const lastMessageAt = new Date(conv.last_message_at).getTime();
+                  
+                  // If last message is after last read, there are unread messages
+                  if (lastMessageAt > lastReadAt) {
+                    unreadCount++;
+                  }
+                } else if (conv.last_message_at && !participant?.last_read_at) {
+                  // If there's a last message but no read timestamp, consider it unread
+                  unreadCount++;
+                }
+              }
+            });
+            
+            setUnreadConversationCount(unreadCount);
+            console.log('💬 Unread conversations count:', unreadCount);
+          }
+        }
+        console.log('✅ Conversations fetched successfully');
+        return response;
+      } catch (error: any) {
+        console.error('❌ Failed to fetch conversations:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT });
+  };
+
+  const getConversationById = async (conversationId: string) => {
+    const cacheKey = `conversation-${conversationId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        if (!api.chat) {
+          throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+        }
+        console.log('💬 Fetching conversation:', conversationId);
+        const response = await api.chat.getConversationById(conversationId);
+        console.log('✅ Conversation fetched successfully');
+        return response;
+      } catch (error: any) {
+        console.error('❌ Failed to fetch conversation:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT });
+  };
+
+  const createConversation = async (request: { conversation_type: 'user_user' | 'user_company' | 'company_company'; participant_ids: string[]; name?: string }) => {
+    try {
+      console.log('💬 Creating conversation...', request);
+      console.log('💬 API object:', api);
+      console.log('💬 API.chat:', api.chat);
+      console.log('💬 API keys:', Object.keys(api));
+      
+      // Check if chat service is available
+      if (!api.chat) {
+        console.error('❌ Chat service is undefined!');
+        console.error('❌ API object:', api);
+        console.error('❌ Available properties:', Object.keys(api));
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      
+      // Ensure participant_ids is an array
+      const requestData = {
+        conversation_type: request.conversation_type,
+        participant_ids: Array.isArray(request.participant_ids) ? request.participant_ids : [request.participant_ids],
+        ...(request.name && { name: request.name }),
+      };
+      console.log('💬 Request data:', requestData);
+      console.log('💬 Calling api.chat.createConversation...');
+      const response = await api.chat.createConversation(requestData);
+      if (response.success) {
+        // Invalidate conversations cache
+        await rateLimiter.clearCacheByPattern('conversations-');
+        console.log('✅ Conversation created successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to create conversation');
+    } catch (error: any) {
+      console.error('❌ Failed to create conversation:', error);
+      throw error;
+    }
+  };
+
+  const getMessages = async (conversationId: string, params?: { page?: number; limit?: number; before?: string }) => {
+    const cacheKey = `messages-${conversationId}-${JSON.stringify(params || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        if (!api.chat) {
+          throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+        }
+        console.log('💬 Fetching messages for conversation:', conversationId);
+        const response = await api.chat.getMessages(conversationId, params);
+        console.log('✅ Messages fetched successfully');
+        return response;
+      } catch (error: any) {
+        console.error('❌ Failed to fetch messages:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT });
+  };
+
+  const sendMessage = async (conversationId: string, messageData: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; file_url?: string; file_name?: string; file_size?: number; reply_to_message_id?: string }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Sending message to conversation:', conversationId);
+      const response = await api.chat.sendMessage(conversationId, messageData);
+      if (response.success) {
+        // Invalidate messages cache for this conversation
+        await rateLimiter.clearCacheByPattern(`messages-${conversationId}-`);
+        await rateLimiter.clearCacheByPattern('conversations-');
+        console.log('✅ Message sent successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to send message');
+    } catch (error: any) {
+      console.error('❌ Failed to send message:', error);
+      throw error;
+    }
+  };
+
+  const editMessage = async (messageId: string, content: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Editing message:', messageId);
+      const response = await api.chat.editMessage(messageId, { content });
+      if (response.success) {
+        // Invalidate messages cache
+        await rateLimiter.clearCacheByPattern('messages-');
+        await rateLimiter.clearCacheByPattern('conversations-');
+        console.log('✅ Message edited successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to edit message');
+    } catch (error: any) {
+      console.error('❌ Failed to edit message:', error);
+      throw error;
+    }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Deleting message:', messageId);
+      const response = await api.chat.deleteMessage(messageId);
+      if (response.success) {
+        // Invalidate messages cache
+        await rateLimiter.clearCacheByPattern('messages-');
+        await rateLimiter.clearCacheByPattern('conversations-');
+        console.log('✅ Message deleted successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to delete message');
+    } catch (error: any) {
+      console.error('❌ Failed to delete message:', error);
+      throw error;
+    }
+  };
+
   // Notification methods
   const getNotifications = async (params?: NotificationParams) => {
     try {
@@ -4151,6 +4452,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     if (isAuthenticated && user) {
       getUnreadNotificationCount();
       getNotifications({ limit: 20, page: 1 });
+      // Load conversations to calculate unread count
+      getConversations({ page: 1, limit: 50 });
       
       // Cache warming: Pre-fetch frequently accessed data
       const warmCache = async () => {
@@ -4168,7 +4471,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       warmCache();
     }
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id]);
 
   // Setup real-time subscription for notifications
   useEffect(() => {
@@ -4244,6 +4547,32 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
     };
   }, [isAuthenticated, user?.id]);
+
+  // Setup real-time subscription for chat conversations to update unread count
+  useEffect(() => {
+    if (isAuthenticated && user?.id && supabaseService.isInitialized()) {
+      console.log('💬 Setting up real-time subscription for chat unread count updates');
+      
+      // Subscribe to conversation updates to refresh unread count when new messages arrive
+      const channelId = supabaseService.subscribeToConversations(
+        user.id,
+        (updatedConversation: any) => {
+          console.log('💬 Conversation updated via real-time (unread count update):', updatedConversation);
+          // Refresh conversations to recalculate unread count
+          setTimeout(() => {
+            getConversations({ page: 1, limit: 50 });
+          }, 300);
+        }
+      );
+
+      return () => {
+        if (channelId) {
+          supabaseService.unsubscribe(channelId);
+          console.log('🔌 Unsubscribed from chat conversations for unread count');
+        }
+      };
+    }
+  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id]);
 
   const value: ApiContextType = {
     api,
@@ -4352,6 +4681,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     createCompany,
     getCompany,
     updateCompany,
+    uploadCompanyLogo,
     getUserCompanies,
     submitCompanyForApproval,
     getCompanies,
@@ -4384,6 +4714,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     // Notification state
     notifications,
     unreadNotificationCount,
+    // Chat unread count
+    unreadConversationCount,
     // Certification Template Management (Admin)
     getCertificationTemplates,
     getCertificationTemplate,
@@ -4414,11 +4746,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     unregisterFromCourse,
     getCourseRegistrations,
     getMyRegisteredCourses,
-    // News/Blog methods (v2.3.0)
+    // News/Blog methods (v2.4.0)
     getPublishedNews,
     getNewsPostBySlug,
     getNewsCategories,
     getNewsTags,
+    // Chat/Messaging methods (v2.5.0)
+    getConversations,
+    getConversationById,
+    createConversation,
+    getMessages,
+    sendMessage,
+    editMessage,
+    deleteMessage,
   };
 
   return (

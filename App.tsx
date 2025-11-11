@@ -35,6 +35,8 @@ import AccountSwitcherModal from './src/components/AccountSwitcherModal';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
 import ProfileCompletionPage from './src/pages/ProfileCompletionPage';
 import SpotPage from './src/pages/SpotPage';
+import ConversationsListPage from './src/pages/ConversationsListPage';
+import ChatPage from './src/pages/ChatPage';
 import NewsDetailPage from './src/pages/NewsDetailPage';
 import LoginPage from './src/pages/LoginPage';
 import SignupPage from './src/pages/SignupPage';
@@ -43,6 +45,7 @@ import ResetPasswordPage from './src/pages/ResetPasswordPage';
 import OnboardingPage from './src/pages/OnboardingPage';
 import CompanyRegistrationPage from './src/pages/CompanyRegistrationPage';
 import CompanyProfilePage from './src/pages/CompanyProfilePage';
+import CompanyEditPage from './src/pages/CompanyEditPage';
 import CoursesManagementPage from './src/pages/CoursesManagementPage';
 import CourseEditPage from './src/pages/CourseEditPage';
 import CourseDetailPage from './src/pages/CourseDetailPage';
@@ -54,7 +57,7 @@ import { NavigationState, User, ProjectCreationData, ProjectDashboardData, Notif
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, currentProfileType, activeCompany } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -446,7 +449,8 @@ const AppContent: React.FC = () => {
 
   const handleStartChat = useCallback((profile: any) => {
     // Note: Guest checks are handled in ProfileDetailPage, this is called only for authenticated users
-    navigateTo('chat', profile);
+    // Navigate to chat page with participant info - ChatPage will handle conversation creation
+    navigateTo('chat', { participant: profile });
   }, [navigateTo]);
 
   // Task management handlers
@@ -725,8 +729,18 @@ const AppContent: React.FC = () => {
             </TouchableOpacity>
           </View>
           <View style={styles.topBarRight}>
-            <TouchableOpacity style={styles.topBarButton}>
+            <TouchableOpacity
+              style={styles.topBarButton}
+              onPress={() => navigateTo('conversations', null)}
+            >
               <Ionicons name="chatbubble" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
+              {unreadConversationCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadConversationCount > 99 ? '99+' : unreadConversationCount}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.topBarButton}
@@ -894,8 +908,7 @@ const AppContent: React.FC = () => {
               onBack={handleBack}
               refreshTrigger={companyProfileRefreshTrigger}
               onEdit={(company) => {
-                // Navigate to company edit page (can be added later)
-                console.log('Edit company:', company);
+                navigateTo('companyEdit', { company });
               }}
               onManageMembers={(company) => {
                 // Navigate to manage members (can be added later)
@@ -911,6 +924,23 @@ const AppContent: React.FC = () => {
               }}
               onManageCourses={(company) => {
                 navigateTo('coursesManagement', { companyId: company.id });
+              }}
+              onCourseSelect={(course) => {
+                navigateTo('courseDetail', {
+                  courseId: course.id,
+                  companyId: course.company_id,
+                });
+              }}
+            />
+          )}
+          {page.name === 'companyEdit' && page.data?.company && (
+            <CompanyEditPage
+              company={page.data.company}
+              onBack={handleBack}
+              onCompanyUpdated={() => {
+                // Refresh company profile page
+                setCompanyProfileRefreshTrigger((prev) => prev + 1);
+                handleBack();
               }}
             />
           )}
@@ -962,6 +992,21 @@ const AppContent: React.FC = () => {
                 });
               }}
               filters={page.data?.filters}
+            />
+          )}
+          {page.name === 'conversations' && (
+            <ConversationsListPage
+              onBack={handleBack}
+              onConversationSelect={(conversation) => {
+                navigateTo('chat', { conversationId: conversation.id });
+              }}
+            />
+          )}
+          {page.name === 'chat' && (
+            <ChatPage
+              conversationId={page.data?.conversationId}
+              participant={page.data?.participant}
+              onBack={handleBack}
             />
           )}
         </View>

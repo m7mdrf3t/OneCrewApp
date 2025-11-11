@@ -38,6 +38,14 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
 
+  const getCompanyData = (company: any) => {
+    // Handle different API response structures:
+    // 1. company.company (most common from getUserCompanies)
+    // 2. company.companies (alternative structure)
+    // 3. company itself (if already the company object)
+    return company.company || company.companies || company;
+  };
+
   useEffect(() => {
     if (visible && user?.id) {
       loadCompanies();
@@ -58,9 +66,16 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
           console.log('📊 Company data structure:', JSON.stringify(companiesList[0], null, 2));
         }
         // Filter to only show companies where user is owner
+        // Check multiple ways: role field, owner.id, or company.owner.id
         const ownedCompanies = companiesList.filter((company: any) => {
+          const companyData = getCompanyData(company);
           const role = company.role || company.member?.role || company.company_member?.role;
-          return role === 'owner';
+          const isOwnerByRole = role === 'owner';
+          const isOwnerById = companyData?.owner?.id === user.id;
+          const isOwnerByCompanyOwner = (companyData as any)?.owner_id === user.id;
+          
+          // Show company if user is owner by any method
+          return isOwnerByRole || isOwnerById || isOwnerByCompanyOwner;
         });
         setCompanies(ownedCompanies);
       }
@@ -107,14 +122,6 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
     } finally {
       setSwitching(null);
     }
-  };
-
-  const getCompanyData = (company: any) => {
-    // Handle different API response structures:
-    // 1. company.company (most common from getUserCompanies)
-    // 2. company.companies (alternative structure)
-    // 3. company itself (if already the company object)
-    return company.company || company.companies || company;
   };
 
   const getCompanyId = (company: any) => {

@@ -21,10 +21,14 @@ import {
   CompanyApprovalStatus,
   UserCertification,
   CourseWithDetails,
+  CompanyDocument,
+  CompanyDocumentType,
 } from '../types';
+import * as ImagePicker from 'expo-image-picker';
 import GrantCertificationModal from '../components/GrantCertificationModal';
 import CertificationCard from '../components/CertificationCard';
 import CourseCard from '../components/CourseCard';
+import MediaPickerService from '../services/MediaPickerService';
 
 interface CompanyProfilePageProps {
   companyId: string;
@@ -34,6 +38,7 @@ interface CompanyProfilePageProps {
   onManageServices?: (company: Company) => void;
   onInviteMember?: (company: Company) => void;
   onManageCourses?: (company: Company) => void;
+  onCourseSelect?: (course: CourseWithDetails) => void;
   refreshTrigger?: number;
 }
 
@@ -45,6 +50,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   onManageServices,
   onInviteMember,
   onManageCourses,
+  onCourseSelect,
   refreshTrigger,
 }) => {
   const {
@@ -59,6 +65,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     removeCompanyMember,
     grantCertification,
     getAcademyCourses,
+    uploadCompanyLogo,
+    getCompanyDocuments,
+    addCompanyDocument,
+    deleteCompanyDocument,
+    uploadFile,
   } = useApi();
 
   const [company, setCompany] = useState<Company | null>(null);
@@ -76,6 +87,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const [selectedUserIdForCertification, setSelectedUserIdForCertification] = useState<string | null>(null);
   const [courses, setCourses] = useState<CourseWithDetails[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [documents, setDocuments] = useState<CompanyDocument[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const mediaPicker = MediaPickerService.getInstance();
 
   useEffect(() => {
     loadCompanyData();
@@ -96,6 +112,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         // Reload data
         loadServices(company.id);
         loadMembers(company.id);
+        loadDocuments(company.id);
         if (company.subcategory === 'academy') {
           loadCertifications(company.id);
           loadCourses(company.id);
@@ -157,8 +174,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
       setCompany(companyResponse.data);
 
-      // Load members, services, certifications, and courses in parallel
-      const loadPromises = [loadMembers(companyId), loadServices(companyId)];
+      // Load members, services, documents, certifications, and courses in parallel
+      const loadPromises = [loadMembers(companyId), loadServices(companyId), loadDocuments(companyId)];
       // Only load certifications and courses if company is an academy
       if (companyResponse.data.subcategory === 'academy') {
         loadPromises.push(loadCertifications(companyId));
@@ -268,6 +285,121 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   };
 
+  const loadDocuments = async (id: string) => {
+    try {
+      setLoadingDocuments(true);
+      const response = await getCompanyDocuments(id);
+      if (response.success && response.data) {
+        const docsArray = Array.isArray(response.data) ? response.data : (response.data?.data || []);
+        setDocuments(docsArray.filter((doc: CompanyDocument) => !doc.deleted_at));
+      } else {
+        setDocuments([]);
+      }
+    } catch (err) {
+      console.error('Failed to load documents:', err);
+      setDocuments([]);
+    } finally {
+      setLoadingDocuments(false);
+    }
+  };
+
+  const handleUploadDocument = async (documentType: CompanyDocumentType) => {
+    if (!company?.id) return;
+
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Please grant camera roll permissions to upload documents.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        await uploadDocumentFile(company.id, {
+          document_type: documentType,
+          file_uri: asset.uri,
+          file_name: asset.fileName || `document_${Date.now()}.jpg`,
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to pick document:', error);
+      Alert.alert('Error', 'Failed to pick document. Please try again.');
+    }
+  };
+
+  const uploadDocumentFile = async (companyId: string, doc: { document_type: CompanyDocumentType; file_uri: string; file_name: string }) => {
+    try {
+      setUploadingDocument(true);
+
+      // Step 1: Upload file to storage
+      const uploadResponse = await uploadFile({
+        uri: doc.file_uri,
+        type: 'image/jpeg',
+        name: doc.file_name,
+      });
+
+      const documentUrl = uploadResponse?.data?.url || uploadResponse?.url;
+      if (!documentUrl) {
+        throw new Error('Failed to upload document file');
+      }
+
+      // Step 2: Attach the uploaded document to the company
+      const attachResponse = await addCompanyDocument(companyId, {
+        document_type: doc.document_type,
+        file_url: documentUrl,
+        file_name: doc.file_name,
+      });
+
+      if (attachResponse.success) {
+        Alert.alert('Success', 'Document uploaded successfully!');
+        await loadDocuments(companyId);
+      } else {
+        throw new Error(attachResponse.error || 'Failed to attach document');
+      }
+    } catch (error: any) {
+      console.error('Failed to upload document:', error);
+      Alert.alert('Error', error.message || 'Failed to upload document. Please try again.');
+    } finally {
+      setUploadingDocument(false);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: string) => {
+    if (!company?.id) return;
+
+    Alert.alert(
+      'Delete Document',
+      'Are you sure you want to delete this document?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const response = await deleteCompanyDocument(company.id, documentId);
+              if (response.success) {
+                Alert.alert('Success', 'Document deleted successfully!');
+                await loadDocuments(company.id);
+              } else {
+                throw new Error(response.error || 'Failed to delete document');
+              }
+            } catch (error: any) {
+              console.error('Failed to delete document:', error);
+              Alert.alert('Error', error.message || 'Failed to delete document. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const loadServices = async (id: string) => {
     try {
       setLoadingServices(true);
@@ -301,13 +433,25 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const isOwner = () => {
     if (!company || !user) return false;
-    return company.owner?.id === user.id || activeCompany?.id === company.id;
+    // Check multiple ways: owner.id or activeCompany match
+    const isOwnerById = company.owner?.id === user.id;
+    const isActiveCompany = activeCompany?.id === company.id;
+    // Also check if company was created by this user (created_by field if available)
+    const isCreator = (company as any).created_by === user.id;
+    return isOwnerById || isActiveCompany || isCreator;
   };
 
   const canEdit = () => {
     if (!company || !user) return false;
-    // Owner, or user viewing their own active company
-    return isOwner() || (currentProfileType === 'company' && activeCompany?.id === company.id);
+    // Owner, or user viewing their own active company, or user is a member with edit permissions
+    const isOwnerCheck = isOwner();
+    const isActiveCompany = currentProfileType === 'company' && activeCompany?.id === company.id;
+    
+    // Also check if user is a member with admin/owner role
+    const userMember = members.find(m => m.user_id === user.id);
+    const hasEditPermission = userMember && (userMember.role === 'owner' || userMember.role === 'admin');
+    
+    return isOwnerCheck || isActiveCompany || hasEditPermission;
   };
 
   const getApprovalStatusColor = (status: CompanyApprovalStatus): string => {
@@ -404,6 +548,111 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   };
 
+  const handleUploadLogo = async () => {
+    if (!company?.id) return;
+
+    try {
+      // Request permissions
+      const hasPermission = await mediaPicker.requestPermissions();
+      if (!hasPermission) {
+        Alert.alert('Permission Required', 'Camera and media library permissions are required to upload a logo.');
+        return;
+      }
+
+      // Show action sheet to choose between camera and gallery
+      Alert.alert(
+        'Upload Company Logo',
+        'Choose an option',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Choose from Gallery',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.pickImage({
+                  allowsEditing: true,
+                  quality: 0.8,
+                  aspect: [1, 1],
+                  maxWidth: 1024,
+                  maxHeight: 1024,
+                });
+
+                if (result) {
+                  await uploadLogoFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error picking image:', error);
+                Alert.alert('Error', error.message || 'Failed to pick image.');
+              }
+            },
+          },
+          {
+            text: 'Take Photo',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.takePhoto({
+                  allowsEditing: true,
+                  quality: 0.8,
+                  aspect: [1, 1],
+                });
+
+                if (result) {
+                  await uploadLogoFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error taking photo:', error);
+                Alert.alert('Error', error.message || 'Failed to take photo.');
+              }
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error in handleUploadLogo:', error);
+      Alert.alert('Error', error.message || 'Failed to upload logo.');
+    }
+  };
+
+  const uploadLogoFile = async (imageResult: any) => {
+    if (!company?.id) return;
+
+    try {
+      setUploadingLogo(true);
+
+      const file = {
+        uri: imageResult.uri,
+        type: 'image/jpeg',
+        name: imageResult.fileName || `company_logo_${Date.now()}.jpg`,
+      };
+
+      const response = await uploadCompanyLogo(company.id, file);
+
+      if (response.success && response.data?.url) {
+        // Reload company data to show new logo
+        await loadCompanyData();
+        Alert.alert('Success', 'Company logo uploaded successfully!');
+      } else {
+        throw new Error(response.error || 'Failed to upload logo');
+      }
+    } catch (error: any) {
+      console.error('Failed to upload logo:', error);
+      const errorMessage = error.message || 'Failed to upload company logo.';
+      
+      // Provide more helpful error messages
+      if (errorMessage.includes('storage') || errorMessage.includes('500')) {
+        Alert.alert(
+          'Upload Error',
+          'The server encountered an error while uploading the logo. This may be a temporary issue. Please try again in a moment, or contact support if the problem persists.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -458,417 +707,568 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Company Header */}
-        <View style={styles.headerSection}>
-          <View style={styles.logoContainer}>
-            {company.logo_url ? (
-              <Image source={{ uri: company.logo_url }} style={styles.logo} />
-            ) : (
-              <View style={styles.logoPlaceholder}>
-                <Ionicons name="business" size={48} color="#71717a" />
-              </View>
-            )}
-          </View>
-
-          <View style={styles.headerInfo}>
-            <Text style={styles.companyName}>{company.name}</Text>
-            {company.company_type_info && (
-              <Text style={styles.companyType}>{company.company_type_info.name}</Text>
-            )}
-
-            {/* Approval Status Badge */}
-            <View
-              style={[
-                styles.statusBadge,
-                { backgroundColor: getApprovalStatusColor(company.approval_status) + '20' },
-              ]}
-            >
-              <View
-                style={[
-                  styles.statusDot,
-                  { backgroundColor: getApprovalStatusColor(company.approval_status) },
-                ]}
-              />
-              <Text
-                style={[
-                  styles.statusText,
-                  { color: getApprovalStatusColor(company.approval_status) },
-                ]}
-              >
-                {getApprovalStatusLabel(company.approval_status)}
-              </Text>
-            </View>
-
-            {company.approval_status === 'pending' && (
-              <Text style={styles.statusMessage}>
-                Your company is pending admin approval. You'll be notified once it's reviewed.
-              </Text>
-            )}
-
-            {company.approval_status === 'rejected' && company.approval_reason && (
-              <View style={styles.rejectionBox}>
-                <Text style={styles.rejectionTitle}>Rejection Reason:</Text>
-                <Text style={styles.rejectionText}>{company.approval_reason}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* Company Description */}
-        {(company.description || company.bio) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>About</Text>
-            {company.description && (
-              <Text style={styles.description}>{company.description}</Text>
-            )}
-            {company.bio && (
-              <Text style={styles.description}>{company.bio}</Text>
-            )}
-          </View>
-        )}
-
-        {/* Contact Information */}
-        {(company.website_url || company.email || company.phone || company.location_text) && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Contact Information</Text>
-
-            {company.website_url && (
-              <TouchableOpacity style={styles.contactItem} onPress={handleWebsitePress}>
-                <Ionicons name="globe-outline" size={20} color="#000" />
-                <Text style={styles.contactText}>{company.website_url}</Text>
-                <Ionicons name="open-outline" size={16} color="#71717a" />
-              </TouchableOpacity>
-            )}
-
-            {company.email && (
-              <TouchableOpacity style={styles.contactItem} onPress={handleEmailPress}>
-                <Ionicons name="mail-outline" size={20} color="#000" />
-                <Text style={styles.contactText}>{company.email}</Text>
-              </TouchableOpacity>
-            )}
-
-            {company.phone && (
-              <TouchableOpacity style={styles.contactItem} onPress={handlePhonePress}>
-                <Ionicons name="call-outline" size={20} color="#000" />
-                <Text style={styles.contactText}>{company.phone}</Text>
-              </TouchableOpacity>
-            )}
-
-            {company.location_text && (
-              <View style={styles.contactItem}>
-                <Ionicons name="location-outline" size={20} color="#000" />
-                <Text style={styles.contactText}>{company.location_text}</Text>
-              </View>
-            )}
-
-            {company.establishment_date && (
-              <View style={styles.contactItem}>
-                <Ionicons name="calendar-outline" size={20} color="#000" />
-                <Text style={styles.contactText}>
-                  Established: {new Date(company.establishment_date).getFullYear()}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Services Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              Services We Provide {services.length > 0 && `(${services.length})`}
-            </Text>
-            {canEdit() && onManageServices && (
-              <TouchableOpacity
-                style={styles.manageButton}
-                onPress={() => onManageServices(company)}
-              >
-                <Ionicons name="settings-outline" size={18} color="#000" />
-                <Text style={styles.manageButtonText}>Manage</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {loadingServices ? (
-            <ActivityIndicator size="small" color="#000" />
-          ) : services.length > 0 ? (
-            <View style={styles.servicesGrid}>
-              {services.map((companyService) => {
-                const service = companyService.service;
-                if (!service) return null;
-
-                return (
-                  <View key={companyService.service_id} style={styles.serviceCard}>
-                    {service.icon_name && (
-                      <Ionicons 
-                        name={getValidIconName(service.icon_name) as any} 
-                        size={24} 
-                        color="#000" 
-                      />
-                    )}
-                    <Text style={styles.serviceName}>{service.name}</Text>
-                    {service.description && (
-                      <Text style={styles.serviceDescription} numberOfLines={2}>
-                        {service.description}
-                      </Text>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          ) : (
-            <View style={styles.emptyState}>
-              <Ionicons name="briefcase-outline" size={48} color="#e4e4e7" />
-              <Text style={styles.emptyStateText}>No services added yet</Text>
-              {canEdit() && onManageServices && (
-                <TouchableOpacity
-                  style={styles.addButton}
-                  onPress={() => onManageServices(company)}
-                >
-                  <Text style={styles.addButtonText}>Add Services</Text>
-                </TouchableOpacity>
+        {company.subcategory === 'academy' ? (
+          /* Academy Layout - Matching Design */
+          <>
+            {/* Company Profile Image Banner */}
+            <View style={styles.academyImageContainer}>
+              {company.logo_url ? (
+                <Image source={{ uri: company.logo_url }} style={styles.academyImage} />
+              ) : (
+                <View style={styles.academyImagePlaceholder}>
+                  <Ionicons name="school" size={50} color="#71717a" />
+                </View>
               )}
-            </View>
-          )}
-        </View>
-
-        {/* Members Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              Team Members {members.length > 0 ? `(${members.length})` : ''}
-            </Text>
-            {canEdit() && onInviteMember && (
-              <TouchableOpacity
-                style={styles.manageButton}
-                onPress={() => onInviteMember(company)}
-              >
-                <Ionicons name="person-add-outline" size={18} color="#000" />
-                <Text style={styles.manageButtonText}>Invite</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {loadingMembers ? (
-            <ActivityIndicator size="small" color="#000" />
-          ) : members.length > 0 ? (
-            <View style={styles.membersList}>
-              {members.map((member) => (
-                  <View key={member.user_id} style={styles.memberCard}>
-                    <View style={styles.memberAvatar}>
-                      {member.user?.image_url ? (
-                        <Image
-                          source={{ uri: member.user.image_url }}
-                          style={styles.memberAvatarImage}
-                        />
-                      ) : (
-                        <View style={styles.memberAvatarPlaceholder}>
-                          <Text style={styles.memberAvatarText}>
-                            {member.user?.name?.charAt(0).toUpperCase() || '?'}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    <View style={styles.memberInfo}>
-                      <Text style={styles.memberName}>{member.user?.name || 'Unknown User'}</Text>
-                      {member.user?.primary_role && (
-                        <Text style={styles.memberRole}>
-                          {member.user.primary_role.replace(/_/g, ' ')}
-                        </Text>
-                      )}
-                      <View style={styles.memberRoleBadge}>
-                        <View
-                          style={[
-                            styles.roleDot,
-                            { backgroundColor: getRoleBadgeColor(member.role) },
-                          ]}
-                        />
-                        <Text
-                          style={[
-                            styles.roleText,
-                            { color: getRoleBadgeColor(member.role) },
-                          ]}
-                        >
-                          {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.memberActions}>
-                      {isOwner() && member.role !== 'owner' && (
-                        <>
-                          {company.subcategory === 'academy' && (
-                            <TouchableOpacity
-                              style={styles.memberActionButton}
-                              onPress={() => {
-                                setSelectedUserIdForCertification(member.user_id);
-                                setShowGrantCertificationModal(true);
-                              }}
-                            >
-                              <Ionicons name="trophy-outline" size={20} color="#3b82f6" />
-                            </TouchableOpacity>
-                          )}
-                          <TouchableOpacity
-                            style={styles.memberActionButton}
-                            onPress={() => handleRemoveMember(member)}
-                            disabled={removingMemberId === member.user_id}
-                          >
-                            {removingMemberId === member.user_id ? (
-                              <ActivityIndicator size="small" color="#ef4444" />
-                            ) : (
-                              <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                            )}
-                          </TouchableOpacity>
-                        </>
-                      )}
-                    </View>
-                  </View>
-                ))}
-            </View>
-          ) : (
-            <View style={styles.emptyState}>
-              <Ionicons name="people-outline" size={48} color="#e4e4e7" />
-              <Text style={styles.emptyStateText}>No members yet</Text>
-              {canEdit() && onInviteMember && (
-                <TouchableOpacity
-                  style={styles.addButton}
-                  onPress={() => onInviteMember(company)}
-                >
-                  <Text style={styles.addButtonText}>Invite Members</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-        </View>
-
-        {/* Certifications Section (Academy Only) */}
-        {company.subcategory === 'academy' && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>
-                Certifications Granted {certifications.length > 0 && `(${certifications.length})`}
-              </Text>
               {canEdit() && (
                 <TouchableOpacity
-                  style={styles.manageButton}
-                  onPress={() => setShowGrantCertificationModal(true)}
+                  style={styles.uploadLogoButton}
+                  onPress={handleUploadLogo}
+                  disabled={uploadingLogo}
                 >
-                  <Ionicons name="trophy-outline" size={18} color="#000" />
-                  <Text style={styles.manageButtonText}>Grant</Text>
+                  {uploadingLogo ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="camera" size={18} color="#fff" />
+                  )}
                 </TouchableOpacity>
               )}
             </View>
 
-            {loadingCertifications ? (
-              <ActivityIndicator size="small" color="#000" />
-            ) : certifications.length > 0 ? (
-              <View style={styles.certificationsList}>
-                {certifications.map((certification) => (
-                  <CertificationCard
-                    key={certification.id}
-                    certification={certification}
-                  />
-                ))}
+            {/* About Section with Contact and Metrics */}
+            <View style={styles.section}>
+              {/* About Title and Description */}
+              {(company.description || company.bio) && (
+                <View style={styles.aboutSection}>
+                  <Text style={styles.sectionTitle}>About</Text>
+                  {company.description && (
+                    <Text style={styles.description}>{company.description}</Text>
+                  )}
+                  {company.bio && (
+                    <Text style={styles.description}>{company.bio}</Text>
+                  )}
+                </View>
+              )}
+
+              {/* Contact Information */}
+              {(company.email || company.phone) && (
+                <View style={styles.contactSection}>
+                  {company.email && (
+                    <TouchableOpacity style={styles.contactItem} onPress={handleEmailPress}>
+                      <Ionicons name="mail-outline" size={16} color="#000" />
+                      <Text style={styles.contactText}>Email {company.email}</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {company.phone && (
+                    <TouchableOpacity style={styles.contactItem} onPress={handlePhonePress}>
+                      <Ionicons name="call-outline" size={16} color="#000" />
+                      <Text style={styles.contactText}>{company.phone}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {/* Metrics Row */}
+              <View style={styles.metricsRow}>
+                {(company.establishment_date || company.created_at) && (
+                  <View style={styles.metricItem}>
+                    <Ionicons name="calendar-outline" size={18} color="#000" />
+                    <Text style={styles.metricLabel}>
+                      Team Size: {loadingMembers ? '...' : `${members.length}+`}
+                    </Text>
+                    <Text style={styles.metricValue}>
+                      Created: {company.establishment_date
+                        ? new Date(company.establishment_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+                        : new Date(company.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.metricItem}>
+                  <Ionicons name="people-outline" size={18} color="#000" />
+                  <Text style={styles.metricLabel}>Active Users</Text>
+                  <Text style={styles.metricValue}>
+                    {loadingMembers ? '...' : `${members.length}+`}
+                  </Text>
+                </View>
+
+                <View style={styles.metricItem}>
+                  <Ionicons name="bar-chart-outline" size={18} color="#000" />
+                  <Text style={styles.metricLabel}>Active</Text>
+                  <Text style={styles.metricValue}>
+                    {loadingMembers ? '...' : `${members.length}+`}
+                  </Text>
+                </View>
               </View>
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons name="trophy-outline" size={48} color="#e4e4e7" />
-                <Text style={styles.emptyStateText}>No certifications granted yet</Text>
-                {canEdit() && (
+            </View>
+
+            {/* Team & Metrics Section with Courses */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Team & Metrics</Text>
+                {canEdit() && onManageCourses && (
                   <TouchableOpacity
-                    style={styles.addButton}
-                    onPress={() => setShowGrantCertificationModal(true)}
+                    style={styles.manageButton}
+                    onPress={() => onManageCourses(company)}
                   >
-                    <Text style={styles.addButtonText}>Grant Certification</Text>
+                    <Ionicons name="school-outline" size={14} color="#000" />
+                    <Text style={styles.manageButtonText}>Manage</Text>
                   </TouchableOpacity>
                 )}
               </View>
-            )}
-          </View>
-        )}
 
-        {/* Courses Section (Academy Only) */}
-        {company.subcategory === 'academy' && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>
-                Courses {courses.length > 0 && `(${courses.length})`}
-              </Text>
-              {canEdit() && onManageCourses && (
-                <TouchableOpacity
-                  style={styles.manageButton}
-                  onPress={() => onManageCourses(company)}
-                >
-                  <Ionicons name="school-outline" size={18} color="#000" />
-                  <Text style={styles.manageButtonText}>Manage</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {loadingCourses ? (
-              <ActivityIndicator size="small" color="#000" />
-            ) : courses.length > 0 ? (
-              <View style={styles.coursesList}>
-                {courses.slice(0, 3).map((course) => (
-                  <CourseCard
-                    key={course.id}
-                    course={course}
-                    onSelect={() => {
-                      // Navigate to course detail - will be handled by parent
+              {loadingCourses ? (
+                <ActivityIndicator size="small" color="#000" />
+              ) : courses.length > 0 ? (
+                <>
+                  <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.coursesHorizontalScroll}
+                    contentContainerStyle={styles.coursesHorizontalContent}
+                  >
+                    {courses.map((course) => (
+                      <CourseCard
+                        key={course.id}
+                        course={course}
+                        onSelect={() => {
+                          if (onCourseSelect) {
+                            onCourseSelect(course);
+                          } else if (onManageCourses) {
+                            onManageCourses(company);
+                          }
+                        }}
+                      />
+                    ))}
+                  </ScrollView>
+                  <TouchableOpacity
+                    style={styles.viewAllButton}
+                    onPress={() => {
                       if (onManageCourses) {
-                        // For now, navigate to management page, but could navigate to detail
                         onManageCourses(company);
                       }
                     }}
-                  />
-                ))}
-                {courses.length > 3 && (
-                  <TouchableOpacity
-                    style={styles.viewAllButton}
-                    onPress={() => onManageCourses && onManageCourses(company)}
                   >
-                    <Text style={styles.viewAllButtonText}>
-                      View All {courses.length} Courses
-                    </Text>
-                    <Ionicons name="arrow-forward" size={16} color="#3b82f6" />
+                    <Text style={styles.viewAllButtonText}>View All Courses</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="school-outline" size={48} color="#e4e4e7" />
+                  <Text style={styles.emptyStateText}>No courses available yet</Text>
+                  {canEdit() && onManageCourses && (
+                    <TouchableOpacity
+                      style={styles.addButton}
+                      onPress={() => onManageCourses(company)}
+                    >
+                      <Text style={styles.addButtonText}>Create Course</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+          </>
+        ) : (
+          /* Regular Company Layout */
+          <>
+            {/* Company Header */}
+            <View style={styles.headerSection}>
+              <View style={styles.logoContainer}>
+                {company.logo_url ? (
+                  <Image source={{ uri: company.logo_url }} style={styles.logo} />
+                ) : (
+                  <View style={styles.logoPlaceholder}>
+                    <Ionicons name="business" size={48} color="#71717a" />
+                  </View>
+                )}
+                {canEdit() && (
+                  <TouchableOpacity
+                    style={styles.uploadLogoButton}
+                    onPress={handleUploadLogo}
+                    disabled={uploadingLogo}
+                  >
+                    {uploadingLogo ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="camera" size={20} color="#fff" />
+                    )}
                   </TouchableOpacity>
                 )}
               </View>
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons name="school-outline" size={48} color="#e4e4e7" />
-                <Text style={styles.emptyStateText}>No courses available yet</Text>
-                {canEdit() && onManageCourses && (
-                  <TouchableOpacity
-                    style={styles.addButton}
-                    onPress={() => onManageCourses(company)}
+
+              <View style={styles.headerInfo}>
+                <Text style={styles.companyName}>{company.name}</Text>
+                {company.company_type_info && (
+                  <Text style={styles.companyType}>{company.company_type_info.name}</Text>
+                )}
+
+                {/* Approval Status Badge */}
+                <View
+                  style={[
+                    styles.statusBadge,
+                    { backgroundColor: getApprovalStatusColor(company.approval_status) + '20' },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.statusDot,
+                      { backgroundColor: getApprovalStatusColor(company.approval_status) },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.statusText,
+                      { color: getApprovalStatusColor(company.approval_status) },
+                    ]}
                   >
-                    <Text style={styles.addButtonText}>Create Course</Text>
-                  </TouchableOpacity>
+                    {getApprovalStatusLabel(company.approval_status)}
+                  </Text>
+                </View>
+
+                {company.approval_status === 'pending' && (
+                  <Text style={styles.statusMessage}>
+                    Your company is pending admin approval. You'll be notified once it's reviewed.
+                  </Text>
+                )}
+
+                {company.approval_status === 'rejected' && company.approval_reason && (
+                  <View style={styles.rejectionBox}>
+                    <Text style={styles.rejectionTitle}>Rejection Reason:</Text>
+                    <Text style={styles.rejectionText}>{company.approval_reason}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {/* Company Description */}
+            {(company.description || company.bio) && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>About</Text>
+                {company.description && (
+                  <Text style={styles.description}>{company.description}</Text>
+                )}
+                {company.bio && (
+                  <Text style={styles.description}>{company.bio}</Text>
                 )}
               </View>
             )}
-          </View>
-        )}
 
-        {/* Additional Info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Company Information</Text>
-          <InfoRow label="Company ID" value={company.id} />
-          {company.created_at && (
-            <InfoRow
-              label="Created"
-              value={new Date(company.created_at).toLocaleDateString()}
-            />
-          )}
-          {company.approved_at && (
-            <InfoRow
-              label="Approved"
-              value={new Date(company.approved_at).toLocaleDateString()}
-            />
-          )}
-        </View>
+            {/* Contact Information */}
+            {(company.website_url || company.email || company.phone || company.location_text) && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Contact Information</Text>
+
+                {company.website_url && (
+                  <TouchableOpacity style={styles.contactItem} onPress={handleWebsitePress}>
+                    <Ionicons name="globe-outline" size={20} color="#000" />
+                    <Text style={styles.contactText}>{company.website_url}</Text>
+                    <Ionicons name="open-outline" size={16} color="#71717a" />
+                  </TouchableOpacity>
+                )}
+
+                {company.email && (
+                  <TouchableOpacity style={styles.contactItem} onPress={handleEmailPress}>
+                    <Ionicons name="mail-outline" size={20} color="#000" />
+                    <Text style={styles.contactText}>{company.email}</Text>
+                  </TouchableOpacity>
+                )}
+
+                {company.phone && (
+                  <TouchableOpacity style={styles.contactItem} onPress={handlePhonePress}>
+                    <Ionicons name="call-outline" size={20} color="#000" />
+                    <Text style={styles.contactText}>{company.phone}</Text>
+                  </TouchableOpacity>
+                )}
+
+                {company.location_text && (
+                  <View style={styles.contactItem}>
+                    <Ionicons name="location-outline" size={20} color="#000" />
+                    <Text style={styles.contactText}>{company.location_text}</Text>
+                  </View>
+                )}
+
+                {company.establishment_date && (
+                  <View style={styles.contactItem}>
+                    <Ionicons name="calendar-outline" size={20} color="#000" />
+                    <Text style={styles.contactText}>
+                      Established: {new Date(company.establishment_date).getFullYear()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Services Section */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>
+                  Services We Provide {services.length > 0 && `(${services.length})`}
+                </Text>
+                {canEdit() && onManageServices && (
+                  <TouchableOpacity
+                    style={styles.manageButton}
+                    onPress={() => onManageServices(company)}
+                  >
+                    <Ionicons name="settings-outline" size={18} color="#000" />
+                    <Text style={styles.manageButtonText}>Manage</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {loadingServices ? (
+                <ActivityIndicator size="small" color="#000" />
+              ) : services.length > 0 ? (
+                <View style={styles.servicesGrid}>
+                  {services.map((companyService) => {
+                    const service = companyService.service;
+                    if (!service) return null;
+
+                    return (
+                      <View key={companyService.service_id} style={styles.serviceCard}>
+                        {service.icon_name && (
+                          <Ionicons 
+                            name={getValidIconName(service.icon_name) as any} 
+                            size={24} 
+                            color="#000" 
+                          />
+                        )}
+                        <Text style={styles.serviceName}>{service.name}</Text>
+                        {service.description && (
+                          <Text style={styles.serviceDescription} numberOfLines={2}>
+                            {service.description}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="briefcase-outline" size={48} color="#e4e4e7" />
+                  <Text style={styles.emptyStateText}>No services added yet</Text>
+                  {canEdit() && onManageServices && (
+                    <TouchableOpacity
+                      style={styles.addButton}
+                      onPress={() => onManageServices(company)}
+                    >
+                      <Text style={styles.addButtonText}>Add Services</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Members Section */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>
+                  Team Members {members.length > 0 ? `(${members.length})` : ''}
+                </Text>
+                {canEdit() && onInviteMember && (
+                  <TouchableOpacity
+                    style={styles.manageButton}
+                    onPress={() => onInviteMember(company)}
+                  >
+                    <Ionicons name="person-add-outline" size={18} color="#000" />
+                    <Text style={styles.manageButtonText}>Invite</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {loadingMembers ? (
+                <ActivityIndicator size="small" color="#000" />
+              ) : members.length > 0 ? (
+                <View style={styles.membersList}>
+                  {members.map((member) => (
+                      <View key={member.user_id} style={styles.memberCard}>
+                        <View style={styles.memberAvatar}>
+                          {member.user?.image_url ? (
+                            <Image
+                              source={{ uri: member.user.image_url }}
+                              style={styles.memberAvatarImage}
+                            />
+                          ) : (
+                            <View style={styles.memberAvatarPlaceholder}>
+                              <Text style={styles.memberAvatarText}>
+                                {member.user?.name?.charAt(0).toUpperCase() || '?'}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+
+                        <View style={styles.memberInfo}>
+                          <Text style={styles.memberName}>{member.user?.name || 'Unknown User'}</Text>
+                          {member.user?.primary_role && (
+                            <Text style={styles.memberRole}>
+                              {member.user.primary_role.replace(/_/g, ' ')}
+                            </Text>
+                          )}
+                          <View style={styles.memberRoleBadge}>
+                            <View
+                              style={[
+                                styles.roleDot,
+                                { backgroundColor: getRoleBadgeColor(member.role) },
+                              ]}
+                            />
+                            <Text
+                              style={[
+                                styles.roleText,
+                                { color: getRoleBadgeColor(member.role) },
+                              ]}
+                            >
+                              {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.memberActions}>
+                          {isOwner() && member.role !== 'owner' && (
+                            <>
+                              {company.subcategory === 'academy' && (
+                                <TouchableOpacity
+                                  style={styles.memberActionButton}
+                                  onPress={() => {
+                                    setSelectedUserIdForCertification(member.user_id);
+                                    setShowGrantCertificationModal(true);
+                                  }}
+                                >
+                                  <Ionicons name="trophy-outline" size={20} color="#3b82f6" />
+                                </TouchableOpacity>
+                              )}
+                              <TouchableOpacity
+                                style={styles.memberActionButton}
+                                onPress={() => handleRemoveMember(member)}
+                                disabled={removingMemberId === member.user_id}
+                              >
+                                {removingMemberId === member.user_id ? (
+                                  <ActivityIndicator size="small" color="#ef4444" />
+                                ) : (
+                                  <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                                )}
+                              </TouchableOpacity>
+                            </>
+                          )}
+                        </View>
+                      </View>
+                    ))}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="people-outline" size={48} color="#e4e4e7" />
+                  <Text style={styles.emptyStateText}>No members yet</Text>
+                  {canEdit() && onInviteMember && (
+                    <TouchableOpacity
+                      style={styles.addButton}
+                      onPress={() => onInviteMember(company)}
+                    >
+                      <Text style={styles.addButtonText}>Invite Members</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Documents Section - Only show if company is not approved */}
+            {company.approval_status !== 'approved' && (isOwner() || canEdit()) && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Documents</Text>
+                </View>
+                <Text style={styles.description}>
+                  Upload required documents to complete your company profile. Documents help speed up the approval process.
+                </Text>
+                {loadingDocuments ? (
+                  <ActivityIndicator size="small" color="#000" style={{ marginTop: 12 }} />
+                ) : (
+                  <>
+                    {company.company_type_info?.required_documents && company.company_type_info.required_documents.length > 0 ? (
+                      company.company_type_info.required_documents.map((docType) => {
+                        const uploadedDoc = documents.find((d) => d.document_type === docType);
+                        return (
+                          <View key={docType} style={styles.documentCard}>
+                            <View style={styles.documentHeader}>
+                              <View style={styles.documentInfo}>
+                                <Ionicons
+                                  name={uploadedDoc ? 'checkmark-circle' : 'document-text-outline'}
+                                  size={20}
+                                  color={uploadedDoc ? '#22c55e' : '#71717a'}
+                                />
+                                <View style={styles.documentText}>
+                                  <Text style={styles.documentType}>
+                                    {docType.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                                  </Text>
+                                  {uploadedDoc && (
+                                    <Text style={styles.documentFileName}>
+                                      {uploadedDoc.file_name || 'Uploaded'}
+                                      {uploadedDoc.verified && (
+                                        <Text style={styles.verifiedBadge}> • Verified</Text>
+                                      )}
+                                    </Text>
+                                  )}
+                                </View>
+                              </View>
+                              {uploadedDoc && (
+                                <TouchableOpacity
+                                  onPress={() => handleDeleteDocument(uploadedDoc.id)}
+                                  style={styles.removeButton}
+                                  disabled={uploadingDocument}
+                                >
+                                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                            {!uploadedDoc && (
+                              <TouchableOpacity
+                                style={[styles.uploadButton, uploadingDocument && styles.uploadButtonDisabled]}
+                                onPress={() => handleUploadDocument(docType)}
+                                disabled={uploadingDocument}
+                              >
+                                {uploadingDocument ? (
+                                  <ActivityIndicator size="small" color="#000" />
+                                ) : (
+                                  <>
+                                    <Ionicons name="cloud-upload-outline" size={18} color="#000" />
+                                    <Text style={styles.uploadButtonText}>Upload Document</Text>
+                                  </>
+                                )}
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        );
+                      })
+                    ) : (
+                      <Text style={styles.emptyStateText}>No documents required for this company type</Text>
+                    )}
+                    {documents.length > 0 && (
+                      <View style={styles.documentsProgress}>
+                        <Text style={styles.progressText}>
+                          {documents.length} of {company.company_type_info?.required_documents?.length || 0} documents uploaded
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                )}
+              </View>
+            )}
+
+            {/* Additional Info */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Company Information</Text>
+              {company.created_at && (
+                <InfoRow
+                  label="Created"
+                  value={new Date(company.created_at).toLocaleDateString()}
+                />
+              )}
+              {company.approved_at && (
+                <InfoRow
+                  label="Approved"
+                  value={new Date(company.approved_at).toLocaleDateString()}
+                />
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
 
       {/* Grant Certification Modal */}
@@ -904,19 +1304,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    padding: 10,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e4e4e7',
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '600',
     color: '#000',
   },
@@ -966,24 +1366,27 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     backgroundColor: '#fff',
-    padding: 24,
+    padding: 12,
     alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#e4e4e7',
   },
   logoContainer: {
-    marginBottom: 16,
+    marginBottom: 8,
+    position: 'relative',
+    width: '100%',
   },
   logo: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: '100%',
+    height: 280,
+    borderRadius: 8,
     backgroundColor: '#f4f4f5',
+    resizeMode: 'cover',
   },
   logoPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: '100%',
+    height: 280,
+    borderRadius: 8,
     backgroundColor: '#e4e4e7',
     justifyContent: 'center',
     alignItems: 'center',
@@ -991,66 +1394,67 @@ const styles = StyleSheet.create({
   headerInfo: {
     alignItems: 'center',
     width: '100%',
+    paddingTop: 8,
   },
   companyName: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   companyType: {
-    fontSize: 16,
+    fontSize: 13,
     color: '#71717a',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    marginBottom: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    marginBottom: 6,
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
   },
   statusText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
   },
   statusMessage: {
-    fontSize: 14,
+    fontSize: 11,
     color: '#71717a',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 4,
   },
   rejectionBox: {
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 12,
+    borderRadius: 6,
+    padding: 8,
+    marginTop: 6,
     width: '100%',
   },
   rejectionTitle: {
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: '600',
     color: '#ef4444',
-    marginBottom: 4,
+    marginBottom: 3,
   },
   rejectionText: {
-    fontSize: 14,
+    fontSize: 11,
     color: '#991b1b',
   },
   section: {
     backgroundColor: '#fff',
-    padding: 16,
-    marginTop: 8,
+    padding: 10,
+    marginTop: 4,
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: '#e4e4e7',
@@ -1059,75 +1463,149 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: 'bold',
     color: '#000',
+    marginBottom: 8,
+  },
+  academyImageContainer: {
+    width: '100%',
+    position: 'relative',
+    marginBottom: 0,
+  },
+  academyImage: {
+    width: '100%',
+    height: 280,
+    backgroundColor: '#f4f4f5',
+    resizeMode: 'cover',
+  },
+  academyImagePlaceholder: {
+    width: '100%',
+    height: 280,
+    backgroundColor: '#e4e4e7',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  aboutSection: {
     marginBottom: 12,
   },
-  description: {
-    fontSize: 16,
-    color: '#71717a',
-    lineHeight: 24,
+  contactSection: {
     marginBottom: 12,
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    gap: 8,
+  },
+  metricItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  metricLabel: {
+    fontSize: 10,
+    color: '#71717a',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  metricValue: {
+    fontSize: 11,
+    color: '#000',
+    fontWeight: '600',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  coursesHorizontalScroll: {
+    marginTop: 8,
+  },
+  coursesHorizontalContent: {
+    paddingRight: 10,
+    gap: 12,
+  },
+  uploadLogoButton: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: '#000',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  description: {
+    fontSize: 12,
+    color: '#71717a',
+    lineHeight: 18,
+    marginBottom: 8,
   },
   contactItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#f4f4f5',
   },
   contactText: {
-    fontSize: 16,
+    fontSize: 12,
     color: '#000',
-    marginLeft: 12,
+    marginLeft: 10,
     flex: 1,
   },
   servicesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 8,
   },
   serviceCard: {
     flex: 1,
     minWidth: '45%',
     backgroundColor: '#f4f4f5',
-    borderRadius: 8,
-    padding: 16,
+    borderRadius: 6,
+    padding: 10,
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   serviceName: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#000',
-    marginTop: 8,
+    marginTop: 6,
     textAlign: 'center',
   },
   serviceDescription: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#71717a',
-    marginTop: 4,
+    marginTop: 3,
     textAlign: 'center',
   },
   membersList: {
-    gap: 12,
+    gap: 6,
   },
   memberCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f4f4f5',
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 6,
   },
   memberAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
     overflow: 'hidden',
   },
   memberAvatarImage: {
@@ -1142,7 +1620,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   memberAvatarText: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '600',
     color: '#71717a',
   },
@@ -1150,15 +1628,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   memberName: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '600',
     color: '#000',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   memberRole: {
-    fontSize: 14,
+    fontSize: 11,
     color: '#71717a',
-    marginBottom: 4,
+    marginBottom: 2,
     textTransform: 'capitalize',
   },
   memberRoleBadge: {
@@ -1173,63 +1651,63 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   roleText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
   },
   memberActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   memberActionButton: {
-    padding: 8,
+    padding: 6,
   },
   emptyState: {
     alignItems: 'center',
-    padding: 40,
+    padding: 24,
   },
   emptyStateText: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#71717a',
-    marginTop: 12,
-    marginBottom: 16,
+    marginTop: 8,
+    marginBottom: 10,
   },
   addButton: {
     backgroundColor: '#000',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
   },
   addButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   manageButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
+    padding: 6,
   },
   manageButtonText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     color: '#000',
-    marginLeft: 4,
+    marginLeft: 3,
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: '#f4f4f5',
   },
   infoLabel: {
-    fontSize: 14,
+    fontSize: 11,
     color: '#71717a',
     fontWeight: '600',
   },
   infoValue: {
-    fontSize: 14,
+    fontSize: 11,
     color: '#000',
   },
   // Certifications section styles
@@ -1243,20 +1721,93 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   viewAllButton: {
-    flexDirection: 'row',
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    backgroundColor: '#f4f4f5',
+    backgroundColor: '#3b82f6',
     borderRadius: 8,
-    gap: 8,
-    marginTop: 8,
+    marginTop: 12,
   },
   viewAllButtonText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#3b82f6',
+    fontWeight: '600',
+    color: '#fff',
+  },
+  // Documents section styles
+  documentCard: {
+    backgroundColor: '#f4f4f5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e4e4e7',
+  },
+  documentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  documentInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  documentText: {
+    marginLeft: 10,
+    flex: 1,
+  },
+  documentType: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#000',
+  },
+  documentFileName: {
+    fontSize: 11,
+    color: '#71717a',
+    marginTop: 2,
+  },
+  verifiedBadge: {
+    fontSize: 11,
+    color: '#22c55e',
+    fontWeight: '600',
+  },
+  removeButton: {
+    padding: 6,
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e4e4e7',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  uploadButtonDisabled: {
+    opacity: 0.5,
+  },
+  uploadButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#000',
+    marginLeft: 6,
+  },
+  documentsProgress: {
+    marginTop: 12,
+    padding: 10,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+  },
+  progressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#000',
+    textAlign: 'center',
   },
 });
 

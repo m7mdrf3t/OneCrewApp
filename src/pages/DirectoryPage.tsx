@@ -538,6 +538,18 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                         >
                           {/* Top Section - Dark Grey */}
                           <View style={styles.companyCardTop}>
+                            {/* Company Logo */}
+                            {company.logo_url ? (
+                              <Image
+                                source={{ uri: company.logo_url }}
+                                style={styles.companyCardLogo}
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <View style={styles.companyCardLogoPlaceholder}>
+                                <Ionicons name="business" size={48} color="#71717a" />
+                              </View>
+                            )}
                             <Text style={styles.companyCardTopName} numberOfLines={2}>
                               {company.name}
                             </Text>
@@ -970,19 +982,38 @@ const styles = StyleSheet.create({
   },
   companyCardTop: {
     backgroundColor: '#262626',
-    padding: 20,
-    paddingBottom: 16,
-    height: 160,
-    justifyContent: 'center',
+    padding: 0,
+    height: 200,
+    justifyContent: 'flex-start',
     alignItems: 'center',
     position: 'relative',
+    overflow: 'hidden',
+  },
+  companyCardLogo: {
+    width: '100%',
+    height: 140,
+    backgroundColor: '#1a1a1a',
+  },
+  companyCardLogoPlaceholder: {
+    width: '100%',
+    height: 140,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   companyCardTopName: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
     textAlign: 'center',
-    flex: 1,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   companyNavButton: {
     position: 'absolute',

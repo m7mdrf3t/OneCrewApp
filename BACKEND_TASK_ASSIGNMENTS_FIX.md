@@ -156,3 +156,4 @@ After implementing, verify:
 Currently, the frontend tries to fetch user details individually when missing, but this is inefficient and may fail due to permissions. The backend solution is the proper fix.
 
 
+

@@ -603,3 +603,4 @@ const CertificationsSection: React.FC<{ userId: string }> = ({ userId }) => {
 **Last Updated**: 2025-01-02  
 **Reviewed By**: AI Assistant
 
+

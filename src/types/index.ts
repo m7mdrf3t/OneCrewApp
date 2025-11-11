@@ -765,3 +765,94 @@ export interface CourseCreationModalProps {
   onClose: () => void;
   onSubmit: (courseData: CreateCourseRequest) => Promise<void>;
 }
+
+// Chat/Messaging Types (from onecrew-api-client v2.5.0)
+export type ChatConversationType = 'user_user' | 'user_company' | 'company_company';
+export type ChatParticipantType = 'user' | 'company';
+export type ChatSenderType = 'user' | 'company';
+export type ChatMessageType = 'text' | 'image' | 'file' | 'system';
+
+export interface ChatConversation {
+  id: string;
+  conversation_type: ChatConversationType;
+  name?: string;
+  last_message_at?: string;
+  last_message_preview?: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+  participants?: ChatParticipant[];
+  messages?: ChatMessage[];
+}
+
+export interface ChatParticipant {
+  id: string;
+  conversation_id: string;
+  participant_type: ChatParticipantType;
+  participant_id: string;
+  joined_at: string;
+  left_at?: string;
+  last_read_at?: string;
+  muted_until?: string;
+  created_at: string;
+  deleted_at?: string;
+  user?: any; // User type
+  company?: Company;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  sender_type: ChatSenderType;
+  sender_id: string;
+  sent_by_user_id?: string;
+  content?: string;
+  message_type: ChatMessageType;
+  file_url?: string;
+  file_name?: string;
+  file_size?: number;
+  reply_to_message_id?: string;
+  sent_at: string;
+  edited_at?: string;
+  deleted_at?: string;
+  sender_user?: any; // User type
+  sender_company?: Company;
+  sent_by_user?: any; // User type
+  reply_to_message?: ChatMessage;
+  reads?: ChatMessageRead[];
+}
+
+export interface ChatMessageRead {
+  id: string;
+  message_id: string;
+  participant_type: ChatParticipantType;
+  participant_id: string;
+  read_at: string;
+}
+
+export interface CreateConversationRequest {
+  conversation_type: ChatConversationType;
+  participant_ids: string[];
+  name?: string;
+}
+
+export interface SendChatMessageRequest {
+  content?: string;
+  message_type?: ChatMessageType;
+  file_url?: string;
+  file_name?: string;
+  file_size?: number;
+  reply_to_message_id?: string;
+}
+
+// Chat UI Component Props
+export interface ConversationsListPageProps {
+  onBack: () => void;
+  onConversationSelect: (conversation: ChatConversation) => void;
+}
+
+export interface ChatPageProps {
+  conversationId?: string;
+  participant?: any; // User or Company for new conversations
+  onBack: () => void;
+}
