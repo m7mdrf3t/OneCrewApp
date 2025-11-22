@@ -140,7 +140,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   visible = true,
   onClose,
 }) => {
-  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, uploadFile, getAccessToken, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, isAuthenticated, isGuest } = useApi();
+  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, uploadFile, getAccessToken, getBaseUrl, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, isAuthenticated, isGuest } = useApi();
   
   // Check if user is a talent - only show talent-specific fields if category is 'talent'
   const isTalent = user?.category === 'talent' || user?.category === 'Talent';
@@ -1028,7 +1028,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         }
 
         // Try PUT first (update existing), if it fails with 404 or permission error, try POST (create new)
-        let talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
+        let talentResponse = await fetch(`${getBaseUrl()}/api/talent/profile`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -1042,7 +1042,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         // If PUT fails with 404 (not found) or 403 (permission), try POST to create
         if (!talentResponse.ok && (talentResponse.status === 404 || talentResponse.status === 403)) {
           
-          talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
+          talentResponse = await fetch(`${getBaseUrl()}/api/talent/profile`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

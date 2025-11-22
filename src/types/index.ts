@@ -107,6 +107,7 @@ export interface Task {
 
 export type TaskStatus = 'pending' | 'on_hold' | 'in_progress' | 'completed' | 'cancelled';
 export type ProjectStatus = 'planning' | 'in_production' | 'completed' | 'on_hold' | 'cancelled';
+export type TaskAssignmentStatus = 'pending' | 'accepted' | 'rejected';
 
 export interface TaskAssignment {
   id: string;
@@ -115,6 +116,7 @@ export interface TaskAssignment {
   service_role: string;
   assigned_at: string;
   assigned_by: string;
+  status?: TaskAssignmentStatus; // New field for pending/accept/reject workflow
   deleted_at?: string;
   user?: {
     id: string;
@@ -379,6 +381,16 @@ export interface UserProfile {
   skills: string[];
   abilities: string[];
   languages: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserProfilePicture {
+  id: string;
+  user_id: string;
+  url: string;
+  is_main: boolean;
+  sort_order?: number;
   created_at: string;
   updated_at: string;
 }

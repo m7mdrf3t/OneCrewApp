@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,13 +11,16 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useApi } from '../contexts/ApiContext';
 import DatePicker from './DatePicker';
 
 interface SimplifiedTaskCardProps {
   projectId: string;
+  project?: any; // Project object to check ownership
   onTaskCreated: (task: any) => void;
   onDelete?: (taskId: string) => void;
+  onCancel?: () => void; // For canceling new task creation
   existingTask?: any; // For editing existing tasks
   isNewTask?: boolean; // Whether this is a new task being created
 }
@@ -26,16 +29,27 @@ interface Assignment {
   id: string;
   service: any;
   user: any;
+  status?: 'pending' | 'accepted' | 'rejected';
 }
 
 const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   projectId,
+  project,
   onTaskCreated,
   onDelete,
+  onCancel,
   existingTask,
   isNewTask = false,
 }) => {
-  const { getRoles, getUsersByRole, createTask, assignTaskService, deleteTaskAssignment, updateTask, deleteTask } = useApi();
+  const { user, getRoles, getUsersByRole, createTask, assignTaskService, deleteTaskAssignment, updateTaskAssignmentStatus, updateTask, deleteTask, getProjectTasks, getProjectById } = useApi();
+  
+  // Check if current user is project owner
+  const isProjectOwner = project?.created_by === user?.id;
+  
+  // Check if user is assigned to an assignment
+  const isAssignedUser = (assignment: Assignment) => {
+    return assignment.user?.id === user?.id || (assignment as any).user_id === user?.id;
+  };
   
   const taskTypes = [
     { id: 'development', name: 'Development', icon: 'create' },
@@ -112,10 +126,41 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         id: assignment.id || Date.now().toString(),
         service: assignment.service || { name: assignment.service_role || 'Unknown' },
         user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+        status: assignment.status || 'pending', // Default to 'pending' for new assignments (per guide)
       }));
     }
     return [];
   });
+
+  // Sync assignments when existingTask changes (e.g., after refresh from backend)
+  useEffect(() => {
+    if (existingTask?.assignments) {
+      const syncedAssignments = existingTask.assignments.map((assignment: any) => ({
+        id: assignment.id || Date.now().toString(),
+        service: assignment.service || { name: assignment.service_role || 'Unknown' },
+        user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+        status: assignment.status || 'pending',
+      }));
+      
+      // Only update if assignments have actually changed (by comparing IDs)
+      const currentIds = assignments.map((a: Assignment) => a.id).sort().join(',');
+      const newIds = syncedAssignments.map((a: Assignment) => a.id).sort().join(',');
+      
+      if (currentIds !== newIds) {
+        console.log('🔄 Syncing assignments from existingTask:', {
+          currentCount: assignments.length,
+          newCount: syncedAssignments.length,
+          currentIds: assignments.map(a => a.id),
+          newIds: syncedAssignments.map((a: Assignment) => a.id)
+        });
+        setAssignments(syncedAssignments);
+      }
+    } else if (existingTask && assignments.length > 0) {
+      // If existingTask has no assignments but we have local ones, clear them
+      console.log('🔄 Clearing assignments - existingTask has none');
+      setAssignments([]);
+    }
+  }, [existingTask?.id, existingTask?.assignments?.length, existingTask?.assignments?.map((a: any) => a.id).join(',')]);
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
@@ -136,6 +181,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
   const [savedTaskId, setSavedTaskId] = useState<string | null>(existingTask?.id || null);
   const [isExpanded, setIsExpanded] = useState(true); // Card is expanded by default
+  const swipeableRefs = useRef<{ [key: string]: Swipeable | null }>({});
 
   useEffect(() => {
     if (taskType) {
@@ -259,95 +305,428 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
     setShowUserModal(true);
   };
 
-  const handleUserSelect = async (user: any) => {
+  const handleUserSelect = async (selectedUser: any) => {
+    // First, create the assignment via API to get the UUID immediately
+    const taskId = savedTaskId || existingTask?.id;
+    
+    // Check if user is already assigned to this task with this service role
+    const isAlreadyAssigned = assignments.some(a => 
+      (a.user?.id === selectedUser.id || (a as any).user_id === selectedUser.id) &&
+      (a.service?.name === selectedService?.name || (a as any).service_role === selectedService?.name)
+    );
+    
+    if (isAlreadyAssigned) {
+      Alert.alert(
+        'Already Assigned',
+        'This user is already assigned to this task with this service role.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    if (taskId) {
+      // Task exists, create assignment immediately
+      try {
+        // Also check backend to make sure assignment doesn't exist there
+        try {
+          const allTasks = await getProjectTasks(projectId);
+          const task = allTasks.find((t: any) => t.id === taskId);
+          
+          if (task?.assignments) {
+            const backendAssignment = task.assignments.find((a: any) => {
+              const userIdMatches = 
+                a.user_id === selectedUser.id || 
+                a.user?.id === selectedUser.id;
+              const serviceRoleMatches = 
+                a.service_role === selectedService?.name ||
+                a.service_role?.toLowerCase() === selectedService?.name?.toLowerCase();
+              return userIdMatches && serviceRoleMatches;
+            });
+            
+              if (backendAssignment) {
+                // Assignment exists in backend but not in UI - sync it
+                console.log('⚠️ Assignment exists in backend but not in UI, syncing...', backendAssignment);
+                const backendAssignmentAny = backendAssignment as any;
+                const syncedAssignment: Assignment = {
+                  id: backendAssignmentAny.id,
+                  service: backendAssignmentAny.service || { name: backendAssignmentAny.service_role || 'Unknown' },
+                  user: backendAssignmentAny.user || { id: backendAssignmentAny.user_id, name: backendAssignmentAny.user?.name || 'Unknown' },
+                  status: backendAssignmentAny.status || 'pending',
+                };
+              setAssignments([...assignments, syncedAssignment]);
+              
+              if (existingTask) {
+                const updatedTask = {
+                  ...existingTask,
+                  assignments: [...assignments, syncedAssignment],
+                };
+                onTaskCreated(updatedTask);
+              }
+              
+              setSelectedService(null);
+              setShowUserModal(false);
+              Alert.alert(
+                'Already Assigned',
+                'This user is already assigned to this task. The assignment has been synced.',
+                [{ text: 'OK' }]
+              );
+              return;
+            }
+          }
+        } catch (checkError) {
+          console.warn('⚠️ Could not check backend for existing assignments:', checkError);
+          // Continue with assignment creation
+        }
+        
+        const response = await assignTaskService(projectId, taskId, {
+          service_role: selectedService?.name,
+          user_id: selectedUser.id,
+        });
+        
+        console.log('📋 assignTaskService response:', JSON.stringify(response, null, 2));
+        
+        // Get UUID from response (following the guide)
+        // Response can be: array, single object, or {success: true, data: ...}
+        let assignmentId: string;
+        let assignmentStatus: 'pending' | 'accepted' | 'rejected' = 'pending';
+        
+        if (Array.isArray(response) && response.length > 0) {
+          // Response is an array
+          assignmentId = response[0].id; // UUID from API
+          assignmentStatus = response[0].status || 'pending';
+        } else if (response && typeof response === 'object' && 'id' in response) {
+          // Response is a single assignment object
+          assignmentId = response.id;
+          assignmentStatus = response.status || 'pending';
+        } else if (response?.data) {
+          // Response has data property
+          if (Array.isArray(response.data) && response.data.length > 0) {
+            assignmentId = response.data[0].id;
+            assignmentStatus = response.data[0].status || 'pending';
+          } else if (response.data && typeof response.data === 'object' && 'id' in response.data) {
+            assignmentId = response.data.id;
+            assignmentStatus = response.data.status || 'pending';
+          } else {
+            console.error('❌ Unexpected response.data format:', response.data);
+            throw new Error('Invalid response format from assignTaskService');
+          }
+        } else {
+          console.error('❌ Unexpected response format:', response);
+          // Don't throw error - assignment might have succeeded on backend
+          // Instead, try to fetch the assignment from the task
+          console.log('⚠️ Could not parse response, but assignment may have succeeded. Fetching task to verify...');
+          
+          // Fetch the task to get the newly created assignment
+          try {
+            const allTasks = await getProjectTasks(projectId);
+            const task = allTasks.find((t: any) => t.id === taskId);
+            if (task?.assignments) {
+              const newAssignment = task.assignments.find((a: any) => 
+                a.user_id === selectedUser.id && 
+                a.service_role === selectedService?.name
+              );
+              if (newAssignment?.id) {
+                assignmentId = newAssignment.id;
+                assignmentStatus = newAssignment.status || 'pending';
+                console.log('✅ Found assignment in task:', assignmentId);
+              } else {
+                throw new Error('Assignment created but could not find it in task');
+              }
+            } else {
+              throw new Error('Could not fetch task to verify assignment');
+            }
+          } catch (fetchError: any) {
+            console.error('❌ Failed to fetch task to verify assignment:', fetchError);
+            // Still throw the original error
+            throw new Error('Invalid response from assignTaskService and could not verify assignment');
+          }
+        }
+        
+        // Create assignment with UUID from API
     const newAssignment: Assignment = {
-      id: Date.now().toString(),
+          id: assignmentId, // Use UUID from API, not timestamp!
       service: selectedService,
-      user: user,
+          user: selectedUser,
+          status: assignmentStatus,
     };
+        
     const updatedAssignments = [...assignments, newAssignment];
     setAssignments(updatedAssignments);
     setSelectedService(null);
     setShowUserModal(false);
     
-    // Auto-save when assignment is added
+        // Update task with new assignment
+        if (existingTask) {
+          const updatedTask = {
+            ...existingTask,
+            assignments: updatedAssignments,
+          };
+          onTaskCreated(updatedTask);
+        }
+      } catch (error: any) {
+        console.error('❌ Failed to create assignment:', error);
+        Alert.alert(
+          'Error',
+          `Failed to assign user: ${error.message || 'Unknown error'}. Please try again.`
+        );
+      }
+    } else {
+      // Task doesn't exist yet, use temporary ID (will be updated when task is created)
+      const newAssignment: Assignment = {
+        id: `temp-${Date.now()}`, // Temporary ID, will be replaced when task is created
+        service: selectedService,
+        user: selectedUser,
+        status: 'pending', // New assignments start as pending
+      };
+      const updatedAssignments = [...assignments, newAssignment];
+      setAssignments(updatedAssignments);
+      setSelectedService(null);
+      setShowUserModal(false);
+      
+      // Auto-save when assignment is added (will create task and then assignment)
     await autoSaveTask(updatedAssignments);
+    }
   };
 
   const handleEditAssignment = (assignmentId: string) => {
     const assignment = assignments.find(a => a.id === assignmentId);
     if (assignment) {
+      // Check if assignment is accepted - don't allow editing accepted assignments
+      if (assignment.status === 'accepted') {
+        Alert.alert(
+          'Cannot Edit',
+          'Accepted assignments cannot be edited. Please remove the assignment and create a new one if needed.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
       setSelectedService(assignment.service);
       setEditingAssignmentId(assignmentId);
       setShowServiceModal(true);
     }
   };
 
-  const handleUpdateAssignment = (service: any, user: any) => {
-    if (editingAssignmentId) {
-      setAssignments(assignments.map(a => 
-        a.id === editingAssignmentId 
-          ? { ...a, service, user }
-          : a
-      ));
-      setEditingAssignmentId(null);
-    }
-    setSelectedService(null);
-    setShowServiceModal(false);
-    setShowUserModal(false);
-  };
-
-  const handleRemoveAssignment = async (assignmentId: string) => {
-    const taskId = savedTaskId || existingTask?.id;
-    if (!taskId) {
-      // If task doesn't exist yet, just remove from UI
-      setAssignments(assignments.filter(a => a.id !== assignmentId));
+  const handleUpdateAssignment = async (service: any, user: any) => {
+    if (!editingAssignmentId) {
+      setSelectedService(null);
+      setShowServiceModal(false);
+      setShowUserModal(false);
       return;
     }
 
-    // Find the assignment to get its details
-    const assignmentToRemove = assignments.find(a => a.id === assignmentId);
-    if (!assignmentToRemove) {
-      console.error('Assignment not found:', assignmentId);
+    const taskId = savedTaskId || existingTask?.id;
+    const assignmentToUpdate = assignments.find(a => a.id === editingAssignmentId);
+    
+    if (!assignmentToUpdate) {
+      console.error('Assignment to update not found:', editingAssignmentId);
+      setEditingAssignmentId(null);
+      setSelectedService(null);
+      setShowServiceModal(false);
+      setShowUserModal(false);
       return;
     }
 
     try {
-      // Check if this is a real assignment (has an ID from backend) or just a local one
-      // If it's a local assignment (created but not saved), we can just remove it from UI
-      // But if it has been saved to backend, we need to delete it
+      // Check if assignment has a backend ID (UUID format)
+      // Check both the editingAssignmentId and the actual assignment object's ID
+      const assignmentIdToCheck = assignmentToUpdate.id || editingAssignmentId;
+      const isBackendAssignment = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assignmentIdToCheck);
+      const isTimestampId = /^\d+$/.test(assignmentIdToCheck); // Timestamp IDs are numeric strings
       
-      // Check if this assignment has a backend ID (from task_assignments table)
-      // The assignment object might have an 'id' field that's the actual database ID
-      // We need to check if the assignment was loaded from backend or created locally
-      
-      // Check if assignmentId is a UUID (backend ID) or a timestamp string (local ID)
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assignmentId);
-      const isLocalId = /^\d+$/.test(assignmentId); // Local IDs are usually timestamps (numbers)
-      
-      // Also check if assignment has a backend ID property
-      const backendAssignmentId = assignmentToRemove.id && 
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assignmentToRemove.id)
-        ? assignmentToRemove.id
-        : null;
-      
-      // Use backend ID if available, otherwise use the assignmentId parameter
-      const idToDelete = backendAssignmentId || (isUUID ? assignmentId : null);
-      
-      if (idToDelete) {
-        // This is a backend assignment, delete it
-        await deleteTaskAssignment(projectId, taskId, idToDelete);
-        console.log('✅ Assignment deleted from backend:', idToDelete);
-      } else {
-        // This is a local assignment, just remove from UI
-        console.log('📝 Removing local assignment (not saved to backend yet):', assignmentId);
+      // Only try to delete if it's a valid backend UUID (not a timestamp)
+      if (isBackendAssignment && !isTimestampId && taskId) {
+        // Delete the old assignment from backend
+        try {
+          await deleteTaskAssignment(projectId, taskId, assignmentIdToCheck);
+          console.log('✅ Old assignment deleted from backend:', assignmentIdToCheck);
+        } catch (error: any) {
+          console.error('⚠️ Failed to delete old assignment (may not exist in backend):', error.message || error);
+          // Continue anyway - we'll create the new one
+          // This is fine if the assignment was never saved to backend
+        }
+      } else if (isTimestampId) {
+        console.log('📝 Assignment has timestamp ID, skipping delete (was never saved to backend):', assignmentIdToCheck);
       }
-      
-      // Remove from UI regardless
+
+      // Create new assignment with updated user/service
+      const newAssignment: Assignment = {
+        id: Date.now().toString(), // New temporary ID
+        service: service,
+        user: user,
+        status: 'pending', // New assignment starts as pending
+      };
+
+      // Update local state - replace old assignment with new one
+      const updatedAssignments = assignments.map(a => 
+        a.id === editingAssignmentId 
+          ? newAssignment
+          : a
+      );
+      setAssignments(updatedAssignments);
+      setEditingAssignmentId(null);
+      setSelectedService(null);
+      setShowServiceModal(false);
+      setShowUserModal(false);
+
+      // Save the new assignment to backend if task exists
+      if (taskId) {
+        try {
+          if (!service?.name || !user?.id) {
+            throw new Error('Service and user are required');
+          }
+          
+          const response = await assignTaskService(projectId, taskId, {
+            service_role: service.name,
+            user_id: user.id,
+          });
+          
+          // Update the assignment with the backend ID and status from response
+          if (response && Array.isArray(response) && response.length > 0) {
+            const createdAssignment = response[0];
+            const finalAssignments = updatedAssignments.map(a => 
+              a.id === newAssignment.id 
+                ? { ...a, id: createdAssignment.id || newAssignment.id, status: createdAssignment.status || 'pending' }
+                : a
+            );
+            setAssignments(finalAssignments);
+            
+            // Update task with final assignments
+            if (existingTask) {
+              const updatedTask = {
+                ...existingTask,
+                id: taskId,
+                type: taskType || existingTask?.type || existingTask?.task_type,
+                task_type: taskType || existingTask?.task_type || existingTask?.type,
+                assignments: finalAssignments,
+              };
+              onTaskCreated(updatedTask);
+            }
+          }
+        } catch (error: any) {
+          console.error('❌ Failed to create new assignment:', {
+            error: error.message || error,
+            service: service?.name,
+            userId: user?.id
+          });
+          Alert.alert(
+            'Update Failed',
+            `Failed to update assignment. ${error.message || 'Please try again.'}`,
+            [{ text: 'OK' }]
+          );
+        }
+      } else {
+        // Task doesn't exist yet, just update local state
+        // It will be saved when task is created
+        if (existingTask) {
+          const updatedTask = {
+            ...existingTask,
+            assignments: updatedAssignments,
+          };
+          onTaskCreated(updatedTask);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to update assignment:', error);
+      Alert.alert('Error', 'Failed to update assignment. Please try again.');
+      setEditingAssignmentId(null);
+    setSelectedService(null);
+    setShowServiceModal(false);
+    setShowUserModal(false);
+    }
+  };
+
+  // Helper function to check if ID is a valid UUID v4 (per guide)
+  const isUUID = (id: string): boolean => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(id);
+  };
+
+  // Helper function to check if ID is a timestamp (local ID)
+  const isTimestamp = (id: string): boolean => {
+    return /^\d+$/.test(id) && id.length >= 10;
+  };
+
+  const handleRemoveAssignment = async (assignmentId: string) => {
+    const taskId = savedTaskId || existingTask?.id;
+
+    // Find the assignment to get its details
+    const assignmentToRemove = assignments.find(a => a.id === assignmentId);
+    if (!assignmentToRemove) {
+      console.error('❌ Assignment not found:', assignmentId);
+      Alert.alert('Error', 'Assignment not found');
+      return;
+    }
+
+    // Show confirmation for accepted assignments (per guide)
+    if (assignmentToRemove.status === 'accepted') {
+      const userName = assignmentToRemove.user?.name || 'this user';
+      Alert.alert(
+        'Remove Assignment',
+        `Are you sure you want to remove ${userName} from this task?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () => performRemoveAssignment(assignmentId, taskId, assignmentToRemove)
+          }
+        ]
+      );
+      return;
+    }
+
+    // For pending/rejected assignments, proceed without confirmation
+    await performRemoveAssignment(assignmentId, taskId, assignmentToRemove);
+  };
+
+  const performRemoveAssignment = async (
+    assignmentId: string,
+    taskId: string | null,
+    assignmentToRemove: Assignment
+  ) => {
+    if (!taskId) {
+      // If task doesn't exist yet, just remove from UI (optimistic update)
+      console.log('📝 Task not saved yet, removing assignment from UI only:', assignmentId);
       const updatedAssignments = assignments.filter(a => a.id !== assignmentId);
       setAssignments(updatedAssignments);
       
-      // Update the task with the new assignments list
+      // Update task if it exists locally
+      if (existingTask) {
+        const updatedTask = {
+          ...existingTask,
+          assignments: updatedAssignments,
+        };
+        onTaskCreated(updatedTask);
+      }
+      return;
+    }
+
+    console.log('🗑️ Attempting to remove assignment:', {
+      assignmentId,
+      assignment: assignmentToRemove,
+      taskId,
+      projectId
+    });
+
+    // Store original assignments for potential revert
+    const originalAssignments = [...assignments];
+
+    try {
+      // Optimistic update - remove from UI immediately (per guide)
+      const updatedAssignments = assignments.filter(a => a.id !== assignmentId);
+      setAssignments(updatedAssignments);
+      
+      // Check if assignmentId is a valid UUID v4 (per guide)
+      if (!isUUID(assignmentId)) {
+        // This is a local/timestamp ID - just remove from local state (per guide)
+        if (isTimestamp(assignmentId)) {
+          console.log('📝 Removing local assignment (timestamp ID):', assignmentId);
+        } else {
+          console.warn('⚠️ Assignment ID is not a UUID, removing from local state only:', assignmentId);
+        }
+        
+        // Update task with optimistic update
       if (existingTask || savedTaskId) {
         const updatedTask = {
           ...existingTask,
@@ -358,9 +737,108 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         };
         onTaskCreated(updatedTask);
       }
-    } catch (error) {
-      console.error('Failed to delete assignment:', error);
-      Alert.alert('Error', 'Failed to remove assignment. Please try again.');
+        return;
+      }
+
+      // Valid UUID - remove from backend (per guide)
+      console.log('🗑️ Deleting assignment from backend (UUID):', assignmentId);
+      try {
+        await deleteTaskAssignment(projectId, taskId, assignmentId);
+        console.log('✅ Assignment successfully deleted from backend:', assignmentId);
+        
+        // Refresh task data from backend to ensure UI is in sync (per guide)
+        try {
+          console.log('🔄 Refreshing task data from backend after deletion...');
+          const allTasks = await getProjectTasks(projectId);
+          const refreshedTask = allTasks.find((t: any) => t.id === taskId);
+          
+          if (refreshedTask) {
+            // Map refreshed assignments properly
+            const refreshedAssignments = (refreshedTask.assignments || []).map((assignment: any) => ({
+              id: assignment.id || Date.now().toString(),
+              service: assignment.service || { name: assignment.service_role || 'Unknown' },
+              user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+              status: assignment.status || 'pending',
+            }));
+            
+            // Update with refreshed data
+            setAssignments(refreshedAssignments);
+            
+            const updatedTask = {
+              ...existingTask,
+              ...refreshedTask,
+              id: taskId,
+              type: taskType || existingTask?.type || existingTask?.task_type || (refreshedTask as any).type,
+              task_type: taskType || existingTask?.task_type || existingTask?.type || (refreshedTask as any).task_type,
+              assignments: refreshedAssignments,
+            };
+            onTaskCreated(updatedTask);
+            console.log('✅ Task data refreshed from backend');
+          } else {
+            // Task not found - keep optimistic update
+            console.warn('⚠️ Task not found in refreshed data, keeping optimistic update');
+          }
+        } catch (refreshError) {
+          console.error('⚠️ Failed to refresh task data:', refreshError);
+          // Keep optimistic update even if refresh fails
+        }
+      } catch (deleteError: any) {
+        // Revert optimistic update on error (per guide)
+        console.error('❌ Failed to delete assignment from backend:', deleteError);
+        setAssignments(originalAssignments);
+        
+        // Handle specific error cases (per guide)
+        const errorMessage = deleteError.message || 'Unknown error';
+        
+        if (errorMessage.includes('400') || errorMessage.includes('Invalid UUID') || errorMessage.includes('UUID')) {
+          // Invalid UUID format - might be a local ID, already removed from state
+          console.warn('⚠️ Invalid UUID format, treating as local assignment');
+          // Don't show error - we already removed it optimistically
+          return;
+        } else if (errorMessage.includes('404') || errorMessage.includes('Not Found') || errorMessage.includes('not found')) {
+          // Assignment not found - might already be deleted, that's okay (per guide)
+          console.warn('⚠️ Assignment not found on backend, already removed');
+          // Don't revert - assignment is already gone
+          return;
+        } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden') || errorMessage.includes('permission')) {
+          // No permission (per guide)
+          Alert.alert(
+            'Permission Denied',
+            'You do not have permission to remove this assignment.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          // Other errors
+          Alert.alert(
+            'Delete Failed',
+            `Failed to delete assignment: ${errorMessage}. Please try again.`,
+            [{ text: 'OK' }]
+          );
+        }
+        
+        // Revert task update
+        if (existingTask || savedTaskId) {
+          const revertedTask = {
+            ...existingTask,
+            id: taskId,
+            type: taskType || existingTask?.type || existingTask?.task_type,
+            task_type: taskType || existingTask?.task_type || existingTask?.type,
+            assignments: originalAssignments,
+          };
+          onTaskCreated(revertedTask);
+        }
+        
+        throw deleteError;
+      }
+    } catch (error: any) {
+      console.error('❌ Failed to remove assignment:', {
+        error: error.message || error,
+        assignmentId,
+        taskId,
+        projectId,
+        stack: error.stack
+      });
+      // Error already handled above
     }
   };
 
@@ -514,17 +992,50 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         const currentAssignmentIds = (existingTask?.assignments || []).map((a: any) => a.id);
         const newAssignments = assignmentsToSave.filter(a => !currentAssignmentIds.includes(a.id));
         
-        // Add new assignments
+        // Add new assignments (will be created with 'pending' status by backend)
         for (const assignment of newAssignments) {
           try {
-            await assignTaskService(projectId, currentTaskId, {
+            if (!assignment.service?.name || !assignment.user?.id) {
+              console.error('⚠️ Invalid assignment data:', assignment);
+              continue;
+            }
+            
+            const response = await assignTaskService(projectId, currentTaskId, {
               service_role: assignment.service.name,
               user_id: assignment.user.id,
             });
-          } catch (error) {
-            console.error('Failed to assign service:', error);
+            
+            // Update assignment status from response if available
+            if (response && Array.isArray(response) && response.length > 0) {
+              const createdAssignment = response[0];
+              assignment.status = createdAssignment.status || 'pending';
+              // Update assignment ID with backend ID if available
+              if (createdAssignment.id) {
+                assignment.id = createdAssignment.id;
+              }
+            } else {
+              // Default to pending for new assignments
+              assignment.status = 'pending';
+            }
+          } catch (error: any) {
+            console.error('❌ Failed to assign service:', {
+              error: error.message || error,
+              assignment: {
+                service: assignment.service?.name,
+                userId: assignment.user?.id
+              }
+            });
+            // Show user-friendly error
+            Alert.alert(
+              'Assignment Failed',
+              `Failed to assign ${assignment.service?.name || 'service'} to ${assignment.user?.name || 'user'}. ${error.message || 'Please try again.'}`,
+              [{ text: 'OK' }]
+            );
           }
         }
+        
+        // Update the assignments state with the updated IDs from backend
+        setAssignments(assignmentsToSave);
         
         // Update task with latest data - ensure type is preserved
         const updatedTask = {
@@ -542,17 +1053,50 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
           const newTaskId = response.data.id;
           setSavedTaskId(newTaskId);
           
-          // Assign all services and users
+          // Assign all services and users (will be created with 'pending' status by backend)
           for (const assignment of assignmentsToSave) {
             try {
-              await assignTaskService(projectId, newTaskId, {
+              if (!assignment.service?.name || !assignment.user?.id) {
+                console.error('⚠️ Invalid assignment data:', assignment);
+                continue;
+              }
+              
+              const response = await assignTaskService(projectId, newTaskId, {
                 service_role: assignment.service.name,
                 user_id: assignment.user.id,
               });
-            } catch (error) {
-              console.error('Failed to assign service:', error);
+              
+              // Update assignment status from response if available
+              if (response && Array.isArray(response) && response.length > 0) {
+                const createdAssignment = response[0];
+                assignment.status = createdAssignment.status || 'pending';
+                // Update assignment ID with backend ID if available
+                if (createdAssignment.id) {
+                  assignment.id = createdAssignment.id;
+                }
+              } else {
+                // Default to pending for new assignments
+                assignment.status = 'pending';
+              }
+            } catch (error: any) {
+              console.error('❌ Failed to assign service:', {
+                error: error.message || error,
+                assignment: {
+                  service: assignment.service?.name,
+                  userId: assignment.user?.id
+                }
+              });
+              // Show user-friendly error
+              Alert.alert(
+                'Assignment Failed',
+                `Failed to assign ${assignment.service?.name || 'service'} to ${assignment.user?.name || 'user'}. ${error.message || 'Please try again.'}`,
+                [{ text: 'OK' }]
+              );
             }
           }
+          
+          // Update the assignments state with the updated IDs from backend
+          setAssignments(assignmentsToSave);
           
           // Refresh task to get assignments - ensure type is preserved
           const updatedTask = {
@@ -621,6 +1165,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   if (!taskType && !existingTask) {
     return (
       <>
+        <View style={styles.taskButtonContainer}>
         <TouchableOpacity
           style={styles.taskButton}
           onPress={() => setShowTypeModal(true)}
@@ -628,6 +1173,15 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
           <Ionicons name="add" size={24} color="#fff" />
           <Text style={styles.taskButtonText}>Create Task</Text>
         </TouchableOpacity>
+          {isNewTask && onCancel && (
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={onCancel}
+            >
+              <Ionicons name="close" size={20} color="#ef4444" />
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* Task Type Selection Modal */}
         <Modal
@@ -655,6 +1209,18 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                     <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
                   </TouchableOpacity>
                 ))}
+                {isNewTask && onCancel && (
+                  <TouchableOpacity
+                    style={[styles.typeOption, styles.cancelOption]}
+                    onPress={() => {
+                      setShowTypeModal(false);
+                      onCancel();
+                    }}
+                  >
+                    <Ionicons name="close" size={20} color="#ef4444" />
+                    <Text style={[styles.typeOptionText, styles.cancelOptionText]}>Cancel</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           </TouchableOpacity>
@@ -673,7 +1239,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         activeOpacity={0.8}
       >
         <View style={styles.cardHeaderLeft}>
-          <Ionicons name={getTaskTypeIcon(taskType) as any} size={20} color="#fff" />
+          <Ionicons name={getTaskTypeIcon(taskType) as any} size={18} color="#fff" />
           <Text style={styles.cardHeaderText}>{getTaskTypeName(taskType)}</Text>
           {assignments.length > 0 && (
             <Text style={styles.assignmentCount}>({assignments.length})</Text>
@@ -698,7 +1264,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
           >
             <Ionicons 
               name={isExpanded ? "chevron-up" : "chevron-down"} 
-              size={20} 
+              size={18} 
               color="#fff" 
             />
           </TouchableOpacity>
@@ -710,7 +1276,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                 setShowEditMenu(true);
               }}
             >
-              <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
+              <Ionicons name="ellipsis-vertical" size={18} color="#fff" />
             </TouchableOpacity>
           )}
         </View>
@@ -719,10 +1285,58 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       {/* Assignments List - Only show when expanded */}
       {isExpanded && (
         <View style={styles.assignmentsContainer}>
-          {assignments.map((assignment) => (
-            <View key={assignment.id} style={styles.assignmentRow}>
+          {assignments.map((assignment) => {
+            const assignmentStatus = assignment.status || 'pending'; // Default to pending (per guide)
+            const isPending = assignmentStatus === 'pending';
+            const canEdit = assignmentStatus !== 'accepted';
+            
+            // Render swipe actions
+            const renderRightActions = () => (
+              <View style={styles.swipeActionContainer}>
+                {canEdit && (
+                  <TouchableOpacity
+                    style={[styles.swipeAction, styles.swipeActionEdit]}
+                    onPress={() => {
+                      swipeableRefs.current[assignment.id]?.close();
+                      handleEditAssignment(assignment.id);
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={24} color="#fff" />
+                    <Text style={styles.swipeActionText}>Edit</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[styles.swipeAction, styles.swipeActionDelete]}
+                  onPress={() => {
+                    swipeableRefs.current[assignment.id]?.close();
+                    handleRemoveAssignment(assignment.id);
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={24} color="#fff" />
+                  <Text style={styles.swipeActionText}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            );
+            
+            return (
+              <Swipeable
+                key={assignment.id}
+                ref={(ref) => {
+                  if (ref) {
+                    swipeableRefs.current[assignment.id] = ref;
+                  }
+                }}
+                renderRightActions={renderRightActions}
+                overshootRight={false}
+              >
+                <View 
+                  style={[
+                    styles.assignmentRow,
+                    isPending && styles.assignmentRowPending
+                  ]}
+                >
               <View style={styles.assignmentLeft}>
-                <Ionicons name="briefcase" size={16} color="#000" />
+                    <Ionicons name="briefcase" size={14} color="#000" />
                 <Text style={styles.assignmentText}>{assignment.service?.name}</Text>
               </View>
               <View style={styles.assignmentRight}>
@@ -731,22 +1345,481 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                     {(assignment.user?.name || 'U').charAt(0).toUpperCase()}
                   </Text>
                 </View>
-                <Text style={styles.userName}>{assignment.user?.name || 'Unknown'}</Text>
                 <TouchableOpacity
-                  style={styles.editButton}
+                      onPress={() => {
+                        // Allow editing if status is not 'accepted'
+                        if (canEdit) {
+                          handleEditAssignment(assignment.id);
+                        } else {
+                          Alert.alert(
+                            'Cannot Edit',
+                            'Accepted assignments cannot be edited. Please remove the assignment and create a new one if needed.',
+                            [{ text: 'OK' }]
+                          );
+                        }
+                      }}
+                      disabled={!canEdit}
+                      style={styles.userInfoContainer}
+                    >
+                      <Text style={[
+                        styles.userName,
+                        canEdit && styles.userNameEditable
+                      ]}>
+                        {assignment.user?.name || 'Unknown'}
+                      </Text>
+                      <Text style={styles.userRole}>
+                        {assignment.service?.name || 'No role'}
+                      </Text>
+                    </TouchableOpacity>
+                  
+                  {isPending ? (
+                    // Pending assignments: Only project owner can accept (pending → accepted) or cancel
+                    // Anyone can edit pending assignments (change user)
+                    isProjectOwner ? (
+                      <>
+                        <TouchableOpacity
+                          style={styles.editIconButton}
                   onPress={() => handleEditAssignment(assignment.id)}
                 >
-                  <Ionicons name="create" size={14} color="#6b7280" />
+                          <Ionicons name="create-outline" size={18} color="#6b7280" />
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={styles.removeButton}
+                          style={styles.acceptIconButton}
+                          onPress={async () => {
+                          try {
+                            const taskId = savedTaskId || existingTask?.id;
+                            if (!taskId) {
+                              Alert.alert('Error', 'Task ID not found');
+                              return;
+                            }
+                            
+                            // Check if assignment has a valid backend UUID
+                            const isTimestampId = /^\d+$/.test(assignment.id);
+                            const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assignment.id);
+                            
+                            let assignmentIdToUpdate = assignment.id;
+                            
+                            if (isTimestampId) {
+                              // Assignment has timestamp ID - it might already exist in backend (created by autoSaveTask)
+                              // Try to create it first, but if it already exists, the error will tell us
+                              try {
+                                console.log('📝 Assignment has timestamp ID, attempting to create:', assignment.id);
+                                const createResponse = await assignTaskService(projectId, taskId, {
+                                  service_role: assignment.service?.name,
+                                  user_id: assignment.user?.id,
+                                });
+                                
+                                // Get the created assignment ID from response
+                                if (createResponse && Array.isArray(createResponse) && createResponse.length > 0) {
+                                  assignmentIdToUpdate = createResponse[0].id || assignment.id;
+                                }
+                              } catch (createError: any) {
+                                // If assignment already exists, we need to find the existing assignment ID
+                                if (createError.message?.includes('already assigned') || createError.message?.includes('already exists')) {
+                                  console.log('⚠️ Assignment already exists, fetching tasks to find assignment ID');
+                                  // Fetch all tasks for the project to find the assignment
+                                  try {
+                                    const allTasks = await getProjectTasks(projectId);
+                                    const task = allTasks.find((t: any) => t.id === taskId);
+                                    
+                                    console.log('🔍 Looking for assignment:', {
+                                      taskId,
+                                      taskFound: !!task,
+                                      assignmentsCount: task?.assignments?.length || 0,
+                                      lookingFor: {
+                                        userId: assignment.user?.id,
+                                        serviceRole: assignment.service?.name,
+                                        status: 'pending'
+                                      }
+                                    });
+                                    
+                                    if (task?.assignments) {
+                                      // Log all assignments for debugging
+                                      console.log('📋 All assignments in task:', task.assignments.map((a: any) => ({
+                                        id: a.id,
+                                        user_id: a.user_id,
+                                        user_id_from_user: a.user?.id,
+                                        service_role: a.service_role,
+                                        status: a.status
+                                      })));
+                                      
+                                      // Try multiple matching strategies
+                                      const existingAssignment = task.assignments.find((a: any) => {
+                                        // Match by user_id (direct or from user object)
+                                        const userIdMatches = 
+                                          a.user_id === assignment.user?.id || 
+                                          a.user?.id === assignment.user?.id;
+                                        
+                                        // Match by service_role
+                                        const serviceRoleMatches = 
+                                          a.service_role === assignment.service?.name ||
+                                          a.service_role?.toLowerCase() === assignment.service?.name?.toLowerCase();
+                                        
+                                        // Match by status (pending or no status)
+                                        const statusMatches = 
+                                          !a.status || 
+                                          a.status === 'pending' || 
+                                          a.status === null;
+                                        
+                                        const matches = userIdMatches && serviceRoleMatches && statusMatches;
+                                        
+                                        if (matches) {
+                                          console.log('✅ Found matching assignment:', {
+                                            id: a.id,
+                                            user_id: a.user_id,
+                                            service_role: a.service_role,
+                                            status: a.status
+                                          });
+                                        }
+                                        
+                                        return matches;
+                                      });
+                                      
+                                      if (existingAssignment?.id) {
+                                        assignmentIdToUpdate = existingAssignment.id;
+                                        console.log('✅ Found existing assignment ID:', assignmentIdToUpdate);
+                                      } else {
+                                        // If no exact match, try without status check (maybe it's already accepted?)
+                                        const assignmentWithoutStatusCheck = task.assignments.find((a: any) => {
+                                          const userIdMatches = 
+                                            a.user_id === assignment.user?.id || 
+                                            a.user?.id === assignment.user?.id;
+                                          const serviceRoleMatches = 
+                                            a.service_role === assignment.service?.name ||
+                                            a.service_role?.toLowerCase() === assignment.service?.name?.toLowerCase();
+                                          return userIdMatches && serviceRoleMatches;
+                                        });
+                                        
+                                        if (assignmentWithoutStatusCheck?.id) {
+                                          assignmentIdToUpdate = assignmentWithoutStatusCheck.id;
+                                          console.log('✅ Found existing assignment ID (without status check):', assignmentIdToUpdate);
+                                        } else {
+                                          console.error('❌ Could not find matching assignment. Available assignments:', 
+                                            task.assignments.map((a: any) => ({
+                                              id: a.id,
+                                              user_id: a.user_id,
+                                              user_id_from_user: a.user?.id,
+                                              service_role: a.service_role,
+                                              status: a.status
+                                            }))
+                                          );
+                                          throw new Error('Assignment exists but could not find its ID in task assignments');
+                                        }
+                                      }
+                                    } else {
+                                      throw new Error('Could not find task or assignments');
+                                    }
+                                  } catch (fetchError: any) {
+                                    console.error('❌ Failed to fetch task to find assignment ID:', fetchError);
+                                    throw new Error(`Assignment already exists but could not retrieve its ID: ${fetchError.message}`);
+                                  }
+                                } else {
+                                  throw createError;
+                                }
+                              }
+                            }
+                            
+                            // Now update the status using the correct assignment ID
+                            const hasValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(assignmentIdToUpdate);
+                            
+                            if (hasValidUUID) {
+                              try {
+                                await updateTaskAssignmentStatus(
+                                  projectId, 
+                                  taskId, 
+                                  assignmentIdToUpdate, 
+                                  'accepted'
+                                );
+                                
+                                // Update local state with correct ID and status
+                                setAssignments(assignments.map(a => 
+                                  a.id === assignment.id 
+                                    ? { ...a, id: assignmentIdToUpdate, status: 'accepted' } 
+                                    : a
+                                ));
+                              } catch (updateError: any) {
+                                // If update fails, try to verify if assignment was actually updated on backend
+                                console.warn('⚠️ Update failed, verifying assignment status on backend...');
+                                try {
+                                  const allTasks = await getProjectTasks(projectId);
+                                  const task = allTasks.find((t: any) => t.id === taskId);
+                                  if (task?.assignments) {
+                                    const backendAssignment = task.assignments.find((a: any) => a.id === assignmentIdToUpdate);
+                                    if (backendAssignment?.status === 'accepted') {
+                                      // Backend shows it's accepted, update local state
+                                      console.log('✅ Assignment is accepted on backend, updating local state');
+                                      setAssignments(assignments.map(a => 
+                                        a.id === assignment.id 
+                                          ? { ...a, id: assignmentIdToUpdate, status: 'accepted' } 
+                                          : a
+                                      ));
+                                      // Don't show error - it worked on backend
+                                      return;
+                                    }
+                                  }
+                                } catch (verifyError) {
+                                  console.error('❌ Failed to verify assignment status:', verifyError);
+                                }
+                                // If verification fails or status doesn't match, throw the original error
+                                throw updateError;
+                              }
+                            } else if (isUUID) {
+                              // Assignment already has UUID, just update status
+                              try {
+                                await updateTaskAssignmentStatus(
+                                  projectId, 
+                                  taskId, 
+                                  assignment.id, 
+                                  'accepted'
+                                );
+                                
+                                // Update local state
+                                setAssignments(assignments.map(a => 
+                                  a.id === assignment.id ? { ...a, status: 'accepted' } : a
+                                ));
+                              } catch (updateError: any) {
+                                // If update fails, try to verify if assignment was actually updated on backend
+                                console.warn('⚠️ Update failed, verifying assignment status on backend...');
+                                try {
+                                  const allTasks = await getProjectTasks(projectId);
+                                  const task = allTasks.find((t: any) => t.id === taskId);
+                                  if (task?.assignments) {
+                                    const backendAssignment = task.assignments.find((a: any) => a.id === assignment.id);
+                                    if (backendAssignment?.status === 'accepted') {
+                                      // Backend shows it's accepted, update local state
+                                      console.log('✅ Assignment is accepted on backend, updating local state');
+                                      setAssignments(assignments.map(a => 
+                                        a.id === assignment.id ? { ...a, status: 'accepted' } : a
+                                      ));
+                                      // Don't show error - it worked on backend
+                                      return;
+                                    }
+                                  }
+                                } catch (verifyError) {
+                                  console.error('❌ Failed to verify assignment status:', verifyError);
+                                }
+                                // If verification fails or status doesn't match, throw the original error
+                                throw updateError;
+                              }
+                            } else {
+                              throw new Error('Invalid assignment ID format');
+                            }
+                            
+                            // Refresh task to get updated assignments
+                            if (existingTask) {
+                              const updatedAssignments = assignments.map(a => 
+                                a.id === assignment.id ? { ...a, status: 'accepted' } : a
+                              );
+                              const updatedTask = {
+                                ...existingTask,
+                                assignments: updatedAssignments,
+                              };
+                              onTaskCreated(updatedTask);
+                            }
+                          } catch (error: any) {
+                            console.error('❌ Failed to accept assignment:', error);
+                            const errorMessage = error.message || 'Unknown error';
+                            // Check if it's a backend 500 error
+                            if (errorMessage.includes('500') || errorMessage.includes('Failed to update task assignment status')) {
+                              Alert.alert(
+                                'Server Error',
+                                'The server encountered an error while updating the assignment status. The assignment may have been updated successfully. Please refresh the page to verify.',
+                                [
+                                  { text: 'OK' },
+                                  { 
+                                    text: 'Refresh', 
+                                    onPress: async () => {
+                                      // Try to refresh task data
+                                      try {
+                                        const allTasks = await getProjectTasks(projectId);
+                                        const task = allTasks.find((t: any) => t.id === (savedTaskId || existingTask?.id));
+                                        if (task) {
+                                          const updatedTask = {
+                                            ...existingTask,
+                                            ...task,
+                                            assignments: task.assignments || [],
+                                          };
+                                          onTaskCreated(updatedTask);
+                                        }
+                                      } catch (refreshError) {
+                                        console.error('❌ Failed to refresh task:', refreshError);
+                                      }
+                                    }
+                                  }
+                                ]
+                              );
+                            } else {
+                              Alert.alert('Error', `Failed to accept assignment. ${errorMessage}`);
+                            }
+                          }
+                        }}
+                      >
+                        <Ionicons name="checkmark-circle" size={20} color="#10b981" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.removeIconButton}
                   onPress={() => handleRemoveAssignment(assignment.id)}
                 >
-                  <Ionicons name="close" size={14} color="#ef4444" />
+                        <Ionicons name="close-circle" size={20} color="#ef4444" />
                 </TouchableOpacity>
+                      </>
+                    ) : (
+                      // Pending assignment - waiting for project owner to accept
+                      // Anyone can edit pending assignments (change user)
+                      // Project owner can also cancel
+                      <>
+                        <TouchableOpacity
+                          style={styles.editIconButton}
+                          onPress={() => handleEditAssignment(assignment.id)}
+                        >
+                          <Ionicons name="create-outline" size={18} color="#6b7280" />
+                        </TouchableOpacity>
+                        {isProjectOwner ? (
+                          <TouchableOpacity
+                            style={styles.removeIconButton}
+                            onPress={() => handleRemoveAssignment(assignment.id)}
+                          >
+                            <Ionicons name="close-circle" size={18} color="#ef4444" />
+                          </TouchableOpacity>
+                        ) : (
+                          <Text style={styles.pendingText}>Pending</Text>
+                        )}
+                      </>
+                    )
+                  ) : assignmentStatus === 'accepted' ? (
+                    // Accepted assignments: Only assigned user can accept/reject
+                    isAssignedUser(assignment) ? (
+                      <>
+                        <TouchableOpacity
+                          style={styles.acceptIconButton}
+                          onPress={async () => {
+                            try {
+                              const taskId = savedTaskId || existingTask?.id;
+                              if (!taskId) {
+                                Alert.alert('Error', 'Task ID not found');
+                                return;
+                              }
+                              
+                              // Assignment is already accepted, user is confirming acceptance
+                              await updateTaskAssignmentStatus(
+                                projectId, 
+                                taskId, 
+                                assignment.id, 
+                                'accepted'
+                              );
+                              
+                              // Update local state
+                              setAssignments(assignments.map(a => 
+                                a.id === assignment.id ? { ...a, status: 'accepted' } : a
+                              ));
+                              
+                              // Refresh task
+                              if (existingTask) {
+                                const updatedAssignments = assignments.map(a => 
+                                  a.id === assignment.id ? { ...a, status: 'accepted' } : a
+                                );
+                                const updatedTask = {
+                                  ...existingTask,
+                                  assignments: updatedAssignments,
+                                };
+                                onTaskCreated(updatedTask);
+                              }
+                            } catch (error: any) {
+                              console.error('❌ Failed to accept assignment:', error);
+                              const errorMessage = error.message || 'Unknown error';
+                              if (errorMessage.includes('500') || errorMessage.includes('Failed to update task assignment status')) {
+                                Alert.alert(
+                                  'Server Error',
+                                  'The server encountered an error while updating the assignment status. This may be a temporary issue. Please try again or contact support if the problem persists.',
+                                  [{ text: 'OK' }]
+                                );
+                              } else {
+                                Alert.alert('Error', `Failed to accept assignment. ${errorMessage}`);
+                              }
+                            }
+                          }}
+                        >
+                          <Ionicons name="checkmark-circle" size={18} color="#10b981" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.rejectIconButton}
+                          onPress={async () => {
+                            try {
+                              const taskId = savedTaskId || existingTask?.id;
+                              
+                              if (!taskId) {
+                                Alert.alert('Error', 'Task ID not found');
+                                return;
+                              }
+                              
+                              // Assignment exists in backend, update status to rejected
+                              await updateTaskAssignmentStatus(
+                                projectId, 
+                                taskId, 
+                                assignment.id, 
+                                'rejected'
+                              );
+                              
+                              // Remove from UI
+                              setAssignments(assignments.filter(a => a.id !== assignment.id));
+                              
+                              // Update task
+                              if (existingTask) {
+                                const updatedTask = {
+                                  ...existingTask,
+                                  assignments: assignments.filter(a => a.id !== assignment.id),
+                                };
+                                onTaskCreated(updatedTask);
+                              }
+                            } catch (error: any) {
+                              console.error('❌ Failed to reject assignment:', error);
+                              const errorMessage = error.message || 'Unknown error';
+                              if (errorMessage.includes('500') || errorMessage.includes('Failed to update task assignment status')) {
+                                Alert.alert(
+                                  'Server Error',
+                                  'The server encountered an error while updating the assignment status. This may be a temporary issue. Please try again or contact support if the problem persists.',
+                                  [{ text: 'OK' }]
+                                );
+                              } else {
+                                Alert.alert('Error', `Failed to reject assignment. ${errorMessage}`);
+                              }
+                            }
+                          }}
+                        >
+                          <Ionicons name="close-circle" size={18} color="#ef4444" />
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      // Accepted assignment - not assigned to current user
+                      // Project owner can still remove it
+                      <>
+                        <Text style={styles.acceptedText}>Accepted</Text>
+                        {isProjectOwner && (
+                          <TouchableOpacity
+                            style={styles.removeIconButton}
+                            onPress={() => handleRemoveAssignment(assignment.id)}
+                          >
+                            <Ionicons name="close-circle" size={18} color="#ef4444" />
+                          </TouchableOpacity>
+                        )}
+                      </>
+                    )
+                  ) : (
+                    // Other statuses (rejected, etc.) - show remove for project owner
+                    isProjectOwner ? (
+                      <TouchableOpacity
+                        style={styles.removeIconButton}
+                        onPress={() => handleRemoveAssignment(assignment.id)}
+                      >
+                        <Ionicons name="close-circle" size={20} color="#ef4444" />
+                      </TouchableOpacity>
+                    ) : null
+                  )}
               </View>
             </View>
-          ))}
+              </Swipeable>
+            );
+          })}
 
           {/* Add Service Button - Only show when expanded */}
           <TouchableOpacity
@@ -1101,7 +2174,14 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
 };
 
 const styles = StyleSheet.create({
+  taskButtonContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
   taskButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1111,13 +2191,22 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#dc2626',
-    marginBottom: 16,
   },
   taskButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
     marginLeft: 8,
+  },
+  cancelButton: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fee2e2',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ef4444',
   },
   taskCard: {
     backgroundColor: '#f3f4f6',
@@ -1157,13 +2246,13 @@ const styles = StyleSheet.create({
   cardHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   statusBadge: {
     backgroundColor: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 10,
   },
   statusBadgeText: {
     color: '#000',
@@ -1174,16 +2263,21 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   assignmentsContainer: {
-    padding: 16,
+    padding: 8,
   },
   assignmentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+    padding: 8,
+    borderRadius: 6,
+    marginBottom: 6,
+  },
+  assignmentRowPending: {
+    backgroundColor: '#fffbeb', // Very light yellow background
+    borderLeftWidth: 2,
+    borderLeftColor: '#fbbf24', // Lighter amber border
   },
   assignmentLeft: {
     flexDirection: 'row',
@@ -1191,33 +2285,69 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   assignmentText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#000',
-    marginLeft: 8,
+    marginLeft: 6,
   },
   assignmentRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
+    flex: 1,
+  },
+  userInfoContainer: {
+    flex: 1,
+    marginLeft: 6,
+  },
+  userRole: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  swipeActionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginBottom: 8,
+  },
+  swipeAction: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: '100%',
+    paddingHorizontal: 12,
+  },
+  swipeActionEdit: {
+    backgroundColor: '#3b82f6',
+  },
+  swipeActionDelete: {
+    backgroundColor: '#ef4444',
+  },
+  swipeActionText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
   },
   userBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
   },
   userInitials: {
     color: '#fff',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: 'bold',
   },
   userName: {
-    fontSize: 14,
+    fontSize: 13,
+    fontWeight: '500',
     color: '#000',
-    marginLeft: 4,
   },
   editButton: {
     padding: 4,
@@ -1225,16 +2355,48 @@ const styles = StyleSheet.create({
   removeButton: {
     padding: 4,
   },
+  acceptIconButton: {
+    padding: 2,
+    marginLeft: 2,
+  },
+  rejectIconButton: {
+    padding: 2,
+    marginLeft: 2,
+  },
+  removeIconButton: {
+    padding: 2,
+    marginLeft: 2,
+  },
+  editIconButton: {
+    padding: 2,
+    marginLeft: 2,
+  },
+  userNameEditable: {
+    textDecorationLine: 'underline',
+  },
+  pendingText: {
+    fontSize: 11,
+    color: '#f59e0b',
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  acceptedText: {
+    fontSize: 11,
+    color: '#10b981',
+    fontWeight: '500',
+    marginLeft: 4,
+  },
   addServiceButton: {
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 8,
+    padding: 12,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderStyle: 'dashed',
-    marginTop: 8,
+    marginTop: 6,
+    marginHorizontal: 8,
   },
   autoSaveIndicator: {
     flexDirection: 'row',
@@ -1284,6 +2446,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000',
     marginLeft: 12,
+  },
+  cancelOption: {
+    borderTopWidth: 2,
+    borderTopColor: '#fee2e2',
+    marginTop: 8,
+  },
+  cancelOptionText: {
+    color: '#ef4444',
   },
   modalContainer: {
     width: '90%',

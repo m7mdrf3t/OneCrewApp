@@ -523,7 +523,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             onPress={() => handleTabPress('details')}
           >
             <Ionicons name="document-text" size={24} color="#fff" />
-            <Text style={styles.buttonText}>Project details</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -531,7 +530,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             onPress={() => handleTabPress('admin')}
           >
             <Ionicons name="settings" size={24} color="#fff" />
-            <Text style={styles.buttonText}>Admin Rules</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -539,7 +537,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             onPress={() => handleTabPress('shooting')}
           >
             <Ionicons name="calendar" size={24} color="#fff" />
-            <Text style={styles.buttonText}>Shooting Table</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -547,7 +544,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             onPress={() => handleTabPress('budget')}
           >
             <Ionicons name="wallet" size={24} color="#fff" />
-            <Text style={styles.buttonText}>Project Budget</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -555,7 +551,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             onPress={() => handleTabPress('cast')}
           >
             <Ionicons name="link" size={24} color="#fff" />
-            <Text style={styles.buttonText}>Cast Selection</Text>
           </TouchableOpacity>
         </View>
 
@@ -585,6 +580,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             <SimplifiedTaskCard
               key={task.id}
               projectId={project.id}
+              project={project}
               existingTask={{
                 ...task,
                 type: taskType, // Ensure type is set
@@ -618,12 +614,16 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         {/* Show new task cards being created */}
         {newTaskCards.map((taskCard, index) => (
           <SimplifiedTaskCard
-            key={`new-task-${index}`}
+            key={`new-task-${taskCard.id}`}
             projectId={project.id}
+            project={project}
             isNewTask={true}
             onTaskCreated={(newTask) => {
               setTasks(prev => [...prev, newTask]);
-              setNewTaskCards(prev => prev.filter((_, i) => i !== index));
+              setNewTaskCards(prev => prev.filter((card) => card.id !== taskCard.id));
+            }}
+            onCancel={() => {
+              setNewTaskCards(prev => prev.filter((card) => card.id !== taskCard.id));
             }}
           />
         ))}
@@ -632,10 +632,14 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
       {/* Big Create Task Button at Bottom - Fixed Position */}
       <TouchableOpacity
-        style={styles.bigCreateTaskButton}
+        style={[styles.bigCreateTaskButton, newTaskCards.length > 0 && styles.bigCreateTaskButtonDisabled]}
         onPress={() => {
-          setNewTaskCards(prev => [...prev, { id: Date.now() }]);
+          // Only allow one empty task card at a time
+          if (newTaskCards.length === 0) {
+            setNewTaskCards(prev => [...prev, { id: Date.now() }]);
+          }
         }}
+        disabled={newTaskCards.length > 0}
       >
         <Ionicons name="add" size={32} color="#fff" />
       </TouchableOpacity>
@@ -716,19 +720,19 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   projectDetailsButton: {
-    backgroundColor: '#6b7280',
+    backgroundColor: '#3b82f6', // Blue for Project details
   },
   adminRulesButton: {
-    backgroundColor: '#f59e0b',
+    backgroundColor: '#6b7280', // Gray
   },
   shootingTableButton: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#6b7280', // Gray
   },
   budgetButton: {
-    backgroundColor: '#10b981',
+    backgroundColor: '#6b7280', // Gray
   },
   castSelectionButton: {
-    backgroundColor: '#6b7280',
+    backgroundColor: '#6b7280', // Gray
   },
   buttonText: {
     color: '#fff',
@@ -772,6 +776,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     zIndex: 1000,
+  },
+  bigCreateTaskButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    opacity: 0.5,
   },
   stagesSection: {
     marginTop: 16,

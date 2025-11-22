@@ -58,6 +58,7 @@ interface ApiContextType {
   updateSkills: (skills: string[]) => Promise<any>;
   getProfileCompleteness: (userId: string) => Promise<any>;
   getAccessToken: () => string;
+  getBaseUrl: () => string;
   // Reference data methods
   getSkinTones: () => Promise<any>;
   getHairColors: () => Promise<any>;
@@ -102,6 +103,7 @@ interface ApiContextType {
   deleteTask: (taskId: string) => Promise<void>;
   assignTaskService: (projectId: string, taskId: string, assignment: AssignTaskServiceRequest) => Promise<any>;
   deleteTaskAssignment: (projectId: string, taskId: string, assignmentId: string) => Promise<any>;
+  updateTaskAssignmentStatus: (projectId: string, taskId: string, assignmentId: string, status: 'accepted' | 'rejected') => Promise<any>;
   updateTaskStatus: (taskId: string, status: UpdateTaskStatusRequest) => Promise<any>;
   getTaskAssignments: (projectId: string, taskId: string) => Promise<any>;
   // Debug methods
@@ -126,6 +128,11 @@ interface ApiContextType {
   addSocialLink: (linkData: { platform: string; url: string; is_custom?: boolean }) => Promise<any>;
   updateSocialLink: (linkId: string, updates: { platform?: string; url?: string; is_custom?: boolean }) => Promise<any>;
   deleteSocialLink: (linkId: string) => Promise<any>;
+  // Profile picture management methods
+  getUserProfilePictures: (userId: string) => Promise<any>;
+  uploadProfilePicture: (file: any, isMain?: boolean) => Promise<any>;
+  setMainProfilePicture: (userId: string, pictureId: string) => Promise<any>;
+  deleteProfilePicture: (userId: string, pictureId: string) => Promise<any>;
   // File upload methods
   uploadFile: (file: { uri: string; type: string; name: string }) => Promise<any>;
   // Profile switching
@@ -230,7 +237,8 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-  baseUrl = 'https://onecrewbe-production.up.railway.app' // Production server
+  baseUrl = 'https://onecrewbe-production.up.railway.app' // Production serve
+ //baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
     console.log('🔧 Initializing OneCrewApi with baseUrl:', baseUrl);
@@ -733,7 +741,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       };
 
       // Update basic profile info using direct API call
-      const basicResponse = await fetch(`https://onecrewbe-production.up.railway.app/api/users/${userId}`, {
+      const basicResponse = await fetch(`${baseUrl}/api/users/${userId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -767,7 +775,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.log('🎭 Updating talent profile with data:', cleanedTalentData);
         console.log('👤 User category is talent, proceeding with talent profile update');
         
-        const talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
+        const talentResponse = await fetch(`${baseUrl}/api/talent/profile`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -830,17 +838,28 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Skills can be either names or IDs - check both
         const skillIdsToAdd = (skillsData.skills || [])
             .map((skillInput: string) => {
+              if (!skillInput || typeof skillInput !== 'string') {
+                return null;
+              }
+              
+              // Normalize input: trim and lowercase
+              const normalizedInput = skillInput.trim().toLowerCase();
+              
               // First check if it's already an ID
-              const skillById = availableSkills.find(s => s.id === skillInput);
+              const skillById = availableSkills.find(s => s.id === skillInput || s.id === normalizedInput);
               if (skillById) {
                 return skillById.id;
               }
               
-              // Then check if it's a name
-              const skillByName = availableSkills.find(s => 
-                s.name.toLowerCase() === skillInput.toLowerCase() ||
-                s.skill_name?.toLowerCase() === skillInput.toLowerCase()
-              );
+              // Then check if it's a name (with flexible matching)
+              const skillByName = availableSkills.find(s => {
+                if (!s.name) return false;
+                const normalizedSkillName = s.name.trim().toLowerCase();
+                // Exact match
+                if (normalizedSkillName === normalizedInput) return true;
+                // Also check if skill name contains the input or vice versa (for partial matches)
+                return normalizedSkillName.includes(normalizedInput) || normalizedInput.includes(normalizedSkillName);
+              });
               return skillByName?.id;
             })
             .filter(Boolean);
@@ -899,7 +918,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (skillIdsToAdd.length === 0 && skillsData.skills.length > 0) {
           console.warn('⚠️ Warning: No skill IDs were found for the provided skill names. Available skills might not match.');
           console.warn('⚠️ Provided skills:', skillsData.skills);
-          console.warn('⚠️ Available skill names (first 10):', availableSkills.slice(0, 10).map(s => s.name || s.skill_name));
+          console.warn('⚠️ Available skill names (first 10):', availableSkills.slice(0, 10).map(s => s.name));
         }
       } catch (skillsError: any) {
         console.error('❌ Skills update failed:', skillsError);
@@ -997,7 +1016,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
         const skillsData = { skills };
 
-        const response = await fetch(`https://onecrewbe-production.up.railway.app/api/users/${userId}/skills`, {
+        const response = await fetch(`${baseUrl}/api/users/${userId}/skills`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -1177,7 +1196,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
-        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/skin-tones', {
+        const response = await fetch(`${baseUrl}/api/talent/reference/skin-tones`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -1209,7 +1228,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
-        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/hair-colors', {
+        const response = await fetch(`${baseUrl}/api/talent/reference/hair-colors`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -1241,7 +1260,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
-        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/skills', {
+        const response = await fetch(`${baseUrl}/api/talent/reference/skills`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -1273,7 +1292,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
-        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/abilities', {
+        const response = await fetch(`${baseUrl}/api/talent/reference/abilities`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -1305,7 +1324,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
-        const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/languages', {
+        const response = await fetch(`${baseUrl}/api/talent/reference/languages`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -1329,7 +1348,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getServices = async () => {
     try {
       console.log('🔍 Fetching services...');
-      const response = await fetch('https://onecrewbe-production.up.railway.app/api/talent/reference/services', {
+      const response = await fetch(`${baseUrl}/api/talent/reference/services`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -2347,6 +2366,55 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Profile picture management methods
+  const getUserProfilePictures = async (userId: string) => {
+    try {
+      console.log('🖼️ Fetching profile pictures for user:', userId);
+      const response = await api.getUserProfilePictures(userId);
+      console.log('✅ Profile pictures fetched successfully:', response.data?.length || 0, 'pictures');
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to fetch profile pictures:', error);
+      throw error;
+    }
+  };
+
+  const uploadProfilePicture = async (file: any, isMain: boolean = false) => {
+    try {
+      console.log('📤 Uploading profile picture, isMain:', isMain);
+      const response = await api.uploadProfilePicture(file, isMain);
+      console.log('✅ Profile picture uploaded successfully');
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to upload profile picture:', error);
+      throw error;
+    }
+  };
+
+  const setMainProfilePicture = async (userId: string, pictureId: string) => {
+    try {
+      console.log('⭐ Setting main profile picture:', pictureId, 'for user:', userId);
+      const response = await api.setMainProfilePicture(userId, pictureId);
+      console.log('✅ Main profile picture set successfully');
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to set main profile picture:', error);
+      throw error;
+    }
+  };
+
+  const deleteProfilePicture = async (userId: string, pictureId: string) => {
+    try {
+      console.log('🗑️ Deleting profile picture:', pictureId, 'for user:', userId);
+      const response = await api.deleteProfilePicture(userId, pictureId);
+      console.log('✅ Profile picture deleted successfully');
+      return response;
+    } catch (error: any) {
+      console.error('❌ Failed to delete profile picture:', error);
+      throw error;
+    }
+  };
+
   // File upload methods
   const uploadFile = async (file: { uri: string; type: string; name: string }) => {
     try {
@@ -2377,7 +2445,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const accessToken = getAccessToken();
       
       // Don't set Content-Type manually - let fetch() handle it with proper boundary
-      const response = await fetch('https://onecrewbe-production.up.railway.app/api/media/upload', {
+      const response = await fetch(`${baseUrl}/api/media/upload`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -2686,29 +2754,93 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const assignTaskService = async (projectId: string, taskId: string, assignment: AssignTaskServiceRequest) => {
     try {
-      console.log('📋 Assigning task service:', taskId);
+      console.log('📋 Assigning task service:', {
+        projectId,
+        taskId,
+        service_role: assignment.service_role,
+        user_id: assignment.user_id
+      });
+      
+      // Validate required fields
+      if (!assignment.user_id) {
+        throw new Error('user_id is required for task assignment');
+      }
+      if (!assignment.service_role) {
+        throw new Error('service_role is required for task assignment');
+      }
+      
       // Convert service_role to UserRole type
       const apiAssignment = {
         ...assignment,
         service_role: assignment.service_role as any, // Type assertion for now
       };
+      
       const response = await api.assignTaskService(projectId, taskId, apiAssignment);
+      
       if (response.success && response.data) {
-        // Handle both array and paginated response
-        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+        console.log('✅ Task assignment successful:', response.data);
+        // Handle both array and single object response
+        if (Array.isArray(response.data)) {
+          return response.data;
+        } else if (response.data && typeof response.data === 'object' && 'id' in response.data) {
+          // Single assignment object - return as array with one element
+          return [response.data];
+        } else if ((response.data as any).data) {
+          // Nested data property
+          const nestedData = (response.data as any).data;
+          return Array.isArray(nestedData) ? nestedData : [nestedData];
+        } else {
+          // Fallback: return empty array (shouldn't happen)
+          console.warn('⚠️ Unexpected response.data format:', response.data);
+          return [];
+        }
       } else {
-        throw new Error(response.error || 'Failed to assign task service');
+        const errorMessage = response.error || 'Failed to assign task service';
+        console.error('❌ Assignment failed:', {
+          error: errorMessage,
+          response: response,
+          assignment: apiAssignment
+        });
+        throw new Error(errorMessage);
       }
-    } catch (error) {
-      console.error('Failed to assign task service:', error);
+    } catch (error: any) {
+      console.error('❌ Failed to assign task service:', {
+        error: error.message || error,
+        errorDetails: error.response || error.data || error,
+        projectId,
+        taskId,
+        assignment
+      });
+      
+      // Provide more helpful error message
+      if (error.message?.includes('500') || error.message?.includes('Internal Server Error')) {
+        throw new Error('Server error: Unable to assign task service. Please try again or contact support.');
+      }
+      
       throw error;
     }
   };
 
   const deleteTaskAssignment = async (projectId: string, taskId: string, assignmentId: string) => {
     try {
-      console.log('🗑️ Deleting task assignment:', assignmentId);
+      console.log('🗑️ Deleting task assignment:', {
+        projectId,
+        taskId,
+        assignmentId,
+        url: `${baseUrl}/api/projects/${projectId}/tasks/${taskId}/assignments/${assignmentId}`
+      });
+      
+      // Validate UUID format (per guide)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(assignmentId)) {
+        throw new Error(`Invalid UUID format: ${assignmentId}`);
+      }
+      
       const accessToken = getAccessToken();
+      if (!accessToken) {
+        throw new Error('No access token available');
+      }
+      
       const response = await fetch(`${baseUrl}/api/projects/${projectId}/tasks/${taskId}/assignments/${assignmentId}`, {
         method: 'DELETE',
         headers: {
@@ -2719,16 +2851,128 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
       const data = await response.json();
       
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      console.log('📥 Delete assignment response:', {
+        status: response.status,
+        ok: response.ok,
+        data
+      });
+      
+      // Handle specific HTTP status codes (per guide)
+      if (response.status === 400) {
+        const errorMessage = data.error || data.message || 'Invalid request';
+        if (errorMessage.includes('UUID') || errorMessage.includes('Invalid')) {
+          throw new Error(`Invalid UUID: ${errorMessage}`);
+        }
+        throw new Error(errorMessage);
+      } else if (response.status === 403) {
+        throw new Error('You do not have permission to remove this assignment');
+      } else if (response.status === 404) {
+        // Assignment not found - might already be deleted (per guide)
+        console.warn('⚠️ Assignment not found (404), may already be deleted');
+        return {
+          success: true,
+          data: null,
+          message: 'Assignment not found (may already be deleted)'
+        };
+      } else if (!response.ok) {
+        const errorMessage = data.error || data.message || `HTTP ${response.status}: ${response.statusText}`;
+        console.error('❌ HTTP Error deleting assignment:', {
+          status: response.status,
+          error: errorMessage,
+          data
+        });
+        throw new Error(errorMessage);
       }
       
+      if (!data.success) {
+        const errorMessage = data.error || data.message || 'Failed to delete assignment';
+        console.error('❌ API Error deleting assignment:', {
+          error: errorMessage,
+          data
+        });
+        throw new Error(errorMessage);
+      }
+      
+      console.log('✅ Assignment successfully deleted from backend');
       return {
         success: true,
         data: data.data || data
       };
     } catch (error: any) {
-      console.error('❌ Failed to delete task assignment:', error);
+      console.error('❌ Failed to delete task assignment:', {
+        error: error.message || error,
+        projectId,
+        taskId,
+        assignmentId,
+        stack: error.stack
+      });
+      throw error;
+    }
+  };
+
+  const updateTaskAssignmentStatus = async (
+    projectId: string, 
+    taskId: string, 
+    assignmentId: string, 
+    status: 'accepted' | 'rejected'
+  ) => {
+    try {
+      console.log('📋 Updating task assignment status:', { 
+        projectId, 
+        taskId, 
+        assignmentId, 
+        status 
+      });
+      const accessToken = getAccessToken();
+      
+      const url = `${baseUrl}/api/projects/${projectId}/tasks/${taskId}/assignments/${assignmentId}`;
+      console.log('🌐 Making request to:', url);
+      console.log('📤 Request body:', JSON.stringify({ status }));
+      console.log('📤 Request headers:', {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken?.substring(0, 20)}...`
+      });
+      
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      const data = await response.json();
+      console.log('✅ Response received:', JSON.stringify(data).substring(0, 200));
+      
+      if (!response.ok) {
+        const errorMessage = data.error || data.message || `HTTP ${response.status}: ${response.statusText}`;
+        console.error('❌ HTTP Error:', response.status, errorMessage);
+        console.error('❌ Full error response:', JSON.stringify(data));
+        throw new Error(errorMessage);
+      }
+      
+      if (!data.success) {
+        const errorMessage = data.error || data.message || 'Failed to update assignment status';
+        console.error('❌ API Error:', errorMessage);
+        console.error('❌ Full error response:', JSON.stringify(data));
+        throw new Error(errorMessage);
+      }
+      
+      console.log('✅ Task assignment status updated successfully');
+      return {
+        success: true,
+        data: data.data || data
+      };
+    } catch (error: any) {
+      console.error('❌ Failed to update assignment status:', {
+        error: error.message || error,
+        projectId,
+        taskId,
+        assignmentId,
+        status,
+        stack: error.stack
+      });
       throw error;
     }
   };
@@ -4599,6 +4843,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     updateSkills,
     getProfileCompleteness,
     getAccessToken,
+    getBaseUrl: () => baseUrl,
     // Reference data methods
     getSkinTones,
     getHairColors,
@@ -4643,6 +4888,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     deleteTask,
     assignTaskService,
     deleteTaskAssignment,
+    updateTaskAssignmentStatus,
     updateTaskStatus,
     getTaskAssignments,
     // Debug methods
@@ -4666,6 +4912,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     addSocialLink,
     updateSocialLink,
     deleteSocialLink,
+    // Profile picture management methods
+    getUserProfilePictures,
+    uploadProfilePicture,
+    setMainProfilePicture,
+    deleteProfilePicture,
     // File upload methods
     uploadFile,
     // Profile switching

@@ -33,6 +33,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     currentProfileType,
     activeCompany,
     getUserCertifications,
+    getBaseUrl,
   } = useApi();
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
@@ -109,7 +110,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             try {
               const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
               if (accessToken) {
-                const talentResponse = await fetch('https://onecrewbe-production.up.railway.app/api/talent/profile', {
+                const talentResponse = await fetch(`${getBaseUrl()}/api/talent/profile`, {
                   method: 'GET',
                   headers: {
                     'Content-Type': 'application/json',

@@ -604,3 +604,6 @@ const CertificationsSection: React.FC<{ userId: string }> = ({ userId }) => {
 **Reviewed By**: AI Assistant
 
 
+
+
+

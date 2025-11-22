@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, Image } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 
 // Context
@@ -106,27 +107,6 @@ const AppContent: React.FC = () => {
   }, [isAuthenticated, isLoading, user, isGuest]);
 
   const page = history[history.length - 1];
-
-  // Prevent guests from accessing profile completion page
-  useEffect(() => {
-    if (page.name === 'profileCompletion' && isGuest) {
-      Alert.alert(
-        'Sign Up Required',
-        'Create an account to complete your profile.',
-        [
-          { text: 'Cancel', style: 'cancel', onPress: handleBack },
-          { text: 'Sign Up', onPress: () => {
-            handleBack();
-            handleNavigateToSignup();
-          }},
-          { text: 'Sign In', onPress: () => {
-            handleBack();
-            handleNavigateToLogin();
-          }},
-        ]
-      );
-    }
-  }, [page.name, isGuest, handleBack, handleNavigateToSignup, handleNavigateToLogin]);
 
   const toggleTheme = () => {
     setTheme(current => (current === 'light' ? 'dark' : 'light'));
@@ -376,6 +356,27 @@ const AppContent: React.FC = () => {
   const handleNavigateToLogin = useCallback(() => {
     setAuthPage('login');
   }, []);
+
+  // Prevent guests from accessing profile completion page
+  useEffect(() => {
+    if (page.name === 'profileCompletion' && isGuest) {
+      Alert.alert(
+        'Sign Up Required',
+        'Create an account to complete your profile.',
+        [
+          { text: 'Cancel', style: 'cancel', onPress: handleBack },
+          { text: 'Sign Up', onPress: () => {
+            handleBack();
+            handleNavigateToSignup();
+          }},
+          { text: 'Sign In', onPress: () => {
+            handleBack();
+            handleNavigateToLogin();
+          }},
+        ]
+      );
+    }
+  }, [page.name, isGuest, handleBack, handleNavigateToSignup, handleNavigateToLogin]);
 
   const handleNavigateToProjectDetail = useCallback(async (projectData: any) => {
     try {
@@ -1301,11 +1302,13 @@ const styles = StyleSheet.create({
 // Main App Component with API Provider
 const App: React.FC = () => {
   return (
-    <ApiProvider>
-      <SafeAreaProvider>
-        <AppContent />
-      </SafeAreaProvider>
-    </ApiProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ApiProvider>
+        <SafeAreaProvider>
+          <AppContent />
+        </SafeAreaProvider>
+      </ApiProvider>
+    </GestureHandlerRootView>
   );
 };
 
