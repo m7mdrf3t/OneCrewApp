@@ -34,6 +34,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     activeCompany,
     getUserCertifications,
     getBaseUrl,
+    getProjects,
   } = useApi();
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,6 +50,41 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   const [loadingCertifications, setLoadingCertifications] = useState(false);
   const [socialLinks, setSocialLinks] = useState<any[]>([]);
   const [loadingSocialLinks, setLoadingSocialLinks] = useState(false);
+  const [showProjectSelectionModal, setShowProjectSelectionModal] = useState(false);
+  const [availableProjects, setAvailableProjects] = useState<any[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+
+  // Load projects for selection - only owner projects
+  const loadProjects = async (): Promise<any[]> => {
+    if (loadingProjects) {
+      console.log('⏳ Projects already loading, skipping...');
+      return availableProjects;
+    }
+    
+    console.log('🔄 Starting to load projects...');
+    setLoadingProjects(true);
+    try {
+      const allProjects = await getProjects();
+      console.log('✅ All projects loaded:', allProjects?.length || 0);
+      
+      // Filter to show only projects where current user is the owner
+      const ownerProjects = (allProjects || []).filter((project: any) => {
+        const isOwner = project.created_by === currentUser?.id;
+        console.log(`Project "${project.title}": created_by=${project.created_by}, currentUser.id=${currentUser?.id}, isOwner=${isOwner}`);
+        return isOwner;
+      });
+      
+      console.log('✅ Owner projects filtered:', ownerProjects.length);
+      setAvailableProjects(ownerProjects);
+      return ownerProjects;
+    } catch (error) {
+      console.error('❌ Failed to load projects:', error);
+      Alert.alert('Error', 'Failed to load projects. Please try again.');
+      return [];
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
 
   // Fetch fresh user data if we have a user ID
   useEffect(() => {
@@ -573,16 +609,22 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.ctaButton, styles.ctaDark]}
-              onPress={() => {
+              onPress={async () => {
+                console.log('🔘 Add to Project button pressed');
                 if (isGuest) {
                   setPromptAction('assign users to projects');
                   setShowSignUpPrompt(true);
                 } else {
-                  onAssignToProject(userProfile);
+                  console.log('📋 Loading projects and showing modal...');
+                  // Show project selection modal first (will show loading state)
+                  setShowProjectSelectionModal(true);
+                  // Then load projects - state will update automatically
+                  await loadProjects();
+                  console.log('✅ Projects loaded, state updated');
                 }
               }}
             >
-              <Text style={styles.ctaText}>Add to Crew</Text>
+              <Text style={styles.ctaText}>Add to Project</Text>
             </TouchableOpacity>
           </View>
 
@@ -1179,6 +1221,83 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           </View>
         </View>
       </ScrollView>
+
+      {/* Project Selection Modal */}
+      <Modal
+        visible={showProjectSelectionModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowProjectSelectionModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Project</Text>
+              <TouchableOpacity onPress={() => setShowProjectSelectionModal(false)}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+            {loadingProjects ? (
+              <View style={[styles.modalContent, { alignItems: 'center', justifyContent: 'center', minHeight: 200 }]}>
+                <ActivityIndicator size="large" color="#3b82f6" />
+                <Text style={styles.loadingText}>Loading projects...</Text>
+              </View>
+            ) : availableProjects.length === 0 ? (
+              <View style={[styles.modalContent, { alignItems: 'center', justifyContent: 'center', minHeight: 200 }]}>
+                <Ionicons name="folder-outline" size={48} color="#9ca3af" style={{ marginBottom: 12 }} />
+                <Text style={styles.emptyText}>No projects available</Text>
+                <Text style={styles.emptySubtext}>Create a project first to add users</Text>
+              </View>
+            ) : (
+              <ScrollView 
+                style={styles.modalContent}
+                contentContainerStyle={{ paddingBottom: 16 }}
+                showsVerticalScrollIndicator={true}
+              >
+                {availableProjects.map((project) => {
+                    console.log('📁 Rendering project in modal:', project.title, project.id);
+                    return (
+                      <TouchableOpacity
+                        key={project.id}
+                        style={styles.projectItem}
+                        onPress={() => {
+                          console.log('📁 Project selected:', project);
+                          console.log('👤 Selected user:', userProfile);
+                          setShowProjectSelectionModal(false);
+                          // Navigate to project with user profile data
+                          if (onNavigate) {
+                            console.log('🚀 Navigating via onNavigate to projectDetail');
+                            onNavigate('projectDetail', { 
+                              project, 
+                              selectedUser: userProfile,
+                              addUserToTask: true 
+                            });
+                          } else {
+                            console.log('⚠️ onNavigate not available, using onAssignToProject');
+                            onAssignToProject(userProfile);
+                          }
+                        }}
+                      >
+                        <View style={styles.projectItemLeft}>
+                          <Ionicons name="folder" size={24} color="#3b82f6" />
+                          <View style={styles.projectItemInfo}>
+                            <Text style={styles.projectItemName}>{project.title || project.name || 'Untitled Project'}</Text>
+                            {project.description && (
+                              <Text style={styles.projectItemDescription} numberOfLines={1}>
+                                {project.description}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                      </TouchableOpacity>
+                    );
+                  })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Media Modal */}
       <Modal
@@ -2045,14 +2164,89 @@ const styles = StyleSheet.create({
   // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContainer: {
     width: '90%',
-    height: '80%',
-    position: 'relative',
+    maxHeight: '70%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    backgroundColor: '#fff',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  modalContent: {
+    padding: 16,
+    maxHeight: 400,
+  },
+  projectItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  projectItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  projectItemInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  projectItemName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 4,
+  },
+  projectItemDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    textAlign: 'center',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
   closeButton: {
     position: 'absolute',

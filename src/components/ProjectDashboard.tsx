@@ -22,6 +22,8 @@ interface ProjectDashboardProps {
   onBack: () => void;
   onEditProjectDetails: () => void;
   onRefreshProject?: () => void;
+  selectedUser?: any; // User to automatically add to a task
+  addUserToTask?: boolean; // Flag to indicate if user should be added to task
 }
 
 const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
@@ -29,7 +31,16 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   onBack,
   onEditProjectDetails,
   onRefreshProject,
+  selectedUser,
+  addUserToTask,
 }) => {
+  console.log('📊 ProjectDashboard initialized:', {
+    hasSelectedUser: !!selectedUser,
+    selectedUser: selectedUser ? { id: selectedUser.id, name: selectedUser.name } : null,
+    addUserToTask,
+    projectId: project?.id
+  });
+  
   const { getProjectById, getProjectTasks, getTaskAssignments, fetchCompleteUserProfile, getUsersDirect, updateTask, deleteTask } = useApi();
   const [selectedTab, setSelectedTab] = useState('details');
   const [showTaskTypeModal, setShowTaskTypeModal] = useState(false);
@@ -76,13 +87,17 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         if (projectTasks.length > 0 && projectTasks[0].assignments?.length > 0) {
           console.log('📋 TASK ASSIGNMENTS (FROM GET /api/projects/{id}/tasks):');
           projectTasks[0].assignments.forEach((assignment: any, idx: number) => {
-            console.log(`  Assignment ${idx + 1}:`, {
+            // Log FULL assignment object to see all available fields
+            console.log(`  Assignment ${idx + 1} FULL OBJECT:`, JSON.stringify(assignment, null, 2));
+            console.log(`  Assignment ${idx + 1} SUMMARY:`, {
               id: assignment.id,
               user_id: assignment.user_id,
               hasUser: !!assignment.user,
               userName: assignment.user?.name || 'MISSING',
               user_id_from_user: assignment.user?.id,
-              service_role: assignment.service_role
+              service_role: assignment.service_role,
+              status: assignment.status || 'MISSING STATUS', // CRITICAL: Log status from backend
+              allKeys: Object.keys(assignment), // Show all available keys
             });
           });
         }
@@ -99,13 +114,34 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       }
         
       // Transform tasks to include service and member data
+      // CRITICAL: Use getTaskAssignments() to get assignments with status
       let transformedTasks = await Promise.all(projectTasks.map(async (task) => {
+          // Fetch assignments with status using getTaskAssignments (includes status via select('*'))
+          let assignmentsWithStatus: any[] = [];
+          try {
+            const assignmentsResponse = await getTaskAssignments(project.id, task.id);
+            if (assignmentsResponse.success && assignmentsResponse.data) {
+              assignmentsWithStatus = Array.isArray(assignmentsResponse.data) 
+                ? assignmentsResponse.data 
+                : (assignmentsResponse.data.assignments || []);
+              console.log(`✅ Fetched ${assignmentsWithStatus.length} assignments with status for task ${task.id}`);
+            } else {
+              // Fallback to assignments from task if getTaskAssignments fails
+              assignmentsWithStatus = task.assignments || [];
+              console.log(`⚠️ getTaskAssignments failed for task ${task.id}, using fallback`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ Failed to fetch assignments for task ${task.id}:`, error);
+            // Fallback to assignments from task
+            assignmentsWithStatus = task.assignments || [];
+          }
+
           // Extract service information
           let service = null;
           if (task.service_role) {
             service = { name: task.service_role };
-          } else if (task.assignments && task.assignments.length > 0 && task.assignments[0].service_role) {
-            service = { name: task.assignments[0].service_role };
+          } else if (assignmentsWithStatus.length > 0 && assignmentsWithStatus[0].service_role) {
+            service = { name: assignmentsWithStatus[0].service_role };
           } else if (task.service) {
             service = task.service;
           }
@@ -116,9 +152,9 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
           // Extract member information from assignments
           // Based on library types, TaskAssignment has an optional user object
           if (members.length === 0) {
-            if (task.assignments && Array.isArray(task.assignments)) {
+            if (assignmentsWithStatus && Array.isArray(assignmentsWithStatus)) {
               // Backend now returns assignment.user with full details
-              members = task.assignments.map((assignment: any) => {
+              members = assignmentsWithStatus.map((assignment: any) => {
                 const userId = assignment.user_id || assignment.user?.id;
                 
                 // Helper function to validate if a name is a placeholder
@@ -198,13 +234,24 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             }
           }
           
+          // CRITICAL: Use assignments fetched via getTaskAssignments (includes status)
+          // Map assignments to ensure proper structure with status
+          const finalAssignments = assignmentsWithStatus.map((assignment: any) => {
+            const status = assignment.status || 'pending';
+            console.log(`📋 Task ${task.id} → Assignment ${assignment.id}: status="${status}" (from getTaskAssignments)`);
+            return {
+              ...assignment,
+              status: status, // Status is included from getTaskAssignments (select('*'))
+            };
+          });
+
           return {
             ...task,
             service,
             members,
             service_role: task.service_role,
             user_id: task.user_id,
-            assignments: task.assignments
+            assignments: finalAssignments // Use assignments with status from getTaskAssignments
           };
         }));
         
@@ -559,11 +606,17 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         {/* Show all tasks as SimplifiedTaskCard components */}
         {tasks.map((task) => {
           // Transform task data to match SimplifiedTaskCard format
-          const assignments = (task.assignments || []).map((assignment: any) => ({
-            id: assignment.id || Date.now().toString(),
-            service: assignment.service || { name: assignment.service_role },
-            user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
-          }));
+          // CRITICAL: Preserve status from task.assignments (which should already have status from loadTasks)
+          const assignments = (task.assignments || []).map((assignment: any) => {
+            const status = assignment.status || 'pending';
+            console.log(`📋 Task ${task.id} → Assignment ${assignment.id}: status="${status}"`);
+            return {
+              id: assignment.id || Date.now().toString(),
+              service: assignment.service || { name: assignment.service_role },
+              user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+              status: status, // CRITICAL: Preserve status from backend
+            };
+          });
 
           // Ensure task type is preserved - try multiple fields
           const taskType = task.type || task.task_type || task.title?.toLowerCase()?.replace(/\s+/g, '_');
@@ -587,17 +640,22 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                 task_type: taskType, // Also set task_type for compatibility
                 assignments,
               }}
+              selectedUser={addUserToTask ? selectedUser : undefined}
               onTaskCreated={(updatedTask) => {
                 console.log('📋 Received updated task in ProjectDashboard:', updatedTask);
                 // Preserve type when updating and ensure all fields are maintained
+                // CRITICAL: Preserve assignments with status from updatedTask
                 const taskWithType = {
                   ...task, // Preserve original task data
                   ...updatedTask, // Override with updated data
                   type: updatedTask.type || taskType || task.type || task.task_type,
                   task_type: updatedTask.task_type || taskType || task.task_type || task.type,
                   id: updatedTask.id || task.id, // Ensure ID is always present
+                  // Preserve assignments with status - don't re-transform and lose status
+                  assignments: updatedTask.assignments || task.assignments,
                 };
                 console.log('📋 Updating task in list:', taskWithType);
+                console.log('📋 Assignments with status:', taskWithType.assignments?.map((a: any) => ({ id: a.id, status: a.status })));
                 setTasks(prev => {
                   const updated = prev.map(t => t.id === taskWithType.id ? taskWithType : t);
                   console.log('📋 Tasks after update:', updated.map(t => ({ id: t.id, title: t.title, type: t.type })));
@@ -618,6 +676,7 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             projectId={project.id}
             project={project}
             isNewTask={true}
+            selectedUser={addUserToTask ? selectedUser : undefined}
             onTaskCreated={(newTask) => {
               setTasks(prev => [...prev, newTask]);
               setNewTaskCards(prev => prev.filter((card) => card.id !== taskCard.id));

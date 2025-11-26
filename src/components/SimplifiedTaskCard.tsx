@@ -23,6 +23,7 @@ interface SimplifiedTaskCardProps {
   onCancel?: () => void; // For canceling new task creation
   existingTask?: any; // For editing existing tasks
   isNewTask?: boolean; // Whether this is a new task being created
+  selectedUser?: any; // User to automatically add to a task
 }
 
 interface Assignment {
@@ -40,8 +41,16 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   onCancel,
   existingTask,
   isNewTask = false,
+  selectedUser,
 }) => {
-  const { user, getRoles, getUsersByRole, createTask, assignTaskService, deleteTaskAssignment, updateTaskAssignmentStatus, updateTask, deleteTask, getProjectTasks, getProjectById } = useApi();
+  console.log('📋 SimplifiedTaskCard initialized:', {
+    isNewTask,
+    hasSelectedUser: !!selectedUser,
+    selectedUser: selectedUser ? { id: selectedUser.id, name: selectedUser.name } : null,
+    existingTaskId: existingTask?.id
+  });
+  
+  const { user, getRoles, getUsersByRole, createTask, assignTaskService, deleteTaskAssignment, updateTaskAssignmentStatus, updateTask, deleteTask, getProjectTasks, getProjectById, getTaskAssignments } = useApi();
   
   // Check if current user is project owner
   const isProjectOwner = project?.created_by === user?.id;
@@ -122,45 +131,80 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   }, [existingTask?.id]);
   const [assignments, setAssignments] = useState<Assignment[]>(() => {
     if (existingTask?.assignments) {
-      return existingTask.assignments.map((assignment: any) => ({
-        id: assignment.id || Date.now().toString(),
-        service: assignment.service || { name: assignment.service_role || 'Unknown' },
-        user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
-        status: assignment.status || 'pending', // Default to 'pending' for new assignments (per guide)
-      }));
+      const initialAssignments = existingTask.assignments.map((assignment: any) => {
+        const status = assignment.status || 'pending';
+        console.log(`📋 Initial state: Assignment ${assignment.id}: status="${status}" (from assignment.status="${assignment.status}")`);
+        return {
+          id: assignment.id || Date.now().toString(),
+          service: assignment.service || { name: assignment.service_role || 'Unknown' },
+          user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+          status: status, // CRITICAL: Preserve status from existingTask
+        };
+      });
+      console.log('📋 Initial assignments state:', initialAssignments.map((a: Assignment) => ({ id: a.id, status: a.status })));
+      return initialAssignments;
     }
     return [];
   });
 
   // Sync assignments when existingTask changes (e.g., after refresh from backend)
   useEffect(() => {
+    console.log('🔄 useEffect triggered for assignment sync:', {
+      taskId: existingTask?.id,
+      hasAssignments: !!existingTask?.assignments,
+      assignmentCount: existingTask?.assignments?.length || 0,
+      rawAssignments: existingTask?.assignments?.map((a: any) => ({
+        id: a.id,
+        status: a.status || 'MISSING',
+        service_role: a.service_role,
+        user_id: a.user_id
+      }))
+    });
+
     if (existingTask?.assignments) {
-      const syncedAssignments = existingTask.assignments.map((assignment: any) => ({
-        id: assignment.id || Date.now().toString(),
-        service: assignment.service || { name: assignment.service_role || 'Unknown' },
-        user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
-        status: assignment.status || 'pending',
-      }));
+      const syncedAssignments = existingTask.assignments.map((assignment: any) => {
+        const status = assignment.status || 'pending';
+        console.log(`📋 Extracting assignment ${assignment.id}: status="${status}" (from assignment.status="${assignment.status}")`);
+        return {
+          id: assignment.id || Date.now().toString(),
+          service: assignment.service || { name: assignment.service_role || 'Unknown' },
+          user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+          status: status, // CRITICAL: Preserve status from backend
+        };
+      });
       
-      // Only update if assignments have actually changed (by comparing IDs)
+      // Check if assignments have changed (by comparing IDs and statuses)
       const currentIds = assignments.map((a: Assignment) => a.id).sort().join(',');
       const newIds = syncedAssignments.map((a: Assignment) => a.id).sort().join(',');
       
-      if (currentIds !== newIds) {
-        console.log('🔄 Syncing assignments from existingTask:', {
-          currentCount: assignments.length,
-          newCount: syncedAssignments.length,
-          currentIds: assignments.map(a => a.id),
-          newIds: syncedAssignments.map((a: Assignment) => a.id)
-        });
+      // Also check if statuses have changed for existing assignments
+      const statusChanged = assignments.some((current: Assignment) => {
+        const synced = syncedAssignments.find((s: Assignment) => s.id === current.id);
+        return synced && synced.status !== current.status;
+      });
+      
+      console.log('🔄 Assignment sync comparison:', {
+        currentCount: assignments.length,
+        newCount: syncedAssignments.length,
+        currentIds,
+        newIds,
+        statusChanged,
+        currentStatuses: assignments.map((a: Assignment) => `${a.id}:${a.status}`),
+        newStatuses: syncedAssignments.map((a: Assignment) => `${a.id}:${a.status}`)
+      });
+      
+      if (currentIds !== newIds || statusChanged) {
+        console.log('✅ Syncing assignments from existingTask - UPDATING STATE');
         setAssignments(syncedAssignments);
+      } else {
+        console.log('⏭️ Skipping sync - no changes detected');
       }
     } else if (existingTask && assignments.length > 0) {
       // If existingTask has no assignments but we have local ones, clear them
       console.log('🔄 Clearing assignments - existingTask has none');
       setAssignments([]);
     }
-  }, [existingTask?.id, existingTask?.assignments?.length, existingTask?.assignments?.map((a: any) => a.id).join(',')]);
+  }, [existingTask?.id, existingTask?.assignments?.length, existingTask?.assignments?.map((a: any) => `${a.id}:${a.status || 'pending'}`).join(',') || '']);
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
@@ -180,6 +224,30 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   const [isCreating, setIsCreating] = useState(false);
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
   const [savedTaskId, setSavedTaskId] = useState<string | null>(existingTask?.id || null);
+  
+  // Store selectedUser in state to persist it (from homepage shortcut)
+  const [preSelectedUser, setPreSelectedUser] = useState<any>(selectedUser);
+  // Also use a ref to persist across re-renders
+  const preSelectedUserRef = useRef<any>(selectedUser);
+  
+  // Update preSelectedUser when selectedUser prop changes
+  useEffect(() => {
+    if (selectedUser) {
+      console.log('👤 Received selectedUser prop:', selectedUser);
+      console.log('👤 Setting preSelectedUser state:', { id: selectedUser.id, name: selectedUser.name });
+      setPreSelectedUser(selectedUser);
+      preSelectedUserRef.current = selectedUser; // Also update ref
+    } else {
+      console.log('👤 selectedUser prop is null/undefined, clearing preSelectedUser');
+      setPreSelectedUser(null);
+      preSelectedUserRef.current = null;
+    }
+  }, [selectedUser]);
+  
+  // Log preSelectedUser state whenever it changes
+  useEffect(() => {
+    console.log('👤 preSelectedUser state updated:', preSelectedUser ? { id: preSelectedUser.id, name: preSelectedUser.name } : null);
+  }, [preSelectedUser]);
   const [isExpanded, setIsExpanded] = useState(true); // Card is expanded by default
   const swipeableRefs = useRef<{ [key: string]: Swipeable | null }>({});
 
@@ -299,20 +367,59 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
     }
   };
 
-  const handleServiceSelect = (service: any) => {
+  const handleServiceSelect = async (service: any) => {
+    console.log('🔍 handleServiceSelect called with service:', service?.name);
+    
+    // Close service modal first
     setSelectedService(service);
     setShowServiceModal(false);
-    setShowUserModal(true);
+    
+    // Check for pre-selected user using all available sources
+    const userToAutoSelect = preSelectedUser || preSelectedUserRef.current || selectedUser;
+    
+    console.log('🔍 User check:', {
+      hasPreSelectedUser: !!preSelectedUser,
+      hasPreSelectedUserRef: !!preSelectedUserRef.current,
+      hasSelectedUserProp: !!selectedUser,
+      userToAutoSelect: userToAutoSelect ? { id: userToAutoSelect.id, name: userToAutoSelect.name } : null
+    });
+    
+    if (userToAutoSelect) {
+      console.log('✅ Direct assignment: Pre-selected user found, assigning immediately');
+      // Modern approach: Direct assignment without showing modal
+      // Pass service directly to avoid state timing issues
+      try {
+        await handleUserSelect(userToAutoSelect, service);
+        // Show brief success feedback (optional - can be removed if too intrusive)
+        // The UI update from handleUserSelect is sufficient feedback
+      } catch (error) {
+        console.error('❌ Direct assignment failed:', error);
+        // If direct assignment fails, fall back to showing user modal
+        setShowUserModal(true);
+      }
+    } else {
+      console.log('👤 No pre-selected user, showing user selection modal');
+      // No pre-selected user, show user selection modal
+      setShowUserModal(true);
+    }
   };
 
-  const handleUserSelect = async (selectedUser: any) => {
+  const handleUserSelect = async (userToAssign: any, serviceOverride?: any) => {
+    // Use serviceOverride if provided (for direct assignment), otherwise use selectedService state
+    const serviceToUse = serviceOverride || selectedService;
+    
+    if (!serviceToUse) {
+      console.error('❌ No service available for assignment');
+      Alert.alert('Error', 'Please select a service first.');
+      return;
+    }
     // First, create the assignment via API to get the UUID immediately
     const taskId = savedTaskId || existingTask?.id;
     
     // Check if user is already assigned to this task with this service role
     const isAlreadyAssigned = assignments.some(a => 
-      (a.user?.id === selectedUser.id || (a as any).user_id === selectedUser.id) &&
-      (a.service?.name === selectedService?.name || (a as any).service_role === selectedService?.name)
+      (a.user?.id === userToAssign.id || (a as any).user_id === userToAssign.id) &&
+      (a.service?.name === serviceToUse?.name || (a as any).service_role === serviceToUse?.name)
     );
     
     if (isAlreadyAssigned) {
@@ -335,11 +442,11 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
           if (task?.assignments) {
             const backendAssignment = task.assignments.find((a: any) => {
               const userIdMatches = 
-                a.user_id === selectedUser.id || 
-                a.user?.id === selectedUser.id;
+                a.user_id === userToAssign.id || 
+                a.user?.id === userToAssign.id;
               const serviceRoleMatches = 
-                a.service_role === selectedService?.name ||
-                a.service_role?.toLowerCase() === selectedService?.name?.toLowerCase();
+                a.service_role === serviceToUse?.name ||
+                a.service_role?.toLowerCase() === serviceToUse?.name?.toLowerCase();
               return userIdMatches && serviceRoleMatches;
             });
             
@@ -379,8 +486,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         }
         
         const response = await assignTaskService(projectId, taskId, {
-          service_role: selectedService?.name,
-          user_id: selectedUser.id,
+          service_role: serviceToUse?.name,
+          user_id: userToAssign.id,
         });
         
         console.log('📋 assignTaskService response:', JSON.stringify(response, null, 2));
@@ -422,8 +529,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
             const task = allTasks.find((t: any) => t.id === taskId);
             if (task?.assignments) {
               const newAssignment = task.assignments.find((a: any) => 
-                a.user_id === selectedUser.id && 
-                a.service_role === selectedService?.name
+                a.user_id === userToAssign.id && 
+                a.service_role === serviceToUse?.name
               );
               if (newAssignment?.id) {
                 assignmentId = newAssignment.id;
@@ -445,8 +552,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         // Create assignment with UUID from API
     const newAssignment: Assignment = {
           id: assignmentId, // Use UUID from API, not timestamp!
-      service: selectedService,
-          user: selectedUser,
+      service: serviceToUse,
+          user: userToAssign,
           status: assignmentStatus,
     };
         
@@ -455,11 +562,22 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
     setSelectedService(null);
     setShowUserModal(false);
     
-        // Update task with new assignment
+    // Clear pre-selected user after successful assignment (so it doesn't auto-select again)
+    if (preSelectedUser && (userToAssign?.id === preSelectedUser.id || userToAssign === preSelectedUser)) {
+      console.log('✅ Clearing pre-selected user after successful assignment');
+      setPreSelectedUser(null);
+    }
+    
+        // Update task with new assignment (ensure status is included)
         if (existingTask) {
           const updatedTask = {
             ...existingTask,
-            assignments: updatedAssignments,
+            assignments: updatedAssignments.map((a: Assignment) => ({
+              id: a.id,
+              service: a.service,
+              user: a.user,
+              status: a.status || 'pending', // Ensure status is always included
+            })),
           };
           onTaskCreated(updatedTask);
         }
@@ -474,14 +592,20 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       // Task doesn't exist yet, use temporary ID (will be updated when task is created)
       const newAssignment: Assignment = {
         id: `temp-${Date.now()}`, // Temporary ID, will be replaced when task is created
-        service: selectedService,
-        user: selectedUser,
+        service: serviceToUse,
+        user: userToAssign,
         status: 'pending', // New assignments start as pending
       };
       const updatedAssignments = [...assignments, newAssignment];
       setAssignments(updatedAssignments);
       setSelectedService(null);
       setShowUserModal(false);
+      
+      // Clear pre-selected user after successful assignment (so it doesn't auto-select again)
+      if (preSelectedUser && (userToAssign?.id === preSelectedUser.id || userToAssign === preSelectedUser)) {
+        console.log('✅ Clearing pre-selected user after successful assignment (new task)');
+        setPreSelectedUser(null);
+      }
       
       // Auto-save when assignment is added (will create task and then assignment)
     await autoSaveTask(updatedAssignments);
@@ -621,7 +745,12 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         if (existingTask) {
           const updatedTask = {
             ...existingTask,
-            assignments: updatedAssignments,
+            assignments: updatedAssignments.map((a: Assignment) => ({
+              id: a.id,
+              service: a.service,
+              user: a.user,
+              status: a.status || 'pending', // Ensure status is included
+            })),
           };
           onTaskCreated(updatedTask);
         }
@@ -1157,9 +1286,29 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
     service.name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const filteredUsers = availableUsers.filter(user =>
-    (user.name || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filter users and ensure pre-selected user is at the top
+  const preSelectedUserForList = preSelectedUser || preSelectedUserRef.current || selectedUser;
+  const filteredUsers = (() => {
+    const filtered = availableUsers.filter(user =>
+      (user.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    
+    // If we have a pre-selected user and it's not in the filtered list, add it at the top
+    if (preSelectedUserForList && showUserModal) {
+      const isInList = filtered.some(u => u.id === preSelectedUserForList.id);
+      if (!isInList) {
+        return [preSelectedUserForList, ...filtered];
+      } else {
+        // Move pre-selected user to top
+        const index = filtered.findIndex(u => u.id === preSelectedUserForList.id);
+        if (index > 0) {
+          const [preSelected] = filtered.splice(index, 1);
+          return [preSelected, ...filtered];
+        }
+      }
+    }
+    return filtered;
+  })();
 
   // If no task type selected and no existing task, show as button
   if (!taskType && !existingTask) {
@@ -1524,20 +1673,114 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                             
                             if (hasValidUUID) {
                               try {
-                                await updateTaskAssignmentStatus(
+                                const updateResponse = await updateTaskAssignmentStatus(
                                   projectId, 
                                   taskId, 
                                   assignmentIdToUpdate, 
                                   'accepted'
                                 );
                                 
-                                // Update local state with correct ID and status
+                                console.log('✅ updateTaskAssignmentStatus response:', JSON.stringify(updateResponse, null, 2));
+                                
+                                // Extract status from response - response.data contains the updated assignment with status
+                                const updatedAssignment = updateResponse?.data;
+                                const responseStatus = updatedAssignment?.status || 'accepted';
+                                
+                                console.log('✅ Extracted status from update response:', responseStatus);
+                                
+                                // Update local state with correct ID and status from response
                                 setAssignments(assignments.map(a => 
                                   a.id === assignment.id 
-                                    ? { ...a, id: assignmentIdToUpdate, status: 'accepted' } 
+                                    ? { ...a, id: assignmentIdToUpdate, status: responseStatus } 
                                     : a
                                 ));
+                                
+                                // Refresh assignments using getTaskAssignments (includes status via select('*'))
+                                if (existingTask) {
+                                  try {
+                                    const assignmentsResponse = await getTaskAssignments(projectId, taskId);
+                                    if (assignmentsResponse.success && assignmentsResponse.data) {
+                                      const fetchedAssignments = Array.isArray(assignmentsResponse.data) 
+                                        ? assignmentsResponse.data 
+                                        : (assignmentsResponse.data.assignments || []);
+                                      
+                                      // Map fetched assignments with status
+                                      const assignmentsWithStatus = fetchedAssignments.map((a: any) => ({
+                                        id: a.id,
+                                        service: a.service || { name: a.service_role },
+                                        user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                        status: a.status || 'pending', // Status included from getTaskAssignments
+                                      }));
+                                      
+                                      const updatedTask = {
+                                        ...existingTask,
+                                        assignments: assignmentsWithStatus,
+                                      };
+                                      onTaskCreated(updatedTask);
+                                    } else {
+                                      // Fallback: use getProjectTasks if getTaskAssignments fails
+                                      const allTasks = await getProjectTasks(projectId);
+                                      const task = allTasks.find((t: any) => t.id === taskId);
+                                      if (task) {
+                                        const assignmentsWithStatus = (task.assignments || []).map((a: any) => ({
+                                          id: a.id,
+                                          service: a.service || { name: a.service_role },
+                                          user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                          status: a.id === assignmentIdToUpdate ? responseStatus : (a.status || 'pending'),
+                                        }));
+                                        const updatedTask = {
+                                          ...existingTask,
+                                          ...task,
+                                          assignments: assignmentsWithStatus,
+                                        };
+                                        onTaskCreated(updatedTask);
+                                      }
+                                    }
+                                  } catch (refreshError) {
+                                    console.warn('⚠️ Failed to refresh task after accepting:', refreshError);
+                                  }
+                                }
                               } catch (updateError: any) {
+                                // Check if error is because assignment is already accepted
+                                const errorMessage = updateError?.message || '';
+                                if (errorMessage.includes('already') || errorMessage.includes('only change status from pending to accepted')) {
+                                  // Assignment is already accepted on backend, just sync local state
+                                  console.log('✅ Assignment is already accepted on backend, syncing local state');
+                                  setAssignments(assignments.map(a => 
+                                    a.id === assignment.id 
+                                      ? { ...a, id: assignmentIdToUpdate, status: 'accepted' } 
+                                      : a
+                                  ));
+                                  
+                                  // Refresh assignments using getTaskAssignments (includes status)
+                                  if (existingTask) {
+                                    try {
+                                      const assignmentsResponse = await getTaskAssignments(projectId, taskId);
+                                      if (assignmentsResponse.success && assignmentsResponse.data) {
+                                        const fetchedAssignments = Array.isArray(assignmentsResponse.data) 
+                                          ? assignmentsResponse.data 
+                                          : (assignmentsResponse.data.assignments || []);
+                                        
+                                        const assignmentsWithStatus = fetchedAssignments.map((a: any) => ({
+                                          id: a.id,
+                                          service: a.service || { name: a.service_role },
+                                          user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                          status: a.status || 'pending', // Status included from getTaskAssignments
+                                        }));
+                                        
+                                        const updatedTask = {
+                                          ...existingTask,
+                                          assignments: assignmentsWithStatus,
+                                        };
+                                        onTaskCreated(updatedTask);
+                                      }
+                                    } catch (refreshError) {
+                                      console.warn('⚠️ Failed to refresh task:', refreshError);
+                                    }
+                                  }
+                                  return; // Don't show error - it's already accepted
+                                }
+                                
                                 // If update fails, try to verify if assignment was actually updated on backend
                                 console.warn('⚠️ Update failed, verifying assignment status on backend...');
                                 try {
@@ -1553,6 +1796,20 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                           ? { ...a, id: assignmentIdToUpdate, status: 'accepted' } 
                                           : a
                                       ));
+                                      
+                                      // Update task - ensure assignments include status
+                                      const assignmentsWithStatus = (task.assignments || []).map((a: any) => ({
+                                        id: a.id,
+                                        service: a.service || { name: a.service_role },
+                                        user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                        status: a.status || 'pending', // CRITICAL: Include status
+                                      }));
+                                      const updatedTask = {
+                                        ...existingTask,
+                                        ...task,
+                                        assignments: assignmentsWithStatus,
+                                      };
+                                      onTaskCreated(updatedTask);
                                       // Don't show error - it worked on backend
                                       return;
                                     }
@@ -1577,7 +1834,68 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                 setAssignments(assignments.map(a => 
                                   a.id === assignment.id ? { ...a, status: 'accepted' } : a
                                 ));
+                                
+                                // Refresh task to sync with backend
+                                if (existingTask) {
+                                  try {
+                                    const allTasks = await getProjectTasks(projectId);
+                                    const task = allTasks.find((t: any) => t.id === taskId);
+                                    if (task) {
+                                      // Ensure assignments include status from backend
+                                      const assignmentsWithStatus = (task.assignments || []).map((a: any) => ({
+                                        id: a.id,
+                                        service: a.service || { name: a.service_role },
+                                        user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                        status: a.status || 'pending', // CRITICAL: Include status
+                                      }));
+                                      const updatedTask = {
+                                        ...existingTask,
+                                        ...task,
+                                        assignments: assignmentsWithStatus,
+                                      };
+                                      onTaskCreated(updatedTask);
+                                    }
+                                  } catch (refreshError) {
+                                    console.warn('⚠️ Failed to refresh task after accepting:', refreshError);
+                                  }
+                                }
                               } catch (updateError: any) {
+                                // Check if error is because assignment is already accepted
+                                const errorMessage = updateError?.message || '';
+                                if (errorMessage.includes('already') || errorMessage.includes('only change status from pending to accepted')) {
+                                  // Assignment is already accepted on backend, just sync local state
+                                  console.log('✅ Assignment is already accepted on backend, syncing local state');
+                                  setAssignments(assignments.map(a => 
+                                    a.id === assignment.id ? { ...a, status: 'accepted' } : a
+                                  ));
+                                  
+                                  // Refresh task to sync
+                                  if (existingTask) {
+                                    try {
+                                      const allTasks = await getProjectTasks(projectId);
+                                      const task = allTasks.find((t: any) => t.id === taskId);
+                                      if (task) {
+                                        // Ensure assignments include status from backend
+                                        const assignmentsWithStatus = (task.assignments || []).map((a: any) => ({
+                                          id: a.id,
+                                          service: a.service || { name: a.service_role },
+                                          user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                          status: a.status || 'pending', // CRITICAL: Include status
+                                        }));
+                                        const updatedTask = {
+                                          ...existingTask,
+                                          ...task,
+                                          assignments: assignmentsWithStatus,
+                                        };
+                                        onTaskCreated(updatedTask);
+                                      }
+                                    } catch (refreshError) {
+                                      console.warn('⚠️ Failed to refresh task:', refreshError);
+                                    }
+                                  }
+                                  return; // Don't show error - it's already accepted
+                                }
+                                
                                 // If update fails, try to verify if assignment was actually updated on backend
                                 console.warn('⚠️ Update failed, verifying assignment status on backend...');
                                 try {
@@ -1591,6 +1909,20 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                       setAssignments(assignments.map(a => 
                                         a.id === assignment.id ? { ...a, status: 'accepted' } : a
                                       ));
+                                      
+                                      // Update task - ensure assignments include status
+                                      const assignmentsWithStatus = (task.assignments || []).map((a: any) => ({
+                                        id: a.id,
+                                        service: a.service || { name: a.service_role },
+                                        user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                        status: a.status || 'pending', // CRITICAL: Include status
+                                      }));
+                                      const updatedTask = {
+                                        ...existingTask,
+                                        ...task,
+                                        assignments: assignmentsWithStatus,
+                                      };
+                                      onTaskCreated(updatedTask);
                                       // Don't show error - it worked on backend
                                       return;
                                     }
@@ -1607,12 +1939,17 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                             
                             // Refresh task to get updated assignments
                             if (existingTask) {
-                              const updatedAssignments = assignments.map(a => 
-                                a.id === assignment.id ? { ...a, status: 'accepted' } : a
+                              const updatedAssignments = assignments.map((a: Assignment) => 
+                                a.id === assignment.id ? { ...a, status: 'accepted' as const } : a
                               );
                               const updatedTask = {
                                 ...existingTask,
-                                assignments: updatedAssignments,
+                                assignments: updatedAssignments.map((a: Assignment) => ({
+                                  id: a.id,
+                                  service: a.service,
+                                  user: a.user,
+                                  status: (a.status || 'pending') as 'pending' | 'accepted' | 'rejected',
+                                })),
                               };
                               onTaskCreated(updatedTask);
                             }
@@ -1687,60 +2024,11 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                       </>
                     )
                   ) : assignmentStatus === 'accepted' ? (
-                    // Accepted assignments: Only assigned user can accept/reject
+                    // Accepted assignments: Show accepted status, no action buttons for assigned user
                     isAssignedUser(assignment) ? (
                       <>
-                        <TouchableOpacity
-                          style={styles.acceptIconButton}
-                          onPress={async () => {
-                            try {
-                              const taskId = savedTaskId || existingTask?.id;
-                              if (!taskId) {
-                                Alert.alert('Error', 'Task ID not found');
-                                return;
-                              }
-                              
-                              // Assignment is already accepted, user is confirming acceptance
-                              await updateTaskAssignmentStatus(
-                                projectId, 
-                                taskId, 
-                                assignment.id, 
-                                'accepted'
-                              );
-                              
-                              // Update local state
-                              setAssignments(assignments.map(a => 
-                                a.id === assignment.id ? { ...a, status: 'accepted' } : a
-                              ));
-                              
-                              // Refresh task
-                              if (existingTask) {
-                                const updatedAssignments = assignments.map(a => 
-                                  a.id === assignment.id ? { ...a, status: 'accepted' } : a
-                                );
-                                const updatedTask = {
-                                  ...existingTask,
-                                  assignments: updatedAssignments,
-                                };
-                                onTaskCreated(updatedTask);
-                              }
-                            } catch (error: any) {
-                              console.error('❌ Failed to accept assignment:', error);
-                              const errorMessage = error.message || 'Unknown error';
-                              if (errorMessage.includes('500') || errorMessage.includes('Failed to update task assignment status')) {
-                                Alert.alert(
-                                  'Server Error',
-                                  'The server encountered an error while updating the assignment status. This may be a temporary issue. Please try again or contact support if the problem persists.',
-                                  [{ text: 'OK' }]
-                                );
-                              } else {
-                                Alert.alert('Error', `Failed to accept assignment. ${errorMessage}`);
-                              }
-                            }
-                          }}
-                        >
-                          <Ionicons name="checkmark-circle" size={18} color="#10b981" />
-                        </TouchableOpacity>
+                        <Text style={styles.acceptedText}>Accepted</Text>
+                        {/* No accept button - assignment is already accepted */}
                         <TouchableOpacity
                           style={styles.rejectIconButton}
                           onPress={async () => {
@@ -1826,6 +2114,56 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
             style={styles.addServiceButton}
             onPress={async () => {
             console.log('➕ Add service button pressed');
+            
+            // Check for pre-selected user first (from homepage shortcut)
+            const userToAutoAssign = preSelectedUser || preSelectedUserRef.current || selectedUser;
+            
+            if (userToAutoAssign) {
+              console.log('✅ Pre-selected user found, assigning instantly with their role');
+              
+              // Get user's role from their profile
+              const userRole = userToAutoAssign.primary_role || userToAutoAssign.specialty || userToAutoAssign.role;
+              
+              if (!userRole) {
+                Alert.alert(
+                  'No Role Found',
+                  'This user does not have a role assigned. Please assign a role to their profile first.',
+                  [{ text: 'OK' }]
+                );
+                return;
+              }
+              
+              // Create service object from user's role
+              const serviceFromRole = {
+                id: userRole.toLowerCase().replace(/\s+/g, '_'),
+                name: userRole,
+                category: 'Other'
+              };
+              
+              console.log('🎯 Assigning user with role:', {
+                userId: userToAutoAssign.id,
+                userName: userToAutoAssign.name,
+                role: userRole,
+                service: serviceFromRole
+              });
+              
+              // Directly assign without showing any modals
+              try {
+                await handleUserSelect(userToAutoAssign, serviceFromRole);
+                console.log('✅ User assigned successfully');
+              } catch (error: any) {
+                console.error('❌ Failed to assign user:', error);
+                Alert.alert(
+                  'Assignment Failed',
+                  error?.message || 'Failed to assign user. Please try again.',
+                  [{ text: 'OK' }]
+                );
+              }
+              return; // Exit early - no modals needed
+            }
+            
+            // No pre-selected user - show normal service selection flow
+            console.log('👤 No pre-selected user, showing service selection modal');
             console.log('   Current taskType state:', taskType);
             console.log('   Existing task:', existingTask?.id);
             console.log('   Existing task type:', existingTask?.type, existingTask?.task_type);
@@ -1924,7 +2262,11 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                   <TouchableOpacity
                     key={service.id}
                     style={styles.modalItem}
-                    onPress={() => handleServiceSelect(service)}
+                    onPress={() => {
+                      console.log('🎯 Service tapped in modal:', service.name, service.id);
+                      console.log('🎯 About to call handleServiceSelect with:', { id: service.id, name: service.name });
+                      handleServiceSelect(service);
+                    }}
                   >
                     <Text style={styles.modalItemText}>{service.name}</Text>
                   </TouchableOpacity>
@@ -1959,6 +2301,15 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                 <Ionicons name="close" size={24} color="#000" />
               </TouchableOpacity>
             </View>
+            {/* Show pre-selected user indicator if available */}
+            {(preSelectedUser || preSelectedUserRef.current || selectedUser) && (
+              <View style={styles.preSelectedUserBanner}>
+                <Ionicons name="person" size={16} color="#3b82f6" />
+                <Text style={styles.preSelectedUserBannerText}>
+                  Quick assign: {(preSelectedUser || preSelectedUserRef.current || selectedUser)?.name}
+                </Text>
+              </View>
+            )}
             <View style={styles.searchContainer}>
               <Ionicons name="search" size={20} color="#9ca3af" />
               <TextInput
@@ -1973,26 +2324,34 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
               {isLoadingUsers ? (
                 <ActivityIndicator size="small" color="#3b82f6" />
               ) : (
-                filteredUsers.map((user) => (
-                  <TouchableOpacity
-                    key={user.id}
-                    style={styles.modalItem}
+                filteredUsers.map((user) => {
+                  const isPreSelected = preSelectedUserForList && user.id === preSelectedUserForList.id;
+                  return (
+                    <TouchableOpacity
+                      key={user.id}
+                      style={[styles.modalItem, isPreSelected && styles.preSelectedUserItem]}
                     onPress={() => {
                       if (editingAssignmentId) {
                         handleUpdateAssignment(selectedService, user);
                       } else {
-                        handleUserSelect(user);
+                        handleUserSelect(user, selectedService);
                       }
                     }}
-                  >
-                    <View style={styles.userAvatar}>
-                      <Text style={styles.userAvatarText}>
-                        {(user.name || 'U').charAt(0).toUpperCase()}
+                    >
+                      <View style={[styles.userAvatar, isPreSelected && styles.preSelectedUserAvatar]}>
+                        <Text style={styles.userAvatarText}>
+                          {(user.name || 'U').charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <Text style={[styles.modalItemText, isPreSelected && styles.preSelectedUserText]}>
+                        {user.name || 'Unknown'}
                       </Text>
-                    </View>
-                    <Text style={styles.modalItemText}>{user.name || 'Unknown'}</Text>
-                  </TouchableOpacity>
-                ))
+                      {isPreSelected && (
+                        <Ionicons name="checkmark-circle" size={20} color="#3b82f6" style={{ marginLeft: 'auto' }} />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
               )}
             </ScrollView>
           </View>
@@ -2551,6 +2910,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
     marginLeft: 12,
+  },
+  preSelectedUserBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    padding: 12,
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
+  preSelectedUserBannerText: {
+    fontSize: 14,
+    color: '#3b82f6',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  preSelectedUserItem: {
+    backgroundColor: '#eff6ff',
+    borderLeftWidth: 3,
+    borderLeftColor: '#3b82f6',
+  },
+  preSelectedUserAvatar: {
+    backgroundColor: '#3b82f6',
+  },
+  preSelectedUserText: {
+    color: '#3b82f6',
+    fontWeight: '600',
   },
   menuOverlay: {
     flex: 1,

@@ -123,10 +123,23 @@ const AppContent: React.FC = () => {
   const handleBack = useCallback(() => {
     setHistory(prevHistory => {
       if (prevHistory.length > 1) {
+        const currentPage = prevHistory[prevHistory.length - 1];
         const newHistory = prevHistory.slice(0, -1);
         const newCurrentPage = newHistory[newHistory.length - 1];
         const tabPages = ['home', 'projects', 'spot'];
-        if (tabPages.includes(newCurrentPage.name)) {
+        
+        // Special handling for 'myProfile': find the last main tab in history
+        if (currentPage.name === 'myProfile') {
+          // Look backwards through history to find the last main tab
+          for (let i = newHistory.length - 1; i >= 0; i--) {
+            if (tabPages.includes(newHistory[i].name)) {
+              setTab(newHistory[i].name);
+              return newHistory;
+            }
+          }
+          // If no main tab found, set to empty
+          setTab('');
+        } else if (tabPages.includes(newCurrentPage.name)) {
           setTab(newCurrentPage.name);
         } else {
           setTab('');
@@ -380,19 +393,54 @@ const AppContent: React.FC = () => {
 
   const handleNavigateToProjectDetail = useCallback(async (projectData: any) => {
     try {
-      console.log('📋 Navigating to project dashboard:', projectData.id);
+      console.log('📋 Navigating to project dashboard:', projectData);
+      
+      // Handle case where projectData contains project object and additional data
+      const projectToLoad = projectData.project || projectData;
+      const additionalData = projectData.project ? {
+        selectedUser: projectData.selectedUser,
+        addUserToTask: projectData.addUserToTask,
+      } : {};
+      
+      console.log('📁 Project to load:', projectToLoad);
+      console.log('👤 Additional data:', additionalData);
       
       // Fetch the latest project data from the database
       console.log('🔄 Fetching latest project data from database...');
-      const latestProjectData = await getProjectById(projectData.id);
+      const latestProjectData = await getProjectById(projectToLoad.id);
       console.log('✅ Latest project data loaded:', latestProjectData);
       
-      setSelectedProject(latestProjectData);
+      const finalProjectData = {
+        ...latestProjectData,
+        ...additionalData,
+      };
+      console.log('📊 Setting selectedProject with:', {
+        hasSelectedUser: !!finalProjectData.selectedUser,
+        selectedUser: finalProjectData.selectedUser ? { id: finalProjectData.selectedUser.id, name: finalProjectData.selectedUser.name } : null,
+        addUserToTask: finalProjectData.addUserToTask,
+        projectId: finalProjectData.id
+      });
+      setSelectedProject(finalProjectData);
       setShowProjectDashboard(true);
     } catch (error) {
       console.error('Failed to load project details:', error);
       // Fallback to the original project data if database fetch fails
-      setSelectedProject(projectData);
+      const projectToLoad = projectData.project || projectData;
+      const additionalData = projectData.project ? {
+        selectedUser: projectData.selectedUser,
+        addUserToTask: projectData.addUserToTask,
+      } : {};
+      const finalProjectData = {
+        ...projectToLoad,
+        ...additionalData,
+      };
+      console.log('📊 Setting selectedProject (fallback) with:', {
+        hasSelectedUser: !!finalProjectData.selectedUser,
+        selectedUser: finalProjectData.selectedUser ? { id: finalProjectData.selectedUser.id, name: finalProjectData.selectedUser.name } : null,
+        addUserToTask: finalProjectData.addUserToTask,
+        projectId: finalProjectData.id
+      });
+      setSelectedProject(finalProjectData);
       setShowProjectDashboard(true);
       Alert.alert('Warning', 'Using cached project data. Some information may be outdated.');
     }
@@ -444,7 +492,8 @@ const AppContent: React.FC = () => {
 
   const handleAssignToProject = useCallback((profile: any) => {
     // Note: Guest checks are handled in ProfileDetailPage, this is called only for authenticated users
-    // Handle assign to project logic
+    // This is now handled by the project selection modal in ProfileDetailPage
+    // This function is kept for backward compatibility
     console.log('Assign to project:', profile);
   }, []);
 
@@ -832,10 +881,15 @@ const AppContent: React.FC = () => {
               onStartChat={handleStartChat}
               onMediaSelect={() => {}}
               onNavigate={(pageName: string, data?: any) => {
+                console.log('🧭 onNavigate called:', pageName, data);
                 if (pageName === 'signup') {
                   handleNavigateToSignup();
                 } else if (pageName === 'login') {
                   handleNavigateToLogin();
+                } else if (pageName === 'projectDetail') {
+                  // Handle project detail navigation with special data
+                  console.log('📁 Navigating to projectDetail with data:', data);
+                  handleNavigateToProjectDetail(data);
                 } else {
                   navigateTo(pageName, data);
                 }
@@ -871,10 +925,15 @@ const AppContent: React.FC = () => {
               isCurrentUser={true}
               onLogout={handleLogout}
               onNavigate={(pageName: string, data?: any) => {
+                console.log('🧭 onNavigate called:', pageName, data);
                 if (pageName === 'signup') {
                   handleNavigateToSignup();
                 } else if (pageName === 'login') {
                   handleNavigateToLogin();
+                } else if (pageName === 'projectDetail') {
+                  // Handle project detail navigation with special data
+                  console.log('📁 Navigating to projectDetail with data:', data);
+                  handleNavigateToProjectDetail(data);
                 } else {
                   navigateTo(pageName, data);
                 }
@@ -1168,9 +1227,14 @@ const AppContent: React.FC = () => {
           <View style={styles.fullPageOverlay}>
             <ProjectDashboard
               project={selectedProject}
-              onBack={() => setShowProjectDashboard(false)}
+              onBack={() => {
+                setShowProjectDashboard(false);
+                setSelectedProject(null);
+              }}
               onEditProjectDetails={handleEditProjectDetails}
               onRefreshProject={handleRefreshProject}
+              selectedUser={selectedProject.selectedUser}
+              addUserToTask={selectedProject.addUserToTask}
             />
           </View>
         )}
