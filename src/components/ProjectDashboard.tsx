@@ -105,14 +105,14 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
         
       } catch (taskError) {
-        console.error('❌ Failed to load tasks:', taskError);
+        console.error(' Failed to load tasks:', taskError);
         // Fallback: try getting tasks from project data if dedicated endpoint fails
         try {
           const projectData = await getProjectById(project.id);
           projectTasks = projectData.tasks || [];
-          console.log('⚠️ Using tasks from getProjectById (fallback)');
+          console.log(' Using tasks from getProjectById (fallback)');
         } catch (projectError) {
-          console.error('❌ Failed to load tasks from project data:', projectError);
+          console.error(' Failed to load tasks from project data:', projectError);
         }
       }
         
