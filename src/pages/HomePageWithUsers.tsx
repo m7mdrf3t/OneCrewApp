@@ -6,6 +6,7 @@ import SectionCard from '../components/SectionCard';
 import { HomePageProps } from '../types';
 import { SECTIONS } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 interface User {
   id: string;
@@ -390,7 +391,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sectionsContainer: {
-    padding: 12,
+    padding: semanticSpacing.containerPadding,
   },
   searchButton: {
     flexDirection: 'row',
@@ -399,8 +400,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#d4d4d8',
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
+    padding: semanticSpacing.containerPadding,
+    marginBottom: semanticSpacing.buttonPadding,
   },
   searchIconContainer: {
     width: 40,
@@ -411,7 +412,7 @@ const styles = StyleSheet.create({
     borderColor: '#d4d4d8',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: semanticSpacing.containerPadding,
   },
   searchButtonText: {
     fontSize: 18,
@@ -420,7 +421,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   searchBarContainer: {
-    marginBottom: 8,
+    marginBottom: semanticSpacing.buttonPadding,
   },
   loadingContainer: {
     position: 'absolute',
@@ -436,21 +437,21 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   usersSection: {
-    padding: 12,
+    padding: semanticSpacing.containerPadding,
     paddingTop: 0,
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
-    marginBottom: 16,
+    marginBottom: semanticSpacing.sectionGapLarge,
   },
   errorContainer: {
     backgroundColor: '#fef2f2',
     borderColor: '#fecaca',
     borderWidth: 1,
     borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    padding: semanticSpacing.containerPadding,
+    marginBottom: semanticSpacing.sectionGapLarge,
   },
   errorText: {
     fontSize: 14,

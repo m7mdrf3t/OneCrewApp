@@ -55,6 +55,7 @@ import PublicCoursesPage from './src/pages/PublicCoursesPage';
 // Data
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
 import { NavigationState, User, ProjectCreationData, ProjectDashboardData, Notification } from './src/types';
+import { spacing, semanticSpacing } from './src/constants/spacing';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
@@ -1276,9 +1277,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 2,
     borderBottomColor: '#000',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingTop: 16,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.headerPaddingVertical,
+    paddingTop: semanticSpacing.containerPadding,
     minHeight: 56,
   },
   topBarLeft: {
@@ -1289,17 +1290,17 @@ const styles = StyleSheet.create({
   topBarRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 4,
+    marginRight: spacing.xs,
   },
   topBarButton: {
-    padding: 8,
-    marginLeft: 8,
+    padding: semanticSpacing.tightPadding,
+    marginLeft: spacing.xs,
     position: 'relative',
   },
   topBarTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 12,
+    marginLeft: semanticSpacing.containerPadding,
   },
   topBarTitle: {
     fontSize: 14,
@@ -1310,7 +1311,7 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
   chevronIcon: {
-    marginLeft: 4,
+    marginLeft: spacing.xs,
   },
   notificationBadge: {
     position: 'absolute',
@@ -1322,7 +1323,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ef4444',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: spacing.xs,
     borderWidth: 2,
     borderColor: '#ffffff',
   },
@@ -1337,10 +1338,10 @@ const styles = StyleSheet.create({
   backButton: {
     position: 'absolute',
     bottom: 88,
-    left: 16,
+    left: semanticSpacing.sectionGapLarge,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
     borderRadius: 24,
-    padding: 12,
+    padding: semanticSpacing.buttonPadding,
     zIndex: 20,
   },
   fullPageOverlay: {

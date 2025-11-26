@@ -20,6 +20,7 @@ import {
 } from '../types';
 import ReferenceDataService from '../services/ReferenceDataService';
 import DatePicker from './DatePicker';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 const { width } = Dimensions.get('window');
 
@@ -473,7 +474,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e7eb',
   },
   closeButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   title: {
     fontSize: 18,
@@ -544,14 +545,14 @@ const styles = StyleSheet.create({
   typeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   typeCard: {
     width: (width - 64) / 2,
-    padding: 16,
+    padding: semanticSpacing.containerPaddingLarge,
     borderWidth: 1,
     borderColor: '#d1d5db',
-    borderRadius: 8,
+    borderRadius: spacing.sm,
     backgroundColor: '#fff',
   },
   typeCardSelected: {
@@ -576,7 +577,7 @@ const styles = StyleSheet.create({
   },
   dateRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   dateInput: {
     flex: 1,
@@ -607,7 +608,7 @@ const styles = StyleSheet.create({
   statusContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: spacing.sm,
   },
   statusOption: {
     paddingHorizontal: 16,
@@ -637,7 +638,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   stageHeader: {
-    padding: 16,
+    padding: semanticSpacing.containerPaddingLarge,
   },
   stageInfo: {
     flex: 1,
@@ -678,8 +679,8 @@ const styles = StyleSheet.create({
   },
   stageDateRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 16,
+    gap: semanticSpacing.containerPadding,
+    marginTop: semanticSpacing.containerPaddingLarge,
   },
   stageDateInput: {
     flex: 1,
@@ -707,11 +708,11 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: semanticSpacing.containerPaddingLarge,
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   backButton: {
     flex: 1,

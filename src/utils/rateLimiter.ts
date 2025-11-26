@@ -21,6 +21,16 @@ export enum CacheTTL {
   VERY_LONG = 3600000 // 1 hour - static reference data (services, skills, roles)
 }
 
+interface CacheStatistics {
+  memoryCacheSize: number;
+  memoryCacheMaxSize: number;
+  pendingRequests: number;
+  cacheHits: number;
+  cacheMisses: number;
+  cacheEvictions: number;
+  hitRate: number;
+}
+
 class RateLimiter {
   private requestCache: Map<string, RequestCache> = new Map();
   private requestQueue: Map<string, Promise<any>> = new Map();
@@ -31,6 +41,11 @@ class RateLimiter {
   private readonly INITIAL_RETRY_DELAY = 1000; // 1 second
   private readonly PERSISTENT_CACHE_PREFIX = 'cache_';
   private readonly MAX_CACHE_SIZE = 100; // Maximum number of cached items
+  
+  // Cache statistics
+  private cacheHits = 0;
+  private cacheMisses = 0;
+  private cacheEvictions = 0;
 
   /**
    * Get cached response from memory cache if available and not expired
@@ -40,12 +55,16 @@ class RateLimiter {
     if (cached) {
       const cacheTTL = ttl || cached.ttl || this.DEFAULT_CACHE_TTL;
       if (Date.now() - cached.timestamp < cacheTTL) {
+        this.cacheHits++;
         console.log(`📦 Using cached response for: ${key}`);
         return cached.data;
       } else {
         // Expired, remove from cache
         this.requestCache.delete(key);
+        this.cacheMisses++;
       }
+    } else {
+      this.cacheMisses++;
     }
     return null;
   }
@@ -85,6 +104,8 @@ class RateLimiter {
       const firstKey = this.requestCache.keys().next().value;
       if (firstKey) {
         this.requestCache.delete(firstKey);
+        this.cacheEvictions++;
+        console.log(`🗑️ Cache eviction: removed ${firstKey} (cache at max size: ${this.MAX_CACHE_SIZE})`);
       }
     }
 
@@ -128,6 +149,48 @@ class RateLimiter {
   }
 
   /**
+   * Check if error is a rate limit error
+   */
+  private isRateLimitError(error: any): boolean {
+    return (
+      error?.status === 429 ||
+      error?.statusCode === 429 ||
+      error?.response?.status === 429 ||
+      error?.message?.includes('429') ||
+      error?.message?.toLowerCase().includes('rate limit') ||
+      error?.message?.toLowerCase().includes('too many requests')
+    );
+  }
+
+  /**
+   * Extract rate limit information from error or headers
+   */
+  private getRateLimitInfo(error: any): { retryAfter?: number; message: string } {
+    let retryAfter: number | undefined;
+    let message = 'Too many requests. Please wait a moment before trying again.';
+
+    // Try to extract Retry-After header
+    if (error?.response?.headers) {
+      const retryAfterHeader = error.response.headers['retry-after'] || error.response.headers['Retry-After'];
+      if (retryAfterHeader) {
+        retryAfter = parseInt(retryAfterHeader, 10) * 1000; // Convert to milliseconds
+        message = `Too many requests. Please wait ${Math.ceil(retryAfter / 1000)} seconds before trying again.`;
+      }
+    }
+
+    // Check for rate limit message in error
+    if (error?.message) {
+      const retryMatch = error.message.match(/retry[_\s-]?after[:\s]+(\d+)/i);
+      if (retryMatch) {
+        retryAfter = parseInt(retryMatch[1], 10) * 1000;
+        message = `Too many requests. Please wait ${Math.ceil(retryAfter / 1000)} seconds before trying again.`;
+      }
+    }
+
+    return { retryAfter, message };
+  }
+
+  /**
    * Execute request with exponential backoff retry
    */
   private async executeWithRetry<T>(
@@ -138,25 +201,30 @@ class RateLimiter {
     try {
       return await requestFn();
     } catch (error: any) {
-      const isRateLimited = 
-        error.status === 429 || 
-        error.message?.includes('429') ||
-        error.message?.includes('rate limit') ||
-        error.message?.includes('Rate limit');
+      const isRateLimited = this.isRateLimitError(error);
 
       if (isRateLimited && retryCount < this.MAX_RETRIES) {
-        const delay = this.INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
-        console.warn(`⚠️ Rate limited (429). Retrying in ${delay}ms (attempt ${retryCount + 1}/${this.MAX_RETRIES})...`);
+        const rateLimitInfo = this.getRateLimitInfo(error);
+        // Use Retry-After header if available, otherwise use exponential backoff
+        const delay = rateLimitInfo.retryAfter || (this.INITIAL_RETRY_DELAY * Math.pow(2, retryCount));
+        
+        console.warn(`⚠️ Rate limited (429). ${rateLimitInfo.message} Retrying in ${Math.ceil(delay / 1000)}s (attempt ${retryCount + 1}/${this.MAX_RETRIES})...`);
         
         await new Promise(resolve => setTimeout(resolve, delay));
         
         return this.executeWithRetry(key, requestFn, retryCount + 1);
       }
 
-      // If rate limited and max retries reached, return empty result
+      // If rate limited and max retries reached, enhance error with user-friendly message
       if (isRateLimited) {
-        console.error(`❌ Rate limited after ${this.MAX_RETRIES} retries. Returning empty result.`);
-        return [] as any;
+        const rateLimitInfo = this.getRateLimitInfo(error);
+        const enhancedError = new Error(rateLimitInfo.message);
+        (enhancedError as any).statusCode = 429;
+        (enhancedError as any).status = 429;
+        (enhancedError as any).isRateLimit = true;
+        (enhancedError as any).retryAfter = rateLimitInfo.retryAfter;
+        console.error(`❌ Rate limited after ${this.MAX_RETRIES} retries. ${rateLimitInfo.message}`);
+        throw enhancedError;
       }
 
       // Re-throw non-rate-limit errors
@@ -292,6 +360,51 @@ class RateLimiter {
    */
   getCacheSize(): number {
     return this.requestCache.size;
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStatistics(): CacheStatistics {
+    const totalRequests = this.cacheHits + this.cacheMisses;
+    const hitRate = totalRequests > 0 ? (this.cacheHits / totalRequests) * 100 : 0;
+
+    return {
+      memoryCacheSize: this.requestCache.size,
+      memoryCacheMaxSize: this.MAX_CACHE_SIZE,
+      pendingRequests: this.requestQueue.size,
+      cacheHits: this.cacheHits,
+      cacheMisses: this.cacheMisses,
+      cacheEvictions: this.cacheEvictions,
+      hitRate: Math.round(hitRate * 100) / 100, // Round to 2 decimal places
+    };
+  }
+
+  /**
+   * Reset cache statistics
+   */
+  resetCacheStatistics(): void {
+    this.cacheHits = 0;
+    this.cacheMisses = 0;
+    this.cacheEvictions = 0;
+  }
+
+  /**
+   * Get list of all cached keys
+   */
+  getCachedKeys(): string[] {
+    return Array.from(this.requestCache.keys());
+  }
+
+  /**
+   * Get cache entry age in milliseconds
+   */
+  getCacheEntryAge(key: string): number | null {
+    const cached = this.requestCache.get(key);
+    if (cached) {
+      return Date.now() - cached.timestamp;
+    }
+    return null;
   }
 }
 

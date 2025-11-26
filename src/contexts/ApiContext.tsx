@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Platform } from 'react-native';
+import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
+import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore - expo-constants types may not be available in all environments
 import Constants from 'expo-constants';
@@ -226,6 +226,9 @@ interface ApiContextType {
   sendMessage: (conversationId: string, messageData: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; file_url?: string; file_name?: string; file_size?: number; reply_to_message_id?: string }) => Promise<any>;
   editMessage: (messageId: string, content: string) => Promise<any>;
   deleteMessage: (messageId: string) => Promise<any>;
+  // Online status methods (Redis-powered)
+  getOnlineStatus: (userId: string) => Promise<any>;
+  getOnlineStatuses: (userIds: string[]) => Promise<any>;
 }
 
 const ApiContext = createContext<ApiContextType | null>(null);
@@ -269,6 +272,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const [notificationChannelId, setNotificationChannelId] = useState<string | null>(null);
   // Chat unread count state
   const [unreadConversationCount, setUnreadConversationCount] = useState(0);
+  // Heartbeat state
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 
   // Test network connectivity - try multiple endpoints
   const testConnectivity = async () => {
@@ -1777,7 +1783,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch personal team members:', err);
         return { success: false, data: [], error: 'Failed to fetch personal team members' };
       }
-    }, { ttl: CacheTTL.MEDIUM, persistent: true });
+    }, { ttl: CacheTTL.MEDIUM, persistent: true }); // Team members change when users join/leave - 5min TTL with persistence
   };
 
   // New skill management methods using the correct API client
@@ -2045,7 +2051,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         throw err;
       }
-    }, { ttl: CacheTTL.SHORT }); // Users list changes frequently
+    }, { ttl: CacheTTL.SHORT }); // Users list changes frequently - 30s TTL for fresh data
   };
 
   // Debug method to check authentication state
@@ -2267,7 +2273,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch social links:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.MEDIUM, persistent: true });
+    }, { ttl: CacheTTL.MEDIUM, persistent: true }); // Social links change when user updates profile - 5min TTL with persistence
   };
 
   const addSocialLink = async (linkData: { platform: string; url: string; is_custom?: boolean }) => {
@@ -3140,6 +3146,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Handle successful response (should have success: true and data)
       if (response && response.success && response.data) {
         console.log('✅ Company created successfully:', response.data);
+        
+        // Clear the user companies cache so the new company appears immediately
+        if (user?.id) {
+          const cacheKey = `user-companies-${user.id}`;
+          await rateLimiter.clearCache(cacheKey);
+          console.log('🗑️ Cleared cache for user companies to show newly created company');
+        }
+        
         return response;
       }
       
@@ -3215,7 +3229,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get company:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.LONG, persistent: true });
+    }, { ttl: CacheTTL.LONG, persistent: true }); // Company data changes rarely - 30min TTL with persistence
   };
 
   const updateCompany = async (companyId: string, updates: any) => {
@@ -3329,6 +3343,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getUserCompanies = async (userId: string) => {
     const cacheKey = `user-companies-${userId}`;
+    // Use MEDIUM TTL instead of LONG since companies can change frequently when users are creating/managing them
+    // This ensures newly created or updated companies appear within 5 minutes instead of 30 minutes
     return rateLimiter.execute(cacheKey, async () => {
       try {
         const response = await api.getUserCompanies(userId);
@@ -3347,7 +3363,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get user companies:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.LONG, persistent: true });
+    }, { ttl: CacheTTL.MEDIUM, persistent: true }); // User companies change when user joins/leaves - 5min TTL with persistence
   };
 
   const submitCompanyForApproval = async (companyId: string) => {
@@ -3355,21 +3371,29 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Use the correct endpoint: /api/companies/{id}/submit (not /submit-for-approval)
       // Access the underlying apiClient directly to use the correct endpoint
       const apiClient = (api as any).apiClient;
+      let response;
       if (apiClient && typeof apiClient.post === 'function') {
-        const response = await apiClient.post(`/api/companies/${companyId}/submit`, {});
-        
-        if (response.success && response.data && activeCompany?.id === companyId) {
-          setActiveCompany(response.data);
-        }
-        return response;
+        response = await apiClient.post(`/api/companies/${companyId}/submit`, {});
       } else {
         // Fallback: try the library method (will fail with 404, but we'll handle it)
-        const response = await api.submitCompanyForApproval(companyId);
-        if (response.success && response.data && activeCompany?.id === companyId) {
+        response = await api.submitCompanyForApproval(companyId);
+      }
+      
+      // If successful, clear cache and update active company
+      if (response.success && response.data) {
+        if (activeCompany?.id === companyId) {
           setActiveCompany(response.data);
         }
-        return response;
+        
+        // Clear the user companies cache so the updated approval status appears immediately
+        if (user?.id) {
+          const cacheKey = `user-companies-${user.id}`;
+          await rateLimiter.clearCache(cacheKey);
+          console.log('🗑️ Cleared cache for user companies to show updated approval status');
+        }
       }
+      
+      return response;
     } catch (error: any) {
       console.error('Failed to submit company for approval:', error);
       
@@ -3448,7 +3472,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get companies:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.LONG, persistent: true });
+    }, { ttl: CacheTTL.LONG, persistent: true }); // Company listings change rarely - 30min TTL with persistence
   };
 
   // Company Services Methods
@@ -3472,7 +3496,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get company services:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.MEDIUM });
+    }, { ttl: CacheTTL.MEDIUM }); // Company services change when services are added/removed - 5min TTL
   };
 
   const addCompanyService = async (companyId: string, serviceId: string) => {
@@ -3747,7 +3771,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         data: []
       };
     }
-    }, { ttl: CacheTTL.MEDIUM });
+    }, { ttl: CacheTTL.MEDIUM }); // Company members change when users join/leave - 5min TTL
   };
 
   const acceptInvitation = async (companyId: string, userId: string) => {
@@ -3913,7 +3937,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.error('Failed to get certification templates:', error);
       throw error;
     }
-    }, { ttl: CacheTTL.VERY_LONG, persistent: true }); // Templates rarely change
+    }, { ttl: CacheTTL.VERY_LONG, persistent: true }); // Certification templates are static reference data - 1hr TTL with persistence
   };
 
   const getCertificationTemplate = async (templateId: string) => {
@@ -4053,8 +4077,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         status: error.status
       });
       throw error;
-    }
-    }, { ttl: CacheTTL.LONG, persistent: true });
+      }
+    }, { ttl: CacheTTL.LONG, persistent: true }); // Authorized certifications change rarely - 30min TTL with persistence
   };
 
   const grantCertification = async (companyId: string, certificationData: CreateCertificationRequest) => {
@@ -4089,7 +4113,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get company certifications:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.MEDIUM });
+    }, { ttl: CacheTTL.MEDIUM }); // Company certifications change when granted/revoked - 5min TTL
   };
 
   const updateCertification = async (companyId: string, certificationId: string, updates: UpdateCertificationRequest) => {
@@ -4148,7 +4172,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         throw error;
       }
-    }, { ttl: CacheTTL.LONG, persistent: true });
+    }, { ttl: CacheTTL.LONG, persistent: true }); // User certifications change when granted/revoked - 30min TTL with persistence
   };
 
   // Course Management Methods (v2.4.0)
@@ -4166,7 +4190,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get academy courses:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.SHORT });
+    }, { ttl: CacheTTL.SHORT }); // Course lists change when courses are added/updated - 30s TTL
   };
 
   const createCourse = async (companyId: string, courseData: CreateCourseRequest) => {
@@ -4209,7 +4233,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           error: error.message || 'Failed to get course',
         };
       }
-    }, { ttl: CacheTTL.SHORT });
+    }, { ttl: CacheTTL.SHORT }); // Individual course data changes when updated - 30s TTL
   };
 
   const updateCourse = async (companyId: string, courseId: string, updates: UpdateCourseRequest) => {
@@ -4269,7 +4293,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get public courses:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.SHORT });
+    }, { ttl: CacheTTL.SHORT }); // Public course listings change when courses are published/updated - 30s TTL
   };
 
   const registerForCourse = async (courseId: string) => {
@@ -4329,7 +4353,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get course registrations:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.SHORT });
+    }, { ttl: CacheTTL.SHORT }); // Course registrations change frequently as users register/unregister - 30s TTL
   };
 
   const getMyRegisteredCourses = async () => {
@@ -4346,7 +4370,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get registered courses:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.SHORT });
+    }, { ttl: CacheTTL.SHORT }); // My registered courses change when user registers/unregisters - 30s TTL
   };
 
   // News/Blog methods (v2.3.0)
@@ -4362,7 +4386,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch published news:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.MEDIUM, persistent: true });
+    }, { ttl: CacheTTL.MEDIUM, persistent: true }); // News posts change when published/updated - 5min TTL with persistence
   };
 
   const getNewsPostBySlug = async (slug: string) => {
@@ -4377,7 +4401,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch news post:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.MEDIUM, persistent: true });
+    }, { ttl: CacheTTL.MEDIUM, persistent: true }); // Individual news posts change when edited - 5min TTL with persistence
   };
 
   const getNewsCategories = async () => {
@@ -4392,7 +4416,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch news categories:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.VERY_LONG, persistent: true });
+    }, { ttl: CacheTTL.VERY_LONG, persistent: true }); // News categories are static reference data - 1hr TTL with persistence
   };
 
   const getNewsTags = async () => {
@@ -4407,10 +4431,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch news tags:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.VERY_LONG, persistent: true });
+    }, { ttl: CacheTTL.VERY_LONG, persistent: true }); // News tags are static reference data - 1hr TTL with persistence
   };
 
   // Chat/Messaging methods (v2.5.0)
+  // Real-time data - caching disabled for immediate updates
   const getConversations = async (params?: { page?: number; limit?: number }) => {
     const cacheKey = `conversations-${JSON.stringify(params || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
@@ -4459,7 +4484,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch conversations:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.SHORT });
+    }, { useCache: false }); // Disabled caching for real-time data
   };
 
   const getConversationById = async (conversationId: string) => {
@@ -4477,7 +4502,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch conversation:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.SHORT });
+    }, { useCache: false }); // Disabled caching for real-time data
   };
 
   const createConversation = async (request: { conversation_type: 'user_user' | 'user_company' | 'company_company'; participant_ids: string[]; name?: string }) => {
@@ -4505,8 +4530,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('💬 Calling api.chat.createConversation...');
       const response = await api.chat.createConversation(requestData);
       if (response.success) {
-        // Invalidate conversations cache
-        await rateLimiter.clearCacheByPattern('conversations-');
+        // Cache invalidation not needed since caching is disabled for conversations
         console.log('✅ Conversation created successfully');
         return response;
       }
@@ -4517,6 +4541,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Real-time data - caching disabled for immediate updates
   const getMessages = async (conversationId: string, params?: { page?: number; limit?: number; before?: string }) => {
     const cacheKey = `messages-${conversationId}-${JSON.stringify(params || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
@@ -4532,7 +4557,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch messages:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.SHORT });
+    }, { useCache: false }); // Disabled caching for real-time data
   };
 
   const sendMessage = async (conversationId: string, messageData: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; file_url?: string; file_name?: string; file_size?: number; reply_to_message_id?: string }) => {
@@ -4543,9 +4568,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('💬 Sending message to conversation:', conversationId);
       const response = await api.chat.sendMessage(conversationId, messageData);
       if (response.success) {
-        // Invalidate messages cache for this conversation
-        await rateLimiter.clearCacheByPattern(`messages-${conversationId}-`);
-        await rateLimiter.clearCacheByPattern('conversations-');
+        // Cache invalidation not needed since caching is disabled for real-time data
         console.log('✅ Message sent successfully');
         return response;
       }
@@ -4564,9 +4587,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('💬 Editing message:', messageId);
       const response = await api.chat.editMessage(messageId, { content });
       if (response.success) {
-        // Invalidate messages cache
-        await rateLimiter.clearCacheByPattern('messages-');
-        await rateLimiter.clearCacheByPattern('conversations-');
+        // Cache invalidation not needed since caching is disabled for real-time data
         console.log('✅ Message edited successfully');
         return response;
       }
@@ -4585,9 +4606,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('💬 Deleting message:', messageId);
       const response = await api.chat.deleteMessage(messageId);
       if (response.success) {
-        // Invalidate messages cache
-        await rateLimiter.clearCacheByPattern('messages-');
-        await rateLimiter.clearCacheByPattern('conversations-');
+        // Cache invalidation not needed since caching is disabled for real-time data
         console.log('✅ Message deleted successfully');
         return response;
       }
@@ -4691,6 +4710,46 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Heartbeat system for online status tracking (Redis-powered)
+  const sendHeartbeat = async () => {
+    try {
+      if (!api.chat) {
+        console.warn('⚠️ Chat service not available for heartbeat');
+        return;
+      }
+      await api.chat.sendHeartbeat();
+      console.log('✅ Heartbeat sent');
+    } catch (error: any) {
+      // Silently fail - heartbeat is not critical
+      console.warn('⚠️ Heartbeat failed (non-critical):', error.message || error);
+    }
+  };
+
+  const startHeartbeat = () => {
+    // Clear any existing interval
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+    }
+    
+    // Send initial heartbeat
+    sendHeartbeat();
+    
+    // Set up interval for periodic heartbeats
+    heartbeatIntervalRef.current = setInterval(() => {
+      sendHeartbeat();
+    }, HEARTBEAT_INTERVAL);
+    
+    console.log('🟢 Heartbeat started (30s interval)');
+  };
+
+  const stopHeartbeat = () => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+      console.log('🔴 Heartbeat stopped');
+    }
+  };
+
   // Load notifications and unread count on user login
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -4716,6 +4775,41 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       warmCache();
     }
   }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id]);
+
+  // Manage heartbeat based on authentication state and app state
+  useEffect(() => {
+    if (!isAuthenticated || !user || !api.chat) {
+      // Stop heartbeat if user is not authenticated
+      stopHeartbeat();
+      return;
+    }
+
+    // Handle app state changes for heartbeat management
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        // App is in foreground - start/resume heartbeat
+        startHeartbeat();
+      } else {
+        // App is in background or inactive - stop heartbeat
+        stopHeartbeat();
+      }
+    };
+
+    // Set initial state based on current app state
+    const currentAppState = AppState.currentState;
+    if (currentAppState === 'active') {
+      startHeartbeat();
+    }
+
+    // Subscribe to app state changes
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      // Cleanup: stop heartbeat and remove listener
+      stopHeartbeat();
+      subscription.remove();
+    };
+  }, [isAuthenticated, user?.id, api.chat]);
 
   // Setup real-time subscription for notifications
   useEffect(() => {
@@ -4817,6 +4911,56 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       };
     }
   }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id]);
+
+  // Online status methods
+  const getOnlineStatus = async (userId: string) => {
+    try {
+      const accessToken = getAccessToken();
+      const response = await fetch(`${baseUrl}/api/users/${userId}/online-status`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      return data;
+    } catch (error: any) {
+      console.error('❌ Failed to get online status:', error);
+      throw error;
+    }
+  };
+
+  const getOnlineStatuses = async (userIds: string[]) => {
+    try {
+      const accessToken = getAccessToken();
+      const response = await fetch(`${baseUrl}/api/users/online-statuses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ user_ids: userIds }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      return data;
+    } catch (error: any) {
+      console.error('❌ Failed to get online statuses:', error);
+      throw error;
+    }
+  };
 
   const value: ApiContextType = {
     api,
@@ -5010,6 +5154,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     sendMessage,
     editMessage,
     deleteMessage,
+    // Online status methods
+    getOnlineStatus,
+    getOnlineStatuses,
   };
 
   return (

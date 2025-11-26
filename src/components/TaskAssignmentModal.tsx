@@ -14,6 +14,7 @@ import { useApi } from '../contexts/ApiContext';
 import { TASK_TO_SERVICE_SUGGESTIONS } from '../data/mockData';
 import SearchModal from './SearchModal';
 import TaskDetailsForm from './TaskDetailsForm';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 const TaskAssignmentModal: React.FC<TaskAssignmentModalProps> = ({
   visible,
@@ -274,7 +275,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e7eb',
   },
   closeButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   title: {
     fontSize: 18,
@@ -286,13 +287,13 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: spacing.xl,
   },
   stageInfoCard: {
     backgroundColor: '#f8fafc',
-    padding: 16,
-    borderRadius: 8,
-    marginVertical: 16,
+    padding: semanticSpacing.containerPaddingLarge,
+    borderRadius: spacing.sm,
+    marginVertical: semanticSpacing.containerPaddingLarge,
   },
   stageName: {
     fontSize: 18,
@@ -352,10 +353,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#eff6ff',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
-    gap: 6,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: spacing.sm,
+    borderRadius: semanticSpacing.tightPadding,
+    gap: semanticSpacing.tightGap,
   },
   addRoleText: {
     fontSize: 14,
@@ -369,9 +370,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f9fafb',
-    padding: 12,
-    borderRadius: 6,
-    marginBottom: 8,
+    padding: semanticSpacing.containerPadding,
+    borderRadius: semanticSpacing.tightPadding,
+    marginBottom: spacing.sm,
   },
   assignmentInfo: {
     flex: 1,
@@ -397,7 +398,7 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
   removeAssignmentButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   customRoleButton: {
     flexDirection: 'row',
@@ -406,9 +407,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#3b82f6',
     borderStyle: 'dashed',
-    borderRadius: 8,
-    paddingVertical: 16,
-    gap: 8,
+    borderRadius: spacing.sm,
+    paddingVertical: semanticSpacing.containerPaddingLarge,
+    gap: spacing.sm,
   },
   customRoleText: {
     fontSize: 16,
@@ -417,8 +418,8 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     backgroundColor: '#f0fdf4',
-    padding: 16,
-    borderRadius: 8,
+    padding: semanticSpacing.containerPaddingLarge,
+    borderRadius: spacing.sm,
     borderWidth: 1,
     borderColor: '#bbf7d0',
   },

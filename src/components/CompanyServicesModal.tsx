@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { Company, AvailableCompanyService, CompanyService } from '../types';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 interface CompanyServicesModalProps {
   visible: boolean;
@@ -405,7 +406,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: spacing.xl,
     borderBottomWidth: 1,
     borderBottomColor: '#e4e4e7',
   },
@@ -415,13 +416,13 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   closeButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    margin: 16,
-    paddingHorizontal: 12,
+    margin: semanticSpacing.containerPaddingLarge,
+    paddingHorizontal: semanticSpacing.containerPadding,
     paddingVertical: 10,
     backgroundColor: '#f4f4f5',
     borderRadius: 10,
@@ -437,7 +438,7 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   loadingContainer: {
-    padding: 40,
+    padding: spacing.xxl,
     alignItems: 'center',
   },
   loadingText: {
@@ -453,8 +454,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    marginBottom: 12,
+    padding: semanticSpacing.containerPaddingLarge,
+    marginBottom: semanticSpacing.containerPadding,
     backgroundColor: '#f9fafb',
     borderRadius: 12,
     borderWidth: 2,
@@ -491,7 +492,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   emptyState: {
-    padding: 40,
+    padding: spacing.xxl,
     alignItems: 'center',
   },
   emptyText: {
@@ -503,11 +504,11 @@ const styles = StyleSheet.create({
   modalFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 16,
-    paddingTop: 20,
+    padding: semanticSpacing.containerPaddingLarge,
+    paddingTop: spacing.xl,
     borderTopWidth: 1,
     borderTopColor: '#e4e4e7',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   cancelButton: {
     flex: 1,

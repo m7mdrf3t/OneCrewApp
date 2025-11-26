@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import { rateLimiter } from '../utils/rateLimiter';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 interface AccountSwitcherModalProps {
   visible: boolean;
@@ -52,20 +54,34 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
     }
   }, [visible, user?.id]);
 
-  const loadCompanies = async () => {
+  const loadCompanies = async (forceRefresh = false) => {
     if (!user?.id) return;
     try {
       setLoading(true);
+      
+      // Clear cache if force refresh is requested
+      if (forceRefresh) {
+        const cacheKey = `user-companies-${user.id}`;
+        await rateLimiter.clearCache(cacheKey);
+        console.log('🔄 Force refresh: Cleared cache for user companies');
+      }
+      
       const response = await getUserCompanies(user.id);
       if (response.success && response.data) {
         const companiesList = Array.isArray(response.data)
           ? response.data
           : response.data.data || [];
-        // Debug: Log the structure to understand the data format
-        if (companiesList.length > 0) {
-          console.log('📊 Company data structure:', JSON.stringify(companiesList[0], null, 2));
-        }
+        
+        // Debug: Log all companies and their approval status
+        console.log(`📊 Loaded ${companiesList.length} companies from getUserCompanies`);
+        companiesList.forEach((company: any, index: number) => {
+          const companyData = getCompanyData(company);
+          const approvalStatus = companyData?.approval_status || company.approval_status || 'unknown';
+          console.log(`  Company ${index + 1}: ${companyData?.name || 'Unknown'} - Approval Status: ${approvalStatus}`);
+        });
+        
         // Filter to only show companies where user is owner
+        // IMPORTANT: Do NOT filter by approval_status - show all owned companies including pending ones
         // Check multiple ways: role field, owner.id, or company.owner.id
         const ownedCompanies = companiesList.filter((company: any) => {
           const companyData = getCompanyData(company);
@@ -74,10 +90,21 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
           const isOwnerById = companyData?.owner?.id === user.id;
           const isOwnerByCompanyOwner = (companyData as any)?.owner_id === user.id;
           
-          // Show company if user is owner by any method
-          return isOwnerByRole || isOwnerById || isOwnerByCompanyOwner;
+          // Show company if user is owner by any method (regardless of approval_status)
+          const isOwner = isOwnerByRole || isOwnerById || isOwnerByCompanyOwner;
+          
+          if (isOwner) {
+            const approvalStatus = companyData?.approval_status || company.approval_status;
+            console.log(`✅ Including company "${companyData?.name || 'Unknown'}" (owner) - Approval: ${approvalStatus || 'unknown'}`);
+          }
+          
+          return isOwner;
         });
+        
+        console.log(`✅ Filtered to ${ownedCompanies.length} owned companies (including pending)`);
         setCompanies(ownedCompanies);
+      } else {
+        console.warn('⚠️ getUserCompanies returned no data:', response);
       }
     } catch (error) {
       console.error('Failed to load companies:', error);
@@ -141,6 +168,45 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
     return data.logo_url || data.logo || data.image_url || data.avatar_url || company.logo_url || company.logo;
   };
 
+  const getCompanyApprovalStatus = (company: any) => {
+    const data = getCompanyData(company);
+    return data?.approval_status || company.approval_status;
+  };
+
+  const getApprovalStatusColor = (status?: string): string => {
+    switch (status) {
+      case 'approved':
+        return '#22c55e';
+      case 'pending':
+        return '#f59e0b';
+      case 'rejected':
+        return '#ef4444';
+      case 'suspended':
+        return '#ef4444';
+      case 'draft':
+        return '#6b7280';
+      default:
+        return '#71717a';
+    }
+  };
+
+  const getApprovalStatusLabel = (status?: string): string => {
+    switch (status) {
+      case 'approved':
+        return 'Approved';
+      case 'pending':
+        return 'Pending Approval';
+      case 'rejected':
+        return 'Rejected';
+      case 'suspended':
+        return 'Suspended';
+      case 'draft':
+        return 'Draft';
+      default:
+        return '';
+    }
+  };
+
   const isActiveCompany = (company: any) => {
     return currentProfileType === 'company' && activeCompany?.id === getCompanyId(company);
   };
@@ -160,9 +226,22 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
         <View style={styles.modalContainer}>
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Switch Account</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="#000" />
-            </TouchableOpacity>
+            <View style={styles.headerRight}>
+              <TouchableOpacity 
+                onPress={() => loadCompanies(true)} 
+                style={styles.refreshButton}
+                disabled={loading}
+              >
+                <Ionicons 
+                  name="refresh" 
+                  size={20} 
+                  color={loading ? "#9ca3af" : "#000"} 
+                />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -213,6 +292,9 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
                   const companyName = getCompanyName(company);
                   const companyImage = getCompanyImage(company);
                   const isActive = isActiveCompany(company);
+                  const approvalStatus = getCompanyApprovalStatus(company);
+                  const approvalStatusLabel = getApprovalStatusLabel(approvalStatus);
+                  const approvalStatusColor = getApprovalStatusColor(approvalStatus);
                   
                   // Debug logging
                   if (companyName === 'Unnamed Company') {
@@ -242,7 +324,17 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
                         </View>
                         <View style={styles.accountInfo}>
                           <Text style={styles.accountName}>{companyName}</Text>
-                          <Text style={styles.accountType}>Company</Text>
+                          <View style={styles.accountTypeRow}>
+                            <Text style={styles.accountType}>Company</Text>
+                            {approvalStatus && approvalStatus !== 'approved' && (
+                              <View style={[styles.approvalBadge, { backgroundColor: approvalStatusColor + '20' }]}>
+                                <View style={[styles.approvalDot, { backgroundColor: approvalStatusColor }]} />
+                                <Text style={[styles.approvalText, { color: approvalStatusColor }]}>
+                                  {approvalStatusLabel}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
                         </View>
                       </View>
                       {isActive && (
@@ -296,7 +388,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: spacing.xl,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e5e5',
   },
@@ -305,11 +397,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  refreshButton: {
+    padding: spacing.xs,
+  },
   closeButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   content: {
-    padding: 20,
+    padding: spacing.xl,
   },
   accountItem: {
     flexDirection: 'row',
@@ -360,6 +460,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#71717a',
   },
+  accountTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  approvalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginLeft: 4,
+  },
+  approvalDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
+  },
+  approvalText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
   divider: {
     height: 1,
     backgroundColor: '#e5e5e5',
@@ -374,7 +497,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   loadingContainer: {
-    padding: 20,
+    padding: spacing.xl,
     alignItems: 'center',
   },
   createButton: {

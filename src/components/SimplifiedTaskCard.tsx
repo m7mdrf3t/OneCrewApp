@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useApi } from '../contexts/ApiContext';
 import DatePicker from './DatePicker';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 interface SimplifiedTaskCardProps {
   projectId: string;
@@ -1481,14 +1482,13 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                 <View 
                   style={[
                     styles.assignmentRow,
-                    isPending && styles.assignmentRowPending
+                    isPending && styles.assignmentRowPending,
+                    assignmentStatus === 'accepted' && styles.assignmentRowAccepted
                   ]}
                 >
               <View style={styles.assignmentLeft}>
                     <Ionicons name="briefcase" size={14} color="#000" />
                 <Text style={styles.assignmentText}>{assignment.service?.name}</Text>
-              </View>
-              <View style={styles.assignmentRight}>
                 <View style={styles.userBadge}>
                   <Text style={styles.userInitials}>
                     {(assignment.user?.name || 'U').charAt(0).toUpperCase()}
@@ -1508,18 +1508,21 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                         }
                       }}
                       disabled={!canEdit}
-                      style={styles.userInfoContainer}
+                      style={styles.userNameContainer}
                     >
-                      <Text style={[
-                        styles.userName,
-                        canEdit && styles.userNameEditable
-                      ]}>
+                      <Text 
+                        style={[
+                          styles.userName,
+                          canEdit && styles.userNameEditable
+                        ]}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
                         {assignment.user?.name || 'Unknown'}
                       </Text>
-                      <Text style={styles.userRole}>
-                        {assignment.service?.name || 'No role'}
-                      </Text>
                     </TouchableOpacity>
+              </View>
+              <View style={styles.assignmentRight}>
                   
                   {isPending ? (
                     // Pending assignments: Only project owner can accept (pending → accepted) or cancel
@@ -2024,10 +2027,9 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                       </>
                     )
                   ) : assignmentStatus === 'accepted' ? (
-                    // Accepted assignments: Show accepted status, no action buttons for assigned user
+                    // Accepted assignments: Row is green, no action buttons for assigned user
                     isAssignedUser(assignment) ? (
                       <>
-                        <Text style={styles.acceptedText}>Accepted</Text>
                         {/* No accept button - assignment is already accepted */}
                         <TouchableOpacity
                           style={styles.rejectIconButton}
@@ -2081,7 +2083,6 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                       // Accepted assignment - not assigned to current user
                       // Project owner can still remove it
                       <>
-                        <Text style={styles.acceptedText}>Accepted</Text>
                         {isProjectOwner && (
                           <TouchableOpacity
                             style={styles.removeIconButton}
@@ -2536,8 +2537,8 @@ const styles = StyleSheet.create({
   taskButtonContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: semanticSpacing.sectionGapLarge,
+    gap: semanticSpacing.buttonPadding,
   },
   taskButton: {
     flex: 1,
@@ -2545,8 +2546,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#ef4444',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingVertical: semanticSpacing.sectionGapLarge,
+    paddingHorizontal: spacing.xxl,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#dc2626',
@@ -2555,7 +2556,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
   },
   cancelButton: {
     width: 48,
@@ -2570,7 +2571,7 @@ const styles = StyleSheet.create({
   taskCard: {
     backgroundColor: '#f3f4f6',
     borderRadius: 12,
-    marginBottom: 16,
+    marginBottom: semanticSpacing.cardMargin,
     overflow: 'hidden',
   },
   cardHeader: {
@@ -2578,8 +2579,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.tightPadding,
   },
   cardHeaderLeft: {
     flexDirection: 'row',
@@ -2590,28 +2591,28 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
   },
   assignmentCount: {
     color: '#fff',
     fontSize: 14,
     opacity: 0.7,
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
   },
   expandButton: {
-    padding: 4,
-    marginLeft: 8,
+    padding: spacing.xs,
+    marginLeft: semanticSpacing.buttonPadding,
   },
   cardHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: semanticSpacing.iconGap,
   },
   statusBadge: {
     backgroundColor: '#fff',
-    paddingHorizontal: 10,
+    paddingHorizontal: spacing.sm,
     paddingVertical: 3,
-    borderRadius: 10,
+    borderRadius: spacing.sm,
   },
   statusBadgeText: {
     color: '#000',
@@ -2619,64 +2620,78 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   headerButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   assignmentsContainer: {
-    padding: 8,
+    padding: semanticSpacing.tightPadding,
   },
   assignmentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#fff',
-    padding: 8,
-    borderRadius: 6,
-    marginBottom: 6,
+    padding: semanticSpacing.tightPadding,
+    paddingHorizontal: spacing.sm,
+    borderRadius: semanticSpacing.tightPadding,
+    marginBottom: spacing.xs,
   },
   assignmentRowPending: {
     backgroundColor: '#fffbeb', // Very light yellow background
     borderLeftWidth: 2,
     borderLeftColor: '#fbbf24', // Lighter amber border
   },
+  assignmentRowAccepted: {
+    backgroundColor: '#f0fdf4', // Very light green background
+    borderLeftWidth: 2,
+    borderLeftColor: '#10b981', // Green border
+  },
   assignmentLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    gap: semanticSpacing.tightGap,
+    marginRight: spacing.sm,
   },
   assignmentText: {
     fontSize: 13,
     fontWeight: '600',
     color: '#000',
-    marginLeft: 6,
+    marginLeft: semanticSpacing.tightGap,
   },
   assignmentRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'flex-end', // Align buttons to the right
+    gap: spacing.xs,
+    flexShrink: 0, // Don't shrink the buttons section
+  },
+  userNameContainer: {
+    marginLeft: semanticSpacing.tightGap,
     flex: 1,
+    minWidth: 0, // Allow flex item to shrink below content size
   },
   userInfoContainer: {
-    flex: 1,
-    marginLeft: 6,
+    marginLeft: semanticSpacing.tightGap,
+    minWidth: 0, // Allow flex item to shrink below content size
   },
   userRole: {
     fontSize: 11,
     color: '#6b7280',
     fontWeight: '500',
-    marginTop: 1,
+    marginTop: semanticSpacing.iconPaddingSmall,
   },
   swipeActionContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    marginBottom: 8,
+    marginBottom: semanticSpacing.buttonPadding,
   },
   swipeAction: {
     justifyContent: 'center',
     alignItems: 'center',
     width: 80,
     height: '100%',
-    paddingHorizontal: 12,
+    paddingHorizontal: semanticSpacing.containerPadding,
   },
   swipeActionEdit: {
     backgroundColor: '#3b82f6',
@@ -2688,47 +2703,61 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
   userBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0, // Don't shrink the avatar
   },
   userInitials: {
     color: '#fff',
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: 'bold',
   },
   userName: {
     fontSize: 13,
     fontWeight: '500',
     color: '#000',
+    flexShrink: 1, // Allow text to shrink if needed
   },
   editButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   removeButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   acceptIconButton: {
-    padding: 2,
-    marginLeft: 2,
+    padding: spacing.xs,
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   rejectIconButton: {
-    padding: 2,
-    marginLeft: 2,
+    padding: spacing.xs,
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   removeIconButton: {
-    padding: 2,
-    marginLeft: 2,
+    padding: spacing.xs,
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   editIconButton: {
-    padding: 2,
-    marginLeft: 2,
+    padding: spacing.xs,
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   userNameEditable: {
     textDecorationLine: 'underline',
@@ -2737,38 +2766,38 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#f59e0b',
     fontWeight: '500',
-    marginLeft: 4,
+    marginLeft: spacing.xs,
   },
   acceptedText: {
     fontSize: 11,
     color: '#10b981',
     fontWeight: '500',
-    marginLeft: 4,
+    marginLeft: spacing.xs,
   },
   addServiceButton: {
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 6,
+    padding: semanticSpacing.containerPadding,
+    borderRadius: semanticSpacing.tightPadding,
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderStyle: 'dashed',
-    marginTop: 6,
-    marginHorizontal: 8,
+    marginTop: semanticSpacing.tightGap,
+    marginHorizontal: semanticSpacing.buttonPadding,
   },
   autoSaveIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    marginHorizontal: 16,
-    marginBottom: 8,
+    paddingVertical: semanticSpacing.buttonPadding,
+    marginHorizontal: semanticSpacing.sectionGapLarge,
+    marginBottom: semanticSpacing.buttonPadding,
   },
   autoSaveText: {
     color: '#3b82f6',
     fontSize: 12,
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
   },
   modalOverlay: {
     flex: 1,
@@ -2789,14 +2818,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
-    padding: 16,
+    padding: semanticSpacing.modalPadding,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
   typeOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: semanticSpacing.modalPadding,
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
   },
@@ -2804,12 +2833,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#000',
-    marginLeft: 12,
+    marginLeft: semanticSpacing.containerPadding,
   },
   cancelOption: {
     borderTopWidth: 2,
     borderTopColor: '#fee2e2',
-    marginTop: 8,
+    marginTop: semanticSpacing.buttonPadding,
   },
   cancelOptionText: {
     color: '#ef4444',
@@ -2825,7 +2854,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: semanticSpacing.modalPadding,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
@@ -2837,14 +2866,14 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: semanticSpacing.modalPadding,
+    paddingVertical: semanticSpacing.headerPaddingVertical,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
   searchInput: {
     flex: 1,
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
     fontSize: 16,
     color: '#000',
   },
@@ -2855,7 +2884,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    padding: semanticSpacing.modalPadding,
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
   },
@@ -2877,7 +2906,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: semanticSpacing.containerPadding,
   },
   userAvatarText: {
     color: '#fff',
@@ -2885,7 +2914,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   emptyContainer: {
-    padding: 32,
+    padding: spacing.xxl, // Keep 32px for empty states
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2893,7 +2922,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6b7280',
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: semanticSpacing.buttonPadding,
   },
   emptySubtext: {
     fontSize: 14,
@@ -2904,20 +2933,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 32,
+    padding: spacing.xxl, // Keep 32px for loading states
   },
   loadingText: {
     fontSize: 14,
     color: '#6b7280',
-    marginLeft: 12,
+    marginLeft: semanticSpacing.containerPadding,
   },
   preSelectedUserBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#eff6ff',
-    padding: 12,
-    marginHorizontal: 16,
-    marginTop: 8,
+    padding: semanticSpacing.containerPadding,
+    marginHorizontal: semanticSpacing.sectionGapLarge,
+    marginTop: semanticSpacing.buttonPadding,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#3b82f6',
@@ -2926,7 +2955,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#3b82f6',
     fontWeight: '600',
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
   },
   preSelectedUserItem: {
     backgroundColor: '#eff6ff',
@@ -2947,10 +2976,10 @@ const styles = StyleSheet.create({
   editMenuContainer: {
     position: 'absolute',
     top: 80,
-    right: 20,
+    right: spacing.xl,
     backgroundColor: '#fff',
     borderRadius: 12,
-    paddingVertical: 8,
+    paddingVertical: semanticSpacing.buttonPadding,
     minWidth: 180,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -2961,8 +2990,8 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: semanticSpacing.modalPadding,
+    paddingVertical: semanticSpacing.headerPaddingVertical,
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
   },
@@ -2972,19 +3001,19 @@ const styles = StyleSheet.create({
   menuItemText: {
     fontSize: 16,
     color: '#000',
-    marginLeft: 12,
+    marginLeft: semanticSpacing.containerPadding,
   },
   menuItemTextDelete: {
     color: '#ef4444',
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: semanticSpacing.containerPadding, // Reduced from 20 to 12
   },
   inputLabel: {
     fontSize: 14,
     fontWeight: '600',
     color: '#000',
-    marginBottom: 8,
+    marginBottom: semanticSpacing.buttonPadding,
   },
   datePicker: {
     marginBottom: 0,
@@ -2994,15 +3023,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#d1d5db',
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: semanticSpacing.inputPadding,
+    paddingVertical: semanticSpacing.inputPadding,
     fontSize: 16,
     color: '#000',
   },
   saveButton: {
     backgroundColor: '#3b82f6',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingVertical: semanticSpacing.containerPadding,
+    paddingHorizontal: spacing.xxl,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProjectDashboardData } from '../types';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 interface CommunicationComponentProps {
   project: ProjectDashboardData;
@@ -264,8 +265,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: semanticSpacing.modalPadding,
+    paddingVertical: semanticSpacing.headerPaddingVertical,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
@@ -280,29 +281,29 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 12,
     color: '#6b7280',
-    marginTop: 2,
+    marginTop: semanticSpacing.iconPaddingSmall,
   },
   moreButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   membersContainer: {
-    paddingVertical: 8,
+    paddingVertical: semanticSpacing.buttonPadding,
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
   },
   membersList: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    gap: 8,
+    paddingHorizontal: semanticSpacing.modalPadding,
+    gap: semanticSpacing.buttonPadding,
   },
   memberChip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f3f4f6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: semanticSpacing.buttonPadding,
+    paddingVertical: spacing.xs,
     borderRadius: 12,
-    gap: 6,
+    gap: semanticSpacing.tightGap,
   },
   memberAvatar: {
     width: 20,
@@ -325,28 +326,28 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContent: {
-    padding: 16,
+    padding: semanticSpacing.modalPadding,
   },
   systemMessage: {
     alignItems: 'center',
-    marginVertical: 8,
+    marginVertical: semanticSpacing.buttonPadding,
   },
   systemMessageText: {
     fontSize: 12,
     color: '#6b7280',
     textAlign: 'center',
     backgroundColor: '#f3f4f6',
-    paddingHorizontal: 12,
+    paddingHorizontal: semanticSpacing.containerPadding,
     paddingVertical: 6,
     borderRadius: 12,
   },
   systemMessageTime: {
     fontSize: 10,
     color: '#9ca3af',
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
   messageContainer: {
-    marginVertical: 4,
+    marginVertical: spacing.xs,
   },
   currentUserMessage: {
     alignItems: 'flex-end',
@@ -356,8 +357,8 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: '80%',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.buttonPadding,
     borderRadius: 16,
   },
   currentUserBubble: {
@@ -381,8 +382,8 @@ const styles = StyleSheet.create({
   messageInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
-    gap: 8,
+    marginTop: spacing.xs,
+    gap: semanticSpacing.buttonPadding,
   },
   messageSender: {
     fontSize: 10,
@@ -394,12 +395,12 @@ const styles = StyleSheet.create({
   },
   typingIndicator: {
     alignItems: 'flex-start',
-    marginVertical: 4,
+    marginVertical: spacing.xs,
   },
   typingBubble: {
     backgroundColor: '#f3f4f6',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.buttonPadding,
     borderRadius: 16,
     borderBottomLeftRadius: 4,
   },
@@ -411,21 +412,21 @@ const styles = StyleSheet.create({
   inputContainer: {
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: semanticSpacing.modalPadding,
+    paddingVertical: semanticSpacing.headerPaddingVertical,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
+    gap: semanticSpacing.buttonPadding,
   },
   textInput: {
     flex: 1,
     borderWidth: 1,
     borderColor: '#d1d5db',
     borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: semanticSpacing.modalPadding,
+    paddingVertical: semanticSpacing.buttonPadding,
     fontSize: 14,
     color: '#000',
     backgroundColor: '#fff',
@@ -446,7 +447,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: semanticSpacing.buttonPadding,
   },
   characterCount: {
     fontSize: 10,
@@ -454,10 +455,10 @@ const styles = StyleSheet.create({
   },
   inputActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   actionButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
 });
 

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { spacing, semanticSpacing } from '../constants/spacing';
 import { MOCK_PROFILES, getInitials } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
 
@@ -167,12 +168,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 2,
     borderBottomColor: '#000',
-    padding: 12,
-    paddingTop: 16,
+    padding: semanticSpacing.containerPadding,
+    paddingTop: semanticSpacing.containerPadding,
   },
   backButton: {
-    padding: 4,
-    marginRight: 12,
+    padding: spacing.xs,
+    marginRight: semanticSpacing.containerPadding,
   },
   headerInfo: {
     flex: 1,
@@ -185,7 +186,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: '#71717a',
-    marginTop: 2,
+    marginTop: semanticSpacing.iconPaddingSmall,
   },
   placeholder: {
     width: 32,
@@ -194,7 +195,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   profilesContainer: {
-    padding: 12,
+    padding: semanticSpacing.containerPadding,
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
@@ -203,16 +204,16 @@ const styles = StyleSheet.create({
     width: '48%',
     backgroundColor: '#000',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    padding: semanticSpacing.modalPadding,
+    marginBottom: semanticSpacing.sectionGapLarge,
     position: 'relative',
   },
   cardHeader: {
     position: 'absolute',
-    top: 12,
-    right: 12,
+    top: semanticSpacing.containerPadding,
+    right: semanticSpacing.containerPadding,
     flexDirection: 'row',
-    gap: 8,
+    gap: semanticSpacing.buttonPadding,
   },
   checkBadge: {
     width: 36,
@@ -221,7 +222,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    marginRight: semanticSpacing.buttonPadding,
   },
   bagBadge: {
     position: 'absolute',
@@ -230,8 +231,8 @@ const styles = StyleSheet.create({
   },
   plusBadge: {
     position: 'absolute',
-    top: 12,
-    left: 12,
+    top: semanticSpacing.containerPadding,
+    left: semanticSpacing.containerPadding,
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -250,18 +251,18 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   cardFooter: {
-    marginTop: 12,
+    marginTop: semanticSpacing.containerPadding,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginRight: 8,
+    marginRight: semanticSpacing.buttonPadding,
   },
   profileName: {
     fontSize: 16,
@@ -276,14 +277,14 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+    padding: 40, // Keep 40px for empty states
   },
   emptyTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: semanticSpacing.sectionGapLarge,
+    marginBottom: semanticSpacing.buttonPadding,
   },
   emptySubtitle: {
     fontSize: 14,

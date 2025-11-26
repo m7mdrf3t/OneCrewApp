@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { ChatPageProps, ChatMessage, ChatConversation } from '../types';
 import supabaseService from '../services/SupabaseService';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 const ChatPage: React.FC<ChatPageProps> = ({
   conversationId,
@@ -756,26 +757,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: semanticSpacing.modalPadding,
+    paddingVertical: semanticSpacing.headerPaddingVertical,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
     backgroundColor: '#fff',
   },
   backButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   headerInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
   },
   headerAvatar: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    marginRight: 8,
+    marginRight: semanticSpacing.buttonPadding,
   },
   headerAvatarPlaceholder: {
     width: 36,
@@ -804,7 +805,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   loadingText: {
     fontSize: 14,
@@ -814,8 +815,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 32,
-    gap: 16,
+    paddingHorizontal: spacing.xxl,
+    gap: semanticSpacing.sectionGapLarge,
   },
   errorText: {
     fontSize: 16,
@@ -824,10 +825,10 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     backgroundColor: '#3b82f6',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: spacing.xxl,
+    paddingVertical: semanticSpacing.containerPadding,
     borderRadius: 8,
-    marginTop: 8,
+    marginTop: semanticSpacing.buttonPadding,
   },
   retryButtonText: {
     color: '#fff',
@@ -835,11 +836,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   messagesList: {
-    padding: 16,
+    padding: semanticSpacing.modalPadding,
     flexGrow: 1,
   },
   messageContainer: {
-    marginVertical: 4,
+    marginVertical: spacing.xs,
     flexDirection: 'row',
     alignItems: 'flex-end',
   },
@@ -850,8 +851,8 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   avatarContainer: {
-    marginRight: 8,
-    marginBottom: 4,
+    marginRight: semanticSpacing.buttonPadding,
+    marginBottom: spacing.xs,
   },
   messageAvatar: {
     width: 32,
@@ -873,8 +874,8 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: '75%',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.buttonPadding,
     borderRadius: 16,
   },
   currentUserBubble: {
@@ -889,7 +890,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#6b7280',
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
   messageText: {
     fontSize: 14,
@@ -903,7 +904,7 @@ const styles = StyleSheet.create({
   },
   messageTime: {
     fontSize: 10,
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
   currentUserTime: {
     color: 'rgba(255, 255, 255, 0.7)',
@@ -913,40 +914,40 @@ const styles = StyleSheet.create({
   },
   systemMessage: {
     alignItems: 'center',
-    marginVertical: 8,
+    marginVertical: semanticSpacing.buttonPadding,
   },
   systemMessageText: {
     fontSize: 12,
     color: '#6b7280',
     textAlign: 'center',
     backgroundColor: '#f3f4f6',
-    paddingHorizontal: 12,
+    paddingHorizontal: semanticSpacing.containerPadding,
     paddingVertical: 6,
     borderRadius: 12,
   },
   systemMessageTime: {
     fontSize: 10,
     color: '#9ca3af',
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
   inputContainer: {
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: semanticSpacing.modalPadding,
+    paddingVertical: semanticSpacing.headerPaddingVertical,
     backgroundColor: '#fff',
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
+    gap: semanticSpacing.buttonPadding,
   },
   textInput: {
     flex: 1,
     borderWidth: 1,
     borderColor: '#d1d5db',
     borderRadius: 20,
-    paddingHorizontal: 16,
+    paddingHorizontal: semanticSpacing.modalPadding,
     paddingVertical: 8,
     fontSize: 14,
     color: '#000',
@@ -968,8 +969,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 64,
-    gap: 12,
+    paddingVertical: spacing.xxl * 2.67, // Keep 64px for empty state
+    gap: semanticSpacing.containerPadding,
   },
   emptyStateText: {
     fontSize: 18,
@@ -981,7 +982,7 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
   footerLoader: {
-    paddingVertical: 16,
+    paddingVertical: semanticSpacing.containerPaddingLarge,
     alignItems: 'center',
   },
   modalOverlay: {
@@ -989,12 +990,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: spacing.xl,
   },
   modalContent: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: semanticSpacing.containerPaddingLarge,
+    padding: spacing.xl,
     width: '100%',
     maxWidth: 400,
   },
@@ -1002,28 +1003,28 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
-    marginBottom: 16,
+    marginBottom: semanticSpacing.containerPaddingLarge,
   },
   modalInput: {
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: spacing.sm,
+    padding: semanticSpacing.containerPadding,
     fontSize: 16,
     color: '#000',
     minHeight: 100,
     textAlignVertical: 'top',
-    marginBottom: 16,
+    marginBottom: semanticSpacing.containerPaddingLarge,
   },
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   modalButton: {
-    paddingHorizontal: 20,
+    paddingHorizontal: spacing.xl,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: spacing.sm,
     minWidth: 80,
     alignItems: 'center',
   },
@@ -1052,20 +1053,20 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   actionSheetContainer: {
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    paddingHorizontal: 8,
+    paddingBottom: Platform.OS === 'ios' ? 34 : spacing.xl,
+    paddingHorizontal: spacing.sm,
   },
   actionSheetContent: {
     backgroundColor: '#fff',
     borderRadius: 14,
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   actionSheetItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingVertical: semanticSpacing.containerPaddingLarge,
+    paddingHorizontal: spacing.xl,
     backgroundColor: '#fff',
   },
   actionSheetItemDanger: {
@@ -1074,7 +1075,7 @@ const styles = StyleSheet.create({
   actionSheetItemText: {
     fontSize: 18,
     color: '#000',
-    marginLeft: 16,
+    marginLeft: semanticSpacing.containerPaddingLarge,
     fontWeight: '400',
   },
   actionSheetItemTextDanger: {
@@ -1083,7 +1084,7 @@ const styles = StyleSheet.create({
   actionSheetDivider: {
     height: 1,
     backgroundColor: '#e5e7eb',
-    marginHorizontal: 20,
+    marginHorizontal: spacing.xl,
   },
   actionSheetCancel: {
     paddingVertical: 16,

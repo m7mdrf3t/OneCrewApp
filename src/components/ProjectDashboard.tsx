@@ -16,6 +16,7 @@ import TaskCard from './TaskCard';
 import TaskEditModal from './TaskEditModal';
 import SimplifiedTaskCard from './SimplifiedTaskCard';
 import { useApi } from '../contexts/ApiContext';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 interface ProjectDashboardProps {
   project: any;
@@ -101,6 +102,8 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             });
           });
         }
+
+        
       } catch (taskError) {
         console.error('❌ Failed to load tasks:', taskError);
         // Fallback: try getting tasks from project data if dedicated endpoint fails
@@ -736,11 +739,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
-    padding: 16,
-    paddingTop: 20,
+    padding: semanticSpacing.headerPadding,
+    paddingTop: semanticSpacing.headerPaddingVertical, // Reduced from 12 to 8
   },
   backButton: {
-    padding: 8,
+    padding: semanticSpacing.buttonPadding,
     borderRadius: 20,
     backgroundColor: '#f0f0f0',
   },
@@ -750,20 +753,20 @@ const styles = StyleSheet.create({
     color: '#000',
     flex: 1,
     textAlign: 'center',
-    marginHorizontal: 16,
+    marginHorizontal: semanticSpacing.sectionGap,
   },
   headerSpacer: {
     width: 40,
   },
   content: {
     flex: 1,
-    padding: 16,
+    padding: semanticSpacing.containerPadding,
   },
   buttonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 24,
-    paddingHorizontal: 8,
+    marginBottom: semanticSpacing.sectionGap, // Reduced from sectionGapLarge to sectionGap (16 → 12)
+    paddingHorizontal: spacing.xs,
   },
   actionButton: {
     width: 60,
@@ -771,7 +774,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 2,
+    marginHorizontal: spacing.xs,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -798,16 +801,16 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: '600',
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: spacing.xs,
     lineHeight: 10,
   },
   createTaskButton: {
     backgroundColor: '#ef4444',
     borderRadius: 8,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingVertical: semanticSpacing.sectionGapLarge,
+    paddingHorizontal: spacing.xxl,
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: semanticSpacing.sectionGapLarge,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -821,8 +824,8 @@ const styles = StyleSheet.create({
   },
   bigCreateTaskButton: {
     position: 'absolute',
-    bottom: 24,
-    right: 24,
+    bottom: semanticSpacing.sectionGapLarge,
+    right: semanticSpacing.sectionGapLarge,
     width: 64,
     height: 64,
     borderRadius: 32,
@@ -841,21 +844,21 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   stagesSection: {
-    marginTop: 16,
+    marginTop: semanticSpacing.sectionGapLarge,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
-    marginBottom: 16,
+    marginBottom: semanticSpacing.sectionGapLarge,
   },
   stageContainer: {
-    marginBottom: 16,
+    marginBottom: semanticSpacing.sectionGapLarge,
   },
   stageHeader: {
     borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.headerPaddingVertical,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -869,17 +872,17 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-    marginLeft: 12,
+    marginLeft: semanticSpacing.containerPadding,
   },
   stageHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   statusBadge: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: semanticSpacing.buttonPadding,
+    paddingVertical: spacing.xs,
     borderRadius: 12,
   },
   statusBadgeText: {
@@ -888,19 +891,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   stageMenuIcon: {
-    marginHorizontal: 4,
+    marginHorizontal: spacing.xs,
   },
   stageContent: {
     backgroundColor: '#fff',
     borderRadius: 8,
-    marginTop: 4,
-    padding: 16,
+    marginTop: spacing.xs,
+    padding: semanticSpacing.containerPadding,
   },
   taskCard: {
     backgroundColor: '#f9fafb',
     borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
+    padding: semanticSpacing.containerPadding,
+    marginBottom: semanticSpacing.cardMargin,
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
@@ -908,7 +911,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: semanticSpacing.containerPadding,
   },
   taskTitle: {
     fontSize: 16,
@@ -919,32 +922,32 @@ const styles = StyleSheet.create({
   assignmentInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: semanticSpacing.buttonPadding,
   },
   assignmentText: {
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
     fontSize: 14,
     color: '#6b7280',
     fontWeight: '500',
   },
   taskCardContainer: {
-    marginBottom: 16,
+    marginBottom: semanticSpacing.sectionGapLarge,
   },
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+    padding: spacing.xl,
   },
   loadingText: {
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
     fontSize: 14,
     color: '#6b7280',
   },
   noTasksContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+    padding: spacing.xl,
   },
   noTasksText: {
     fontSize: 14,
@@ -952,27 +955,27 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   refreshButton: {
-    padding: 8,
+    padding: semanticSpacing.buttonPadding,
     borderRadius: 6,
     backgroundColor: '#f3f4f6',
   },
   taskActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 8,
-    gap: 8,
+    marginTop: semanticSpacing.buttonPadding,
+    gap: semanticSpacing.buttonPadding,
   },
   taskActionButton: {
-    padding: 6,
-    borderRadius: 4,
+    padding: semanticSpacing.tightPadding,
+    borderRadius: spacing.xs,
     backgroundColor: '#f3f4f6',
   },
   addTaskButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 12,
-    marginTop: 8,
+    padding: semanticSpacing.containerPadding,
+    marginTop: semanticSpacing.buttonPadding,
     backgroundColor: '#f9fafb',
     borderRadius: 8,
     borderWidth: 1,
@@ -980,18 +983,18 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   addTaskButtonText: {
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
     color: '#6b7280',
     fontSize: 14,
     fontWeight: '500',
   },
   stageExpandIcon: {
-    marginLeft: 8,
+    marginLeft: semanticSpacing.buttonPadding,
   },
   debugInfo: {
     backgroundColor: '#f3f4f6',
-    padding: 8,
-    marginTop: 8,
+    padding: semanticSpacing.buttonPadding,
+    marginTop: semanticSpacing.buttonPadding,
     borderRadius: 4,
   },
   debugText: {

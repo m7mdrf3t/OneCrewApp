@@ -9,6 +9,7 @@ import ProfileCompletionBanner from '../components/ProfileCompletionBanner';
 import SignUpPromptModal from '../components/SignUpPromptModal';
 import CertificationCard from '../components/CertificationCard';
 import { UserCertification } from '../types';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void; onNavigate?: (page: string, data?: any) => void }> = ({
   profile,
@@ -1370,12 +1371,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 2,
     borderBottomColor: '#000',
-    padding: 12,
-    paddingTop: 16,
+    padding: semanticSpacing.containerPadding,
+    paddingTop: semanticSpacing.containerPaddingLarge,
   },
   backButton: {
-    padding: 4,
-    marginRight: 12,
+    padding: spacing.xs,
+    marginRight: semanticSpacing.containerPadding,
   },
   title: {
     flex: 1,
@@ -1409,8 +1410,8 @@ const styles = StyleSheet.create({
   },
   heroCalendarIcon: {
     position: 'absolute',
-    top: 16,
-    right: 16,
+    top: semanticSpacing.containerPaddingLarge,
+    right: semanticSpacing.containerPaddingLarge,
     zIndex: 1,
   },
   calendarIconCircle: {
@@ -1425,15 +1426,15 @@ const styles = StyleSheet.create({
   },
   profileContainer: {
     padding: 0,
-    paddingBottom: 16,
+    paddingBottom: semanticSpacing.containerPaddingLarge,
     backgroundColor: '#fff',
-    paddingHorizontal: 8,
-    paddingTop: 16,
+    paddingHorizontal: spacing.sm,
+    paddingTop: semanticSpacing.containerPaddingLarge,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
   },
   name: {
     fontSize: 22,
@@ -1444,12 +1445,12 @@ const styles = StyleSheet.create({
   lastSeen: {
     fontSize: 14,
     color: '#71717a',
-    marginBottom: 16,
+    marginBottom: semanticSpacing.containerPaddingLarge,
   },
   ctaRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
+    gap: semanticSpacing.containerPadding,
+    marginBottom: semanticSpacing.containerPaddingLarge,
   },
   ctaButton: {
     flex: 1,
@@ -1458,7 +1459,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 12,
     paddingVertical: 14,
-    gap: 8,
+    gap: spacing.sm,
   },
   ctaLight: {
     backgroundColor: '#fff',
@@ -1502,20 +1503,20 @@ const styles = StyleSheet.create({
   personalInfoGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: spacing.sm,
   },
   infoTag: {
     backgroundColor: '#f4f4f5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 8,
+    borderRadius: spacing.sm,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
     minWidth: '45%',
   },
   infoTagLabel: {
     fontSize: 12,
     color: '#71717a',
-    marginBottom: 4,
+    marginBottom: spacing.xs,
     fontWeight: '500',
   },
   infoTagValue: {
@@ -1526,20 +1527,20 @@ const styles = StyleSheet.create({
   tagList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 4,
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
   infoChip: {
     backgroundColor: '#f4f4f5',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: semanticSpacing.containerPaddingLarge,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.tightPadding,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: semanticSpacing.tightGap,
   },
   chipIcon: {
-    marginRight: 2,
+    marginRight: semanticSpacing.iconPaddingSmall,
   },
   infoChipText: {
     fontSize: 12,
@@ -1549,24 +1550,24 @@ const styles = StyleSheet.create({
   // Gallery Styles
   galleryContainer: {
     backgroundColor: '#fff',
-    marginBottom: 16,
-    marginHorizontal: 8,
+    marginBottom: semanticSpacing.containerPaddingLarge,
+    marginHorizontal: spacing.sm,
     borderRadius: 12,
-    padding: 16,
+    padding: semanticSpacing.containerPaddingLarge,
     borderWidth: 2,
     borderColor: '#d4d4d8',
-    width: Dimensions.get('window').width - 16, // Full width minus horizontal margins
+    width: Dimensions.get('window').width - semanticSpacing.containerPaddingLarge, // Full width minus horizontal margins
   },
   galleryTitle: {
     fontSize: 18,
     fontWeight: '800',
     color: '#000',
-    marginBottom: 12,
+    marginBottom: semanticSpacing.containerPadding,
   },
   galleryTabs: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
+    gap: spacing.sm,
+    marginBottom: semanticSpacing.containerPaddingLarge,
     alignItems: 'center',
     flexWrap: 'nowrap',
     width: '100%',
@@ -1576,11 +1577,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: spacing.sm,
     paddingVertical: 10,
     borderRadius: 20,
     backgroundColor: '#f4f4f5',
-    gap: 6,
+    gap: semanticSpacing.tightGap,
     minWidth: 0,
   },
   galleryTabActive: {
@@ -1595,13 +1596,13 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   galleryContent: {
-    marginTop: 8,
+    marginTop: spacing.sm,
     alignItems: 'flex-start',
   },
   albumGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
   },
@@ -1610,7 +1611,7 @@ const styles = StyleSheet.create({
     height: 200,
     backgroundColor: '#f4f4f5',
     borderRadius: 12,
-    padding: 16,
+    padding: semanticSpacing.containerPaddingLarge,
     justifyContent: 'flex-end',
     position: 'relative',
     borderWidth: 1,
@@ -1643,24 +1644,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#000',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
     textAlign: 'left',
   },
   albumStats: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    gap: 8,
+    gap: spacing.sm,
     flexWrap: 'wrap',
   },
   albumStatText: {
     fontSize: 12,
     color: '#000',
-    marginRight: 8,
+    marginRight: spacing.sm,
     textAlign: 'left',
   },
   emptyGallery: {
-    padding: 40,
+    padding: spacing.xxl,
     alignItems: 'center',
   },
   emptyGalleryText: {
@@ -1671,11 +1672,11 @@ const styles = StyleSheet.create({
   contactHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: spacing.sm,
+    marginBottom: semanticSpacing.containerPadding,
   },
   contactInfo: {
-    gap: 8,
+    gap: spacing.sm,
   },
   contactText: {
     fontSize: 14,
@@ -1685,8 +1686,8 @@ const styles = StyleSheet.create({
   talentDetailsContainer: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    padding: semanticSpacing.containerPaddingLarge,
+    marginBottom: semanticSpacing.containerPaddingLarge,
     width: '100%',
     borderWidth: 2,
     borderColor: '#d4d4d8',
@@ -1694,16 +1695,16 @@ const styles = StyleSheet.create({
   talentDetailsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f8fafc',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 8,
+    borderRadius: spacing.sm,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
     minWidth: '45%',
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -1711,8 +1712,8 @@ const styles = StyleSheet.create({
   detailLabel: {
     fontSize: 12,
     color: '#64748b',
-    marginLeft: 6,
-    marginRight: 8,
+    marginLeft: semanticSpacing.tightGap,
+    marginRight: spacing.sm,
     fontWeight: '500',
   },
   detailValue: {
@@ -1725,13 +1726,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     color: '#000',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   statsContainer: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-    marginHorizontal: 8,
+    gap: semanticSpacing.containerPadding,
+    marginBottom: semanticSpacing.containerPaddingLarge,
+    marginHorizontal: spacing.sm,
     width: 'auto',
   },
   statCard: {
@@ -1751,14 +1752,14 @@ const styles = StyleSheet.create({
   statLabel: {
     fontSize: 12,
     color: '#71717a',
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
   // Legacy styles - keeping for backward compatibility
   bioContainer: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    padding: semanticSpacing.containerPaddingLarge,
+    marginBottom: semanticSpacing.containerPaddingLarge,
     width: '100%',
     borderWidth: 2,
     borderColor: '#d4d4d8',
@@ -1771,8 +1772,8 @@ const styles = StyleSheet.create({
   skillsContainer: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    padding: semanticSpacing.containerPaddingLarge,
+    marginBottom: semanticSpacing.containerPaddingLarge,
     width: '100%',
     borderWidth: 2,
     borderColor: '#d4d4d8',
@@ -1781,7 +1782,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#000',
-    marginBottom: 12,
+    marginBottom: semanticSpacing.containerPadding,
   },
   skillsList: {
     flexDirection: 'row',
@@ -1789,11 +1790,11 @@ const styles = StyleSheet.create({
   },
   skillTag: {
     backgroundColor: '#f4f4f5',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
-    marginBottom: 8,
+    borderRadius: semanticSpacing.containerPaddingLarge,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.tightPadding,
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
   },
   skillText: {
     fontSize: 12,
@@ -1802,9 +1803,9 @@ const styles = StyleSheet.create({
   },
   actionsContainer: {
     width: '100%',
-    gap: 12,
-    marginHorizontal: 8,
-    marginBottom: 16,
+    gap: semanticSpacing.containerPadding,
+    marginHorizontal: spacing.sm,
+    marginBottom: semanticSpacing.containerPaddingLarge,
   },
   actionButton: {
     flexDirection: 'row',
@@ -1812,9 +1813,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 12,
     paddingVertical: 14,
-    paddingHorizontal: 20,
-    gap: 8,
-    marginBottom: 8,
+    paddingHorizontal: spacing.xl,
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
   primaryButton: {
     backgroundColor: '#3b82f6',

@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { TaskDetailsFormProps, UITaskAssignment, TaskStatus } from '../types';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 const { width } = Dimensions.get('window');
 
@@ -384,7 +385,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e7eb',
   },
   closeButton: {
-    padding: 4,
+    padding: spacing.xs,
   },
   title: {
     fontSize: 18,
@@ -396,15 +397,15 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: spacing.xl,
   },
   userInfoCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f8fafc',
-    padding: 16,
-    borderRadius: 8,
-    marginVertical: 16,
+    padding: semanticSpacing.containerPaddingLarge,
+    borderRadius: spacing.sm,
+    marginVertical: semanticSpacing.containerPaddingLarge,
   },
   userAvatar: {
     width: 50,
@@ -463,7 +464,7 @@ const styles = StyleSheet.create({
   },
   timeRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   timeInput: {
     flex: 1,
@@ -498,7 +499,7 @@ const styles = StyleSheet.create({
   statusGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: spacing.sm,
   },
   statusOption: {
     paddingHorizontal: 16,
@@ -527,17 +528,17 @@ const styles = StyleSheet.create({
   attendeesList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
+    gap: spacing.sm,
+    marginBottom: semanticSpacing.containerPadding,
   },
   attendeeChip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#eff6ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 6,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.tightPadding,
+    borderRadius: semanticSpacing.containerPaddingLarge,
+    gap: semanticSpacing.tightGap,
   },
   attendeeText: {
     fontSize: 12,
@@ -553,9 +554,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#3b82f6',
     borderStyle: 'dashed',
-    borderRadius: 8,
-    paddingVertical: 12,
-    gap: 8,
+    borderRadius: spacing.sm,
+    paddingVertical: semanticSpacing.containerPadding,
+    gap: spacing.sm,
   },
   addAttendeeText: {
     fontSize: 14,
@@ -564,11 +565,11 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: semanticSpacing.containerPaddingLarge,
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
-    gap: 12,
+    gap: semanticSpacing.containerPadding,
   },
   cancelButton: {
     flex: 1,

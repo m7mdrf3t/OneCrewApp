@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import { spacing, semanticSpacing } from '../constants/spacing';
 
 interface User {
   id: string;
@@ -753,12 +754,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 2,
     borderBottomColor: '#000',
-    padding: 12,
-    paddingTop: 16,
+    padding: semanticSpacing.containerPadding,
+    paddingTop: semanticSpacing.containerPadding,
   },
   backButton: {
-    padding: 4,
-    marginRight: 12,
+    padding: spacing.xs,
+    marginRight: semanticSpacing.containerPadding,
   },
   title: {
     flex: 1,
@@ -786,8 +787,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#fecaca',
     borderRadius: 8,
-    padding: 12,
-    margin: 16,
+    padding: semanticSpacing.containerPadding,
+    margin: semanticSpacing.sectionGapLarge,
   },
   errorText: {
     color: '#ef4444',
@@ -795,14 +796,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   categorySection: {
-    marginBottom: 24,
+    marginBottom: semanticSpacing.sectionGapLarge,
   },
   categoryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    paddingHorizontal: semanticSpacing.modalPadding,
+    marginBottom: semanticSpacing.containerPadding,
   },
   categoryTitle: {
     fontSize: 20,
@@ -816,24 +817,24 @@ const styles = StyleSheet.create({
   usersGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 8,
-    gap: 8,
+    paddingHorizontal: spacing.xs,
+    gap: semanticSpacing.buttonPadding,
   },
   userCard: {
     width: '48%',
     backgroundColor: '#000',
     borderRadius: 12,
-    marginBottom: 8,
+    marginBottom: semanticSpacing.buttonPadding,
     minHeight: 220,
   },
   userCardContent: {
-    padding: 12,
+    padding: semanticSpacing.containerPadding,
     flex: 1,
   },
   userInitials: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: semanticSpacing.containerPadding,
     height: 100,
     width: '100%',
   },
@@ -849,12 +850,12 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   userInfo: {
-    marginBottom: 8,
+    marginBottom: semanticSpacing.buttonPadding,
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
   statusDot: {
     width: 8,
@@ -873,10 +874,10 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
   },
   talentDetails: {
-    marginTop: 4,
+    marginTop: spacing.xs,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 4,
+    gap: spacing.xs,
   },
   talentDetailText: {
     fontSize: 10,
@@ -905,7 +906,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6b7280', // Gray color when loading
   },
   emptyState: {
-    padding: 24,
+    padding: spacing.xxl,
     alignItems: 'center',
   },
   emptyText: {
@@ -914,19 +915,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   subcategoriesContainer: {
-    padding: 16,
+    padding: semanticSpacing.modalPadding,
   },
   subcategoryCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    marginBottom: 12,
+    marginBottom: semanticSpacing.containerPadding,
     borderWidth: 2,
     borderColor: '#d4d4d8',
   },
   subcategoryContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: semanticSpacing.modalPadding,
   },
   subcategoryIcon: {
     width: 48,
@@ -935,7 +936,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f9ff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: semanticSpacing.sectionGapLarge,
   },
   subcategoryInfo: {
     flex: 1,
@@ -944,14 +945,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#000',
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
   subcategoryCount: {
     fontSize: 14,
     color: '#71717a',
   },
   usersContainer: {
-    padding: 16,
+    padding: semanticSpacing.modalPadding,
   },
   companyLogoInCard: {
     width: 60,
@@ -966,8 +967,8 @@ const styles = StyleSheet.create({
   },
   // Two-tone company card styles
   companiesListContainer: {
-    padding: 8,
-    gap: 12,
+    padding: spacing.xs,
+    gap: semanticSpacing.containerPadding,
   },
   companyCardTwoTone: {
     backgroundColor: '#fff',
@@ -1028,9 +1029,9 @@ const styles = StyleSheet.create({
   },
   companyCardBottom: {
     backgroundColor: '#f5f5f5',
-    padding: 16,
-    paddingTop: 12,
-    gap: 6,
+    padding: semanticSpacing.modalPadding,
+    paddingTop: semanticSpacing.containerPadding,
+    gap: semanticSpacing.tightGap,
   },
   companyCardBottomName: {
     fontSize: 16,
@@ -1046,8 +1047,8 @@ const styles = StyleSheet.create({
   companyCardLocation: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 2,
+    gap: semanticSpacing.tightGap,
+    marginTop: semanticSpacing.iconPaddingSmall,
   },
   companyCardLocationText: {
     fontSize: 14,
