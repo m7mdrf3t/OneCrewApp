@@ -430,7 +430,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <TouchableOpacity onPress={() => onBack()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
           <Text style={styles.title}>{section.title}</Text>
@@ -445,23 +445,26 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     );
   }
 
+  const handleBackPress = () => {
+    if (selectedSubcategory) {
+      // If we're viewing a subcategory, just clear it instead of going back
+      setSelectedSubcategory(null);
+    } else {
+      // If we're at the main category view, go back in navigation
+      onBack();
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title}>
           {selectedSubcategory ? selectedSubcategory : section.title}
         </Text>
-        {selectedSubcategory && (
-          <TouchableOpacity 
-            onPress={() => setSelectedSubcategory(null)} 
-            style={styles.backButton}
-          >
-            <Ionicons name="close" size={24} color="#000" />
-          </TouchableOpacity>
-        )}
+        <View style={styles.placeholder} />
       </View>
       
       <ScrollView 
@@ -498,15 +501,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                     <View style={styles.subcategoryIcon}>
                       <Ionicons 
                         name={(section.key === 'onehub' || section.key === 'academy') ? "business" : "people"} 
-                        size={24} 
-                        color="#3b82f6" 
+                        size={26} 
+                        color="#0ea5e9" 
                       />
                     </View>
                     <View style={styles.subcategoryInfo}>
                       <Text style={styles.subcategoryTitle}>{item.label}</Text>
                       <Text style={styles.subcategoryCount}>{count} {(section.key === 'onehub' || section.key === 'academy') ? 'companies' : 'profiles'}</Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={20} color="#71717a" />
+                    <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                   </View>
                 </TouchableOpacity>
               );
@@ -529,63 +532,51 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                       return (
                         <TouchableOpacity
                           key={company.id}
-                          style={styles.companyCardTwoTone}
+                          style={styles.companyCardSimple}
                           onPress={() => {
                             if (onNavigate) {
                               onNavigate('companyProfile', { companyId: company.id });
                             }
                           }}
-                          activeOpacity={0.8}
+                          activeOpacity={0.7}
                         >
-                          {/* Top Section - Dark Grey */}
-                          <View style={styles.companyCardTop}>
-                            {/* Company Logo */}
+                          {/* Company Image/Logo */}
+                          <View style={styles.companyCardImageContainer}>
                             {company.logo_url ? (
                               <Image
                                 source={{ uri: company.logo_url }}
-                                style={styles.companyCardLogo}
+                                style={styles.companyCardImage}
                                 resizeMode="cover"
                               />
                             ) : (
-                              <View style={styles.companyCardLogoPlaceholder}>
-                                <Ionicons name="business" size={48} color="#71717a" />
+                              <View style={styles.companyCardImagePlaceholder}>
+                                <Ionicons name="business" size={40} color="#9ca3af" />
                               </View>
                             )}
-                            <Text style={styles.companyCardTopName} numberOfLines={2}>
-                              {company.name}
-                            </Text>
-                            {/* Navigation Button */}
-                            <TouchableOpacity
-                              style={styles.companyNavButton}
-                              onPress={() => {
-                                if (onNavigate) {
-                                  onNavigate('companyProfile', { companyId: company.id });
-                                }
-                              }}
-                              activeOpacity={0.7}
-                            >
-                              <Ionicons name="arrow-back" size={16} color="#fff" />
-                            </TouchableOpacity>
                           </View>
                           
-                          {/* Bottom Section - Light Grey */}
-                          <View style={styles.companyCardBottom}>
-                            <Text style={styles.companyCardBottomName} numberOfLines={1}>
+                          {/* Company Info */}
+                          <View style={styles.companyCardInfo}>
+                            <Text style={styles.companyCardName} numberOfLines={2}>
                               {company.name}
                             </Text>
-                            {companyType ? (
-                              <Text style={styles.companyCardType} numberOfLines={1}>
-                                {companyType}
-                              </Text>
-                            ) : null}
-                            {location ? (
-                              <View style={styles.companyCardLocation}>
-                                <Ionicons name="location" size={14} color="#000" />
-                                <Text style={styles.companyCardLocationText} numberOfLines={1}>
-                                  {location}
-                                </Text>
+                            {(companyType || location) && (
+                              <View style={styles.companyCardMeta}>
+                                {companyType ? (
+                                  <Text style={styles.companyCardType} numberOfLines={1}>
+                                    {companyType}
+                                  </Text>
+                                ) : null}
+                                {location ? (
+                                  <View style={styles.companyCardLocation}>
+                                    <Ionicons name="location-outline" size={14} color="#6b7280" />
+                                    <Text style={styles.companyCardLocationText} numberOfLines={1}>
+                                      {location}
+                                    </Text>
+                                  </View>
+                                ) : null}
                               </View>
-                            ) : null}
+                            )}
                           </View>
                         </TouchableOpacity>
                       );
@@ -752,23 +743,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderBottomWidth: 2,
-    borderBottomColor: '#000',
-    padding: semanticSpacing.containerPadding,
-    paddingTop: semanticSpacing.containerPadding,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingHorizontal: semanticSpacing.containerPaddingLarge,
+    paddingVertical: semanticSpacing.containerPadding,
+    paddingTop: semanticSpacing.containerPadding + 4,
   },
   backButton: {
     padding: spacing.xs,
-    marginRight: semanticSpacing.containerPadding,
+    marginRight: semanticSpacing.sectionGap,
+    borderRadius: semanticSpacing.borderRadius.sm,
   },
   title: {
     flex: 1,
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#000',
+    letterSpacing: -0.3,
   },
   placeholder: {
-    width: 32,
+    width: 40,
   },
   content: {
     flex: 1,
@@ -777,23 +771,28 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: spacing.xxl,
   },
   loadingText: {
-    fontSize: 16,
-    color: '#71717a',
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#6b7280',
+    letterSpacing: -0.2,
   },
   errorContainer: {
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: semanticSpacing.containerPadding,
-    margin: semanticSpacing.sectionGapLarge,
+    borderRadius: semanticSpacing.borderRadius.md,
+    padding: semanticSpacing.containerPaddingLarge,
+    margin: semanticSpacing.containerPaddingLarge,
   },
   errorText: {
-    color: '#ef4444',
+    color: '#dc2626',
     fontSize: 14,
+    fontWeight: '500',
     textAlign: 'center',
+    letterSpacing: -0.2,
   },
   categorySection: {
     marginBottom: semanticSpacing.sectionGapLarge,
@@ -802,33 +801,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: semanticSpacing.modalPadding,
+    paddingHorizontal: semanticSpacing.containerPaddingLarge,
     marginBottom: semanticSpacing.containerPadding,
   },
   categoryTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 22,
+    fontWeight: '700',
     color: '#000',
+    letterSpacing: -0.4,
   },
   userCount: {
-    fontSize: 14,
-    color: '#71717a',
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#6b7280',
+    letterSpacing: -0.2,
   },
   usersGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: spacing.xs,
-    gap: semanticSpacing.buttonPadding,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    gap: semanticSpacing.containerPadding,
   },
   userCard: {
     width: '48%',
     backgroundColor: '#000',
-    borderRadius: 12,
-    marginBottom: semanticSpacing.buttonPadding,
+    borderRadius: semanticSpacing.borderRadius.lg,
+    marginBottom: semanticSpacing.containerPadding,
     minHeight: 220,
+    overflow: 'hidden',
   },
   userCardContent: {
-    padding: semanticSpacing.containerPadding,
+    padding: semanticSpacing.containerPaddingLarge,
     flex: 1,
   },
   userInitials: {
@@ -846,8 +849,9 @@ const styles = StyleSheet.create({
   },
   initialsText: {
     fontSize: 48,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#fff',
+    letterSpacing: -1,
   },
   userInfo: {
     marginBottom: semanticSpacing.buttonPadding,
@@ -855,7 +859,7 @@ const styles = StyleSheet.create({
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
   statusDot: {
     width: 8,
@@ -864,95 +868,115 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   userName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     color: '#fff',
     flex: 1,
+    letterSpacing: -0.3,
   },
   userRole: {
     fontSize: 12,
+    fontWeight: '500',
     color: '#9ca3af',
+    letterSpacing: -0.2,
+    textTransform: 'uppercase',
   },
   talentDetails: {
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.xs,
   },
   talentDetailText: {
     fontSize: 10,
+    fontWeight: '500',
     color: '#9ca3af',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#1f2937',
     paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingVertical: 3,
+    borderRadius: semanticSpacing.borderRadius.sm,
+    letterSpacing: -0.1,
   },
   userActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: spacing.xs,
   },
   actionButton: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: '#374151',
     justifyContent: 'center',
     alignItems: 'center',
   },
   actionButtonAdded: {
-    backgroundColor: '#10b981', // Green color when user is in team
+    backgroundColor: '#10b981',
   },
   actionButtonLoading: {
-    backgroundColor: '#6b7280', // Gray color when loading
+    backgroundColor: '#6b7280',
   },
   emptyState: {
-    padding: spacing.xxl,
+    padding: spacing.xxl * 2,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyText: {
-    fontSize: 14,
-    color: '#71717a',
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#6b7280',
     textAlign: 'center',
+    letterSpacing: -0.2,
   },
   subcategoriesContainer: {
-    padding: semanticSpacing.modalPadding,
+    padding: semanticSpacing.containerPaddingLarge,
+    paddingTop: semanticSpacing.sectionGapLarge,
   },
   subcategoryCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: semanticSpacing.borderRadius.lg,
     marginBottom: semanticSpacing.containerPadding,
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   subcategoryContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: semanticSpacing.modalPadding,
+    padding: semanticSpacing.containerPaddingLarge,
   },
   subcategoryIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 52,
+    height: 52,
+    borderRadius: semanticSpacing.borderRadius.md,
     backgroundColor: '#f0f9ff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: semanticSpacing.sectionGapLarge,
+    marginRight: semanticSpacing.containerPadding,
   },
   subcategoryInfo: {
     flex: 1,
   },
   subcategoryTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#000',
     marginBottom: spacing.xs,
+    letterSpacing: -0.3,
   },
   subcategoryCount: {
     fontSize: 14,
-    color: '#71717a',
+    fontWeight: '500',
+    color: '#6b7280',
+    letterSpacing: -0.2,
   },
   usersContainer: {
-    padding: semanticSpacing.modalPadding,
+    padding: semanticSpacing.containerPaddingLarge,
+    paddingTop: semanticSpacing.sectionGapLarge,
   },
   companyLogoInCard: {
     width: 60,
@@ -960,101 +984,78 @@ const styles = StyleSheet.create({
     borderRadius: 30,
   },
   companyDescription: {
-    fontSize: 12,
-    color: '#9ca3af',
-    marginTop: 4,
-    lineHeight: 16,
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#6b7280',
+    marginTop: spacing.xs,
+    lineHeight: 18,
+    letterSpacing: -0.2,
   },
-  // Two-tone company card styles
+  // Simple, clean company card styles
   companiesListContainer: {
-    padding: spacing.xs,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingTop: semanticSpacing.containerPadding,
     gap: semanticSpacing.containerPadding,
   },
-  companyCardTwoTone: {
+  companyCardSimple: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+    borderRadius: semanticSpacing.borderRadius.lg,
     borderWidth: 1,
-    borderColor: '#000',
+    borderColor: '#e5e7eb',
     overflow: 'hidden',
-    marginBottom: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  companyCardTop: {
-    backgroundColor: '#262626',
-    padding: 0,
-    height: 200,
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  companyCardLogo: {
+  companyCardImageContainer: {
     width: '100%',
-    height: 140,
-    backgroundColor: '#1a1a1a',
+    height: 160,
+    backgroundColor: '#f9fafb',
   },
-  companyCardLogoPlaceholder: {
+  companyCardImage: {
     width: '100%',
-    height: 140,
-    backgroundColor: '#1a1a1a',
+    height: '100%',
+  },
+  companyCardImagePlaceholder: {
+    width: '100%',
+    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f3f4f6',
   },
-  companyCardTopName: {
+  companyCardInfo: {
+    padding: semanticSpacing.containerPaddingLarge,
+  },
+  companyCardName: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 4,
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-  },
-  companyNavButton: {
-    position: 'absolute',
-    bottom: 12,
-    left: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#000',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  companyCardBottom: {
-    backgroundColor: '#f5f5f5',
-    padding: semanticSpacing.modalPadding,
-    paddingTop: semanticSpacing.containerPadding,
-    gap: semanticSpacing.tightGap,
-  },
-  companyCardBottomName: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#000',
-    marginBottom: 2,
+    marginBottom: spacing.sm,
+    letterSpacing: -0.3,
+    lineHeight: 24,
+  },
+  companyCardMeta: {
+    gap: spacing.xs,
   },
   companyCardType: {
     fontSize: 14,
-    color: '#000',
-    opacity: 0.7,
+    fontWeight: '500',
+    color: '#6b7280',
+    letterSpacing: -0.2,
   },
   companyCardLocation: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: semanticSpacing.tightGap,
-    marginTop: semanticSpacing.iconPaddingSmall,
+    gap: spacing.xs,
   },
   companyCardLocationText: {
     fontSize: 14,
-    color: '#000',
-    opacity: 0.7,
+    fontWeight: '500',
+    color: '#6b7280',
     flex: 1,
+    letterSpacing: -0.2,
   },
 });
 

@@ -312,7 +312,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
                 onPress={() => setShowSearch(true)}
               >
                 <View style={styles.searchIconContainer}>
-                  <Ionicons name="search" size={16} color="#000" />
+                  <Ionicons name="search" size={20} color="#0ea5e9" />
                 </View>
                 <Text style={styles.searchButtonText}>Search</Text>
               </TouchableOpacity>
@@ -391,37 +391,44 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sectionsContainer: {
-    padding: semanticSpacing.containerPadding,
+    padding: semanticSpacing.containerPaddingLarge,
+    paddingTop: semanticSpacing.sectionGapLarge,
   },
   searchButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-    borderRadius: 12,
-    padding: semanticSpacing.containerPadding,
-    marginBottom: semanticSpacing.buttonPadding,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: semanticSpacing.borderRadius.lg,
+    padding: semanticSpacing.containerPaddingLarge,
+    marginBottom: semanticSpacing.containerPadding,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   searchIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#f4f4f5',
+    width: 44,
+    height: 44,
+    borderRadius: semanticSpacing.borderRadius.md,
+    backgroundColor: '#f0f9ff',
     borderWidth: 1,
-    borderColor: '#d4d4d8',
+    borderColor: '#e0f2fe',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: semanticSpacing.containerPadding,
   },
   searchButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#000',
     flex: 1,
+    letterSpacing: -0.3,
   },
   searchBarContainer: {
-    marginBottom: semanticSpacing.buttonPadding,
+    marginBottom: semanticSpacing.containerPadding,
   },
   loadingContainer: {
     position: 'absolute',

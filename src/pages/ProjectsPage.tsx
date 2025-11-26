@@ -492,13 +492,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
         <Text style={styles.title}>Projects</Text>
-        <TouchableOpacity onPress={onRefresh || loadProjects} style={styles.refreshButton}>
-          <Ionicons name="refresh" size={24} color="#000" />
-        </TouchableOpacity>
       </View>
       {/* Backend Error Banner */}
       {/* Removed error banner - no longer loading tasks upfront */}
@@ -754,25 +748,18 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#fff',
-    borderBottomWidth: 2,
-    borderBottomColor: '#000',
-    padding: semanticSpacing.containerPadding,
-    paddingTop: semanticSpacing.containerPaddingLarge,
-  },
-  backButton: {
-    padding: spacing.xs,
-    marginRight: semanticSpacing.containerPadding,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    padding: semanticSpacing.containerPaddingLarge,
+    paddingTop: semanticSpacing.containerPaddingLarge + 4,
   },
   title: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#000',
-  },
-  refreshButton: {
-    padding: spacing.xs,
-    marginLeft: semanticSpacing.containerPadding,
+    letterSpacing: -0.3,
   },
   searchContainer: {
     backgroundColor: '#fff',

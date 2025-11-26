@@ -23,7 +23,7 @@ const SectionCard: React.FC<SectionCardProps> = ({ section, onClick }) => {
       activeOpacity={0.7}
     >
       <View style={styles.iconContainer}>
-        <Ionicons name={iconName} size={20} color="#000" />
+        <Ionicons name={iconName} size={22} color="#0ea5e9" />
       </View>
       <View style={styles.content}>
         <Text style={styles.title}>{section.title}</Text>
@@ -31,7 +31,7 @@ const SectionCard: React.FC<SectionCardProps> = ({ section, onClick }) => {
           <Text style={styles.userCount}>{section.userCount} members</Text>
         )}
       </View>
-      <Ionicons name="chevron-forward" size={16} color="#71717a" />
+      <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
     </TouchableOpacity>
   );
 };
@@ -41,35 +41,43 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#f4f4f5',
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: '#f0f9ff',
     borderWidth: 1,
-    borderColor: '#d4d4d8',
+    borderColor: '#e0f2fe',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 14,
   },
   content: {
     flex: 1,
   },
   title: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#000',
-    marginBottom: 2,
+    marginBottom: 4,
+    letterSpacing: -0.3,
   },
   userCount: {
     fontSize: 14,
-    color: '#71717a',
+    fontWeight: '500',
+    color: '#6b7280',
+    letterSpacing: -0.2,
   },
 });
 

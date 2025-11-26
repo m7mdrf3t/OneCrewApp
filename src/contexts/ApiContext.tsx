@@ -226,7 +226,7 @@ interface ApiContextType {
   sendMessage: (conversationId: string, messageData: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; file_url?: string; file_name?: string; file_size?: number; reply_to_message_id?: string }) => Promise<any>;
   editMessage: (messageId: string, content: string) => Promise<any>;
   deleteMessage: (messageId: string) => Promise<any>;
-  readMessage: (conversationId: string, messageId?: string) => Promise<any>;
+  readMessage: (conversationId: string, messageId?: string, messageIds?: string[]) => Promise<any>;
   // Online status methods (Redis-powered)
   getOnlineStatus: (userId: string) => Promise<any>;
   getOnlineStatuses: (userIds: string[]) => Promise<any>;
@@ -4618,79 +4618,32 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const readMessage = async (conversationId: string, messageId?: string) => {
+  const readMessage = async (conversationId: string, messageId?: string, messageIds?: string[]) => {
     try {
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Marking message as read:', { conversationId, messageId });
+      console.log('💬 Marking message as read:', { conversationId, messageId, messageIds });
       
-      const accessToken = getAccessToken();
+      let response;
       
-      // Try different endpoint patterns
-      const endpoints = messageId 
-        ? [
-            `${baseUrl}/api/chat/messages/${messageId}/read`,
-            `${baseUrl}/api/chat/messages/${messageId}/mark-read`,
-          ]
-        : [
-            `${baseUrl}/api/chat/conversations/${conversationId}/read`,
-            `${baseUrl}/api/chat/conversations/${conversationId}/mark-read`,
-            `${baseUrl}/api/chat/conversations/${conversationId}/participants/me/read`,
-          ];
-      
-      let lastError: Error | null = null;
-      
-      // Try each endpoint pattern
-      for (const updateUrl of endpoints) {
-        try {
-          const fetchResponse = await fetch(updateUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${accessToken}`,
-            },
-          });
-
-          if (fetchResponse.ok) {
-            const data = await fetchResponse.json();
-            console.log('✅ Message marked as read successfully');
-            return { success: true, data };
-          }
-          
-          // If 404, try next endpoint
-          if (fetchResponse.status === 404) {
-            continue;
-          }
-          
-          // For other errors, try to parse and throw
-          const data = await fetchResponse.json();
-          throw new Error(data.error || `Failed to mark message as read: ${fetchResponse.statusText}`);
-        } catch (error: any) {
-          lastError = error;
-          // If it's a 404, continue to next endpoint
-          if (error.message?.includes('404') || error.message?.includes('not found')) {
-            continue;
-          }
-          // For other errors, throw immediately
-          throw error;
-        }
+      if (messageId) {
+        // Mark a single message as read using library method
+        // markMessageAsRead(messageId: string)
+        response = await api.chat.markMessageAsRead(messageId);
+      } else {
+        // Mark all messages in a conversation as read using library method
+        // markAllAsRead(conversationId: string, messageIds?: string[])
+        response = await api.chat.markAllAsRead(conversationId, messageIds);
       }
       
-      // If all endpoints failed with 404, the feature might not be implemented yet
-      if (lastError) {
-        console.warn('⚠️ Read message endpoint not found. This feature may not be implemented on the backend yet.');
-        // Return success anyway to not break the app
-        return { success: true, data: { message: 'Read status endpoint not available' } };
+      if (response.success) {
+        console.log('✅ Message(s) marked as read successfully');
+        return response;
       }
       
-      throw new Error('Failed to mark message as read: No valid endpoint found');
+      throw new Error(response.error || 'Failed to mark message as read');
     } catch (error: any) {
-      // Don't throw error if it's a 404 - just log and return success
-      if (error.message?.includes('404') || error.message?.includes('not found') || error.message?.includes('Route')) {
-        console.warn('⚠️ Read message endpoint not found. This feature may not be implemented on the backend yet.');
-        return { success: true, data: { message: 'Read status endpoint not available' } };
-      }
       console.error('❌ Failed to mark message as read:', error);
       throw error;
     }
