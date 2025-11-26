@@ -9,6 +9,8 @@ import {
   StyleSheet,
   Alert,
   Dimensions,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { 
@@ -21,6 +23,8 @@ import {
 import ReferenceDataService from '../services/ReferenceDataService';
 import DatePicker from './DatePicker';
 import { spacing, semanticSpacing } from '../constants/spacing';
+import MediaPickerService from '../services/MediaPickerService';
+import { useApi } from '../contexts/ApiContext';
 
 const { width } = Dimensions.get('window');
 
@@ -29,10 +33,15 @@ const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
   onClose,
   onSubmit,
 }) => {
+  const { uploadFile } = useApi();
+  const mediaPicker = MediaPickerService.getInstance();
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [projectTypes, setProjectTypes] = useState<ProjectType[]>([]);
   const [projectStages, setProjectStages] = useState<ProjectStage[]>([]);
+  const [coverImageUri, setCoverImageUri] = useState<string | null>(null);
+  const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
   const [formData, setFormData] = useState<ProjectCreationData>({
     title: '',
     type: '',
@@ -61,6 +70,8 @@ const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
         status: 'planning',
         stages: [],
       });
+      setCoverImageUri(null);
+      setCoverImageUrl(null);
       setCurrentStep(1);
       
       // Fetch reference data
@@ -121,6 +132,56 @@ const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     return date instanceof Date && !isNaN(date.getTime());
   };
 
+  const handlePickCoverImage = async () => {
+    try {
+      const result = await mediaPicker.pickImage({
+        allowsEditing: true,
+        quality: 0.8,
+        aspect: [16, 9], // Standard cover image aspect ratio
+        maxWidth: 1920,
+        maxHeight: 1080,
+      });
+
+      if (result) {
+        // Validate file size (max 10MB)
+        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 10)) {
+          Alert.alert('File Too Large', 'Please select an image smaller than 10MB.');
+          return;
+        }
+
+        setCoverImageUri(result.uri);
+        setIsUploadingImage(true);
+
+        // Upload the file
+        try {
+          const uploadResult = await uploadFile({
+            uri: result.uri,
+            type: 'image/jpeg',
+            name: result.fileName || `project_cover_${Date.now()}.jpg`,
+          });
+
+          if (uploadResult?.data?.url || uploadResult?.url) {
+            const imageUrl = uploadResult?.data?.url || uploadResult?.url;
+            setCoverImageUrl(imageUrl);
+            Alert.alert('Success', 'Cover image uploaded successfully!');
+          } else {
+            throw new Error('Upload failed - no URL returned');
+          }
+        } catch (uploadError: any) {
+          console.error('Upload error:', uploadError);
+          Alert.alert('Upload Failed', 'Failed to upload cover image. Please try again.');
+          setCoverImageUri(null);
+        } finally {
+          setIsUploadingImage(false);
+        }
+      }
+    } catch (error: any) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', error.message || 'Failed to pick image. Please try again.');
+      setIsUploadingImage(false);
+    }
+  };
+
   const validateStep1 = () => {
     if (!formData.title.trim()) {
       Alert.alert('Error', 'Please enter a project title');
@@ -148,6 +209,10 @@ const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     }
     if (!formData.location.trim()) {
       Alert.alert('Error', 'Please enter a location');
+      return false;
+    }
+    if (!coverImageUrl) {
+      Alert.alert('Error', 'Please upload a cover image for the project');
       return false;
     }
     return true;
@@ -191,9 +256,17 @@ const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
   };
 
   const handleSubmit = async () => {
+    if (!coverImageUrl) {
+      Alert.alert('Error', 'Please upload a cover image for the project');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await onSubmit(formData);
+      await onSubmit({
+        ...formData,
+        coverImageUrl,
+      });
       onClose();
     } catch (error) {
       console.error('Failed to create project:', error);
@@ -211,6 +284,43 @@ const ProjectCreationModal: React.FC<ProjectCreationModalProps> = ({
     <ScrollView style={styles.stepContainer} showsVerticalScrollIndicator={false}>
       <Text style={styles.stepTitle}>Project Details</Text>
       
+      {/* Cover Image */}
+      <View style={styles.inputGroup}>
+        <Text style={styles.label}>Cover Image *</Text>
+        <TouchableOpacity
+          style={styles.coverImageContainer}
+          onPress={handlePickCoverImage}
+          disabled={isUploadingImage}
+        >
+          {coverImageUri ? (
+            <View style={styles.coverImageWrapper}>
+              <Image source={{ uri: coverImageUri }} style={styles.coverImage} />
+              {isUploadingImage && (
+                <View style={styles.uploadOverlay}>
+                  <ActivityIndicator size="large" color="#fff" />
+                  <Text style={styles.uploadText}>Uploading...</Text>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={styles.coverImagePlaceholder}>
+              <Ionicons name="image-outline" size={48} color="#9ca3af" />
+              <Text style={styles.coverImagePlaceholderText}>
+                {isUploadingImage ? 'Uploading...' : 'Tap to add cover image'}
+              </Text>
+              {isUploadingImage && (
+                <ActivityIndicator size="small" color="#3b82f6" style={{ marginTop: 8 }} />
+              )}
+            </View>
+          )}
+        </TouchableOpacity>
+        {coverImageUrl && (
+          <Text style={styles.coverImageSuccessText}>
+            ✓ Cover image uploaded successfully
+          </Text>
+        )}
+      </View>
+
       {/* Project Title */}
       <View style={styles.inputGroup}>
         <Text style={styles.label}>Project Title *</Text>
@@ -741,6 +851,57 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  coverImageContainer: {
+    marginBottom: 8,
+  },
+  coverImageWrapper: {
+    position: 'relative',
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  coverImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  uploadOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  uploadText: {
+    color: '#fff',
+    marginTop: 8,
+    fontSize: 14,
+  },
+  coverImagePlaceholder: {
+    width: '100%',
+    height: 200,
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+  },
+  coverImagePlaceholderText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  coverImageSuccessText: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#10b981',
   },
 });
 

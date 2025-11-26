@@ -87,7 +87,7 @@ interface ApiContextType {
   addUserSkillNew: (skillId: string) => Promise<any>;
   removeUserSkillNew: (skillId: string) => Promise<any>;
   // Direct fetch methods
-  getUsersDirect: (params?: { limit?: number; page?: number }) => Promise<any>;
+  getUsersDirect: (params?: { limit?: number; page?: number; search?: string; category?: string; role?: string; location?: string }) => Promise<any>;
   fetchCompleteUserProfile: (userId: string, userData?: any) => Promise<any>;
   // Project management methods
   createProject: (projectData: any) => Promise<any>;
@@ -151,7 +151,7 @@ interface ApiContextType {
   uploadCompanyLogo: (companyId: string, file: { uri: string; type: string; name: string }) => Promise<any>;
   getUserCompanies: (userId: string) => Promise<any>;
   submitCompanyForApproval: (companyId: string) => Promise<any>;
-  getCompanies: (params?: any) => Promise<any>;
+  getCompanies: (params?: { limit?: number; page?: number; search?: string; category?: string; location?: string }) => Promise<any>;
   // Company services
   getAvailableServicesForCompany: (companyId: string) => Promise<any>;
   getCompanyServices: (companyId: string) => Promise<any>;
@@ -2000,11 +2000,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // Direct fetch method for getting users
-  const getUsersDirect = async (params: { limit?: number; page?: number } = {}) => {
-    const cacheKey = `users-direct-${params.limit || 'all'}-${params.page || 1}`;
+  const getUsersDirect = async (params: { 
+    limit?: number; 
+    page?: number;
+    search?: string;
+    category?: string;
+    role?: string;
+    location?: string;
+  } = {}) => {
+    const cacheKey = `users-direct-${JSON.stringify(params)}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('👥 Fetching users with direct fetch...');
+        console.log('👥 Fetching users with direct fetch...', params);
         
         // Debug: Check if user is authenticated
         console.log('🔍 Auth state check:', {
@@ -2018,6 +2025,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const queryParams = new URLSearchParams();
         if (params.limit) queryParams.append('limit', params.limit.toString());
         if (params.page) queryParams.append('page', params.page.toString());
+        if (params.search) queryParams.append('q', params.search);
+        if (params.category) queryParams.append('category', params.category);
+        if (params.role) queryParams.append('role', params.role);
+        if (params.location) queryParams.append('location', params.location);
         
         const url = `${baseUrl}/api/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
         console.log('🌐 Fetching from URL:', url);
@@ -3458,11 +3469,25 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const getCompanies = async (params?: any) => {
+  const getCompanies = async (params?: {
+    limit?: number;
+    page?: number;
+    search?: string;
+    category?: string;
+    location?: string;
+  }) => {
     const cacheKey = `companies-${JSON.stringify(params || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        const response = await api.getCompanies(params);
+        // Build query parameters for the API
+        const queryParams: any = {};
+        if (params?.limit) queryParams.limit = params.limit;
+        if (params?.page) queryParams.page = params.page;
+        if (params?.search) queryParams.q = params.search;
+        if (params?.category) queryParams.category = params.category;
+        if (params?.location) queryParams.location = params.location;
+        
+        const response = await api.getCompanies(Object.keys(queryParams).length > 0 ? queryParams : undefined);
         return response;
       } catch (error: any) {
         // Handle rate limiting gracefully

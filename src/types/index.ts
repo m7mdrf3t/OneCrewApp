@@ -274,6 +274,7 @@ export interface ProjectCreationData {
   budget?: number;
   status: ProjectStatus;
   stages: ProjectStage[];
+  coverImageUrl?: string;
 }
 
 // UI-specific TaskAssignment extends API TaskAssignment with additional fields

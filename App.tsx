@@ -245,19 +245,41 @@ const AppContent: React.FC = () => {
       }
 
       console.log('👤 Creating project for user:', user.id, user.name);
+      console.log('📋 Project data:', projectData);
 
-      // Create a simple project with default values
-      const projectRequest = {
-        title: 'Project 1',
-        description: 'New project created',
-        type: 'film',
-        status: 'planning' as const,
+      // Validate cover image is provided
+      if (!projectData.coverImageUrl) {
+        throw new Error('Cover image is required for project creation');
+      }
+
+      // Build project request from form data
+      const projectRequest: any = {
+        title: projectData.title.trim(),
+        description: projectData.description.trim() || undefined,
+        type: projectData.type.trim(),
+        start_date: projectData.startDate ? new Date(projectData.startDate).toISOString() : undefined,
+        end_date: projectData.endDate ? new Date(projectData.endDate).toISOString() : undefined,
+        delivery_date: projectData.endDate ? new Date(projectData.endDate).toISOString() : undefined,
+        status: projectData.status || 'planning',
+        progress: 0,
+        cover_image_url: projectData.coverImageUrl,
       };
 
-      console.log('📋 Creating simple project with data:', projectRequest);
+      // Add location if provided
+      if (projectData.location?.trim()) {
+        projectRequest.location = projectData.location.trim();
+      }
+
+      // Add budget if provided
+      if (projectData.budget !== undefined && projectData.budget !== null) {
+        projectRequest.budget = projectData.budget;
+      }
+
+      console.log('📋 Creating project with data:', projectRequest);
 
       // Create the project using the API
-      const createdProject = await api.createProject(projectRequest);
+      const response = await api.createProject(projectRequest);
+      const createdProject = response.data || response;
       console.log('✅ Project created successfully:', createdProject);
 
       // Add project immediately to the list if on projects page
@@ -270,9 +292,9 @@ const AppContent: React.FC = () => {
       
       // Close the creation modal
       setShowProjectCreation(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create project:', error);
-      throw new Error('Failed to create project. Please try again.');
+      throw new Error(error.message || 'Failed to create project. Please try again.');
     }
   }, [api, user, navigateTo, page.name, addProjectToPage]);
 

@@ -8,9 +8,13 @@ import {
   TextInput,
   StyleSheet,
   Alert,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DatePicker from './DatePicker';
+import MediaPickerService from '../services/MediaPickerService';
+import { useApi } from '../contexts/ApiContext';
 
 interface ProjectDetailsModalProps {
   visible: boolean;
@@ -25,6 +29,8 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({
   project,
   onSave,
 }) => {
+  const { uploadFile } = useApi();
+  const mediaPicker = MediaPickerService.getInstance();
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -35,6 +41,9 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [coverImageUri, setCoverImageUri] = useState<string | null>(null);
+  const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (visible && project) {
@@ -46,11 +55,63 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({
         startDate: project.start_date || '',
         endDate: project.end_date || '',
       });
+      setCoverImageUrl(project.cover_image_url || null);
+      setCoverImageUri(project.cover_image_url || null);
     }
   }, [visible, project]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handlePickCoverImage = async () => {
+    try {
+      const result = await mediaPicker.pickImage({
+        allowsEditing: true,
+        quality: 0.8,
+        aspect: [16, 9], // Standard cover image aspect ratio
+        maxWidth: 1920,
+        maxHeight: 1080,
+      });
+
+      if (result) {
+        // Validate file size (max 10MB)
+        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 10)) {
+          Alert.alert('File Too Large', 'Please select an image smaller than 10MB.');
+          return;
+        }
+
+        setCoverImageUri(result.uri);
+        setIsUploadingImage(true);
+
+        // Upload the file
+        try {
+          const uploadResult = await uploadFile({
+            uri: result.uri,
+            type: 'image/jpeg',
+            name: result.fileName || `project_cover_${Date.now()}.jpg`,
+          });
+
+          if (uploadResult?.data?.url || uploadResult?.url) {
+            const imageUrl = uploadResult?.data?.url || uploadResult?.url;
+            setCoverImageUrl(imageUrl);
+            Alert.alert('Success', 'Cover image uploaded successfully!');
+          } else {
+            throw new Error('Upload failed - no URL returned');
+          }
+        } catch (uploadError: any) {
+          console.error('Upload error:', uploadError);
+          Alert.alert('Upload Failed', 'Failed to upload cover image. Please try again.');
+          setCoverImageUri(project?.cover_image_url || null);
+        } finally {
+          setIsUploadingImage(false);
+        }
+      }
+    } catch (error: any) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', error.message || 'Failed to pick image. Please try again.');
+      setIsUploadingImage(false);
+    }
   };
 
   const handleSave = async () => {
@@ -59,9 +120,15 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({
       return;
     }
 
+    // Validate cover image if it was changed
+    if (coverImageUri && !coverImageUrl) {
+      Alert.alert('Error', 'Please wait for the cover image to finish uploading');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const updatedProject = {
+      const updatedProject: any = {
         ...project,
         title: formData.title.trim(),
         description: formData.description.trim(),
@@ -71,6 +138,11 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({
         end_date: formData.endDate ? new Date(formData.endDate).toISOString() : undefined,
         delivery_date: formData.endDate ? new Date(formData.endDate).toISOString() : undefined,
       };
+
+      // Include cover image URL if it was updated
+      if (coverImageUrl) {
+        updatedProject.cover_image_url = coverImageUrl;
+      }
 
       await onSave(updatedProject);
       onClose();
@@ -119,6 +191,43 @@ const ProjectDetailsModal: React.FC<ProjectDetailsModalProps> = ({
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.form}>
+            {/* Cover Image */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Cover Image</Text>
+              <TouchableOpacity
+                style={styles.coverImageContainer}
+                onPress={handlePickCoverImage}
+                disabled={isUploadingImage}
+              >
+                {coverImageUri ? (
+                  <View style={styles.coverImageWrapper}>
+                    <Image source={{ uri: coverImageUri }} style={styles.coverImage} />
+                    {isUploadingImage && (
+                      <View style={styles.uploadOverlay}>
+                        <ActivityIndicator size="large" color="#fff" />
+                        <Text style={styles.uploadText}>Uploading...</Text>
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <View style={styles.coverImagePlaceholder}>
+                    <Ionicons name="image-outline" size={48} color="#9ca3af" />
+                    <Text style={styles.coverImagePlaceholderText}>
+                      {isUploadingImage ? 'Uploading...' : 'Tap to change cover image'}
+                    </Text>
+                    {isUploadingImage && (
+                      <ActivityIndicator size="small" color="#3b82f6" style={{ marginTop: 8 }} />
+                    )}
+                  </View>
+                )}
+              </TouchableOpacity>
+              {coverImageUrl && !isUploadingImage && (
+                <Text style={styles.coverImageSuccessText}>
+                  ✓ Cover image ready
+                </Text>
+              )}
+            </View>
+
             {/* Project Title */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Project Title *</Text>
@@ -344,6 +453,57 @@ const styles = StyleSheet.create({
   },
   statusOptionTextSelected: {
     color: '#fff',
+  },
+  coverImageContainer: {
+    marginBottom: 8,
+  },
+  coverImageWrapper: {
+    position: 'relative',
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  coverImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  uploadOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  uploadText: {
+    color: '#fff',
+    marginTop: 8,
+    fontSize: 14,
+  },
+  coverImagePlaceholder: {
+    width: '100%',
+    height: 200,
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+  },
+  coverImagePlaceholderText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  coverImageSuccessText: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#10b981',
   },
 });
 

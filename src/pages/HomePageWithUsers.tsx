@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, ScrollView, StyleSheet, RefreshControl, Text, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { View, FlatList, StyleSheet, RefreshControl, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import SearchBar from '../components/SearchBar';
+import FilterModal, { FilterParams } from '../components/FilterModal';
 import SectionCard from '../components/SectionCard';
+import PromoCarousel, { PromoItem } from '../components/PromoCarousel';
 import { HomePageProps } from '../types';
 import { SECTIONS } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
@@ -59,23 +61,57 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingCompleteData, setLoadingCompleteData] = useState<Set<string>>(new Set());
-  const [showSearch, setShowSearch] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [filters, setFilters] = useState<FilterParams>({});
+  
+  // Pagination state
+  const [usersPage, setUsersPage] = useState(1);
+  const [companiesPage, setCompaniesPage] = useState(1);
+  const [hasMoreUsers, setHasMoreUsers] = useState(true);
+  const [hasMoreCompanies, setHasMoreCompanies] = useState(true);
+  const [loadingMoreUsers, setLoadingMoreUsers] = useState(false);
+  const [loadingMoreCompanies, setLoadingMoreCompanies] = useState(false);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async (page: number = 1, append: boolean = false) => {
     try {
-      console.log('👥 Fetching users...', isGuest ? '(Guest Mode)' : '(Authenticated)');
+      console.log('👥 Fetching users...', isGuest ? '(Guest Mode)' : '(Authenticated)', `Page: ${page}`);
       setError(null);
+      
+      if (append) {
+        setLoadingMoreUsers(true);
+      } else if (page === 1) {
+        setIsLoading(true);
+      }
+      
+      const limit = 20;
+      const params = {
+        limit,
+        page,
+        search: searchQuery || filters.search,
+        category: filters.category,
+        role: filters.role,
+        location: filters.location,
+      };
       
       // Use guest browsing if in guest mode
       if (isGuest) {
         try {
-          console.log('🎭 Browsing users as guest...');
-          const response = await browseUsersAsGuest({ limit: 50 });
+          console.log('🎭 Browsing users as guest...', params);
+          const response = await browseUsersAsGuest(params);
           
           if (response.success && response.data) {
-            const usersArray = Array.isArray(response.data) ? response.data : (Array.isArray(response.data?.users) ? response.data.users : []);
+            const data = response.data.data || response.data;
+            const usersArray = Array.isArray(data) ? data : (Array.isArray(data?.users) ? data.users : []);
+            const pagination = response.data.pagination;
+            
+            if (append) {
+              setUsers(prev => [...prev, ...usersArray]);
+            } else {
+              setUsers(usersArray);
+            }
+            
+            setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
             console.log('✅ Users fetched successfully as guest:', usersArray.length);
-            setUsers(usersArray);
             return;
           } else {
             throw new Error(response.error || 'Failed to browse users as guest');
@@ -83,6 +119,9 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
         } catch (guestErr: any) {
           console.error('❌ Guest browsing failed:', guestErr);
           setError(guestErr.message || 'Failed to browse users as guest');
+          if (!append) {
+            setUsers([]);
+          }
           throw guestErr;
         }
       }
@@ -90,76 +129,162 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       // Authenticated user flow
       // Try direct fetch first
       try {
-        const response = await getUsersDirect({ limit: 50 });
+        const response = await getUsersDirect(params);
         
         if (response.success && response.data) {
-          const usersArray = Array.isArray(response.data) ? response.data : [];
+          const data = response.data.data || response.data;
+          const usersArray = Array.isArray(data) ? data : [];
+          const pagination = response.data.pagination;
+          
+          if (append) {
+            setUsers(prev => [...prev, ...usersArray]);
+          } else {
+            setUsers(usersArray);
+          }
+          
+          setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
           console.log('✅ Users fetched successfully with direct fetch:', usersArray.length);
-          setUsers(usersArray);
           return;
         }
       } catch (directErr) {
         console.warn('⚠️ Direct fetch failed, trying API client:', directErr);
       }
       
-      // Fallback to API client
-      const response = await api.getUsers({ limit: 50 });
+      // Fallback to API client - use q for search parameter
+      const apiParams: any = {
+        limit,
+        page,
+      };
+      if (params.search) apiParams.q = params.search;
+      if (params.category) apiParams.category = params.category;
+      if (params.role) apiParams.role = params.role;
+      
+      const response = await api.getUsers(apiParams);
       
       if (response.success && response.data) {
-        // The API returns data as an array directly, not as data.items
-        const usersArray = Array.isArray(response.data) ? response.data : [];
+        const data = response.data.data || response.data;
+        const usersArray = Array.isArray(data) ? data : [];
+        const pagination = response.data.pagination;
+        
+        if (append) {
+          setUsers(prev => [...prev, ...usersArray]);
+        } else {
+          setUsers(usersArray);
+        }
+        
+        setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
         console.log('✅ Users fetched successfully with API client:', usersArray.length);
-        
-        // For now, use basic user data to avoid rate limiting
-        // TODO: Implement batch API call or server-side complete data fetching
-        const completeUsers = usersArray;
-        
-        setUsers(completeUsers);
-        console.log('✅ Complete user data fetched:', completeUsers.length);
       } else {
         console.error('❌ Failed to fetch users:', response.error);
         setError('Failed to load users');
+        if (!append) {
+          setUsers([]);
+        }
       }
     } catch (err: any) {
       console.error('❌ Error fetching users:', err);
       setError(err.message || 'Failed to load users');
+      if (!append) {
+        setUsers([]);
+      }
     } finally {
       setIsLoading(false);
       setRefreshing(false);
+      setLoadingMoreUsers(false);
     }
-  };
+  }, [isGuest, searchQuery, filters, browseUsersAsGuest, getUsersDirect, api]);
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = useCallback(async (page: number = 1, append: boolean = false) => {
     try {
-      console.log('🏢 Fetching companies...');
+      console.log('🏢 Fetching companies...', `Page: ${page}`);
       
-      const response = await getCompanies({ limit: 50 });
+      if (append) {
+        setLoadingMoreCompanies(true);
+      }
+      
+      const limit = 20;
+      const params = {
+        limit,
+        page,
+        search: searchQuery || filters.search,
+        category: filters.category,
+        location: filters.location,
+      };
+      
+      const response = await getCompanies(params);
       
       if (response.success && response.data) {
-        const companiesArray = Array.isArray(response.data) 
-          ? response.data 
-          : (Array.isArray(response.data?.data) ? response.data.data : []);
+        const data = response.data.data || response.data;
+        const companiesArray = Array.isArray(data) ? data : [];
+        const pagination = response.data.pagination;
+        
+        if (append) {
+          setCompanies(prev => [...prev, ...companiesArray]);
+        } else {
+          setCompanies(companiesArray);
+        }
+        
+        setHasMoreCompanies(pagination ? page < pagination.totalPages : companiesArray.length === limit);
         console.log('✅ Companies fetched successfully:', companiesArray.length);
-        setCompanies(companiesArray);
       } else {
         console.error('❌ Failed to fetch companies:', response.error);
+        if (!append) {
+          setCompanies([]);
+        }
       }
     } catch (err: any) {
       console.error('❌ Error fetching companies:', err);
-      // Don't set error state for companies, just log it
+      if (!append) {
+        setCompanies([]);
+      }
+    } finally {
+      setLoadingMoreCompanies(false);
     }
-  };
+  }, [searchQuery, filters, getCompanies]);
 
+  // Reset and fetch when filters or search change
   useEffect(() => {
-    fetchUsers();
-    fetchCompanies();
-  }, [isGuest]);
+    setUsersPage(1);
+    setCompaniesPage(1);
+    setHasMoreUsers(true);
+    setHasMoreCompanies(true);
+    fetchUsers(1, false);
+    fetchCompanies(1, false);
+  }, [isGuest, searchQuery, filters, fetchUsers, fetchCompanies]);
 
-  const onRefresh = () => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchUsers();
-    fetchCompanies();
-  };
+    setUsersPage(1);
+    setCompaniesPage(1);
+    setHasMoreUsers(true);
+    setHasMoreCompanies(true);
+    fetchUsers(1, false);
+    fetchCompanies(1, false);
+  }, [fetchUsers, fetchCompanies]);
+  
+  const handleLoadMoreUsers = useCallback(() => {
+    if (!loadingMoreUsers && hasMoreUsers && !isLoading) {
+      const nextPage = usersPage + 1;
+      setUsersPage(nextPage);
+      fetchUsers(nextPage, true);
+    }
+  }, [loadingMoreUsers, hasMoreUsers, isLoading, usersPage, fetchUsers]);
+  
+  const handleLoadMoreCompanies = useCallback(() => {
+    if (!loadingMoreCompanies && hasMoreCompanies) {
+      const nextPage = companiesPage + 1;
+      setCompaniesPage(nextPage);
+      fetchCompanies(nextPage, true);
+    }
+  }, [loadingMoreCompanies, hasMoreCompanies, companiesPage, fetchCompanies]);
+  
+  const handleApplyFilters = useCallback((newFilters: FilterParams) => {
+    setFilters(newFilters);
+  }, []);
+  
+  const handleClearFilters = useCallback(() => {
+    setFilters({});
+  }, []);
 
   const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
     if (loadingCompleteData.has(userId)) {
@@ -212,34 +337,16 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   }, [searchQuery]);
 
 
+  // Users are already filtered by API, just categorize them
   const usersByCategory = useMemo(() => {
-    const lowerCaseQuery = searchQuery?.toLowerCase() || '';
-    
-    const filterUser = (user: User) => {
-      if (!searchQuery) return true;
-      return (
-        user.name?.toLowerCase().includes(lowerCaseQuery) ||
-        user.email?.toLowerCase().includes(lowerCaseQuery) ||
-        user.primary_role?.toLowerCase().includes(lowerCaseQuery) ||
-        user.specialty?.toLowerCase().includes(lowerCaseQuery) ||
-        user.bio?.toLowerCase().includes(lowerCaseQuery)
-      );
-    };
-    
     const categorized = {
-      talent: users.filter(u => u.category === 'talent' && filterUser(u)),
-      crew: users.filter(u => u.category === 'crew' && filterUser(u)),
-      company: users.filter(u => u.category === 'company' && filterUser(u)),
+      talent: users.filter(u => u.category === 'talent'),
+      crew: users.filter(u => u.category === 'crew'),
+      company: users.filter(u => u.category === 'company'),
     };
-    
-    console.log('📊 Users by category:', {
-      talent: categorized.talent.length,
-      crew: categorized.crew.length,
-      company: categorized.company.length,
-    });
     
     return categorized;
-  }, [users, searchQuery]);
+  }, [users]);
 
   // Categorize companies by type
   const companiesByType = useMemo(() => {
@@ -298,86 +405,88 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
 
   const isDark = theme === 'dark';
 
-  if (isLoading) {
-    return (
-      <View style={[styles.container, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
-        <ScrollView 
-          style={styles.content} 
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.sectionsContainer}>
-            {!showSearch ? (
-              <TouchableOpacity 
-                style={styles.searchButton}
-                onPress={() => setShowSearch(true)}
-              >
-                <View style={styles.searchIconContainer}>
-                  <Ionicons name="search" size={20} color="#0ea5e9" />
-                </View>
-                <Text style={styles.searchButtonText}>Search</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.searchBarContainer}>
-                <SearchBar
-                  value={searchQuery}
-                  onChange={onSearchChange}
-                  onOpenFilter={onOpenFilter}
-                  onClose={() => setShowSearch(false)}
-                />
-              </View>
-            )}
-          </View>
-        </ScrollView>
-        <View style={styles.loadingContainer}>
-          <Text style={[styles.loadingText, { color: isDark ? '#fff' : '#000' }]}>
-            Loading users...
-          </Text>
-        </View>
-      </View>
-    );
-  }
+  // Promo items for the carousel
+  const promoItems: PromoItem[] = useMemo(() => [
+    {
+      id: '1',
+      label: 'Deals',
+      title: 'Academy deals this week',
+      subtitle: 'Special offers on courses and training',
+    },
+    {
+      id: '2',
+      label: 'New',
+      title: 'Discover top talent',
+      subtitle: 'Browse our latest profiles',
+    },
+    {
+      id: '3',
+      label: 'Featured',
+      title: 'Premium studios available',
+      subtitle: 'Book your next production space',
+    },
+  ], []);
+
+  const handlePromoPress = useCallback((promo: PromoItem) => {
+    // Handle promo press - can navigate to specific page
+    console.log('Promo pressed:', promo);
+    // You can add navigation logic here based on promo.actionUrl
+  }, []);
+
+  const renderSection = useCallback(({ item: section }: { item: any }) => (
+    <SectionCard
+      key={section.key}
+      section={section}
+      onClick={() => onNavigate('sectionServices', section)}
+    />
+  ), [onNavigate]);
+
+  const renderHeader = useCallback(() => (
+    <View>
+      <PromoCarousel
+        promos={promoItems}
+        autoSlideInterval={5000}
+        onPromoPress={handlePromoPress}
+      />
+    </View>
+  ), [promoItems, handlePromoPress]);
 
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
-      <ScrollView 
-        style={styles.content} 
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {/* Dynamic Directory Sections */}
-        <View style={styles.sectionsContainer}>
-          {!showSearch ? (
-            <TouchableOpacity 
-              style={styles.searchButton}
-              onPress={() => setShowSearch(true)}
-            >
-              <View style={styles.searchIconContainer}>
-                <Ionicons name="search" size={16} color="#000" />
-              </View>
-              <Text style={styles.searchButtonText}>Search</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.searchBarContainer}>
-              <SearchBar
-                value={searchQuery}
-                onChange={onSearchChange}
-                onOpenFilter={onOpenFilter}
-                onClose={() => setShowSearch(false)}
-              />
-            </View>
-          )}
-          {sectionsWithUserCounts.map((section) => (
-            <SectionCard
-              key={section.key}
-              section={section}
-              onClick={() => onNavigate('sectionServices', section)}
-            />
-          ))}
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={isDark ? '#fff' : '#000'} />
+          <Text style={[styles.loadingText, { color: isDark ? '#fff' : '#000' }]}>
+            Loading...
+          </Text>
         </View>
-
-      </ScrollView>
+      ) : (
+        <FlatList
+          data={sectionsWithUserCounts}
+          renderItem={renderSection}
+          keyExtractor={(item) => item.key}
+          contentContainerStyle={styles.sectionsContainer}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          ListHeaderComponent={renderHeader}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.emptyText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                No sections found
+              </Text>
+            </View>
+          }
+        />
+      )}
+      
+      <FilterModal
+        visible={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={handleApplyFilters}
+        initialFilters={filters}
+      />
     </View>
   );
 };
@@ -387,70 +496,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f4f4f5',
   },
-  content: {
-    flex: 1,
+  searchContainer: {
+    padding: semanticSpacing.containerPaddingLarge,
+    paddingTop: semanticSpacing.sectionGapLarge,
+    backgroundColor: '#f4f4f5',
   },
   sectionsContainer: {
     padding: semanticSpacing.containerPaddingLarge,
-    paddingTop: semanticSpacing.sectionGapLarge,
-  },
-  searchButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: semanticSpacing.borderRadius.lg,
-    padding: semanticSpacing.containerPaddingLarge,
-    marginBottom: semanticSpacing.containerPadding,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  searchIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: semanticSpacing.borderRadius.md,
-    backgroundColor: '#f0f9ff',
-    borderWidth: 1,
-    borderColor: '#e0f2fe',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: semanticSpacing.containerPadding,
-  },
-  searchButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#000',
-    flex: 1,
-    letterSpacing: -0.3,
-  },
-  searchBarContainer: {
-    marginBottom: semanticSpacing.containerPadding,
+    paddingTop: spacing.sm,
   },
   loadingContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
     fontSize: 16,
     fontWeight: '500',
+    marginTop: semanticSpacing.containerPadding,
   },
-  usersSection: {
-    padding: semanticSpacing.containerPadding,
-    paddingTop: 0,
+  emptyContainer: {
+    padding: semanticSpacing.containerPaddingLarge * 2,
+    alignItems: 'center',
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: semanticSpacing.sectionGapLarge,
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
   errorContainer: {
     backgroundColor: '#fef2f2',
@@ -458,11 +529,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8,
     padding: semanticSpacing.containerPadding,
-    marginBottom: semanticSpacing.sectionGapLarge,
+    margin: semanticSpacing.containerPaddingLarge,
   },
   errorText: {
     fontSize: 14,
     textAlign: 'center',
+    color: '#dc2626',
   },
 });
 

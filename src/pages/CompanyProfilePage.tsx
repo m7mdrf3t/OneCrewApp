@@ -104,8 +104,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       const clearCacheAndReload = async () => {
         try {
           const { rateLimiter } = await import('../utils/rateLimiter');
+          // Clear all company-related caches
           await rateLimiter.clearCacheByPattern(`company-members-${company.id}`);
-          console.log('🔄 Cleared cache and reloading members due to refresh trigger');
+          await rateLimiter.clearCacheByPattern(`company-services-${company.id}`);
+          await rateLimiter.clearCacheByPattern(`company-${company.id}`);
+          console.log('🔄 Cleared cache and reloading data due to refresh trigger');
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
         }

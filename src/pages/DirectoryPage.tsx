@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator, Image } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator, Image, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
+import SearchBar from '../components/SearchBar';
+import FilterModal, { FilterParams } from '../components/FilterModal';
 
 interface User {
   id: string;
@@ -83,22 +85,94 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const [loadingCompleteData, setLoadingCompleteData] = useState<Set<string>>(new Set());
   const [teamMemberIds, setTeamMemberIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [filters, setFilters] = useState<FilterParams>({});
+  
+  // Pagination state
+  const [usersPage, setUsersPage] = useState(1);
+  const [companiesPage, setCompaniesPage] = useState(1);
+  const [hasMoreUsers, setHasMoreUsers] = useState(true);
+  const [hasMoreCompanies, setHasMoreCompanies] = useState(true);
+  const [loadingMoreUsers, setLoadingMoreUsers] = useState(false);
+  const [loadingMoreCompanies, setLoadingMoreCompanies] = useState(false);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async (page: number = 1, append: boolean = false) => {
     try {
-      console.log('👥 Fetching users for directory...', isGuest ? '(Guest Mode)' : '(Authenticated)');
+      console.log('👥 Fetching users for directory...', isGuest ? '(Guest Mode)' : '(Authenticated)', `Page: ${page}`);
       setError(null);
+      
+      if (append) {
+        setLoadingMoreUsers(true);
+      } else if (page === 1) {
+        setIsLoading(true);
+      }
+      
+      const limit = 20;
+      
+      // Map subcategory to role if a subcategory is selected
+      let roleFilter = filters.role;
+      if (selectedSubcategory && section.key !== 'onehub' && section.key !== 'academy') {
+        const roleMapping: { [key: string]: string } = {
+          'Actor': 'actor',
+          'Singer': 'singer',
+          'Dancer': 'dancer',
+          'Director': 'director',
+          'Producer': 'producer',
+          'Writer': 'writer',
+          'DOP': 'dop',
+          'Editor': 'editor',
+          'Composer': 'composer',
+          'VFX Artist': 'vfx',
+          'Colorist': 'colorist',
+          'Sound Engineer': 'sound_engineer',
+          'Sound Designer': 'sound_designer',
+          'Gaffer': 'gaffer',
+          'Grip': 'grip',
+          'Makeup Artist': 'makeup_artist',
+          'Stylist': 'stylist',
+        };
+        roleFilter = roleMapping[selectedSubcategory] || filters.role;
+      }
+      
+      // Set category based on section
+      let categoryFilter = filters.category;
+      if (!categoryFilter) {
+        if (section.key === 'talent') {
+          categoryFilter = 'talent';
+        } else if (section.key === 'individuals') {
+          categoryFilter = 'crew';
+        }
+      }
+      
+      const params = {
+        limit,
+        page,
+        search: searchQuery || filters.search,
+        category: categoryFilter,
+        role: roleFilter,
+        location: filters.location,
+      };
       
       // Use guest browsing if in guest mode
       if (isGuest) {
         try {
-          console.log('🎭 Browsing users as guest...');
-          const response = await browseUsersAsGuest({ limit: 100 });
+          console.log('🎭 Browsing users as guest...', params);
+          const response = await browseUsersAsGuest(params);
           
           if (response.success && response.data) {
-            const usersArray = Array.isArray(response.data) ? response.data : (Array.isArray(response.data?.users) ? response.data.users : []);
-            console.log('✅ Users fetched successfully as guest:', usersArray.length);
+            const data = response.data.data || response.data;
+            const usersArray = Array.isArray(data) ? data : (Array.isArray(data?.users) ? data.users : []);
+            const pagination = response.data.pagination;
+            
+            if (append) {
+              setUsers(prev => [...prev, ...usersArray]);
+            } else {
             setUsers(usersArray);
+            }
+            
+            setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
+            console.log('✅ Users fetched successfully as guest:', usersArray.length);
             return;
           } else {
             throw new Error(response.error || 'Failed to browse users as guest');
@@ -106,6 +180,9 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         } catch (guestErr: any) {
           console.error('❌ Guest browsing failed:', guestErr);
           setError(guestErr.message || 'Failed to browse users as guest');
+          if (!append) {
+            setUsers([]);
+          }
           throw guestErr;
         }
       }
@@ -113,88 +190,162 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       // Authenticated user flow
       // Try direct fetch first
       try {
-        const response = await getUsersDirect({ limit: 100 });
+        const response = await getUsersDirect(params);
         
         if (response.success && response.data) {
-          const usersArray = Array.isArray(response.data) ? response.data : [];
-          console.log('✅ Users fetched successfully with direct fetch:', usersArray.length);
+          const data = response.data.data || response.data;
+          const usersArray = Array.isArray(data) ? data : [];
+          const pagination = response.data.pagination;
+          
+          if (append) {
+            setUsers(prev => [...prev, ...usersArray]);
+          } else {
           setUsers(usersArray);
+          }
+          
+          setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
+          console.log('✅ Users fetched successfully with direct fetch:', usersArray.length);
           return;
         }
       } catch (directErr) {
         console.warn('⚠️ Direct fetch failed, trying API client:', directErr);
       }
       
-      // Fallback to API client
-      const response = await api.getUsers({ limit: 100 });
+      // Fallback to API client - use search parameter (API client will convert to q)
+      const apiParams: any = {
+        limit,
+        page,
+      };
+      if (params.search) apiParams.q = params.search;
+      if (params.category) apiParams.category = params.category;
+      if (params.role) apiParams.role = params.role;
+      
+      const response = await api.getUsers(apiParams);
       
       if (response.success && response.data) {
-        const usersArray = Array.isArray(response.data) ? response.data : [];
+        const data = response.data.data || response.data;
+        const usersArray = Array.isArray(data) ? data : [];
+        const pagination = response.data.pagination;
+        
+        if (append) {
+          setUsers(prev => [...prev, ...usersArray]);
+        } else {
+          setUsers(usersArray);
+        }
+        
+        setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
         console.log('✅ Users fetched successfully with API client:', usersArray.length);
-        
-        // For now, use basic user data to avoid rate limiting
-        // TODO: Implement batch API call or server-side complete data fetching
-        const completeUsers = usersArray;
-        
-        setUsers(completeUsers);
-        console.log('✅ Complete user data fetched:', completeUsers.length);
       } else {
         console.error('❌ Failed to fetch users:', response.error);
         setError('Failed to load users');
+        if (!append) {
+          setUsers([]);
+        }
       }
     } catch (err: any) {
       console.error('❌ Error fetching users:', err);
       setError(err.message || 'Failed to load users');
+      if (!append) {
+        setUsers([]);
+      }
     } finally {
       setIsLoading(false);
       setRefreshing(false);
+      setLoadingMoreUsers(false);
     }
-  };
+  }, [isGuest, searchQuery, filters, selectedSubcategory, section.key, browseUsersAsGuest, getUsersDirect, api]);
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = useCallback(async (page: number = 1, append: boolean = false) => {
     try {
-      setIsLoading(true);
       setError(null);
-      console.log('🏢 Fetching companies for directory...');
-      const response = await getCompanies({ limit: 100 });
+      console.log('🏢 Fetching companies for directory...', `Page: ${page}`);
+      
+      if (append) {
+        setLoadingMoreCompanies(true);
+      } else if (page === 1) {
+        setIsLoading(true);
+      }
+      
+      const limit = 20;
+      const params = {
+        limit,
+        page,
+        search: searchQuery || filters.search,
+        category: filters.category,
+        location: filters.location,
+      };
+      
+      const response = await getCompanies(params);
       
       if (response.success && response.data) {
-        const companiesArray = Array.isArray(response.data) 
-          ? response.data 
-          : (Array.isArray(response.data?.data) ? response.data.data : []);
-        console.log('✅ Companies fetched successfully:', companiesArray.length);
+        const data = response.data.data || response.data;
+        const companiesArray = Array.isArray(data) ? data : [];
+        const pagination = response.data.pagination;
+        
+        if (append) {
+          setCompanies(prev => [...prev, ...companiesArray]);
+        } else {
         setCompanies(companiesArray);
+        }
+        
+        setHasMoreCompanies(pagination ? page < pagination.totalPages : companiesArray.length === limit);
+        console.log('✅ Companies fetched successfully:', companiesArray.length);
       } else {
         console.error('❌ Failed to fetch companies:', response.error);
         setError('Failed to load companies');
+        if (!append) {
+          setCompanies([]);
+        }
       }
     } catch (err: any) {
       console.error('❌ Error fetching companies:', err);
       setError(err.message || 'Failed to load companies');
+      if (!append) {
+        setCompanies([]);
+      }
     } finally {
       setIsLoading(false);
       setRefreshing(false);
+      setLoadingMoreCompanies(false);
     }
-  };
+  }, [searchQuery, filters, getCompanies]);
 
 
   useEffect(() => {
     setIsLoading(true);
+    setUsersPage(1);
+    setCompaniesPage(1);
+    setHasMoreUsers(true);
+    setHasMoreCompanies(true);
+    
     // Only fetch users if not viewing companies section
     if (section.key !== 'onehub' && section.key !== 'academy') {
-      fetchUsers().finally(() => setIsLoading(false));
+      fetchUsers(1, false);
     }
     
     // Fetch companies for Studios & Agencies and Academy sections
     if (section.key === 'onehub' || section.key === 'academy') {
-      fetchCompanies(); // fetchCompanies already handles setIsLoading
+      fetchCompanies(1, false);
     }
     
     // Only load team members if authenticated (not guest)
     if (!isGuest) {
       loadTeamMembers();
     }
-  }, [isGuest, section.key]);
+  }, [isGuest, section.key, fetchUsers, fetchCompanies]);
+  
+  // Reset and refetch when search, filters, or subcategory changes
+  useEffect(() => {
+    if (section.key !== 'onehub' && section.key !== 'academy') {
+      setUsersPage(1);
+      setHasMoreUsers(true);
+      fetchUsers(1, false);
+    } else {
+      setCompaniesPage(1);
+      setHasMoreCompanies(true);
+      fetchCompanies(1, false);
+    }
+  }, [searchQuery, filters, selectedSubcategory, section.key, fetchUsers, fetchCompanies]);
 
   const loadTeamMembers = async () => {
     // Skip loading team members if guest
@@ -213,18 +364,47 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }
   };
 
-  const onRefresh = () => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
+    setUsersPage(1);
+    setCompaniesPage(1);
+    setHasMoreUsers(true);
+    setHasMoreCompanies(true);
+    
     if (section.key !== 'onehub' && section.key !== 'academy') {
-      fetchUsers();
+      fetchUsers(1, false);
     } else {
-      fetchCompanies();
+      fetchCompanies(1, false);
     }
     // Only refresh team members if authenticated (not guest)
     if (!isGuest) {
       loadTeamMembers();
     }
-  };
+  }, [section.key, fetchUsers, fetchCompanies, isGuest]);
+  
+  const handleLoadMoreUsers = useCallback(() => {
+    if (!loadingMoreUsers && hasMoreUsers && !isLoading && section.key !== 'onehub' && section.key !== 'academy') {
+      const nextPage = usersPage + 1;
+      setUsersPage(nextPage);
+      fetchUsers(nextPage, true);
+    }
+  }, [loadingMoreUsers, hasMoreUsers, isLoading, usersPage, section.key, fetchUsers]);
+  
+  const handleLoadMoreCompanies = useCallback(() => {
+    if (!loadingMoreCompanies && hasMoreCompanies && !isLoading && (section.key === 'onehub' || section.key === 'academy')) {
+      const nextPage = companiesPage + 1;
+      setCompaniesPage(nextPage);
+      fetchCompanies(nextPage, true);
+    }
+  }, [loadingMoreCompanies, hasMoreCompanies, isLoading, companiesPage, section.key, fetchCompanies]);
+  
+  const handleApplyFilters = useCallback((newFilters: FilterParams) => {
+    setFilters(newFilters);
+  }, []);
+  
+  const handleClearFilters = useCallback(() => {
+    setFilters({});
+  }, []);
 
   const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
     if (loadingCompleteData.has(userId)) {
@@ -313,9 +493,36 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     return section.items;
   }, [section.items, section.key, filteredCompaniesByType]);
 
-  // Filter users based on section and items
+  // Filter users based on section and items (for subcategory view, users are already filtered by API)
   const filteredUsers = useMemo(() => {
     if (!users.length || section.key === 'onehub' || section.key === 'academy') return {};
+    
+    // If a subcategory is selected, users are already filtered by API, just group them
+    if (selectedSubcategory) {
+      // Map section items to actual user roles for grouping
+      const roleMapping: { [key: string]: string[] } = {
+        'Actor': ['actor'],
+        'Singer': ['singer'],
+        'Dancer': ['dancer'],
+        'Director': ['director'],
+        'Producer': ['producer'],
+        'Writer': ['scriptwriter', 'writer'],
+        'DOP': ['dop'],
+        'Editor': ['editor'],
+        'Composer': ['composer'],
+        'VFX Artist': ['vfx'],
+        'Colorist': ['colorist'],
+        'Sound Engineer': ['sound_engineer'],
+        'Sound Designer': ['sound_designer'],
+        'Gaffer': ['gaffer'],
+        'Grip': ['grip'],
+        'Makeup Artist': ['makeup_artist'],
+        'Stylist': ['stylist'],
+      };
+      
+      // Return all users for the selected subcategory (they're already filtered by API)
+      return { [selectedSubcategory]: users };
+    }
     
     // Map section items to actual user roles
     const roleMapping: { [key: string]: string[] } = {
@@ -357,7 +564,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     });
 
     return sectionUsers;
-  }, [users, section]);
+  }, [users, section, selectedSubcategory]);
 
   const getInitials = (name: string) => {
     if (!name) return '??';
@@ -426,6 +633,101 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }
   };
 
+  const handleBackPress = useCallback(() => {
+    if (selectedSubcategory) {
+      // If we're viewing a subcategory, just clear it instead of going back
+      setSelectedSubcategory(null);
+    } else {
+      // If we're at the main category view, go back in navigation
+      onBack();
+    }
+  }, [selectedSubcategory, onBack]);
+
+  const renderSubcategory = useCallback(({ item }: { item: any }) => {
+              const itemUsers = (filteredUsers as any)[item.label] || [];
+              const itemCompanies = (filteredCompaniesByType as any)[item.label] || [];
+              const count = section.key === 'onehub' || section.key === 'academy' 
+                ? itemCompanies.length 
+                : itemUsers.length;
+              
+              return (
+                <TouchableOpacity
+                  style={styles.subcategoryCard}
+                  onPress={() => setSelectedSubcategory(item.label)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.subcategoryContent}>
+                    <View style={styles.subcategoryIcon}>
+                      <Ionicons 
+                        name={(section.key === 'onehub' || section.key === 'academy') ? "business" : "people"} 
+              size={26} 
+              color="#0ea5e9" 
+                      />
+                    </View>
+                    <View style={styles.subcategoryInfo}>
+                      <Text style={styles.subcategoryTitle}>{item.label}</Text>
+                      <Text style={styles.subcategoryCount}>{count} {(section.key === 'onehub' || section.key === 'academy') ? 'companies' : 'profiles'}</Text>
+                    </View>
+          <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                  </View>
+                </TouchableOpacity>
+              );
+  }, [section.key, filteredUsers, filteredCompaniesByType]);
+  
+  const renderCompany = useCallback(({ item: company }: { item: Company }) => {
+                      const location = company.location_text || company.location || '';
+                      const companyType = company.company_type_info?.name || '';
+                      
+                      return (
+                        <TouchableOpacity
+        style={styles.companyCardSimple}
+                          onPress={() => {
+                            if (onNavigate) {
+                              onNavigate('companyProfile', { companyId: company.id });
+                            }
+                          }}
+        activeOpacity={0.7}
+                        >
+        <View style={styles.companyCardImageContainer}>
+                            {company.logo_url ? (
+                              <Image
+                                source={{ uri: company.logo_url }}
+              style={styles.companyCardImage}
+                                resizeMode="cover"
+                              />
+                            ) : (
+            <View style={styles.companyCardImagePlaceholder}>
+              <Ionicons name="business" size={40} color="#9ca3af" />
+                              </View>
+                            )}
+                          </View>
+                          
+        <View style={styles.companyCardInfo}>
+          <Text style={styles.companyCardName} numberOfLines={2}>
+                              {company.name}
+                            </Text>
+          {(companyType || location) && (
+            <View style={styles.companyCardMeta}>
+                            {companyType ? (
+                              <Text style={styles.companyCardType} numberOfLines={1}>
+                                {companyType}
+                              </Text>
+                            ) : null}
+                            {location ? (
+                              <View style={styles.companyCardLocation}>
+                  <Ionicons name="location-outline" size={14} color="#6b7280" />
+                                <Text style={styles.companyCardLocationText} numberOfLines={1}>
+                                  {location}
+                                </Text>
+                              </View>
+                            ) : null}
+            </View>
+          )}
+                          </View>
+                        </TouchableOpacity>
+                      );
+  }, [onNavigate]);
+
   if (isLoading) {
     return (
       <View style={styles.container}>
@@ -435,26 +737,16 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           </TouchableOpacity>
           <Text style={styles.title}>{section.title}</Text>
           <View style={styles.placeholder} />
-        </View>
+                  </View>
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>
             {(section.key === 'onehub' || section.key === 'academy') ? 'Loading companies...' : 'Loading users...'}
           </Text>
         </View>
-      </View>
-    );
-  }
-
-  const handleBackPress = () => {
-    if (selectedSubcategory) {
-      // If we're viewing a subcategory, just clear it instead of going back
-      setSelectedSubcategory(null);
-    } else {
-      // If we're at the main category view, go back in navigation
-      onBack();
-    }
-  };
-
+                  </View>
+                );
+              }
+              
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -467,134 +759,98 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         <View style={styles.placeholder} />
       </View>
       
-      <ScrollView 
-        style={styles.content} 
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
 
-        {!selectedSubcategory ? (
-          // Show subcategories
-          <View style={styles.subcategoriesContainer}>
-            {sectionItems.map((item) => {
-              const itemUsers = (filteredUsers as any)[item.label] || [];
-              const itemCompanies = (filteredCompaniesByType as any)[item.label] || [];
-              const count = section.key === 'onehub' || section.key === 'academy' 
-                ? itemCompanies.length 
-                : itemUsers.length;
-              
-              return (
-                <TouchableOpacity
-                  key={item.label}
-                  style={styles.subcategoryCard}
-                  onPress={() => setSelectedSubcategory(item.label)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.subcategoryContent}>
-                    <View style={styles.subcategoryIcon}>
-                      <Ionicons 
-                        name={(section.key === 'onehub' || section.key === 'academy') ? "business" : "people"} 
-                        size={26} 
-                        color="#0ea5e9" 
-                      />
-                    </View>
-                    <View style={styles.subcategoryInfo}>
-                      <Text style={styles.subcategoryTitle}>{item.label}</Text>
-                      <Text style={styles.subcategoryCount}>{count} {(section.key === 'onehub' || section.key === 'academy') ? 'companies' : 'profiles'}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+      {!selectedSubcategory ? (
+        // Show subcategories with FlatList
+        <FlatList
+          data={sectionItems}
+          renderItem={renderSubcategory}
+          keyExtractor={(item) => item.label}
+          contentContainerStyle={styles.subcategoriesContainer}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No subcategories found</Text>
+            </View>
+          }
+        />
+      ) : (
+        // Show users or companies for selected subcategory
+        <>
+          {/* Search Bar - Only visible when viewing users/companies */}
+          <View style={styles.searchContainer}>
+            <SearchBar
+              value={searchQuery}
+              onChange={setSearchQuery}
+              onOpenFilter={() => setShowFilterModal(true)}
+              filters={filters}
+              onClearFilters={handleClearFilters}
+            />
           </View>
-        ) : (
-          // Show users or companies for selected subcategory
-          <View style={styles.usersContainer}>
-            {(() => {
-              // Check if we're showing companies
-              if (section.key === 'onehub' || section.key === 'academy') {
-                const itemCompanies = (filteredCompaniesByType as any)[selectedSubcategory] || [];
-                
-                return itemCompanies.length > 0 ? (
-                  <View style={styles.companiesListContainer}>
-                    {itemCompanies.map((company: Company) => {
-                      const location = company.location_text || company.location || '';
-                      const companyType = company.company_type_info?.name || '';
-                      
-                      return (
-                        <TouchableOpacity
-                          key={company.id}
-                          style={styles.companyCardSimple}
-                          onPress={() => {
-                            if (onNavigate) {
-                              onNavigate('companyProfile', { companyId: company.id });
-                            }
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          {/* Company Image/Logo */}
-                          <View style={styles.companyCardImageContainer}>
-                            {company.logo_url ? (
-                              <Image
-                                source={{ uri: company.logo_url }}
-                                style={styles.companyCardImage}
-                                resizeMode="cover"
-                              />
-                            ) : (
-                              <View style={styles.companyCardImagePlaceholder}>
-                                <Ionicons name="business" size={40} color="#9ca3af" />
-                              </View>
-                            )}
-                          </View>
-                          
-                          {/* Company Info */}
-                          <View style={styles.companyCardInfo}>
-                            <Text style={styles.companyCardName} numberOfLines={2}>
-                              {company.name}
-                            </Text>
-                            {(companyType || location) && (
-                              <View style={styles.companyCardMeta}>
-                                {companyType ? (
-                                  <Text style={styles.companyCardType} numberOfLines={1}>
-                                    {companyType}
-                                  </Text>
-                                ) : null}
-                                {location ? (
-                                  <View style={styles.companyCardLocation}>
-                                    <Ionicons name="location-outline" size={14} color="#6b7280" />
-                                    <Text style={styles.companyCardLocationText} numberOfLines={1}>
-                                      {location}
-                                    </Text>
-                                  </View>
-                                ) : null}
-                              </View>
-                            )}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                ) : (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} found</Text>
-                  </View>
-                );
+          
+          {section.key === 'onehub' || section.key === 'academy' ? (
+            // Show companies for selected subcategory
+            (() => {
+          const itemCompanies = companies.filter((company: Company) => {
+            const subcategory = company.subcategory || company.company_type_info?.code || '';
+            const companyType = company.company_type_info?.name || 'Academy';
+            
+            if (section.key === 'onehub') {
+              if (selectedSubcategory === 'Production Houses') return subcategory === 'production_house';
+              if (selectedSubcategory === 'Agency') return subcategory === 'agency' || subcategory === 'casting_agency';
+              if (selectedSubcategory === 'Studio') return subcategory === 'studio';
+              if (selectedSubcategory === 'Management Company') return subcategory === 'management_company';
+            } else if (section.key === 'academy') {
+              return companyType === selectedSubcategory || (selectedSubcategory === 'Academy' && subcategory === 'academy');
+            }
+            return false;
+          });
+          
+          return itemCompanies.length > 0 ? (
+            <FlatList
+              data={itemCompanies}
+              renderItem={renderCompany}
+              keyExtractor={(item: Company) => item.id}
+              contentContainerStyle={styles.companiesListContainer}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
               }
-              
-              // Show users for other sections
-              const itemUsers = (filteredUsers as any)[selectedSubcategory] || [];
-              
-              return itemUsers.length > 0 ? (
-                <View style={styles.usersGrid}>
-                  {itemUsers.map((user: User) => (
+              onEndReached={handleLoadMoreCompanies}
+              onEndReachedThreshold={0.5}
+              ListFooterComponent={
+                loadingMoreCompanies ? (
+                  <View style={styles.footerLoader}>
+                    <ActivityIndicator size="small" color="#000" />
+                  </View>
+                ) : null
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No companies found</Text>
+                </View>
+              }
+            />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} found</Text>
+            </View>
+          );
+        })()
+      ) : (
+        // Show users for other sections - use all users since they're already filtered by API
+        (() => {
+          const itemUsers = users; // Users are already filtered by API based on selectedSubcategory
+          
+          const renderUser = ({ item: user }: { item: User }) => (
                     <TouchableOpacity
                       key={user.id}
                       style={styles.userCard}
@@ -719,17 +975,51 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                         </View>
                       </View>
                     </TouchableOpacity>
-                  ))}
+          );
+          
+          return itemUsers.length > 0 ? (
+            <FlatList
+              key={`users-grid-${section.key}-${selectedSubcategory || 'all'}-2cols`}
+              data={itemUsers}
+              renderItem={renderUser}
+              keyExtractor={(item: User) => item.id}
+              contentContainerStyle={styles.usersGrid}
+              numColumns={2}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+              }
+              onEndReached={handleLoadMoreUsers}
+              onEndReachedThreshold={0.5}
+              ListFooterComponent={
+                loadingMoreUsers ? (
+                  <View style={styles.footerLoader}>
+                    <ActivityIndicator size="small" color="#000" />
                 </View>
-              ) : (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} profiles found</Text>
+                ) : null
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No profiles found</Text>
                 </View>
-              );
-            })()}
-          </View>
-        )}
-      </ScrollView>
+              }
+            />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} profiles found</Text>
+            </View>
+          );
+        })()
+          )}
+        </>
+      )}
+      
+      <FilterModal
+        visible={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={handleApplyFilters}
+        initialFilters={filters}
+      />
     </View>
   );
 };
@@ -927,6 +1217,20 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     textAlign: 'center',
     letterSpacing: -0.2,
+  },
+  searchContainer: {
+    padding: semanticSpacing.containerPaddingLarge,
+    paddingTop: semanticSpacing.containerPadding,
+    backgroundColor: '#f4f4f5',
+  },
+  emptyContainer: {
+    padding: semanticSpacing.containerPaddingLarge * 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerLoader: {
+    padding: semanticSpacing.containerPaddingLarge,
+    alignItems: 'center',
   },
   subcategoriesContainer: {
     padding: semanticSpacing.containerPaddingLarge,

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import SearchBar from '../components/SearchBar';
 import { ProjectsPageProps } from '../types';
 import { useApi } from '../contexts/ApiContext';
 import ProjectMenuPopup from '../components/ProjectMenuPopup';
 import DeletedProjectsModal from '../components/DeletedProjectsModal';
 import { spacing, semanticSpacing } from '../constants/spacing';
+import MediaPickerService from '../services/MediaPickerService';
 
 const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onProjectSelect,
@@ -23,7 +23,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onNavigateToLogin,
   onProjectCreated,
 }) => {
-  const { getAllProjects, getProjectById, user, api, isGuest, getProjectTasks } = useApi();
+  const { getAllProjects, getProjectById, user, api, isGuest, getProjectTasks, uploadFile } = useApi();
   const [projects, setProjects] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -291,7 +291,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Save',
-          onPress: async (newName) => {
+          onPress: async (newName?: string) => {
             if (newName && newName.trim()) {
               try {
                 const result = await api.updateProject(selectedProject.id, { title: newName.trim() });
@@ -315,9 +315,77 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     Alert.alert('Project Type', 'This feature will be implemented soon.');
   };
 
-  const handleCoverPhoto = () => {
+  const handleCoverPhoto = async () => {
     if (!selectedProject) return;
-    Alert.alert('Cover Photo', 'This feature will be implemented soon.');
+    
+    try {
+      const mediaPicker = MediaPickerService.getInstance();
+      const result = await mediaPicker.pickImage({
+        allowsEditing: true,
+        quality: 0.8,
+        aspect: [16, 9], // Standard cover image aspect ratio
+        maxWidth: 1920,
+        maxHeight: 1080,
+      });
+
+      if (result) {
+        // Validate file size (max 10MB)
+        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 10)) {
+          Alert.alert('File Too Large', 'Please select an image smaller than 10MB.');
+          return;
+        }
+
+        // Show loading alert
+        Alert.alert('Uploading', 'Please wait while we upload your cover image...');
+
+        try {
+          // Upload the file
+          const uploadResult = await uploadFile({
+            uri: result.uri,
+            type: 'image/jpeg',
+            name: result.fileName || `project_cover_${Date.now()}.jpg`,
+          });
+
+          const imageUrl = uploadResult?.data?.url || uploadResult?.url;
+          if (!imageUrl) {
+            throw new Error('Upload failed - no URL returned');
+          }
+
+          // Update the project with the new cover image
+          const updateResult = await api.updateProject(selectedProject.id, {
+            cover_image_url: imageUrl,
+          });
+
+          if (updateResult.success || updateResult.data) {
+            // Update local state
+            const updatedProject = { ...selectedProject, cover_image_url: imageUrl };
+            setProjects(prev => prev.map(p => 
+              p.id === selectedProject.id ? updatedProject : p
+            ));
+            setOwnerProjects(prev => prev.map(p => 
+              p.id === selectedProject.id ? updatedProject : p
+            ));
+            setMemberProjects(prev => prev.map(p => 
+              p.id === selectedProject.id ? updatedProject : p
+            ));
+            setPendingProjects(prev => prev.map(p => 
+              p.id === selectedProject.id ? updatedProject : p
+            ));
+
+            Alert.alert('Success', 'Cover image updated successfully!');
+            setSelectedProject(null);
+          } else {
+            throw new Error(updateResult.error || 'Failed to update project');
+          }
+        } catch (uploadError: any) {
+          console.error('Upload error:', uploadError);
+          Alert.alert('Upload Failed', uploadError.message || 'Failed to upload cover image. Please try again.');
+        }
+      }
+    } catch (error: any) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', error.message || 'Failed to pick image. Please try again.');
+    }
   };
 
   const handleSave = () => {
@@ -497,13 +565,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
       {/* Backend Error Banner */}
       {/* Removed error banner - no longer loading tasks upfront */}
 
-      <View style={styles.searchContainer}>
-        <SearchBar
-          value={searchQuery}
-          onChange={onSearchChange}
-        />
-      </View>
-
       {/* Tabs */}
       <View style={styles.tabsContainer}>
         <TouchableOpacity
@@ -570,12 +631,12 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
                 const isPending = activeTab === 'pending';
                 
                 // Determine card style based on tab
-                let cardStyle = styles.projectCard;
-                let titleStyle = styles.projectTitle;
-                let descriptionStyle = styles.projectDescription;
-                let infoTextStyle = styles.projectInfoText;
-                let footerStyle = styles.projectFooter;
-                let dateTextStyle = styles.dateText;
+                let cardStyle: StyleProp<ViewStyle> = styles.projectCard;
+                let titleStyle: StyleProp<TextStyle> = styles.projectTitle;
+                let descriptionStyle: StyleProp<TextStyle> = styles.projectDescription;
+                let infoTextStyle: StyleProp<TextStyle> = styles.projectInfoText;
+                let footerStyle: StyleProp<ViewStyle> = styles.projectFooter;
+                let dateTextStyle: StyleProp<TextStyle> = styles.dateText;
                 let iconColor = "#a1a1aa";
                 let menuIconColor = "#a1a1aa";
                 
@@ -604,89 +665,104 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
                 return (
                   <TouchableOpacity
                     key={project.id}
-                    style={cardStyle}
+                    style={[cardStyle, project.cover_image_url && styles.projectCardWithImage]}
                     onPress={() => handleProjectPress(project)}
                   >
-                    <View style={styles.projectHeader}>
-                      <Text style={titleStyle}>{project.title}</Text>
-                      <View style={styles.projectHeaderRight}>
-                        <View style={styles.projectBadges}>
-                          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(project.status) }]}>
-                            <Text style={styles.statusBadgeText}>
-                              {project.status?.replace('_', ' ').toUpperCase() || 'DRAFT'}
-                            </Text>
-                          </View>
-                          {isPending ? (
-                            <View style={[styles.pendingBadge, { backgroundColor: '#f59e0b' }]}>
-                              <Text style={styles.pendingBadgeText}>PENDING</Text>
-                            </View>
-                          ) : (
-                            <View style={[styles.accessBadge, { backgroundColor: getAccessLevelColor(accessLevel) }]}>
-                              <Text style={styles.accessBadgeText}>
-                                {getAccessLevelText(accessLevel)}
+                    {/* Cover Image Background with 60% opacity */}
+                    {project.cover_image_url && (
+                      <>
+                        <Image 
+                          source={{ uri: project.cover_image_url }} 
+                          style={styles.coverImageBackgroundImage}
+                          resizeMode="cover"
+                        />
+                        <View style={styles.coverImageOverlay} />
+                      </>
+                    )}
+                    
+                    {/* Content Overlay */}
+                    <View style={styles.projectCardContent}>
+                      <View style={styles.projectHeader}>
+                        <Text style={titleStyle}>{project.title}</Text>
+                        <View style={styles.projectHeaderRight}>
+                          <View style={styles.projectBadges}>
+                            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(project.status) }]}>
+                              <Text style={styles.statusBadgeText}>
+                                {project.status?.replace('_', ' ').toUpperCase() || 'DRAFT'}
                               </Text>
+                            </View>
+                            {isPending ? (
+                              <View style={[styles.pendingBadge, { backgroundColor: '#f59e0b' }]}>
+                                <Text style={styles.pendingBadgeText}>PENDING</Text>
+                              </View>
+                            ) : (
+                              <View style={[styles.accessBadge, { backgroundColor: getAccessLevelColor(accessLevel) }]}>
+                                <Text style={styles.accessBadgeText}>
+                                  {getAccessLevelText(accessLevel)}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <TouchableOpacity
+                            style={styles.menuButton}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              handleMenuPress(project);
+                            }}
+                          >
+                            <Ionicons 
+                              name="ellipsis-horizontal" 
+                              size={20} 
+                              color={menuIconColor} 
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      
+                      {project.description && (
+                        <Text style={descriptionStyle} numberOfLines={2}>
+                          {project.description}
+                        </Text>
+                      )}
+                      
+                      <View style={styles.projectDetails}>
+                        <View style={styles.projectInfo}>
+                          {project.type && (
+                            <View style={styles.projectInfoItem}>
+                              <Ionicons name="film" size={16} color={iconColor} />
+                              <Text style={infoTextStyle}>{project.type}</Text>
+                            </View>
+                          )}
+                          {project.location && (
+                            <View style={styles.projectInfoItem}>
+                              <Ionicons name="location" size={16} color={iconColor} />
+                              <Text style={infoTextStyle}>{project.location}</Text>
+                            </View>
+                          )}
+                          {project.owner && (
+                            <View style={styles.projectInfoItem}>
+                              <Ionicons name="person" size={16} color={iconColor} />
+                              <Text style={infoTextStyle}>by {project.owner.name}</Text>
                             </View>
                           )}
                         </View>
-                        <TouchableOpacity
-                          style={styles.menuButton}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            handleMenuPress(project);
-                          }}
-                        >
-                          <Ionicons 
-                            name="ellipsis-horizontal" 
-                            size={20} 
-                            color={menuIconColor} 
-                          />
-                        </TouchableOpacity>
                       </View>
-                    </View>
-                    
-                    {project.description && (
-                      <Text style={descriptionStyle} numberOfLines={2}>
-                        {project.description}
-                      </Text>
-                    )}
-                    
-                    <View style={styles.projectDetails}>
-                      <View style={styles.projectInfo}>
-                        {project.type && (
-                          <View style={styles.projectInfoItem}>
-                            <Ionicons name="film" size={16} color={iconColor} />
-                            <Text style={infoTextStyle}>{project.type}</Text>
-                          </View>
-                        )}
-                        {project.location && (
-                          <View style={styles.projectInfoItem}>
-                            <Ionicons name="location" size={16} color={iconColor} />
-                            <Text style={infoTextStyle}>{project.location}</Text>
-                          </View>
-                        )}
-                        {project.owner && (
-                          <View style={styles.projectInfoItem}>
-                            <Ionicons name="person" size={16} color={iconColor} />
-                            <Text style={infoTextStyle}>by {project.owner.name}</Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
 
-                    <View style={footerStyle}>
-                      <View style={styles.projectDates}>
-                        {project.start_date && (
-                          <Text style={dateTextStyle}>
-                            Start: {formatDate(project.start_date)}
-                          </Text>
-                        )}
-                        {project.end_date && (
-                          <Text style={dateTextStyle}>
-                            End: {formatDate(project.end_date)}
-                          </Text>
-                        )}
+                      <View style={footerStyle}>
+                        <View style={styles.projectDates}>
+                          {project.start_date && (
+                            <Text style={dateTextStyle}>
+                              Start: {formatDate(project.start_date)}
+                            </Text>
+                          )}
+                          {project.end_date && (
+                            <Text style={dateTextStyle}>
+                              End: {formatDate(project.end_date)}
+                            </Text>
+                          )}
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={iconColor} />
                       </View>
-                      <Ionicons name="chevron-forward" size={20} color={iconColor} />
                     </View>
                   </TouchableOpacity>
                 );
@@ -761,11 +837,15 @@ const styles = StyleSheet.create({
     color: '#000',
     letterSpacing: -0.3,
   },
-  searchContainer: {
-    backgroundColor: '#fff',
-    padding: semanticSpacing.containerPadding,
-    borderBottomWidth: 1,
-    borderBottomColor: '#d4d4d8',
+  backButton: {
+    position: 'absolute',
+    left: semanticSpacing.containerPaddingLarge,
+    padding: 8,
+  },
+  refreshButton: {
+    position: 'absolute',
+    right: semanticSpacing.containerPaddingLarge,
+    padding: 8,
   },
   content: {
     flex: 1,
@@ -854,6 +934,36 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 2,
+  },
+  projectCardWithImage: {
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  coverImageBackgroundImage: {
+    position: 'absolute',
+    top: 0, // Negative padding to cover card padding
+    left: 0, // Negative padding to cover card padding
+    right: 6, // Negative padding to cover card padding
+    bottom: 6, // Negative padding to cover card padding
+    width: '140%',
+    height: '140%',
+    zIndex: 0,
+    borderRadius: 12, // Match card border radius
+  },
+  coverImageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)', // 40% black overlay = 60% image visible
+    borderRadius: 12, // Match card border radius
+    zIndex: 0,
+  },
+  projectCardContent: {
+    position: 'relative',
+    zIndex: 1,
+    minHeight: 150, // Ensure content has minimum height
   },
   projectCardOwner: {
     backgroundColor: '#000',

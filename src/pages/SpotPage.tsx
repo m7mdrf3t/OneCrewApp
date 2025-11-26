@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Image, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, Image, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import { semanticSpacing } from '../constants/spacing';
 
 interface SpotPageProps {
   isDark: boolean;
@@ -28,20 +29,33 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const loadNews = async () => {
+  const loadNews = useCallback(async (pageNum: number = 1, append: boolean = false) => {
     try {
       setError(null);
+      
+      if (append) {
+        setLoadingMore(true);
+      } else if (pageNum === 1) {
+        setIsLoading(true);
+      }
+      
       const response = await getPublishedNews({
-        page: 1,
+        page: pageNum,
         limit: 20,
         sort: 'newest',
+        ...(searchQuery ? { q: searchQuery } : {}),
       });
 
       if (response.success && response.data) {
         // Handle paginated response structure: 
         // { success: true, data: { data: NewsPost[], pagination: {...} } }
         let posts: NewsPost[] = [];
+        const pagination = response.data.pagination;
         
         if (response.data.data && Array.isArray(response.data.data)) {
           // Paginated response: { data: [...], pagination: {...} }
@@ -56,13 +70,17 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate }) => {
           posts = [];
         }
 
-        if (posts.length > 0) {
-          console.log('📰 First post:', posts[0].title);
+        if (append) {
+          setNewsPosts(prev => [...prev, ...posts]);
         } else {
-          console.log('📰 No posts found. Total in pagination:', response.data.pagination?.total || 0);
+          setNewsPosts(posts);
         }
         
-        setNewsPosts(posts);
+        setHasMore(pagination ? pageNum < pagination.totalPages : posts.length === 20);
+        
+        if (posts.length > 0 && !append) {
+          console.log('📰 First post:', posts[0].title);
+        }
       } else {
         console.error('❌ Response not successful:', {
           success: response.success,
@@ -70,25 +88,33 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate }) => {
           message: response.message,
         });
         setError(response.error || response.message || 'Failed to load news');
-        setNewsPosts([]);
+        if (!append) {
+          setNewsPosts([]);
+        }
       }
     } catch (err: any) {
       console.error('❌ Failed to load news:', err);
       setError(err.message || 'Failed to load news');
-      setNewsPosts([]);
+      if (!append) {
+        setNewsPosts([]);
+      }
     } finally {
       setIsLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
-  };
+  }, [searchQuery, getPublishedNews]);
 
   useEffect(() => {
-    loadNews();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    setPage(1);
+    setHasMore(true);
+    loadNews(1, false);
+  }, [searchQuery, loadNews]);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    setPage(1);
+    setHasMore(true);
     // Clear cache to ensure fresh data
     try {
       const { rateLimiter } = await import('../utils/rateLimiter');
@@ -97,14 +123,22 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate }) => {
     } catch (err) {
       console.warn('⚠️ Could not clear cache:', err);
     }
-    loadNews();
-  };
+    loadNews(1, false);
+  }, [loadNews]);
+  
+  const handleLoadMore = useCallback(() => {
+    if (!loadingMore && hasMore && !isLoading) {
+      const nextPage = page + 1;
+      setPage(nextPage);
+      loadNews(nextPage, true);
+    }
+  }, [loadingMore, hasMore, isLoading, page, loadNews]);
 
-  const handleNewsPress = (post: NewsPost) => {
+  const handleNewsPress = useCallback((post: NewsPost) => {
     if (onNavigate) {
       onNavigate('newsDetail', { slug: post.slug, post });
     }
-  };
+  }, [onNavigate]);
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return '';
@@ -119,6 +153,49 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate }) => {
       return '';
     }
   };
+
+  const renderNewsPost = useCallback(({ item: post }: { item: NewsPost }) => (
+    <TouchableOpacity
+      style={[styles.card, { backgroundColor: isDark ? '#0e1113' : '#fff', shadowColor: isDark ? '#000' : '#000' }]}
+      onPress={() => handleNewsPress(post)}
+      activeOpacity={0.7}
+    >
+      {(post.photo_url || post.thumbnail_url) && (
+        <Image 
+          source={{ uri: post.photo_url || post.thumbnail_url }} 
+          style={styles.image} 
+          resizeMode="cover"
+        />
+      )}
+      <View style={styles.content}>
+        {post.category && (
+          <View style={styles.categoryBadge}>
+            <Text style={styles.categoryText}>{post.category}</Text>
+          </View>
+        )}
+        <Text style={[styles.title, { color: isDark ? '#fff' : '#000' }]} numberOfLines={2}>
+          {post.title}
+        </Text>
+        {(post.excerpt || post.body) && (
+          <Text style={[styles.summary, { color: isDark ? '#9ca3af' : '#4b5563' }]} numberOfLines={3}>
+            {post.excerpt || (post.body ? post.body.substring(0, 150) + '...' : '')}
+          </Text>
+        )}
+        <View style={styles.footer}>
+          {post.author && (
+            <Text style={[styles.author, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+              {post.author}
+            </Text>
+          )}
+          {post.published_at && (
+            <Text style={[styles.date, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+              {formatDate(post.published_at)}
+            </Text>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  ), [isDark, handleNewsPress]);
 
   if (isLoading) {
     return (
@@ -151,18 +228,8 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate }) => {
   }
 
   return (
-    <ScrollView 
-      style={[styles.container, { backgroundColor: isDark ? '#0b0b0b' : '#f4f4f5' }]} 
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={isDark ? '#fff' : '#000'}
-        />
-      }
-    >
-      {error && (
+    <View style={[styles.container, { backgroundColor: isDark ? '#0b0b0b' : '#f4f4f5' }]}>
+      {error && newsPosts.length === 0 && (
         <View style={[styles.errorBanner, { backgroundColor: isDark ? '#1f2937' : '#fef2f2' }]}>
           <Ionicons name="warning-outline" size={20} color={isDark ? '#fbbf24' : '#ef4444'} />
           <Text style={[styles.errorBannerText, { color: isDark ? '#fbbf24' : '#ef4444' }]}>
@@ -171,64 +238,45 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate }) => {
         </View>
       )}
       
-      {newsPosts.length === 0 ? (
-        <View style={[styles.centerContent, styles.emptyState]}>
-          <Ionicons name="newspaper-outline" size={64} color={isDark ? '#374151' : '#9ca3af'} />
-          <Text style={[styles.emptyText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
-            No published news available
-          </Text>
-          <Text style={[styles.emptySubtext, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-            Posts may be in draft status.{'\n'}Please publish them in the admin panel.
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.list}>
-          {newsPosts.map((post) => (
-            <TouchableOpacity
-              key={post.id}
-              style={[styles.card, { backgroundColor: isDark ? '#0e1113' : '#fff', shadowColor: isDark ? '#000' : '#000' }]}
-              onPress={() => handleNewsPress(post)}
-              activeOpacity={0.7}
-            >
-              {(post.photo_url || post.thumbnail_url) && (
-                <Image 
-                  source={{ uri: post.photo_url || post.thumbnail_url }} 
-                  style={styles.image} 
-                  resizeMode="cover"
-                />
-              )}
-              <View style={styles.content}>
-                {post.category && (
-                  <View style={styles.categoryBadge}>
-                    <Text style={styles.categoryText}>{post.category}</Text>
-                  </View>
-                )}
-                <Text style={[styles.title, { color: isDark ? '#fff' : '#000' }]} numberOfLines={2}>
-                  {post.title}
+      <FlatList
+        data={newsPosts}
+        renderItem={renderNewsPost}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={newsPosts.length === 0 ? styles.emptyContainer : styles.list}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={isDark ? '#fff' : '#000'}
+          />
+        }
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        ListEmptyComponent={
+          !isLoading ? (
+            <View style={[styles.centerContent, styles.emptyState]}>
+              <Ionicons name="newspaper-outline" size={64} color={isDark ? '#374151' : '#9ca3af'} />
+              <Text style={[styles.emptyText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
+                {searchQuery ? 'No news found' : 'No published news available'}
+              </Text>
+              {!searchQuery && (
+                <Text style={[styles.emptySubtext, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+                  Posts may be in draft status.{'\n'}Please publish them in the admin panel.
                 </Text>
-                {(post.excerpt || post.body) && (
-                  <Text style={[styles.summary, { color: isDark ? '#9ca3af' : '#4b5563' }]} numberOfLines={3}>
-                    {post.excerpt || (post.body ? post.body.substring(0, 150) + '...' : '')}
-                  </Text>
-                )}
-                <View style={styles.footer}>
-                  {post.author && (
-                    <Text style={[styles.author, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-                      {post.author}
-                    </Text>
-                  )}
-                  {post.published_at && (
-                    <Text style={[styles.date, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-                      {formatDate(post.published_at)}
-                    </Text>
-                  )}
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-    </ScrollView>
+              )}
+            </View>
+          ) : null
+        }
+        ListFooterComponent={
+          loadingMore ? (
+            <View style={styles.footerLoader}>
+              <ActivityIndicator size="small" color={isDark ? '#fff' : '#000'} />
+            </View>
+          ) : null
+        }
+      />
+    </View>
   );
 };
 
@@ -291,6 +339,13 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 20,
+  },
+  emptyContainer: {
+    flex: 1,
+  },
+  footerLoader: {
+    padding: semanticSpacing.containerPaddingLarge,
+    alignItems: 'center',
   },
   card: {
     borderRadius: 16,
