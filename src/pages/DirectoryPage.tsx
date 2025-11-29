@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator, Image, FlatList } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
@@ -38,6 +38,7 @@ interface User {
     shoe_size_eu?: number;
     reel_url?: string;
     union_member?: boolean;
+    willing_to_travel?: boolean;
     dialects?: string[];
     travel_ready?: boolean;
   };
@@ -86,73 +87,90 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const [teamMemberIds, setTeamMemberIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [filters, setFilters] = useState<FilterParams>({});
-  
-  // Pagination state
-  const [usersPage, setUsersPage] = useState(1);
-  const [companiesPage, setCompaniesPage] = useState(1);
-  const [hasMoreUsers, setHasMoreUsers] = useState(true);
-  const [hasMoreCompanies, setHasMoreCompanies] = useState(true);
-  const [loadingMoreUsers, setLoadingMoreUsers] = useState(false);
-  const [loadingMoreCompanies, setLoadingMoreCompanies] = useState(false);
+  const [debouncedFilters, setDebouncedFilters] = useState<FilterParams>({});
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const fetchUsers = useCallback(async (page: number = 1, append: boolean = false) => {
+  // Debounce search query (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Debounce filters (500ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFilters(filters);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [filters]);
+
+  const fetchUsers = useCallback(async () => {
+    // Cancel previous request if still pending
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create new AbortController for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
     try {
-      console.log('👥 Fetching users for directory...', isGuest ? '(Guest Mode)' : '(Authenticated)', `Page: ${page}`);
+      console.log('👥 Fetching users for directory...', isGuest ? '(Guest Mode)' : '(Authenticated)');
       setError(null);
       
-      if (append) {
-        setLoadingMoreUsers(true);
-      } else if (page === 1) {
-        setIsLoading(true);
-      }
-      
-      const limit = 20;
-      
-      // Map subcategory to role if a subcategory is selected
-      let roleFilter = filters.role;
-      if (selectedSubcategory && section.key !== 'onehub' && section.key !== 'academy') {
-        const roleMapping: { [key: string]: string } = {
-          'Actor': 'actor',
-          'Singer': 'singer',
-          'Dancer': 'dancer',
-          'Director': 'director',
-          'Producer': 'producer',
-          'Writer': 'writer',
-          'DOP': 'dop',
-          'Editor': 'editor',
-          'Composer': 'composer',
-          'VFX Artist': 'vfx',
-          'Colorist': 'colorist',
-          'Sound Engineer': 'sound_engineer',
-          'Sound Designer': 'sound_designer',
-          'Gaffer': 'gaffer',
-          'Grip': 'grip',
-          'Makeup Artist': 'makeup_artist',
-          'Stylist': 'stylist',
-        };
-        roleFilter = roleMapping[selectedSubcategory] || filters.role;
-      }
-      
-      // Set category based on section
-      let categoryFilter = filters.category;
-      if (!categoryFilter) {
-        if (section.key === 'talent') {
-          categoryFilter = 'talent';
-        } else if (section.key === 'individuals') {
-          categoryFilter = 'crew';
-        }
-      }
-      
-      const params = {
-        limit,
-        page,
-        search: searchQuery || filters.search,
-        category: categoryFilter,
-        role: roleFilter,
-        location: filters.location,
+      // Build params with debounced search and filters
+      const params: any = {
+        limit: 100,
+        search: debouncedSearchQuery,
+        category: debouncedFilters.category,
+        role: debouncedFilters.role,
+        location: debouncedFilters.location,
+        // Physical Attributes
+        height: debouncedFilters.height,
+        height_min: debouncedFilters.height_min,
+        height_max: debouncedFilters.height_max,
+        weight: debouncedFilters.weight,
+        weight_min: debouncedFilters.weight_min,
+        weight_max: debouncedFilters.weight_max,
+        age: debouncedFilters.age,
+        age_min: debouncedFilters.age_min,
+        age_max: debouncedFilters.age_max,
+        // Body Measurements
+        chest_min: debouncedFilters.chest_min,
+        chest_max: debouncedFilters.chest_max,
+        waist_min: debouncedFilters.waist_min,
+        waist_max: debouncedFilters.waist_max,
+        hips_min: debouncedFilters.hips_min,
+        hips_max: debouncedFilters.hips_max,
+        shoe_size_min: debouncedFilters.shoe_size_min,
+        shoe_size_max: debouncedFilters.shoe_size_max,
+        // Appearance
+        skin_tone: debouncedFilters.skin_tone,
+        hair_color: debouncedFilters.hair_color,
+        eye_color: debouncedFilters.eye_color,
+        // Personal Details
+        gender: debouncedFilters.gender,
+        nationality: debouncedFilters.nationality,
+        // Professional Preferences
+        union_member: debouncedFilters.union_member,
+        willing_to_travel: debouncedFilters.willing_to_travel,
+        travel_ready: debouncedFilters.travel_ready,
+        // Additional filters
+        accent: debouncedFilters.accent,
+        skills: debouncedFilters.skills,
+        languages: debouncedFilters.languages,
       };
+      
+      // Remove undefined values
+      Object.keys(params).forEach(key => {
+        if (params[key] === undefined || params[key] === null || params[key] === '') {
+          delete params[key];
+        }
+      });
       
       // Use guest browsing if in guest mode
       if (isGuest) {
@@ -161,18 +179,9 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           const response = await browseUsersAsGuest(params);
           
           if (response.success && response.data) {
-            const data = response.data.data || response.data;
-            const usersArray = Array.isArray(data) ? data : (Array.isArray(data?.users) ? data.users : []);
-            const pagination = response.data.pagination;
-            
-            if (append) {
-              setUsers(prev => [...prev, ...usersArray]);
-            } else {
-            setUsers(usersArray);
-            }
-            
-            setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
+            const usersArray = Array.isArray(response.data) ? response.data : (Array.isArray(response.data?.users) ? response.data.users : []);
             console.log('✅ Users fetched successfully as guest:', usersArray.length);
+            setUsers(usersArray);
             return;
           } else {
             throw new Error(response.error || 'Failed to browse users as guest');
@@ -180,9 +189,6 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         } catch (guestErr: any) {
           console.error('❌ Guest browsing failed:', guestErr);
           setError(guestErr.message || 'Failed to browse users as guest');
-          if (!append) {
-            setUsers([]);
-          }
           throw guestErr;
         }
       }
@@ -193,159 +199,106 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         const response = await getUsersDirect(params);
         
         if (response.success && response.data) {
-          const data = response.data.data || response.data;
-          const usersArray = Array.isArray(data) ? data : [];
-          const pagination = response.data.pagination;
-          
-          if (append) {
-            setUsers(prev => [...prev, ...usersArray]);
-          } else {
-          setUsers(usersArray);
-          }
-          
-          setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
+          const usersArray = Array.isArray(response.data) ? response.data : [];
           console.log('✅ Users fetched successfully with direct fetch:', usersArray.length);
+          setUsers(usersArray);
           return;
         }
       } catch (directErr) {
         console.warn('⚠️ Direct fetch failed, trying API client:', directErr);
       }
       
-      // Fallback to API client - use search parameter (API client will convert to q)
+      // Fallback to API client
       const apiParams: any = {
-        limit,
-        page,
+        limit: 100,
       };
-      if (params.search) apiParams.q = params.search;
-      if (params.category) apiParams.category = params.category;
-      if (params.role) apiParams.role = params.role;
-      
+      // Copy all filter parameters
+      Object.keys(params).forEach(key => {
+        if (key !== 'limit' && params[key] !== undefined && params[key] !== null && params[key] !== '') {
+          if (key === 'search') {
+            apiParams.q = params[key];
+          } else {
+            apiParams[key] = params[key];
+          }
+        }
+      });
       const response = await api.getUsers(apiParams);
       
       if (response.success && response.data) {
-        const data = response.data.data || response.data;
-        const usersArray = Array.isArray(data) ? data : [];
-        const pagination = response.data.pagination;
-        
-        if (append) {
-          setUsers(prev => [...prev, ...usersArray]);
-        } else {
-          setUsers(usersArray);
-        }
-        
-        setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
+        const usersArray = Array.isArray(response.data) ? response.data : [];
         console.log('✅ Users fetched successfully with API client:', usersArray.length);
+        
+        // For now, use basic user data to avoid rate limiting
+        // TODO: Implement batch API call or server-side complete data fetching
+        const completeUsers = usersArray;
+        
+        setUsers(completeUsers);
+        console.log('✅ Complete user data fetched:', completeUsers.length);
       } else {
         console.error('❌ Failed to fetch users:', response.error);
         setError('Failed to load users');
-        if (!append) {
-          setUsers([]);
-        }
       }
     } catch (err: any) {
+      // Don't update state if request was aborted
+      if (abortController.signal.aborted) {
+        console.log('⏹️ Request aborted');
+        return;
+      }
       console.error('❌ Error fetching users:', err);
       setError(err.message || 'Failed to load users');
-      if (!append) {
-        setUsers([]);
-      }
     } finally {
-      setIsLoading(false);
-      setRefreshing(false);
-      setLoadingMoreUsers(false);
-    }
-  }, [isGuest, searchQuery, filters, selectedSubcategory, section.key, browseUsersAsGuest, getUsersDirect, api]);
-
-  const fetchCompanies = useCallback(async (page: number = 1, append: boolean = false) => {
-    try {
-      setError(null);
-      console.log('🏢 Fetching companies for directory...', `Page: ${page}`);
-      
-      if (append) {
-        setLoadingMoreCompanies(true);
-      } else if (page === 1) {
-        setIsLoading(true);
+      // Only update loading state if request wasn't aborted
+      if (!abortController.signal.aborted) {
+        setIsLoading(false);
+        setRefreshing(false);
       }
-      
-      const limit = 20;
-      const params = {
-        limit,
-        page,
-        search: searchQuery || filters.search,
-        category: filters.category,
-        location: filters.location,
-      };
-      
-      const response = await getCompanies(params);
+    }
+  }, [isGuest, debouncedSearchQuery, debouncedFilters, browseUsersAsGuest, getUsersDirect, api]);
+
+  const fetchCompanies = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      console.log('🏢 Fetching companies for directory...');
+      const response = await getCompanies({ limit: 100 });
       
       if (response.success && response.data) {
-        const data = response.data.data || response.data;
-        const companiesArray = Array.isArray(data) ? data : [];
-        const pagination = response.data.pagination;
-        
-        if (append) {
-          setCompanies(prev => [...prev, ...companiesArray]);
-        } else {
-        setCompanies(companiesArray);
-        }
-        
-        setHasMoreCompanies(pagination ? page < pagination.totalPages : companiesArray.length === limit);
+        const companiesArray = Array.isArray(response.data) 
+          ? response.data 
+          : (Array.isArray(response.data?.data) ? response.data.data : []);
         console.log('✅ Companies fetched successfully:', companiesArray.length);
+        setCompanies(companiesArray);
       } else {
         console.error('❌ Failed to fetch companies:', response.error);
         setError('Failed to load companies');
-        if (!append) {
-          setCompanies([]);
-        }
       }
     } catch (err: any) {
       console.error('❌ Error fetching companies:', err);
       setError(err.message || 'Failed to load companies');
-      if (!append) {
-        setCompanies([]);
-      }
     } finally {
       setIsLoading(false);
       setRefreshing(false);
-      setLoadingMoreCompanies(false);
     }
-  }, [searchQuery, filters, getCompanies]);
+  }, [getCompanies]);
 
 
   useEffect(() => {
     setIsLoading(true);
-    setUsersPage(1);
-    setCompaniesPage(1);
-    setHasMoreUsers(true);
-    setHasMoreCompanies(true);
-    
     // Only fetch users if not viewing companies section
     if (section.key !== 'onehub' && section.key !== 'academy') {
-      fetchUsers(1, false);
+      fetchUsers().finally(() => setIsLoading(false));
     }
     
     // Fetch companies for Studios & Agencies and Academy sections
     if (section.key === 'onehub' || section.key === 'academy') {
-      fetchCompanies(1, false);
+      fetchCompanies(); // fetchCompanies already handles setIsLoading
     }
     
     // Only load team members if authenticated (not guest)
     if (!isGuest) {
       loadTeamMembers();
     }
-  }, [isGuest, section.key, fetchUsers, fetchCompanies]);
-  
-  // Reset and refetch when search, filters, or subcategory changes
-  useEffect(() => {
-    if (section.key !== 'onehub' && section.key !== 'academy') {
-      setUsersPage(1);
-      setHasMoreUsers(true);
-      fetchUsers(1, false);
-    } else {
-      setCompaniesPage(1);
-      setHasMoreCompanies(true);
-      fetchCompanies(1, false);
-    }
-  }, [searchQuery, filters, selectedSubcategory, section.key, fetchUsers, fetchCompanies]);
+  }, [isGuest, section.key, debouncedSearchQuery, debouncedFilters, fetchUsers, fetchCompanies]);
 
   const loadTeamMembers = async () => {
     // Skip loading team members if guest
@@ -366,45 +319,16 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setUsersPage(1);
-    setCompaniesPage(1);
-    setHasMoreUsers(true);
-    setHasMoreCompanies(true);
-    
     if (section.key !== 'onehub' && section.key !== 'academy') {
-      fetchUsers(1, false);
+      fetchUsers();
     } else {
-      fetchCompanies(1, false);
+      fetchCompanies();
     }
     // Only refresh team members if authenticated (not guest)
     if (!isGuest) {
       loadTeamMembers();
     }
-  }, [section.key, fetchUsers, fetchCompanies, isGuest]);
-  
-  const handleLoadMoreUsers = useCallback(() => {
-    if (!loadingMoreUsers && hasMoreUsers && !isLoading && section.key !== 'onehub' && section.key !== 'academy') {
-      const nextPage = usersPage + 1;
-      setUsersPage(nextPage);
-      fetchUsers(nextPage, true);
-    }
-  }, [loadingMoreUsers, hasMoreUsers, isLoading, usersPage, section.key, fetchUsers]);
-  
-  const handleLoadMoreCompanies = useCallback(() => {
-    if (!loadingMoreCompanies && hasMoreCompanies && !isLoading && (section.key === 'onehub' || section.key === 'academy')) {
-      const nextPage = companiesPage + 1;
-      setCompaniesPage(nextPage);
-      fetchCompanies(nextPage, true);
-    }
-  }, [loadingMoreCompanies, hasMoreCompanies, isLoading, companiesPage, section.key, fetchCompanies]);
-  
-  const handleApplyFilters = useCallback((newFilters: FilterParams) => {
-    setFilters(newFilters);
-  }, []);
-  
-  const handleClearFilters = useCallback(() => {
-    setFilters({});
-  }, []);
+  }, [section.key, isGuest, fetchUsers, fetchCompanies]);
 
   const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
     if (loadingCompleteData.has(userId)) {
@@ -493,36 +417,231 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     return section.items;
   }, [section.items, section.key, filteredCompaniesByType]);
 
-  // Filter users based on section and items (for subcategory view, users are already filtered by API)
+  // Helper function to check if a user matches the filter criteria
+  // Note: Search is handled server-side, so we don't need to filter by searchQuery here
+  // Optimized: checks only active filters, ordered by selectivity (most selective first)
+  const matchesFilters = useCallback((user: User): boolean => {
+    // Early exit if no filters are active
+    const hasActiveFilters = Object.keys(filters).some(key => {
+      const value = filters[key as keyof FilterParams];
+      if (Array.isArray(value)) return value.length > 0;
+      return value !== undefined && value !== null && value !== '';
+    });
+    if (!hasActiveFilters) return true;
+
+    // Most selective filters first (category, role)
+    // Category filter
+    if (filters.category && user.category !== filters.category) {
+      return false;
+    }
+
+    // Role filter
+    if (filters.role && user.primary_role?.toLowerCase() !== filters.role.toLowerCase()) {
+      return false;
+    }
+
+    // Location filter - only filter if user has location data
+    if (filters.location) {
+      const userLocation = user.about?.location?.toLowerCase() || '';
+      // Only exclude if user has location data and it doesn't match
+      if (userLocation && !userLocation.includes(filters.location.toLowerCase())) {
+        return false;
+      }
+      // If user doesn't have location data, include them (lenient filtering)
+    }
+
+    // Gender filter - only filter if user has gender data
+    if (filters.gender) {
+      const userGender = user.about?.gender?.toLowerCase();
+      // Only exclude if user has gender data and it doesn't match
+      if (userGender && userGender !== filters.gender.toLowerCase()) {
+        return false;
+      }
+      // If user doesn't have gender data, include them (lenient filtering)
+    }
+
+    // Age filter - only filter if user has age data
+    if (filters.age || filters.age_min || filters.age_max) {
+      if (user.about?.age !== undefined) {
+        if (filters.age && user.about.age !== filters.age) {
+          return false;
+        }
+        if (filters.age_min) {
+          if (user.about.age < filters.age_min) {
+            return false;
+          }
+        }
+        if (filters.age_max) {
+          if (user.about.age > filters.age_max) {
+            return false;
+          }
+        }
+      }
+      // If user doesn't have age data, we still include them (lenient filtering)
+    }
+
+    // Height filter - only filter if user has height data
+    if (filters.height || filters.height_min || filters.height_max) {
+      if (user.about?.height_cm !== undefined) {
+        if (filters.height && user.about.height_cm !== filters.height) {
+          return false;
+        }
+        if (filters.height_min) {
+          if (user.about.height_cm < filters.height_min) {
+            return false;
+          }
+        }
+        if (filters.height_max) {
+          if (user.about.height_cm > filters.height_max) {
+            return false;
+          }
+        }
+      }
+      // If user doesn't have height data, we still include them (lenient filtering)
+    }
+
+    // Weight filter - only filter if user has weight data
+    if (filters.weight || filters.weight_min || filters.weight_max) {
+      if (user.about?.weight_kg !== undefined) {
+        if (filters.weight && user.about.weight_kg !== filters.weight) {
+          return false;
+        }
+        if (filters.weight_min) {
+          if (user.about.weight_kg < filters.weight_min) {
+            return false;
+          }
+        }
+        if (filters.weight_max) {
+          if (user.about.weight_kg > filters.weight_max) {
+            return false;
+          }
+        }
+      }
+      // If user doesn't have weight data, we still include them (lenient filtering)
+    }
+
+    // Body measurements filters
+    if (filters.chest_min && user.about?.chest_cm !== undefined && user.about.chest_cm < filters.chest_min) {
+      return false;
+    }
+    if (filters.chest_max && user.about?.chest_cm !== undefined && user.about.chest_cm > filters.chest_max) {
+      return false;
+    }
+    if (filters.waist_min && user.about?.waist_cm !== undefined && user.about.waist_cm < filters.waist_min) {
+      return false;
+    }
+    if (filters.waist_max && user.about?.waist_cm !== undefined && user.about.waist_cm > filters.waist_max) {
+      return false;
+    }
+    if (filters.hips_min && user.about?.hips_cm !== undefined && user.about.hips_cm < filters.hips_min) {
+      return false;
+    }
+    if (filters.hips_max && user.about?.hips_cm !== undefined && user.about.hips_cm > filters.hips_max) {
+      return false;
+    }
+    if (filters.shoe_size_min && user.about?.shoe_size_eu !== undefined && user.about.shoe_size_eu < filters.shoe_size_min) {
+      return false;
+    }
+    if (filters.shoe_size_max && user.about?.shoe_size_eu !== undefined && user.about.shoe_size_eu > filters.shoe_size_max) {
+      return false;
+    }
+
+    // Appearance filters - only filter if user has the data
+    if (filters.skin_tone) {
+      const skinTone = filters.skin_tone.toLowerCase();
+      const userSkinTone = user.about?.skin_tones?.name?.toLowerCase() || user.about?.skin_tone?.toLowerCase() || '';
+      // Only exclude if user has skin tone data and it doesn't match
+      if (userSkinTone && !userSkinTone.includes(skinTone)) {
+        return false;
+      }
+      // If user doesn't have skin tone data, include them (lenient filtering)
+    }
+    if (filters.hair_color) {
+      const hairColor = filters.hair_color.toLowerCase();
+      const userHairColor = user.about?.hair_colors?.name?.toLowerCase() || user.about?.hair_color?.toLowerCase() || '';
+      // Only exclude if user has hair color data and it doesn't match
+      if (userHairColor && !userHairColor.includes(hairColor)) {
+        return false;
+      }
+      // If user doesn't have hair color data, include them (lenient filtering)
+    }
+    if (filters.eye_color) {
+      const userEyeColor = user.about?.eye_color?.toLowerCase() || '';
+      // Only exclude if user has eye color data and it doesn't match
+      if (userEyeColor && !userEyeColor.includes(filters.eye_color.toLowerCase())) {
+        return false;
+      }
+      // If user doesn't have eye color data, include them (lenient filtering)
+    }
+
+    // Nationality filter - only filter if user has nationality data
+    if (filters.nationality) {
+      const userNationality = user.about?.nationality?.toLowerCase() || '';
+      // Only exclude if user has nationality data and it doesn't match
+      if (userNationality && !userNationality.includes(filters.nationality.toLowerCase())) {
+        return false;
+      }
+      // If user doesn't have nationality data, include them (lenient filtering)
+    }
+
+    // Professional preferences - only filter if user has the data
+    // Lenient filtering: if user doesn't have data, include them
+    if (filters.union_member !== undefined) {
+      const userUnionMember = user.about?.union_member;
+      // Only exclude if user has data and it doesn't match
+      if (userUnionMember !== undefined && userUnionMember !== filters.union_member) {
+        return false;
+      }
+      // If user doesn't have union_member data, include them (lenient filtering)
+    }
+    if (filters.willing_to_travel !== undefined) {
+      const userWillingToTravel = user.about?.willing_to_travel;
+      // Only exclude if user has data and it doesn't match
+      if (userWillingToTravel !== undefined && userWillingToTravel !== filters.willing_to_travel) {
+        return false;
+      }
+      // If user doesn't have willing_to_travel data, include them (lenient filtering)
+    }
+    if (filters.travel_ready !== undefined) {
+      const userTravelReady = user.about?.travel_ready;
+      // Only exclude if user has data and it doesn't match
+      if (userTravelReady !== undefined && userTravelReady !== filters.travel_ready) {
+        return false;
+      }
+      // If user doesn't have travel_ready data, include them (lenient filtering)
+    }
+
+    // Skills filter
+    if (filters.skills && filters.skills.length > 0) {
+      const userSkills = user.skills?.map(s => s.toLowerCase()) || [];
+      const hasMatchingSkill = filters.skills.some(skill => 
+        userSkills.some(userSkill => userSkill.includes(skill.toLowerCase()))
+      );
+      if (!hasMatchingSkill) {
+        return false;
+      }
+    }
+
+    // Languages filter
+    if (filters.languages && filters.languages.length > 0) {
+      const userLanguages = user.about?.dialects?.map(l => l.toLowerCase()) || [];
+      const hasMatchingLanguage = filters.languages.some(lang => 
+        userLanguages.some(userLang => userLang.includes(lang.toLowerCase()))
+      );
+      if (!hasMatchingLanguage) {
+        return false;
+      }
+    }
+
+    return true;
+  }, [filters]);
+
+  // Filter users based on section, items, and applied filters
   const filteredUsers = useMemo(() => {
     if (!users.length || section.key === 'onehub' || section.key === 'academy') return {};
     
-    // If a subcategory is selected, users are already filtered by API, just group them
-    if (selectedSubcategory) {
-      // Map section items to actual user roles for grouping
-      const roleMapping: { [key: string]: string[] } = {
-        'Actor': ['actor'],
-        'Singer': ['singer'],
-        'Dancer': ['dancer'],
-        'Director': ['director'],
-        'Producer': ['producer'],
-        'Writer': ['scriptwriter', 'writer'],
-        'DOP': ['dop'],
-        'Editor': ['editor'],
-        'Composer': ['composer'],
-        'VFX Artist': ['vfx'],
-        'Colorist': ['colorist'],
-        'Sound Engineer': ['sound_engineer'],
-        'Sound Designer': ['sound_designer'],
-        'Gaffer': ['gaffer'],
-        'Grip': ['grip'],
-        'Makeup Artist': ['makeup_artist'],
-        'Stylist': ['stylist'],
-      };
-      
-      // Return all users for the selected subcategory (they're already filtered by API)
-      return { [selectedSubcategory]: users };
-    }
+    // First, apply filter criteria to all users
+    const filteredByCriteria = users.filter(matchesFilters);
     
     // Map section items to actual user roles
     const roleMapping: { [key: string]: string[] } = {
@@ -549,7 +668,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     
     section.items.forEach(item => {
       const roles = roleMapping[item.label] || [];
-      const categoryUsers = users.filter(user => {
+      const categoryUsers = filteredByCriteria.filter(user => {
         // Check if user's category matches section
         if (section.key === 'talent' && user.category !== 'talent') return false;
         if (section.key === 'individuals' && user.category !== 'crew') return false;
@@ -564,7 +683,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     });
 
     return sectionUsers;
-  }, [users, section, selectedSubcategory]);
+  }, [users, section, matchesFilters]);
 
   const getInitials = (name: string) => {
     if (!name) return '??';
@@ -587,6 +706,16 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }
     return 'offline';
   };
+
+  const handleApplyFilters = useCallback((newFilters: FilterParams) => {
+    console.log('🔍 Applying filters:', newFilters);
+    setFilters(newFilters);
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    setFilters({});
+    setSearchQuery('');
+  }, []);
 
   const handleToggleTeamMember = async (user: User) => {
     const isCurrentlyInTeam = teamMemberIds.has(user.id);
@@ -633,17 +762,74 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }
   };
 
-  const handleBackPress = useCallback(() => {
-    if (selectedSubcategory) {
-      // If we're viewing a subcategory, just clear it instead of going back
-      setSelectedSubcategory(null);
-    } else {
-      // If we're at the main category view, go back in navigation
-      onBack();
-    }
-  }, [selectedSubcategory, onBack]);
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.title}>{section.title}</Text>
+          <View style={styles.placeholder} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>
+            {(section.key === 'onehub' || section.key === 'academy') ? 'Loading companies...' : 'Loading users...'}
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
-  const renderSubcategory = useCallback(({ item }: { item: any }) => {
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.title}>
+          {selectedSubcategory ? selectedSubcategory : section.title}
+        </Text>
+        {selectedSubcategory && (
+          <TouchableOpacity 
+            onPress={() => setSelectedSubcategory(null)} 
+            style={styles.backButton}
+          >
+            <Ionicons name="close" size={24} color="#000" />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Search and Filter Bar */}
+      {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+        <View style={styles.searchContainer}>
+          <SearchBar
+            value={searchQuery}
+            onChange={setSearchQuery}
+            onOpenFilter={() => setShowFilterModal(true)}
+            filters={filters}
+            onClearFilters={handleClearFilters}
+          />
+        </View>
+      )}
+      
+      <ScrollView 
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {!selectedSubcategory ? (
+          // Show subcategories
+          <View style={styles.subcategoriesContainer}>
+            {sectionItems.map((item) => {
               const itemUsers = (filteredUsers as any)[item.label] || [];
               const itemCompanies = (filteredCompaniesByType as any)[item.label] || [];
               const count = section.key === 'onehub' || section.key === 'academy' 
@@ -652,6 +838,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
               
               return (
                 <TouchableOpacity
+                  key={item.label}
                   style={styles.subcategoryCard}
                   onPress={() => setSelectedSubcategory(item.label)}
                   activeOpacity={0.7}
@@ -660,54 +847,81 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                     <View style={styles.subcategoryIcon}>
                       <Ionicons 
                         name={(section.key === 'onehub' || section.key === 'academy') ? "business" : "people"} 
-              size={26} 
-              color="#0ea5e9" 
+                        size={24} 
+                        color="#3b82f6" 
                       />
                     </View>
                     <View style={styles.subcategoryInfo}>
                       <Text style={styles.subcategoryTitle}>{item.label}</Text>
                       <Text style={styles.subcategoryCount}>{count} {(section.key === 'onehub' || section.key === 'academy') ? 'companies' : 'profiles'}</Text>
                     </View>
-          <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                    <Ionicons name="chevron-forward" size={20} color="#71717a" />
                   </View>
                 </TouchableOpacity>
               );
-  }, [section.key, filteredUsers, filteredCompaniesByType]);
-  
-  const renderCompany = useCallback(({ item: company }: { item: Company }) => {
+            })}
+          </View>
+        ) : (
+          // Show users or companies for selected subcategory
+          <View style={styles.usersContainer}>
+            {(() => {
+              // Check if we're showing companies
+              if (section.key === 'onehub' || section.key === 'academy') {
+                const itemCompanies = (filteredCompaniesByType as any)[selectedSubcategory] || [];
+                
+                return itemCompanies.length > 0 ? (
+                  <View style={styles.companiesListContainer}>
+                    {itemCompanies.map((company: Company) => {
                       const location = company.location_text || company.location || '';
                       const companyType = company.company_type_info?.name || '';
                       
                       return (
                         <TouchableOpacity
-        style={styles.companyCardSimple}
+                          key={company.id}
+                          style={styles.companyCardTwoTone}
                           onPress={() => {
                             if (onNavigate) {
                               onNavigate('companyProfile', { companyId: company.id });
                             }
                           }}
-        activeOpacity={0.7}
+                          activeOpacity={0.8}
                         >
-        <View style={styles.companyCardImageContainer}>
+                          {/* Top Section - Dark Grey */}
+                          <View style={styles.companyCardTop}>
+                            {/* Company Logo */}
                             {company.logo_url ? (
                               <Image
                                 source={{ uri: company.logo_url }}
-              style={styles.companyCardImage}
+                                style={styles.companyCardLogo}
                                 resizeMode="cover"
                               />
                             ) : (
-            <View style={styles.companyCardImagePlaceholder}>
-              <Ionicons name="business" size={40} color="#9ca3af" />
+                              <View style={styles.companyCardLogoPlaceholder}>
+                                <Ionicons name="business" size={48} color="#71717a" />
                               </View>
                             )}
-                          </View>
-                          
-        <View style={styles.companyCardInfo}>
-          <Text style={styles.companyCardName} numberOfLines={2}>
+                            <Text style={styles.companyCardTopName} numberOfLines={2}>
                               {company.name}
                             </Text>
-          {(companyType || location) && (
-            <View style={styles.companyCardMeta}>
+                            {/* Navigation Button */}
+                            <TouchableOpacity
+                              style={styles.companyNavButton}
+                              onPress={() => {
+                                if (onNavigate) {
+                                  onNavigate('companyProfile', { companyId: company.id });
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons name="arrow-back" size={16} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                          
+                          {/* Bottom Section - Light Grey */}
+                          <View style={styles.companyCardBottom}>
+                            <Text style={styles.companyCardBottomName} numberOfLines={1}>
+                              {company.name}
+                            </Text>
                             {companyType ? (
                               <Text style={styles.companyCardType} numberOfLines={1}>
                                 {companyType}
@@ -715,142 +929,30 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                             ) : null}
                             {location ? (
                               <View style={styles.companyCardLocation}>
-                  <Ionicons name="location-outline" size={14} color="#6b7280" />
+                                <Ionicons name="location" size={14} color="#000" />
                                 <Text style={styles.companyCardLocationText} numberOfLines={1}>
                                   {location}
                                 </Text>
                               </View>
                             ) : null}
-            </View>
-          )}
                           </View>
                         </TouchableOpacity>
                       );
-  }, [onNavigate]);
-
-  if (isLoading) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => onBack()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.title}>{section.title}</Text>
-          <View style={styles.placeholder} />
+                    })}
                   </View>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>
-            {(section.key === 'onehub' || section.key === 'academy') ? 'Loading companies...' : 'Loading users...'}
-          </Text>
-        </View>
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} found</Text>
                   </View>
                 );
               }
               
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.title}>
-          {selectedSubcategory ? selectedSubcategory : section.title}
-        </Text>
-        <View style={styles.placeholder} />
-      </View>
-      
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      )}
-
-      {!selectedSubcategory ? (
-        // Show subcategories with FlatList
-        <FlatList
-          data={sectionItems}
-          renderItem={renderSubcategory}
-          keyExtractor={(item) => item.label}
-          contentContainerStyle={styles.subcategoriesContainer}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No subcategories found</Text>
-            </View>
-          }
-        />
-      ) : (
-        // Show users or companies for selected subcategory
-        <>
-          {/* Search Bar - Only visible when viewing users/companies */}
-          <View style={styles.searchContainer}>
-            <SearchBar
-              value={searchQuery}
-              onChange={setSearchQuery}
-              onOpenFilter={() => setShowFilterModal(true)}
-              filters={filters}
-              onClearFilters={handleClearFilters}
-            />
-          </View>
-          
-          {section.key === 'onehub' || section.key === 'academy' ? (
-            // Show companies for selected subcategory
-            (() => {
-          const itemCompanies = companies.filter((company: Company) => {
-            const subcategory = company.subcategory || company.company_type_info?.code || '';
-            const companyType = company.company_type_info?.name || 'Academy';
-            
-            if (section.key === 'onehub') {
-              if (selectedSubcategory === 'Production Houses') return subcategory === 'production_house';
-              if (selectedSubcategory === 'Agency') return subcategory === 'agency' || subcategory === 'casting_agency';
-              if (selectedSubcategory === 'Studio') return subcategory === 'studio';
-              if (selectedSubcategory === 'Management Company') return subcategory === 'management_company';
-            } else if (section.key === 'academy') {
-              return companyType === selectedSubcategory || (selectedSubcategory === 'Academy' && subcategory === 'academy');
-            }
-            return false;
-          });
-          
-          return itemCompanies.length > 0 ? (
-            <FlatList
-              data={itemCompanies}
-              renderItem={renderCompany}
-              keyExtractor={(item: Company) => item.id}
-              contentContainerStyle={styles.companiesListContainer}
-              showsVerticalScrollIndicator={false}
-              refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-              }
-              onEndReached={handleLoadMoreCompanies}
-              onEndReachedThreshold={0.5}
-              ListFooterComponent={
-                loadingMoreCompanies ? (
-                  <View style={styles.footerLoader}>
-                    <ActivityIndicator size="small" color="#000" />
-                  </View>
-                ) : null
-              }
-              ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No companies found</Text>
-                </View>
-              }
-            />
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} found</Text>
-            </View>
-          );
-        })()
-      ) : (
-        // Show users for other sections - use all users since they're already filtered by API
-        (() => {
-          const itemUsers = users; // Users are already filtered by API based on selectedSubcategory
-          
-          const renderUser = ({ item: user }: { item: User }) => (
+              // Show users for other sections
+              const itemUsers = (filteredUsers as any)[selectedSubcategory] || [];
+              
+              return itemUsers.length > 0 ? (
+                <View style={styles.usersGrid}>
+                  {itemUsers.map((user: User) => (
                     <TouchableOpacity
                       key={user.id}
                       style={styles.userCard}
@@ -975,45 +1077,19 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                         </View>
                       </View>
                     </TouchableOpacity>
-          );
-          
-          return itemUsers.length > 0 ? (
-            <FlatList
-              key={`users-grid-${section.key}-${selectedSubcategory || 'all'}-2cols`}
-              data={itemUsers}
-              renderItem={renderUser}
-              keyExtractor={(item: User) => item.id}
-              contentContainerStyle={styles.usersGrid}
-              numColumns={2}
-              showsVerticalScrollIndicator={false}
-              refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-              }
-              onEndReached={handleLoadMoreUsers}
-              onEndReachedThreshold={0.5}
-              ListFooterComponent={
-                loadingMoreUsers ? (
-                  <View style={styles.footerLoader}>
-                    <ActivityIndicator size="small" color="#000" />
+                  ))}
                 </View>
-                ) : null
-              }
-              ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No profiles found</Text>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} profiles found</Text>
                 </View>
-              }
-            />
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} profiles found</Text>
-            </View>
-          );
-        })()
-          )}
-        </>
-      )}
-      
+              );
+            })()}
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Filter Modal */}
       <FilterModal
         visible={showFilterModal}
         onClose={() => setShowFilterModal(false)}
@@ -1033,26 +1109,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    paddingHorizontal: semanticSpacing.containerPaddingLarge,
-    paddingVertical: semanticSpacing.containerPadding,
-    paddingTop: semanticSpacing.containerPadding + 4,
+    borderBottomWidth: 2,
+    borderBottomColor: '#000',
+    padding: semanticSpacing.containerPadding,
+    paddingTop: semanticSpacing.containerPadding,
   },
   backButton: {
     padding: spacing.xs,
-    marginRight: semanticSpacing.sectionGap,
-    borderRadius: semanticSpacing.borderRadius.sm,
+    marginRight: semanticSpacing.containerPadding,
   },
   title: {
     flex: 1,
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#000',
-    letterSpacing: -0.3,
   },
   placeholder: {
-    width: 40,
+    width: 32,
+  },
+  searchContainer: {
+    padding: semanticSpacing.containerPadding,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
   },
   content: {
     flex: 1,
@@ -1061,28 +1140,23 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: spacing.xxl,
   },
   loadingText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#6b7280',
-    letterSpacing: -0.2,
+    fontSize: 16,
+    color: '#71717a',
   },
   errorContainer: {
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: semanticSpacing.borderRadius.md,
-    padding: semanticSpacing.containerPaddingLarge,
-    margin: semanticSpacing.containerPaddingLarge,
+    borderRadius: 8,
+    padding: semanticSpacing.containerPadding,
+    margin: semanticSpacing.sectionGapLarge,
   },
   errorText: {
-    color: '#dc2626',
+    color: '#ef4444',
     fontSize: 14,
-    fontWeight: '500',
     textAlign: 'center',
-    letterSpacing: -0.2,
   },
   categorySection: {
     marginBottom: semanticSpacing.sectionGapLarge,
@@ -1091,37 +1165,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: semanticSpacing.containerPaddingLarge,
+    paddingHorizontal: semanticSpacing.modalPadding,
     marginBottom: semanticSpacing.containerPadding,
   },
   categoryTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: 'bold',
     color: '#000',
-    letterSpacing: -0.4,
   },
   userCount: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#6b7280',
-    letterSpacing: -0.2,
+    fontSize: 14,
+    color: '#71717a',
   },
   usersGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: semanticSpacing.containerPadding,
-    gap: semanticSpacing.containerPadding,
+    paddingHorizontal: spacing.xs,
+    gap: semanticSpacing.buttonPadding,
   },
   userCard: {
     width: '48%',
     backgroundColor: '#000',
-    borderRadius: semanticSpacing.borderRadius.lg,
-    marginBottom: semanticSpacing.containerPadding,
+    borderRadius: 12,
+    marginBottom: semanticSpacing.buttonPadding,
     minHeight: 220,
-    overflow: 'hidden',
   },
   userCardContent: {
-    padding: semanticSpacing.containerPaddingLarge,
+    padding: semanticSpacing.containerPadding,
     flex: 1,
   },
   userInitials: {
@@ -1139,9 +1209,8 @@ const styles = StyleSheet.create({
   },
   initialsText: {
     fontSize: 48,
-    fontWeight: '700',
+    fontWeight: 'bold',
     color: '#fff',
-    letterSpacing: -1,
   },
   userInfo: {
     marginBottom: semanticSpacing.buttonPadding,
@@ -1149,7 +1218,7 @@ const styles = StyleSheet.create({
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   statusDot: {
     width: 8,
@@ -1158,129 +1227,95 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   userName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#fff',
     flex: 1,
-    letterSpacing: -0.3,
   },
   userRole: {
     fontSize: 12,
-    fontWeight: '500',
     color: '#9ca3af',
-    letterSpacing: -0.2,
-    textTransform: 'uppercase',
   },
   talentDetails: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.xs,
   },
   talentDetailText: {
     fontSize: 10,
-    fontWeight: '500',
     color: '#9ca3af',
-    backgroundColor: '#1f2937',
+    backgroundColor: '#f3f4f6',
     paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: semanticSpacing.borderRadius.sm,
-    letterSpacing: -0.1,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   userActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: spacing.xs,
   },
   actionButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#374151',
     justifyContent: 'center',
     alignItems: 'center',
   },
   actionButtonAdded: {
-    backgroundColor: '#10b981',
+    backgroundColor: '#10b981', // Green color when user is in team
   },
   actionButtonLoading: {
-    backgroundColor: '#6b7280',
+    backgroundColor: '#6b7280', // Gray color when loading
   },
   emptyState: {
-    padding: spacing.xxl * 2,
+    padding: spacing.xxl,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   emptyText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#6b7280',
+    fontSize: 14,
+    color: '#71717a',
     textAlign: 'center',
-    letterSpacing: -0.2,
-  },
-  searchContainer: {
-    padding: semanticSpacing.containerPaddingLarge,
-    paddingTop: semanticSpacing.containerPadding,
-    backgroundColor: '#f4f4f5',
-  },
-  emptyContainer: {
-    padding: semanticSpacing.containerPaddingLarge * 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  footerLoader: {
-    padding: semanticSpacing.containerPaddingLarge,
-    alignItems: 'center',
   },
   subcategoriesContainer: {
-    padding: semanticSpacing.containerPaddingLarge,
-    paddingTop: semanticSpacing.sectionGapLarge,
+    padding: semanticSpacing.modalPadding,
   },
   subcategoryCard: {
     backgroundColor: '#fff',
-    borderRadius: semanticSpacing.borderRadius.lg,
+    borderRadius: 12,
     marginBottom: semanticSpacing.containerPadding,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    borderWidth: 2,
+    borderColor: '#d4d4d8',
   },
   subcategoryContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: semanticSpacing.containerPaddingLarge,
+    padding: semanticSpacing.modalPadding,
   },
   subcategoryIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: semanticSpacing.borderRadius.md,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#f0f9ff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: semanticSpacing.containerPadding,
+    marginRight: semanticSpacing.sectionGapLarge,
   },
   subcategoryInfo: {
     flex: 1,
   },
   subcategoryTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#000',
     marginBottom: spacing.xs,
-    letterSpacing: -0.3,
   },
   subcategoryCount: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#6b7280',
-    letterSpacing: -0.2,
+    color: '#71717a',
   },
   usersContainer: {
-    padding: semanticSpacing.containerPaddingLarge,
-    paddingTop: semanticSpacing.sectionGapLarge,
+    padding: semanticSpacing.modalPadding,
   },
   companyLogoInCard: {
     width: 60,
@@ -1288,78 +1323,101 @@ const styles = StyleSheet.create({
     borderRadius: 30,
   },
   companyDescription: {
-    fontSize: 13,
-    fontWeight: '400',
-    color: '#6b7280',
-    marginTop: spacing.xs,
-    lineHeight: 18,
-    letterSpacing: -0.2,
+    fontSize: 12,
+    color: '#9ca3af',
+    marginTop: 4,
+    lineHeight: 16,
   },
-  // Simple, clean company card styles
+  // Two-tone company card styles
   companiesListContainer: {
-    paddingHorizontal: semanticSpacing.containerPadding,
-    paddingTop: semanticSpacing.containerPadding,
+    padding: spacing.xs,
     gap: semanticSpacing.containerPadding,
   },
-  companyCardSimple: {
+  companyCardTwoTone: {
     backgroundColor: '#fff',
-    borderRadius: semanticSpacing.borderRadius.lg,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#000',
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    marginBottom: 4,
   },
-  companyCardImageContainer: {
-    width: '100%',
-    height: 160,
-    backgroundColor: '#f9fafb',
+  companyCardTop: {
+    backgroundColor: '#262626',
+    padding: 0,
+    height: 200,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
   },
-  companyCardImage: {
+  companyCardLogo: {
     width: '100%',
-    height: '100%',
+    height: 140,
+    backgroundColor: '#1a1a1a',
   },
-  companyCardImagePlaceholder: {
+  companyCardLogoPlaceholder: {
     width: '100%',
-    height: '100%',
+    height: 140,
+    backgroundColor: '#1a1a1a',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f3f4f6',
   },
-  companyCardInfo: {
-    padding: semanticSpacing.containerPaddingLarge,
-  },
-  companyCardName: {
+  companyCardTopName: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: spacing.sm,
-    letterSpacing: -0.3,
-    lineHeight: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    textAlign: 'center',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
-  companyCardMeta: {
-    gap: spacing.xs,
+  companyNavButton: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  companyCardBottom: {
+    backgroundColor: '#f5f5f5',
+    padding: semanticSpacing.modalPadding,
+    paddingTop: semanticSpacing.containerPadding,
+    gap: semanticSpacing.tightGap,
+  },
+  companyCardBottomName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 2,
   },
   companyCardType: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#6b7280',
-    letterSpacing: -0.2,
+    color: '#000',
+    opacity: 0.7,
   },
   companyCardLocation: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: semanticSpacing.tightGap,
+    marginTop: semanticSpacing.iconPaddingSmall,
   },
   companyCardLocationText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#6b7280',
+    color: '#000',
+    opacity: 0.7,
     flex: 1,
-    letterSpacing: -0.2,
   },
 });
 

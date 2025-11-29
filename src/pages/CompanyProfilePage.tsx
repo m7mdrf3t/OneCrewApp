@@ -28,6 +28,7 @@ import * as ImagePicker from 'expo-image-picker';
 import GrantCertificationModal from '../components/GrantCertificationModal';
 import CertificationCard from '../components/CertificationCard';
 import CourseCard from '../components/CourseCard';
+import CourseRegistrationModal from '../components/CourseRegistrationModal';
 import MediaPickerService from '../services/MediaPickerService';
 
 interface CompanyProfilePageProps {
@@ -83,6 +84,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const [certifications, setCertifications] = useState<UserCertification[]>([]);
   const [loadingCertifications, setLoadingCertifications] = useState(false);
   const [showGrantCertificationModal, setShowGrantCertificationModal] = useState(false);
+  const [showCourseRegistrationModal, setShowCourseRegistrationModal] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [selectedUserIdForCertification, setSelectedUserIdForCertification] = useState<string | null>(null);
   const [courses, setCourses] = useState<CourseWithDetails[]>([]);
@@ -870,6 +872,54 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 </View>
               )}
             </View>
+
+            {/* Course Registrations Section */}
+            {canEdit() && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Course Registrations</Text>
+                  <TouchableOpacity
+                    style={styles.manageButton}
+                    onPress={() => setShowCourseRegistrationModal(true)}
+                  >
+                    <Ionicons name="people-outline" size={14} color="#000" />
+                    <Text style={styles.manageButtonText}>Manage</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.description}>
+                  Register and manage users for your academy courses. Only academy owners and admins can manage registrations.
+                </Text>
+                <TouchableOpacity
+                  style={styles.manageRegistrationsButton}
+                  onPress={() => setShowCourseRegistrationModal(true)}
+                >
+                  <Ionicons name="person-add-outline" size={18} color="#fff" />
+                  <Text style={styles.manageRegistrationsButtonText}>Manage Course Registrations</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Grant Certification Section */}
+            {canEdit() && company.subcategory === 'academy' && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Grant Certifications</Text>
+                </View>
+                <Text style={styles.description}>
+                  Manually grant certifications to users. You can also grant certifications from the Team Members section by clicking the trophy icon next to any member.
+                </Text>
+                <TouchableOpacity
+                  style={styles.manageRegistrationsButton}
+                  onPress={() => {
+                    setSelectedUserIdForCertification(undefined);
+                    setShowGrantCertificationModal(true);
+                  }}
+                >
+                  <Ionicons name="trophy-outline" size={18} color="#fff" />
+                  <Text style={styles.manageRegistrationsButtonText}>Grant Certification</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </>
         ) : (
           /* Regular Company Layout */
@@ -1125,7 +1175,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                         </View>
 
                         <View style={styles.memberActions}>
-                          {isOwner() && member.role !== 'owner' && (
+                          {canEdit() && member.role !== 'owner' && (
                             <>
                               {company.subcategory === 'academy' && (
                                 <TouchableOpacity
@@ -1138,17 +1188,19 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                                   <Ionicons name="trophy-outline" size={20} color="#3b82f6" />
                                 </TouchableOpacity>
                               )}
-                              <TouchableOpacity
-                                style={styles.memberActionButton}
-                                onPress={() => handleRemoveMember(member)}
-                                disabled={removingMemberId === member.user_id}
-                              >
-                                {removingMemberId === member.user_id ? (
-                                  <ActivityIndicator size="small" color="#ef4444" />
-                                ) : (
-                                  <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                                )}
-                              </TouchableOpacity>
+                              {isOwner() && (
+                                <TouchableOpacity
+                                  style={styles.memberActionButton}
+                                  onPress={() => handleRemoveMember(member)}
+                                  disabled={removingMemberId === member.user_id}
+                                >
+                                  {removingMemberId === member.user_id ? (
+                                    <ActivityIndicator size="small" color="#ef4444" />
+                                  ) : (
+                                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                                  )}
+                                </TouchableOpacity>
+                              )}
                             </>
                           )}
                         </View>
@@ -1278,11 +1330,30 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       {company && (
         <GrantCertificationModal
           visible={showGrantCertificationModal}
-          onClose={() => setShowGrantCertificationModal(false)}
+          onClose={() => {
+            setShowGrantCertificationModal(false);
+            setSelectedUserIdForCertification(null);
+          }}
           company={company}
+          preselectedUserId={selectedUserIdForCertification || undefined}
           onCertificationGranted={() => {
             if (company.id) {
               loadCertifications(company.id);
+            }
+          }}
+        />
+      )}
+
+      {/* Course Registration Modal */}
+      {company && company.subcategory === 'academy' && canEdit() && (
+        <CourseRegistrationModal
+          visible={showCourseRegistrationModal}
+          onClose={() => setShowCourseRegistrationModal(false)}
+          company={company}
+          onRegistrationUpdated={() => {
+            // Reload courses to update registration counts
+            if (company.id) {
+              loadCourses(company.id);
             }
           }}
         />
@@ -1734,6 +1805,22 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   viewAllButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  manageRegistrationsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginTop: 8,
+    gap: 8,
+  },
+  manageRegistrationsButtonText: {
     fontSize: 14,
     fontWeight: '600',
     color: '#fff',

@@ -8,9 +8,12 @@ import {
   TextInput,
   StyleSheet,
   Alert,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { CourseCreationModalProps, CreateCourseRequest, CourseStatus } from '../types';
+import { CourseCreationModalProps, CreateCourseRequest, CourseStatus, User } from '../types';
+import { useApi } from '../contexts/ApiContext';
 import DatePicker from './DatePicker';
 
 const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
@@ -19,7 +22,12 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
   onClose,
   onSubmit,
 }) => {
+  const { api } = useApi();
   const [isLoading, setIsLoading] = useState(false);
+  const [lecturerSearchQuery, setLecturerSearchQuery] = useState('');
+  const [filteredLecturers, setFilteredLecturers] = useState<User[]>([]);
+  const [selectedLecturer, setSelectedLecturer] = useState<User | null>(null);
+  const [searchingLecturer, setSearchingLecturer] = useState(false);
   const [formData, setFormData] = useState<CreateCourseRequest>({
     title: '',
     description: '',
@@ -31,6 +39,12 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     duration: '',
     category: '',
     status: 'draft',
+    certification_template: {
+      name: '',
+      description: '',
+      category: '',
+    },
+    auto_grant_certification: false,
   });
 
   useEffect(() => {
@@ -47,17 +61,82 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
         duration: '',
         category: '',
         status: 'draft',
+        certification_template: {
+          name: '',
+          description: '',
+          category: '',
+        },
+        auto_grant_certification: false,
       });
+      setLecturerSearchQuery('');
+      setFilteredLecturers([]);
+      setSelectedLecturer(null);
     }
   }, [visible]);
+
+  // Search lecturers when search query changes
+  useEffect(() => {
+    const searchLecturers = async () => {
+      if (!lecturerSearchQuery.trim()) {
+        setFilteredLecturers([]);
+        return;
+      }
+
+      try {
+        setSearchingLecturer(true);
+        const response = await api.getUsers({
+          q: lecturerSearchQuery,
+          limit: 20,
+        });
+
+        if (response.success && response.data) {
+          const usersArray = Array.isArray(response.data)
+            ? response.data
+            : response.data.data || [];
+          setFilteredLecturers(usersArray.slice(0, 10));
+        } else {
+          setFilteredLecturers([]);
+        }
+      } catch (error) {
+        console.error('Failed to search lecturers:', error);
+        setFilteredLecturers([]);
+      } finally {
+        setSearchingLecturer(false);
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      searchLecturers();
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [lecturerSearchQuery, api]);
 
   const handleInputChange = (field: keyof CreateCourseRequest, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleSelectLecturer = (lecturer: User) => {
+    setSelectedLecturer(lecturer);
+    setLecturerSearchQuery(lecturer.name || lecturer.email || '');
+    setFilteredLecturers([]);
+    handleInputChange('primary_lecturer_id', lecturer.id);
+  };
+
+  const handleClearLecturer = () => {
+    setSelectedLecturer(null);
+    setLecturerSearchQuery('');
+    setFilteredLecturers([]);
+    handleInputChange('primary_lecturer_id', undefined);
+  };
+
   const validateForm = (): boolean => {
     if (!formData.title.trim()) {
       Alert.alert('Error', 'Course title is required');
+      return false;
+    }
+    if (!formData.certification_template.name.trim()) {
+      Alert.alert('Error', 'Certification template name is required');
       return false;
     }
     if (formData.total_seats < 0) {
@@ -229,6 +308,97 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
             </View>
           </View>
 
+          {/* Primary Lecturer */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Primary Lecturer</Text>
+            {selectedLecturer ? (
+              <View style={styles.selectedLecturerCard}>
+                <View style={styles.lecturerInfo}>
+                  {selectedLecturer.image_url ? (
+                    <Image
+                      source={{ uri: selectedLecturer.image_url }}
+                      style={styles.lecturerAvatar}
+                    />
+                  ) : (
+                    <View style={styles.lecturerAvatarPlaceholder}>
+                      <Text style={styles.lecturerAvatarText}>
+                        {selectedLecturer.name?.charAt(0).toUpperCase() || '?'}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.lecturerDetails}>
+                    <Text style={styles.lecturerName}>{selectedLecturer.name}</Text>
+                    {selectedLecturer.email && (
+                      <Text style={styles.lecturerEmail}>{selectedLecturer.email}</Text>
+                    )}
+                    {selectedLecturer.primary_role && (
+                      <Text style={styles.lecturerRole}>
+                        {selectedLecturer.primary_role.replace(/_/g, ' ')}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.clearLecturerButton}
+                  onPress={handleClearLecturer}
+                >
+                  <Ionicons name="close-circle" size={20} color="#ef4444" />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <TextInput
+                  style={styles.textInput}
+                  value={lecturerSearchQuery}
+                  onChangeText={setLecturerSearchQuery}
+                  placeholder="Search for lecturer by name or email..."
+                  placeholderTextColor="#9ca3af"
+                />
+                {searchingLecturer && (
+                  <ActivityIndicator size="small" color="#3b82f6" style={styles.loader} />
+                )}
+                {filteredLecturers.length > 0 && (
+                  <View style={styles.lecturersList}>
+                    {filteredLecturers.map((lecturer) => (
+                      <TouchableOpacity
+                        key={lecturer.id}
+                        style={styles.lecturerItem}
+                        onPress={() => handleSelectLecturer(lecturer)}
+                      >
+                        <View style={styles.lecturerInfo}>
+                          {lecturer.image_url ? (
+                            <Image
+                              source={{ uri: lecturer.image_url }}
+                              style={styles.lecturerAvatar}
+                            />
+                          ) : (
+                            <View style={styles.lecturerAvatarPlaceholder}>
+                              <Text style={styles.lecturerAvatarText}>
+                                {lecturer.name?.charAt(0).toUpperCase() || '?'}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={styles.lecturerDetails}>
+                            <Text style={styles.lecturerName}>{lecturer.name}</Text>
+                            {lecturer.email && (
+                              <Text style={styles.lecturerEmail}>{lecturer.email}</Text>
+                            )}
+                            {lecturer.primary_role && (
+                              <Text style={styles.lecturerRole}>
+                                {lecturer.primary_role.replace(/_/g, ' ')}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#71717a" />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+
           {/* Poster URL */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Poster URL</Text>
@@ -240,6 +410,116 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
               placeholderTextColor="#9ca3af"
             />
             <Text style={styles.hint}>Optional image URL for course poster</Text>
+          </View>
+
+          {/* Certification Template Section */}
+          <View style={styles.sectionDivider}>
+            <Text style={styles.sectionTitle}>Certification Template *</Text>
+            <Text style={styles.sectionSubtitle}>
+              Create a certification template for this course. Participants will receive this certification upon completion.
+            </Text>
+          </View>
+
+          {/* Certification Template Name */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Certification Name *</Text>
+            <TextInput
+              style={styles.textInput}
+              value={formData.certification_template.name}
+              onChangeText={(value) =>
+                handleInputChange('certification_template', {
+                  ...formData.certification_template,
+                  name: value,
+                })
+              }
+              placeholder="e.g., Acting Fundamentals Certificate"
+              placeholderTextColor="#9ca3af"
+            />
+          </View>
+
+          {/* Certification Template Description */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Certification Description</Text>
+            <TextInput
+              style={[styles.textInput, styles.textArea]}
+              value={formData.certification_template.description || ''}
+              onChangeText={(value) =>
+                handleInputChange('certification_template', {
+                  ...formData.certification_template,
+                  description: value,
+                })
+              }
+              placeholder="Describe what this certification represents..."
+              placeholderTextColor="#9ca3af"
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+          </View>
+
+          {/* Certification Template Category and Expiration */}
+          <View style={styles.row}>
+            <View style={[styles.inputGroup, styles.halfWidth]}>
+              <Text style={styles.label}>Certification Category</Text>
+              <TextInput
+                style={styles.textInput}
+                value={formData.certification_template.category || ''}
+                onChangeText={(value) =>
+                  handleInputChange('certification_template', {
+                    ...formData.certification_template,
+                    category: value,
+                  })
+                }
+                placeholder="e.g., Acting, Directing"
+                placeholderTextColor="#9ca3af"
+              />
+            </View>
+
+            <View style={[styles.inputGroup, styles.halfWidth]}>
+              <Text style={styles.label}>Expiration Days</Text>
+              <TextInput
+                style={styles.textInput}
+                value={formData.certification_template.default_expiration_days?.toString() || ''}
+                onChangeText={(value) => {
+                  const numValue = value === '' ? undefined : parseInt(value);
+                  handleInputChange('certification_template', {
+                    ...formData.certification_template,
+                    default_expiration_days: isNaN(numValue as number) ? undefined : numValue,
+                  });
+                }}
+                placeholder="365"
+                placeholderTextColor="#9ca3af"
+                keyboardType="number-pad"
+              />
+              <Text style={styles.hint}>Leave empty for no expiration</Text>
+            </View>
+          </View>
+
+          {/* Auto Grant Certification */}
+          <View style={styles.inputGroup}>
+            <TouchableOpacity
+              style={styles.checkboxContainer}
+              onPress={() =>
+                handleInputChange('auto_grant_certification', !formData.auto_grant_certification)
+              }
+            >
+              <View
+                style={[
+                  styles.checkbox,
+                  formData.auto_grant_certification && styles.checkboxChecked,
+                ]}
+              >
+                {formData.auto_grant_certification && (
+                  <Ionicons name="checkmark" size={16} color="#fff" />
+                )}
+              </View>
+              <View style={styles.checkboxLabelContainer}>
+                <Text style={styles.checkboxLabel}>Auto-grant certification on course completion</Text>
+                <Text style={styles.checkboxHint}>
+                  Automatically grant this certification to all registered users when the course is completed
+                </Text>
+              </View>
+            </TouchableOpacity>
           </View>
 
           {/* Status */}
@@ -423,6 +703,134 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#fff',
+  },
+  sectionDivider: {
+    marginTop: 24,
+    marginBottom: 16,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 8,
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  checkboxChecked: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  checkboxLabelContainer: {
+    flex: 1,
+  },
+  checkboxLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#000',
+    marginBottom: 4,
+  },
+  checkboxHint: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  loader: {
+    marginVertical: 8,
+  },
+  selectedLecturerCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#eff6ff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+    marginTop: 8,
+  },
+  lecturerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  lecturerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  lecturerAvatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#e4e4e7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  lecturerAvatarText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#71717a',
+  },
+  lecturerDetails: {
+    flex: 1,
+  },
+  lecturerName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 2,
+  },
+  lecturerEmail: {
+    fontSize: 12,
+    color: '#71717a',
+    marginBottom: 2,
+  },
+  lecturerRole: {
+    fontSize: 11,
+    color: '#6b7280',
+    textTransform: 'capitalize',
+  },
+  clearLecturerButton: {
+    padding: 4,
+  },
+  lecturersList: {
+    marginTop: 8,
+    maxHeight: 200,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+  },
+  lecturerItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
   },
 });
 

@@ -8,6 +8,7 @@ const CourseCard: React.FC<CourseCardProps> = ({
   onSelect,
   onEdit,
   onDelete,
+  onComplete,
   showActions = false,
 }) => {
   const formatDate = (dateString?: string): string => {
@@ -134,8 +135,19 @@ const CourseCard: React.FC<CourseCardProps> = ({
         </View>
 
         {/* Action Buttons (for management) */}
-        {showActions && (onEdit || onDelete) && (
+        {showActions && (onEdit || onDelete || onComplete) && (
           <View style={styles.actionsContainer}>
+            {onComplete && course.status !== 'completed' && (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.completeButton]}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onComplete();
+                }}
+              >
+                <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
+              </TouchableOpacity>
+            )}
             {onEdit && (
               <TouchableOpacity
                 style={styles.actionButton}
@@ -272,6 +284,10 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  completeButton: {
+    backgroundColor: 'rgba(16, 185, 129, 0.8)', // Green for complete
     alignItems: 'center',
   },
 });

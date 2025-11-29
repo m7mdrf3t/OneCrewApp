@@ -32,6 +32,7 @@ import {
 import ReferenceDataService from '../services/ReferenceDataService';
 import supabaseService from '../services/SupabaseService';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
+import { FilterParams } from '../components/FilterModal';
 
 interface ApiContextType {
   api: OneCrewApi;
@@ -50,7 +51,7 @@ interface ApiContextType {
   resetPassword: (token: string, newPassword: string) => Promise<void>;
   // Guest session methods
   createGuestSession: () => Promise<GuestSessionData>;
-  browseUsersAsGuest: (params?: { page?: number; limit?: number; search?: string; category?: string; role?: string; location?: string }) => Promise<any>;
+  browseUsersAsGuest: (params?: FilterParams & { page?: number; limit?: number }) => Promise<any>;
   convertGuestToUser: (request: ConvertGuestToUserRequest) => Promise<AuthResponse>;
   getGuestSessionId: () => string | null;
   // Profile methods
@@ -87,7 +88,7 @@ interface ApiContextType {
   addUserSkillNew: (skillId: string) => Promise<any>;
   removeUserSkillNew: (skillId: string) => Promise<any>;
   // Direct fetch methods
-  getUsersDirect: (params?: { limit?: number; page?: number; search?: string; category?: string; role?: string; location?: string }) => Promise<any>;
+  getUsersDirect: (params?: FilterParams & { limit?: number; page?: number }) => Promise<any>;
   fetchCompleteUserProfile: (userId: string, userData?: any) => Promise<any>;
   // Project management methods
   createProject: (projectData: any) => Promise<any>;
@@ -138,7 +139,7 @@ interface ApiContextType {
   // Profile switching
   currentProfileType: 'user' | 'company';
   activeCompany: any | null;
-  switchToUserProfile: () => void;
+  switchToUserProfile: () => Promise<void>;
   switchToCompanyProfile: (companyId: string) => Promise<void>;
   getActiveCompany: () => any | null;
   // Company management methods
@@ -211,8 +212,13 @@ interface ApiContextType {
   getPublicCourses: (filters?: { category?: string; company_id?: string; page?: number; limit?: number }) => Promise<any>;
   registerForCourse: (courseId: string) => Promise<any>;
   unregisterFromCourse: (courseId: string) => Promise<any>;
+  registerUserForCourse: (courseId: string, userId: string) => Promise<any>;
+  unregisterUserFromCourse: (courseId: string, userId: string) => Promise<any>;
   getCourseRegistrations: (courseId: string) => Promise<any>;
   getMyRegisteredCourses: () => Promise<any>;
+  // v2.8.0: Course completion methods
+  completeCourseRegistration: (courseId: string, userId: string) => Promise<any>;
+  completeCourse: (courseId: string, autoGrantCertifications?: boolean) => Promise<any>;
   // News/Blog methods (v2.4.0)
   getPublishedNews: (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest' }) => Promise<any>;
   getNewsPostBySlug: (slug: string) => Promise<any>;
@@ -241,7 +247,7 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-  baseUrl = 'https://onecrewbe-production.up.railway.app' // Production serve
+  baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
  //baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
@@ -442,12 +448,30 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         body: JSON.stringify(credentials),
       });
 
+      // Read response as text first (can only read body once)
+      const responseText = await response.text();
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+        // Try to parse as JSON, but fallback to text if it's not JSON
+        let errorMessage = responseText || `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch {
+          // Not JSON, use text response as error message
+        }
+        throw new Error(errorMessage);
       }
 
-      const authResponse = await response.json();
+      // Parse response as JSON
+      let authResponse;
+      try {
+        authResponse = JSON.parse(responseText);
+      } catch (parseError: any) {
+        // If JSON parsing fails, it's likely a text error message
+        console.error('❌ Failed to parse response as JSON:', responseText);
+        throw new Error(responseText || 'Server returned invalid JSON response');
+      }
       console.log('✅ Direct fetch login successful:', authResponse);
       console.log('👤 User data in response:', authResponse.user);
       console.log('👤 Data object in response:', authResponse.data);
@@ -710,7 +734,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         bio: profileData.bio,
         specialty: profileData.specialty,
         image_url: profileData.imageUrl, // Map imageUrl to image_url for API
+        location_text: profileData.location_text || profileData.about?.location || null, // Location stored in users table
       };
+      
+      // Add cover_images only if they exist (don't send null/undefined)
+      const coverImages = profileData.coverImages || profileData.cover_images;
+      if (coverImages && Array.isArray(coverImages) && coverImages.length > 0) {
+        basicProfileData.cover_images = coverImages;
+        console.log('📸 Including cover images in profile update:', coverImages.length, 'images');
+      } else {
+        console.log('📸 No cover images to include in profile update');
+      }
 
       // Clean and prepare talent profile data (excluding age, nationality, gender - these go to UserDetails)
       const talentProfileData = {
@@ -940,6 +974,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           ...user, 
           id: user.id, // Ensure ID is preserved
           ...basicResult.data,
+          coverImages: profileData.coverImages || profileData.cover_images || basicResult.data?.cover_images || basicResult.data?.coverImages || [],
           skills: profileData.skills || [],
           about: {
             ...(user as any).about,
@@ -950,7 +985,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         setUser(updatedUser as any);
       }
       
-      return { success: true, data: { ...basicResult.data, ...talentResult.data, skills: profileData.skills || [] } };
+      return { 
+        success: true, 
+        data: { 
+          ...basicResult.data, 
+          ...talentResult.data, 
+          coverImages: profileData.coverImages || profileData.cover_images || basicResult.data?.cover_images || basicResult.data?.coverImages || [],
+          skills: profileData.skills || [] 
+        } 
+      };
     } catch (err: any) {
       console.error('❌ Profile update failed:', err);
       setError(err.message || 'Failed to update profile');
@@ -2000,13 +2043,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // Direct fetch method for getting users
-  const getUsersDirect = async (params: { 
+  // Accepts all FilterParams to support comprehensive filtering
+  const getUsersDirect = async (params: FilterParams & { 
     limit?: number; 
     page?: number;
-    search?: string;
-    category?: string;
-    role?: string;
-    location?: string;
   } = {}) => {
     const cacheKey = `users-direct-${JSON.stringify(params)}`;
     return rateLimiter.execute(cacheKey, async () => {
@@ -2023,12 +2063,60 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const accessToken = getAccessToken();
         
         const queryParams = new URLSearchParams();
+        
+        // Pagination params
         if (params.limit) queryParams.append('limit', params.limit.toString());
         if (params.page) queryParams.append('page', params.page.toString());
+        
+        // Basic filters
         if (params.search) queryParams.append('q', params.search);
         if (params.category) queryParams.append('category', params.category);
         if (params.role) queryParams.append('role', params.role);
         if (params.location) queryParams.append('location', params.location);
+        
+        // Physical Attributes
+        if (params.height !== undefined) queryParams.append('height', params.height.toString());
+        if (params.height_min !== undefined) queryParams.append('height_min', params.height_min.toString());
+        if (params.height_max !== undefined) queryParams.append('height_max', params.height_max.toString());
+        if (params.weight !== undefined) queryParams.append('weight', params.weight.toString());
+        if (params.weight_min !== undefined) queryParams.append('weight_min', params.weight_min.toString());
+        if (params.weight_max !== undefined) queryParams.append('weight_max', params.weight_max.toString());
+        if (params.age !== undefined) queryParams.append('age', params.age.toString());
+        if (params.age_min !== undefined) queryParams.append('age_min', params.age_min.toString());
+        if (params.age_max !== undefined) queryParams.append('age_max', params.age_max.toString());
+        
+        // Body Measurements
+        if (params.chest_min !== undefined) queryParams.append('chest_min', params.chest_min.toString());
+        if (params.chest_max !== undefined) queryParams.append('chest_max', params.chest_max.toString());
+        if (params.waist_min !== undefined) queryParams.append('waist_min', params.waist_min.toString());
+        if (params.waist_max !== undefined) queryParams.append('waist_max', params.waist_max.toString());
+        if (params.hips_min !== undefined) queryParams.append('hips_min', params.hips_min.toString());
+        if (params.hips_max !== undefined) queryParams.append('hips_max', params.hips_max.toString());
+        if (params.shoe_size_min !== undefined) queryParams.append('shoe_size_min', params.shoe_size_min.toString());
+        if (params.shoe_size_max !== undefined) queryParams.append('shoe_size_max', params.shoe_size_max.toString());
+        
+        // Appearance
+        if (params.skin_tone) queryParams.append('skin_tone', params.skin_tone);
+        if (params.hair_color) queryParams.append('hair_color', params.hair_color);
+        if (params.eye_color) queryParams.append('eye_color', params.eye_color);
+        
+        // Personal Details
+        if (params.gender) queryParams.append('gender', params.gender);
+        if (params.nationality) queryParams.append('nationality', params.nationality);
+        
+        // Professional Preferences
+        if (params.union_member !== undefined) queryParams.append('union_member', params.union_member.toString());
+        if (params.willing_to_travel !== undefined) queryParams.append('willing_to_travel', params.willing_to_travel.toString());
+        if (params.travel_ready !== undefined) queryParams.append('travel_ready', params.travel_ready.toString());
+        
+        // Additional filters
+        if (params.accent) queryParams.append('accent', params.accent);
+        if (params.skills && params.skills.length > 0) {
+          params.skills.forEach(skill => queryParams.append('skills[]', skill));
+        }
+        if (params.languages && params.languages.length > 0) {
+          params.languages.forEach(lang => queryParams.append('languages[]', lang));
+        }
         
         const url = `${baseUrl}/api/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
         console.log('🌐 Fetching from URL:', url);
@@ -2520,12 +2608,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const browseUsersAsGuest = async (params?: { page?: number; limit?: number; search?: string; category?: string; role?: string; location?: string }) => {
+  // Browse users as guest - accepts all FilterParams for comprehensive filtering
+  const browseUsersAsGuest = async (params?: FilterParams & { page?: number; limit?: number }) => {
     if (!guestSessionId) {
       throw new Error('No guest session available');
     }
     try {
-      console.log('🎭 Browsing users as guest...');
+      console.log('🎭 Browsing users as guest...', params);
+      // The underlying API client may only support basic params, but we pass all params
+      // The backend should handle unsupported params gracefully
       const response = await api.browseUsersAsGuest(guestSessionId, params);
       return response;
     } catch (error) {
@@ -3044,7 +3135,21 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // Profile Switching Methods
-  const switchToUserProfile = () => {
+  const switchToUserProfile = async () => {
+    // Clear conversation cache for the previous profile
+    const previousProfileType = currentProfileType;
+    const previousProfileId = previousProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+    if (previousProfileId) {
+      // Clear all conversation-related cache entries
+      const cachePatterns = [
+        `conversations-company-${previousProfileId}`,
+        `conversations-user-${previousProfileId}`,
+      ];
+      for (const pattern of cachePatterns) {
+        await rateLimiter.clearCache(pattern);
+      }
+    }
+    
     setCurrentProfileType('user');
     setActiveCompany(null);
     AsyncStorage.setItem('currentProfileType', 'user');
@@ -3080,6 +3185,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const role = companyMember.role || companyMember.member?.role;
         if (role !== 'owner') {
           throw new Error('Only company owners can switch to company profiles');
+        }
+      }
+      
+      // Clear conversation cache for the previous profile
+      const previousProfileType = currentProfileType;
+      const previousProfileId = previousProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+      if (previousProfileId) {
+        // Clear all conversation-related cache entries
+        const cachePatterns = [
+          `conversations-company-${previousProfileId}`,
+          `conversations-user-${previousProfileId}`,
+        ];
+        for (const pattern of cachePatterns) {
+          await rateLimiter.clearCache(pattern);
         }
       }
       
@@ -3887,7 +4006,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       const response = await api.leaveCompany(companyId);
       if (activeCompany?.id === companyId) {
-        switchToUserProfile();
+        await switchToUserProfile();
       }
       return response;
     } catch (error) {
@@ -4365,6 +4484,51 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const registerUserForCourse = async (courseId: string, userId: string) => {
+    try {
+      const response = await api.registerUserForCourse(courseId, userId);
+      if (response.success) {
+        // Invalidate caches
+        await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+        await rateLimiter.clearCacheByPattern(`course-registrations-${courseId}`);
+        await rateLimiter.clearCache('my-registered-courses');
+        return {
+          success: true,
+          data: response.data,
+        };
+      }
+      throw new Error(response.error || 'Failed to register user for course');
+    } catch (error: any) {
+      console.error('Failed to register user for course:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to register user for course',
+      };
+    }
+  };
+
+  const unregisterUserFromCourse = async (courseId: string, userId: string) => {
+    try {
+      const response = await api.unregisterUserFromCourse(courseId, userId);
+      if (response.success) {
+        // Invalidate caches
+        await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+        await rateLimiter.clearCacheByPattern(`course-registrations-${courseId}`);
+        await rateLimiter.clearCache('my-registered-courses');
+        return {
+          success: true,
+        };
+      }
+      throw new Error(response.error || 'Failed to unregister user from course');
+    } catch (error: any) {
+      console.error('Failed to unregister user from course:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to unregister user from course',
+      };
+    }
+  };
+
   const getCourseRegistrations = async (courseId: string) => {
     const cacheKey = `course-registrations-${courseId}`;
     return rateLimiter.execute(cacheKey, async () => {
@@ -4397,6 +4561,53 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw error;
       }
     }, { ttl: CacheTTL.SHORT }); // My registered courses change when user registers/unregisters - 30s TTL
+  };
+
+  // v2.8.0: Course completion methods
+  const completeCourseRegistration = async (courseId: string, userId: string) => {
+    try {
+      const response = await api.completeCourseRegistration(courseId, userId);
+      if (response.success) {
+        // Invalidate caches
+        await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+        await rateLimiter.clearCacheByPattern(`course-registrations-${courseId}`);
+        await rateLimiter.clearCache('my-registered-courses');
+        return {
+          success: true,
+          data: response.data,
+        };
+      }
+      throw new Error(response.error || 'Failed to complete course registration');
+    } catch (error: any) {
+      console.error('Failed to complete course registration:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to complete course registration',
+      };
+    }
+  };
+
+  const completeCourse = async (courseId: string, autoGrantCertifications?: boolean) => {
+    try {
+      const response = await api.completeCourse(courseId, autoGrantCertifications);
+      if (response.success) {
+        // Invalidate caches
+        await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+        await rateLimiter.clearCacheByPattern(`course-registrations-${courseId}`);
+        await rateLimiter.clearCache('my-registered-courses');
+        return {
+          success: true,
+          data: response.data,
+        };
+      }
+      throw new Error(response.error || 'Failed to complete course');
+    } catch (error: any) {
+      console.error('Failed to complete course:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to complete course',
+      };
+    }
   };
 
   // News/Blog methods (v2.3.0)
@@ -4463,7 +4674,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Chat/Messaging methods (v2.5.0)
   // Real-time data - caching disabled for immediate updates
   const getConversations = async (params?: { page?: number; limit?: number }) => {
-    const cacheKey = `conversations-${JSON.stringify(params || {})}`;
+    // Include profile context in cache key to separate conversations by profile
+    const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+    const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
+    const cacheKey = `conversations-${currentUserType}-${currentUserId}-${JSON.stringify(params || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
         if (!api.chat) {
@@ -4493,9 +4707,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                   if (lastMessageAt > lastReadAt) {
                     unreadCount++;
                   }
-                } else if (conv.last_message_at && !participant?.last_read_at) {
+                } else if (conv.last_message_at && participant && !participant.last_read_at) {
                   // If there's a last message but no read timestamp, consider it unread
+                  // Only if participant exists (current profile is a participant)
                   unreadCount++;
+                } else if (conv.last_message_at && !participant) {
+                  // If there's a last message but current profile is not a participant, skip it
+                  // This ensures we only count unread for conversations belonging to current profile
+                  console.log('⚠️ Skipping unread count for conversation - current profile is not a participant:', {
+                    conversationId: conv.id,
+                    currentProfileType: currentUserType,
+                    currentProfileId: currentUserId,
+                  });
                 }
               }
             });
@@ -4533,7 +4756,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const createConversation = async (request: { conversation_type: 'user_user' | 'user_company' | 'company_company'; participant_ids: string[]; name?: string }) => {
     try {
-      console.log('💬 Creating conversation...', request);
+      // Log profile context for verification
+      const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+      const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
+      console.log('💬 Creating conversation...', {
+        ...request,
+        currentProfileType: currentUserType,
+        currentProfileId: currentUserId,
+      });
       console.log('💬 API object:', api);
       console.log('💬 API.chat:', api.chat);
       console.log('💬 API keys:', Object.keys(api));
@@ -4569,7 +4799,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Real-time data - caching disabled for immediate updates
   const getMessages = async (conversationId: string, params?: { page?: number; limit?: number; before?: string }) => {
-    const cacheKey = `messages-${conversationId}-${JSON.stringify(params || {})}`;
+    // Include profile context in cache key to separate messages by profile
+    const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+    const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
+    const cacheKey = `messages-${conversationId}-${currentUserType}-${currentUserId}-${JSON.stringify(params || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
         if (!api.chat) {
@@ -4648,7 +4881,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Marking message as read:', { conversationId, messageId, messageIds });
+      // Log profile context for verification
+      const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+      const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
+      console.log('💬 Marking message as read:', { 
+        conversationId, 
+        messageId, 
+        messageIds,
+        profileType: currentUserType,
+        profileId: currentUserId,
+      });
       
       let response;
       
@@ -5195,8 +5437,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getPublicCourses,
     registerForCourse,
     unregisterFromCourse,
+    registerUserForCourse,
+    unregisterUserFromCourse,
     getCourseRegistrations,
     getMyRegisteredCourses,
+    completeCourseRegistration,
+    completeCourse,
     // News/Blog methods (v2.4.0)
     getPublishedNews,
     getNewsPostBySlug,

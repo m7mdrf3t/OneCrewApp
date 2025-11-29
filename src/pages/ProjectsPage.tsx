@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProjectsPageProps } from '../types';
 import { useApi } from '../contexts/ApiContext';
 import ProjectMenuPopup from '../components/ProjectMenuPopup';
 import DeletedProjectsModal from '../components/DeletedProjectsModal';
+import ProjectTypeModal from '../components/ProjectTypeModal';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import MediaPickerService from '../services/MediaPickerService';
 
@@ -23,14 +24,16 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onNavigateToLogin,
   onProjectCreated,
 }) => {
-  const { getAllProjects, getProjectById, user, api, isGuest, getProjectTasks, uploadFile } = useApi();
+  const { getAllProjects, getProjectById, user, api, isGuest, getProjectTasks, uploadFile, updateProject } = useApi();
   const [projects, setProjects] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<any>(null);
   const [showMenuPopup, setShowMenuPopup] = useState(false);
   const [showDeletedProjects, setShowDeletedProjects] = useState(false);
+  const [showProjectTypeModal, setShowProjectTypeModal] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>();
+  const openingModalRef = useRef(false);
   
   // Project categories
   const [ownerProjects, setOwnerProjects] = useState<any[]>([]);
@@ -244,7 +247,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
               await api.updateProject(selectedProject.id, {
                 is_deleted: true,
                 deleted_at: new Date().toISOString(),
-              });
+              } as any);
               
               // Remove project from all categories
               setProjects(prev => prev.filter(p => p.id !== selectedProject.id));
@@ -311,8 +314,66 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   };
 
   const handleProjectType = () => {
-    if (!selectedProject) return;
-    Alert.alert('Project Type', 'This feature will be implemented soon.');
+    console.log('📋 handleProjectType called, selectedProject:', selectedProject?.id);
+    if (!selectedProject) {
+      console.warn('⚠️ No project selected');
+      return;
+    }
+    // Set flag to prevent clearing selectedProject in menu's onClose
+    openingModalRef.current = true;
+    console.log('✅ Opening project type modal for project:', selectedProject.id);
+    setShowProjectTypeModal(true);
+  };
+
+  const handleProjectTypeSelect = async (projectType: string) => {
+    console.log('🎯 handleProjectTypeSelect called with type:', projectType);
+    console.log('📋 selectedProject:', selectedProject?.id);
+    
+    if (!selectedProject) {
+      console.warn('⚠️ No project selected in handleProjectTypeSelect');
+      return;
+    }
+
+    try {
+      console.log('🔄 Updating project type:', {
+        projectId: selectedProject.id,
+        newType: projectType,
+        currentType: selectedProject.type,
+      });
+
+      // Update project via API using the hook's updateProject function
+      const response = await updateProject(selectedProject.id, {
+        type: projectType,
+      });
+
+      console.log('✅ Project type update response:', response);
+
+      // Update local state in all project arrays
+      const updateProjectInArray = (project: any) => 
+        project.id === selectedProject.id 
+          ? { ...project, type: projectType }
+          : project;
+
+      setProjects(prev => prev.map(updateProjectInArray));
+      setOwnerProjects(prev => prev.map(updateProjectInArray));
+      setMemberProjects(prev => prev.map(updateProjectInArray));
+      setPendingProjects(prev => prev.map(updateProjectInArray));
+
+      // Update selected project
+      setSelectedProject(prev => prev ? { ...prev, type: projectType } : null);
+
+      Alert.alert('Success', 'Project type updated successfully!');
+    } catch (error: any) {
+      console.error('❌ Failed to update project type:', error);
+      const errorMessage = error?.message || String(error) || '';
+      let alertMessage = 'Failed to update project type. Please try again.';
+      
+      if (errorMessage.includes('Access denied') || errorMessage.includes('permission')) {
+        alertMessage = 'You do not have permission to update this project type.';
+      }
+      
+      Alert.alert('Error', alertMessage);
+    }
   };
 
   const handleCoverPhoto = async () => {
@@ -449,6 +510,30 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     })));
     
     return 'viewer';
+  };
+
+  // Check if user can edit a project (owner or admin member only)
+  const canEditProject = (project: any): boolean => {
+    if (!user) return false;
+    
+    // Owner can always edit
+    if (project.created_by === user.id) {
+      return true;
+    }
+    
+    // Check if user is a member with admin role
+    const members = project.members || project.project_members || [];
+    const userMember = members.find((member: any) => {
+      const memberUserId = member.user_id || member.user?.id || member.id;
+      return memberUserId === user.id;
+    });
+    
+    // Only admin members can edit (not regular members)
+    if (userMember && userMember.role === 'admin') {
+      return true;
+    }
+    
+    return false;
   };
 
   const getAccessLevelColor = (accessLevel: string) => {
@@ -629,6 +714,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
                 const isOwner = accessLevel === 'owner';
                 const isMember = accessLevel === 'member';
                 const isPending = activeTab === 'pending';
+                const canEdit = canEditProject(project);
                 
                 // Determine card style based on tab
                 let cardStyle: StyleProp<ViewStyle> = styles.projectCard;
@@ -703,19 +789,22 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
                               </View>
                             )}
                           </View>
-                          <TouchableOpacity
-                            style={styles.menuButton}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              handleMenuPress(project);
-                            }}
-                          >
-                            <Ionicons 
-                              name="ellipsis-horizontal" 
-                              size={20} 
-                              color={menuIconColor} 
-                            />
-                          </TouchableOpacity>
+                          {/* Only show menu button if user can edit (owner or admin) */}
+                          {canEdit && (
+                            <TouchableOpacity
+                              style={styles.menuButton}
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                handleMenuPress(project);
+                              }}
+                            >
+                              <Ionicons 
+                                name="ellipsis-horizontal" 
+                                size={20} 
+                                color={menuIconColor} 
+                              />
+                            </TouchableOpacity>
+                          )}
                         </View>
                       </View>
                       
@@ -795,7 +884,12 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         visible={showMenuPopup}
         onClose={() => {
           setShowMenuPopup(false);
-          setSelectedProject(null);
+          // Only clear selectedProject if we're not opening a modal
+          // The modals (type, cover photo, etc.) need the selectedProject
+          if (!openingModalRef.current) {
+            setSelectedProject(null);
+          }
+          openingModalRef.current = false;
         }}
         onEditName={handleEditName}
         onProjectType={handleProjectType}
@@ -803,7 +897,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         onSave={handleSave}
         onDelete={handleDeleteProject}
         anchorPosition={menuAnchor}
-        canEdit={selectedProject ? (getUserAccessLevel(selectedProject) === 'owner' || getUserAccessLevel(selectedProject) === 'member') : false}
+        canEdit={selectedProject ? canEditProject(selectedProject) : false}
       />
 
       {/* Deleted Projects Modal */}
@@ -811,6 +905,20 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         visible={showDeletedProjects}
         onClose={() => setShowDeletedProjects(false)}
         onRestore={handleRestoreProject}
+      />
+
+      {/* Project Type Modal */}
+      <ProjectTypeModal
+        visible={showProjectTypeModal}
+        onClose={() => {
+          console.log('🔒 Closing project type modal');
+          setShowProjectTypeModal(false);
+          openingModalRef.current = false;
+          // Clear selectedProject when modal closes
+          setSelectedProject(null);
+        }}
+        onSelectType={handleProjectTypeSelect}
+        currentType={selectedProject?.type}
       />
     </View>
   );

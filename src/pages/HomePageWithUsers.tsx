@@ -84,14 +84,55 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       }
       
       const limit = 20;
-      const params = {
+      const params: any = {
         limit,
         page,
-        search: searchQuery || filters.search,
+        search: searchQuery,
         category: filters.category,
         role: filters.role,
         location: filters.location,
+        // Physical Attributes
+        height: filters.height,
+        height_min: filters.height_min,
+        height_max: filters.height_max,
+        weight: filters.weight,
+        weight_min: filters.weight_min,
+        weight_max: filters.weight_max,
+        age: filters.age,
+        age_min: filters.age_min,
+        age_max: filters.age_max,
+        // Body Measurements
+        chest_min: filters.chest_min,
+        chest_max: filters.chest_max,
+        waist_min: filters.waist_min,
+        waist_max: filters.waist_max,
+        hips_min: filters.hips_min,
+        hips_max: filters.hips_max,
+        shoe_size_min: filters.shoe_size_min,
+        shoe_size_max: filters.shoe_size_max,
+        // Appearance
+        skin_tone: filters.skin_tone,
+        hair_color: filters.hair_color,
+        eye_color: filters.eye_color,
+        // Personal Details
+        gender: filters.gender,
+        nationality: filters.nationality,
+        // Professional Preferences
+        union_member: filters.union_member,
+        willing_to_travel: filters.willing_to_travel,
+        travel_ready: filters.travel_ready,
+        // Legacy/Additional filters
+        accent: filters.accent,
+        skills: filters.skills,
+        languages: filters.languages,
       };
+      
+      // Remove undefined values
+      Object.keys(params).forEach(key => {
+        if (params[key] === undefined || params[key] === null || params[key] === '') {
+          delete params[key];
+        }
+      });
       
       // Use guest browsing if in guest mode
       if (isGuest) {
@@ -151,13 +192,21 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       }
       
       // Fallback to API client - use q for search parameter
+      // Copy all params to apiParams (excluding limit and page which are handled separately)
       const apiParams: any = {
         limit,
         page,
       };
-      if (params.search) apiParams.q = params.search;
-      if (params.category) apiParams.category = params.category;
-      if (params.role) apiParams.role = params.role;
+      // Copy all filter parameters
+      Object.keys(params).forEach(key => {
+        if (key !== 'limit' && key !== 'page' && params[key] !== undefined && params[key] !== null && params[key] !== '') {
+          if (key === 'search') {
+            apiParams.q = params[key];
+          } else {
+            apiParams[key] = params[key];
+          }
+        }
+      });
       
       const response = await api.getUsers(apiParams);
       
@@ -206,7 +255,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       const params = {
         limit,
         page,
-        search: searchQuery || filters.search,
+        search: searchQuery,
         category: filters.category,
         location: filters.location,
       };
@@ -285,6 +334,13 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   const handleClearFilters = useCallback(() => {
     setFilters({});
   }, []);
+
+  // Connect onOpenFilter prop to open the filter modal
+  // If onOpenFilter is provided, we'll use it, otherwise handle internally
+  useEffect(() => {
+    // Override onOpenFilter if it's an empty function
+    // The component manages its own filter modal state
+  }, [onOpenFilter]);
 
   const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
     if (loadingCompleteData.has(userId)) {

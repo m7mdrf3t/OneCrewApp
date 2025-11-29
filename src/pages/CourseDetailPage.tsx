@@ -20,8 +20,9 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
   onBack,
   onRegister,
   onUnregister,
+  onNavigate,
 }) => {
-  const { getCourseById, registerForCourse, unregisterFromCourse, user } = useApi();
+  const { getCourseById, registerForCourse, unregisterFromCourse, user, getCompany } = useApi();
   const [course, setCourse] = useState<CourseWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
@@ -52,45 +53,38 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
 
   const handleRegister = async () => {
     if (!user) {
-      Alert.alert('Authentication Required', 'Please log in to register for this course.');
+      Alert.alert('Authentication Required', 'Please log in to start a conversation with the academy.');
       return;
     }
 
-    if (course?.available_seats === 0 && course.total_seats > 0) {
-      Alert.alert('Course Full', 'This course has no available seats.');
-      return;
+    // Get company data for chat navigation
+    let companyData = course?.company;
+    if (!companyData && (course?.company_id || companyId)) {
+      try {
+        const companyResponse = await getCompany(course?.company_id || companyId || '');
+        if (companyResponse.success && companyResponse.data) {
+          companyData = companyResponse.data;
+        }
+      } catch (companyError) {
+        console.error('Failed to fetch company data:', companyError);
+        Alert.alert('Error', 'Failed to load academy information. Please try again.');
+        return;
+      }
     }
 
-    Alert.alert(
-      'Register for Course',
-      `Are you sure you want to register for "${course?.title}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Register',
-          onPress: async () => {
-            try {
-              setRegistering(true);
-              const response = await registerForCourse(courseId);
-              if (response.success) {
-                Alert.alert('Success', 'You have successfully registered for this course!');
-                if (onRegister) {
-                  onRegister();
-                }
-                loadCourse(); // Reload to update registration status
-              } else {
-                Alert.alert('Error', response.error || 'Failed to register for course');
-              }
-            } catch (error: any) {
-              console.error('Failed to register for course:', error);
-              Alert.alert('Error', error.message || 'Failed to register for course');
-            } finally {
-              setRegistering(false);
-            }
-          },
-        },
-      ]
-    );
+    // Navigate to chat with academy if company data is available and onNavigate is provided
+    if (companyData && onNavigate && course) {
+      const participant = {
+        id: companyData.id,
+        category: 'company' as const,
+      };
+      onNavigate('chat', {
+        participant,
+        courseData: course,
+      });
+    } else {
+      Alert.alert('Error', 'Unable to start conversation. Academy information is missing.');
+    }
   };
 
   const handleUnregister = async () => {
@@ -236,6 +230,35 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
 
         {/* Course Title */}
         <Text style={styles.title}>{course.title}</Text>
+
+        {/* Primary Lecturer */}
+        {course.primary_lecturer && (
+          <View style={styles.lecturerSection}>
+            <View style={styles.lecturerInfo}>
+              {course.primary_lecturer.image_url ? (
+                <Image
+                  source={{ uri: course.primary_lecturer.image_url }}
+                  style={styles.lecturerAvatar}
+                />
+              ) : (
+                <View style={styles.lecturerAvatarPlaceholder}>
+                  <Text style={styles.lecturerAvatarText}>
+                    {course.primary_lecturer.name?.charAt(0).toUpperCase() || '?'}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.lecturerDetails}>
+                <Text style={styles.lecturerLabel}>Primary Lecturer</Text>
+                <Text style={styles.lecturerName}>{course.primary_lecturer.name}</Text>
+                {course.primary_lecturer.primary_role && (
+                  <Text style={styles.lecturerRole}>
+                    {course.primary_lecturer.primary_role.replace(/_/g, ' ')}
+                  </Text>
+                )}
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* Course Description */}
         {course.description && (
@@ -576,6 +599,61 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  lecturerSection: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  lecturerInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  lecturerAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    marginRight: 12,
+  },
+  lecturerAvatarPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#e4e4e7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  lecturerAvatarText: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#71717a',
+  },
+  lecturerDetails: {
+    flex: 1,
+  },
+  lecturerLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    fontWeight: '500',
+    letterSpacing: 0.5,
+  },
+  lecturerName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 4,
+  },
+  lecturerRole: {
+    fontSize: 14,
+    color: '#6b7280',
+    textTransform: 'capitalize',
   },
 });
 

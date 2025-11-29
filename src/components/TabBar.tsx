@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TabBarProps } from '../types';
 
-const TabBar: React.FC<TabBarProps> = ({ active, onChange }) => {
+const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => {
   const insets = useSafeAreaInsets();
   const tabs = [
     { key: 'home', label: 'Home', icon: 'home' },
@@ -30,6 +30,18 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange }) => {
           </Text>
         </TouchableOpacity>
       ))}
+      {onProfilePress && (
+        <TouchableOpacity
+          style={styles.profileTab}
+          onPress={onProfilePress}
+        >
+          <Ionicons
+            name="person-circle"
+            size={24}
+            color="#fff"
+          />
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -62,6 +74,14 @@ const styles = StyleSheet.create({
   activeTabLabel: {
     color: '#fff',
     fontWeight: '600',
+  },
+  profileTab: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginLeft: 4,
+    borderRadius: 8,
   },
 });
 

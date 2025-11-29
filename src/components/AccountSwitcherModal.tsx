@@ -8,6 +8,7 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
@@ -218,76 +219,103 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
       transparent={true}
       onRequestClose={onClose}
     >
-      <TouchableOpacity
-        style={styles.overlay}
-        activeOpacity={1}
-        onPress={onClose}
-      >
+      <View style={styles.overlay}>
+        <TouchableOpacity
+          style={styles.overlayTouchable}
+          activeOpacity={1}
+          onPress={onClose}
+        />
         <View style={styles.modalContainer}>
+          {/* Drag Handle */}
+          <View style={styles.dragHandle} />
+          
+          {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Switch Account</Text>
-            <View style={styles.headerRight}>
+            <View style={styles.headerContent}>
+              <Text style={styles.headerTitle}>Switch Account</Text>
+              <Text style={styles.headerSubtitle}>Select an account to continue</Text>
+            </View>
+            <View style={styles.headerActions}>
               <TouchableOpacity 
                 onPress={() => loadCompanies(true)} 
-                style={styles.refreshButton}
+                style={[styles.iconButton, loading && styles.iconButtonDisabled]}
                 disabled={loading}
               >
                 <Ionicons 
                   name="refresh" 
                   size={20} 
-                  color={loading ? "#9ca3af" : "#000"} 
+                  color={loading ? "#9ca3af" : "#6b7280"} 
                 />
               </TouchableOpacity>
-              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <Ionicons name="close" size={24} color="#000" />
+              <TouchableOpacity onPress={onClose} style={styles.iconButton}>
+                <Ionicons name="close" size={22} color="#6b7280" />
               </TouchableOpacity>
             </View>
           </View>
 
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView 
+            style={styles.content} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.contentContainer}
+          >
             {/* User Profile Option */}
             <TouchableOpacity
               style={[
-                styles.accountItem,
-                currentProfileType === 'user' && styles.activeAccountItem,
+                styles.accountCard,
+                currentProfileType === 'user' && styles.activeAccountCard,
               ]}
               onPress={handleSwitchToUser}
               disabled={switching !== null}
+              activeOpacity={0.7}
             >
-              <View style={styles.accountLeft}>
-                <View style={[styles.avatar, styles.userAvatar]}>
+              <View style={styles.accountContent}>
+                <View style={[styles.avatarContainer, styles.userAvatarContainer]}>
                   {user?.image_url ? (
                     <Image
                       source={{ uri: user.image_url }}
                       style={styles.avatarImage}
                     />
                   ) : (
-                    <Ionicons name="person" size={24} color="#fff" />
+                    <View style={styles.avatarPlaceholder}>
+                      <Ionicons name="person" size={26} color="#fff" />
+                    </View>
+                  )}
+                  {currentProfileType === 'user' && (
+                    <View style={styles.activeBadge}>
+                      <Ionicons name="checkmark" size={12} color="#fff" />
+                    </View>
                   )}
                 </View>
-                <View style={styles.accountInfo}>
+                <View style={styles.accountDetails}>
                   <Text style={styles.accountName}>{user?.name || 'Personal'}</Text>
                   <Text style={styles.accountType}>Personal Account</Text>
                 </View>
+                {switching === 'user' ? (
+                  <ActivityIndicator size="small" color="#6366f1" />
+                ) : currentProfileType === 'user' ? (
+                  <View style={styles.activeIndicator}>
+                    <Ionicons name="checkmark-circle" size={24} color="#6366f1" />
+                  </View>
+                ) : (
+                  <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
+                )}
               </View>
-              {currentProfileType === 'user' && (
-                <Ionicons name="checkmark-circle" size={24} color="#000" />
-              )}
-              {switching === 'user' && (
-                <ActivityIndicator size="small" color="#000" />
-              )}
             </TouchableOpacity>
 
             {/* Companies List */}
             {loading ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#000" />
+                <ActivityIndicator size="small" color="#6366f1" />
+                <Text style={styles.loadingText}>Loading companies...</Text>
               </View>
             ) : companies.length > 0 ? (
               <>
-                <View style={styles.divider} />
-                <Text style={styles.sectionTitle}>Companies</Text>
-                {companies.map((company) => {
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionDivider} />
+                  <Text style={styles.sectionTitle}>Your Companies</Text>
+                  <View style={styles.sectionDivider} />
+                </View>
+                {companies.map((company, index) => {
                   const companyId = getCompanyId(company);
                   const companyName = getCompanyName(company);
                   const companyImage = getCompanyImage(company);
@@ -305,44 +333,56 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
                     <TouchableOpacity
                       key={companyId}
                       style={[
-                        styles.accountItem,
-                        isActive && styles.activeAccountItem,
+                        styles.accountCard,
+                        isActive && styles.activeAccountCard,
+                        index === companies.length - 1 && styles.lastCard,
                       ]}
                       onPress={() => handleSwitchToCompany(companyId)}
                       disabled={switching !== null}
+                      activeOpacity={0.7}
                     >
-                      <View style={styles.accountLeft}>
-                        <View style={[styles.avatar, styles.companyAvatar]}>
+                      <View style={styles.accountContent}>
+                        <View style={[styles.avatarContainer, styles.companyAvatarContainer]}>
                           {companyImage ? (
                             <Image
                               source={{ uri: companyImage }}
                               style={styles.avatarImage}
                             />
                           ) : (
-                            <Ionicons name="business" size={24} color="#fff" />
+                            <View style={styles.avatarPlaceholder}>
+                              <Ionicons name="business" size={26} color="#fff" />
+                            </View>
+                          )}
+                          {isActive && (
+                            <View style={styles.activeBadge}>
+                              <Ionicons name="checkmark" size={12} color="#fff" />
+                            </View>
                           )}
                         </View>
-                        <View style={styles.accountInfo}>
+                        <View style={styles.accountDetails}>
                           <Text style={styles.accountName}>{companyName}</Text>
-                          <View style={styles.accountTypeRow}>
+                          <View style={styles.accountMeta}>
                             <Text style={styles.accountType}>Company</Text>
                             {approvalStatus && approvalStatus !== 'approved' && (
-                              <View style={[styles.approvalBadge, { backgroundColor: approvalStatusColor + '20' }]}>
-                                <View style={[styles.approvalDot, { backgroundColor: approvalStatusColor }]} />
-                                <Text style={[styles.approvalText, { color: approvalStatusColor }]}>
+                              <View style={[styles.statusBadge, { backgroundColor: approvalStatusColor + '15' }]}>
+                                <View style={[styles.statusDot, { backgroundColor: approvalStatusColor }]} />
+                                <Text style={[styles.statusText, { color: approvalStatusColor }]}>
                                   {approvalStatusLabel}
                                 </Text>
                               </View>
                             )}
                           </View>
                         </View>
+                        {switching === companyId ? (
+                          <ActivityIndicator size="small" color="#6366f1" />
+                        ) : isActive ? (
+                          <View style={styles.activeIndicator}>
+                            <Ionicons name="checkmark-circle" size={24} color="#6366f1" />
+                          </View>
+                        ) : (
+                          <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
+                        )}
                       </View>
-                      {isActive && (
-                        <Ionicons name="checkmark-circle" size={24} color="#000" />
-                      )}
-                      {switching === companyId && (
-                        <ActivityIndicator size="small" color="#000" />
-                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -352,22 +392,28 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
             {/* Create Company Option */}
             {onCreateCompany && (
               <>
-                <View style={styles.divider} />
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionDivider} />
+                </View>
                 <TouchableOpacity
                   style={styles.createButton}
                   onPress={() => {
                     onClose();
                     onCreateCompany();
                   }}
+                  activeOpacity={0.7}
                 >
-                  <Ionicons name="add-circle-outline" size={24} color="#000" />
-                  <Text style={styles.createButtonText}>Create Company</Text>
+                  <View style={styles.createButtonIcon}>
+                    <Ionicons name="add" size={24} color="#6366f1" />
+                  </View>
+                  <Text style={styles.createButtonText}>Create New Company</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
                 </TouchableOpacity>
               </>
             )}
           </ScrollView>
         </View>
-      </TouchableOpacity>
+      </View>
     </Modal>
   );
 };
@@ -375,142 +421,245 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
+  },
+  overlayTouchable: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   modalContainer: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: Dimensions.get('window').height * 0.85,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#d1d5db',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.xl,
+    alignItems: 'flex-start',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e5e5',
+    borderBottomColor: '#f3f4f6',
+  },
+  headerContent: {
+    flex: 1,
+    paddingRight: spacing.md,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+    letterSpacing: -0.5,
   },
-  headerRight: {
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    fontWeight: '400',
+  },
+  headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
-  refreshButton: {
-    padding: spacing.xs,
-  },
-  closeButton: {
-    padding: spacing.xs,
-  },
-  content: {
-    padding: spacing.xl,
-  },
-  accountItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  activeAccountItem: {
-    backgroundColor: '#f5f5f5',
-  },
-  accountLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    backgroundColor: '#f9fafb',
   },
-  userAvatar: {
+  iconButtonDisabled: {
+    opacity: 0.5,
+  },
+  content: {
+    flexGrow: 1,
+  },
+  contentContainer: {
+    padding: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+    flexGrow: 1,
+  },
+  accountCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  activeAccountCard: {
+    borderColor: '#6366f1',
+    backgroundColor: '#f0f4ff',
+  },
+  lastCard: {
+    marginBottom: 0,
+  },
+  accountContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  avatarContainer: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  userAvatarContainer: {
     backgroundColor: '#6366f1',
   },
-  companyAvatar: {
+  companyAvatarContainer: {
     backgroundColor: '#8b5cf6',
   },
   avatarImage: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
   },
-  accountInfo: {
+  avatarPlaceholder: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activeBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#6366f1',
+    borderWidth: 2,
+    borderColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  accountDetails: {
     flex: 1,
+    marginRight: spacing.sm,
   },
   accountName: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
-    color: '#000',
-    marginBottom: 2,
+    color: '#111827',
+    marginBottom: 4,
+    letterSpacing: -0.3,
   },
   accountType: {
     fontSize: 14,
-    color: '#71717a',
+    color: '#6b7280',
+    fontWeight: '400',
   },
-  accountTypeRow: {
+  accountMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs,
+    flexWrap: 'wrap',
   },
-  approvalBadge: {
+  statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    marginLeft: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    marginTop: 2,
   },
-  approvalDot: {
+  statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    marginRight: 4,
+    marginRight: 5,
   },
-  approvalText: {
+  statusText: {
     fontSize: 11,
     fontWeight: '600',
+    letterSpacing: 0.2,
   },
-  divider: {
+  activeIndicator: {
+    marginLeft: spacing.xs,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: spacing.md,
+    marginTop: spacing.lg,
+  },
+  sectionDivider: {
+    flex: 1,
     height: 1,
-    backgroundColor: '#e5e5e5',
-    marginVertical: 16,
+    backgroundColor: '#e5e7eb',
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
-    color: '#71717a',
-    marginBottom: 12,
+    color: '#9ca3af',
+    marginHorizontal: spacing.sm,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   loadingContainer: {
     padding: spacing.xl,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 120,
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontSize: 14,
+    color: '#6b7280',
+    fontWeight: '400',
   },
   createButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
+    padding: spacing.lg,
+    borderRadius: 12,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderStyle: 'dashed',
+    marginTop: spacing.sm,
+  },
+  createButtonIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#eef2ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
   },
   createButtonText: {
+    flex: 1,
     fontSize: 16,
-    fontWeight: '500',
-    color: '#000',
-    marginLeft: 12,
+    fontWeight: '600',
+    color: '#6366f1',
+    letterSpacing: -0.2,
   },
 });
 

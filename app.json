@@ -7,16 +7,16 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/Steps_02.gif",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#000000"
     },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.onecrewapp.app",
+      "bundleIdentifier": "com.onecrew.steps",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -24,9 +24,9 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#000000"
       },
-      "package": "com.onecrew.app"
+      "package": "com.onecrew.steps"
     },
     "web": {
       "favicon": "./assets/favicon.png"

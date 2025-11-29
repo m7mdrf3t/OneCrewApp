@@ -19,7 +19,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   onBack,
   onConversationSelect,
 }) => {
-  const { getConversations, user, currentProfileType, activeCompany } = useApi();
+  const { getConversations, getConversationById, user, currentProfileType, activeCompany } = useApi();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -55,10 +55,38 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         const pagination = response.data.pagination;
         
         if (Array.isArray(data)) {
+          // Filter conversations to only include those where current profile is a participant
+          const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+          const currentProfileTypeValue = currentProfileType === 'company' ? 'company' : 'user';
+          
+          const filteredData = data.filter((conv: ChatConversation) => {
+            if (!conv || !conv.participants || !Array.isArray(conv.participants)) {
+              return false;
+            }
+            
+            // Check if current profile is a participant
+            const isParticipant = conv.participants.some((p: any) => 
+              p.participant_id === currentProfileId && p.participant_type === currentProfileTypeValue
+            );
+            
+            if (!isParticipant) {
+              console.log('⚠️ Filtering out conversation - current profile is not a participant:', {
+                conversationId: conv.id,
+                currentProfileType: currentProfileTypeValue,
+                currentProfileId: currentProfileId,
+                participants: conv.participants,
+              });
+            }
+            
+            return isParticipant;
+          });
+          
+          console.log(`📊 Filtered conversations: ${data.length} total, ${filteredData.length} belong to current profile`);
+          
           if (append) {
-            setConversations(prev => [...prev, ...data]);
+            setConversations(prev => [...prev, ...filteredData]);
           } else {
-            setConversations(data);
+            setConversations(filteredData);
             hasInitiallyLoadedRef.current = true; // Mark as initially loaded
             console.log('✅ Initial load complete, hasInitiallyLoaded set to true');
           }
@@ -69,8 +97,15 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       }
     } catch (err: any) {
       console.error('Failed to load conversations:', err);
-      setError(err.message || 'Failed to load conversations');
-      if (!append) {
+      const errorMessage = err.message || 'Failed to load conversations';
+      setError(errorMessage);
+      
+      // Handle profile mismatch or 403 errors gracefully
+      if (err?.response?.status === 403 || errorMessage.includes('403') || errorMessage.includes('not a participant')) {
+        console.warn('⚠️ Profile mismatch or access denied - clearing conversations');
+        setConversations([]);
+        setError('Unable to load conversations for current profile. Please try switching profiles.');
+      } else if (!append) {
         // Only clear conversations if we haven't loaded initially
         // This prevents the loading screen from showing when we already have conversations
         if (!hasInitiallyLoadedRef.current) {
@@ -82,20 +117,35 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       setLoading(false);
       setRefreshing(false);
     }
-  }, []); // Empty deps - use ref to avoid recreating callback
+  }, [currentProfileType, activeCompany?.id, user?.id]); // Include profile dependencies to filter correctly
 
+  // Reload conversations when profile type or active company changes
   useEffect(() => {
+    // Reset state when profile changes
+    hasInitiallyLoadedRef.current = false;
+    setConversations([]);
+    setPage(1);
+    setHasMore(true);
+    // Load conversations for the current profile
     loadConversations(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only load once on mount - real-time updates will handle subsequent changes
+  }, [currentProfileType, activeCompany?.id, user?.id]); // Reload when profile context changes
 
   // Subscribe to real-time conversation updates
   useEffect(() => {
-    if (!user?.id || !supabaseService.isInitialized()) {
+    // Determine the current profile ID based on profile type
+    const currentProfileId = currentProfileType === 'company' && activeCompany 
+      ? activeCompany.id 
+      : user?.id;
+    
+    if (!currentProfileId || !supabaseService.isInitialized()) {
       return;
     }
 
-    console.log('💬 Setting up real-time subscription for conversations');
+    console.log('💬 Setting up real-time subscription for conversations', {
+      profileType: currentProfileType,
+      profileId: currentProfileId,
+    });
 
     // Cleanup previous subscription
     if (conversationsChannelIdRef.current) {
@@ -103,9 +153,9 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       conversationsChannelIdRef.current = null;
     }
 
-    // Subscribe to conversation updates
+    // Subscribe to conversation updates using the current profile ID
     const channelId = supabaseService.subscribeToConversations(
-      user.id,
+      currentProfileId,
       (updatedConversation: ChatConversation) => {
         console.log('💬 Conversation updated via real-time:', updatedConversation);
         
@@ -121,6 +171,23 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         // Update the conversation in the list efficiently
         // Ensure loading is false during real-time updates
         setLoading(false);
+        
+        // Validate conversation belongs to current profile before processing
+        const currentProfileIdForUpdate = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+        const currentProfileTypeForUpdate = currentProfileType === 'company' ? 'company' : 'user';
+        
+        const isParticipant = updatedConversation.participants?.some((p: any) => 
+          p.participant_id === currentProfileIdForUpdate && p.participant_type === currentProfileTypeForUpdate
+        );
+        
+        if (!isParticipant) {
+          console.log('⚠️ Ignoring conversation update - current profile is not a participant:', {
+            conversationId: updatedConversation.id,
+            currentProfileType: currentProfileTypeForUpdate,
+            currentProfileId: currentProfileIdForUpdate,
+          });
+          return;
+        }
         
         setConversations(prev => {
           // Safety check: never return empty array if we have conversations
@@ -177,7 +244,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       // Clear update timestamps when unmounting
       lastUpdateTimeRef.current = {};
     };
-  }, [user?.id]);
+  }, [user?.id, currentProfileType, activeCompany?.id]); // Update subscription when profile changes
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
@@ -198,6 +265,31 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       return conversation.name;
     }
     
+    // When viewing as a company, show the company name for conversations involving the company
+    if (currentProfileType === 'company' && activeCompany) {
+      // Check if this conversation involves the active company
+      const hasCompanyParticipant = conversation.participants?.some(p => 
+        p.participant_type === 'company' && p.participant_id === activeCompany.id
+      );
+      if (hasCompanyParticipant) {
+        // Show the other participant's name, or company name if it's a company_company conversation
+        const otherParticipants = conversation.participants?.filter(p => 
+          !(p.participant_type === 'company' && p.participant_id === activeCompany.id)
+        ) || [];
+        
+        if (otherParticipants.length > 0) {
+          const participant = otherParticipants[0];
+          if (participant.user) {
+            return participant.user.name || 'Unknown User';
+          } else if (participant.company) {
+            return participant.company.name || 'Unknown Company';
+          }
+        }
+        // Fallback: if it's a company_company conversation and we can't find other participant, show company name
+        return activeCompany.name || 'Unknown Company';
+      }
+    }
+    
     if (conversation.participants && conversation.participants.length > 0) {
       const otherParticipants = conversation.participants.filter(p => {
         if (p.participant_type === 'user') {
@@ -210,6 +302,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
 
       if (otherParticipants.length > 0) {
         const participant = otherParticipants[0];
+        // Check if participant data is loaded
         if (participant.user) {
           return participant.user.name || 'Unknown User';
         } else if (participant.company) {
@@ -244,17 +337,35 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     return null;
   };
 
+  // Helper function to validate conversation belongs to current profile
+  const validateConversationForProfile = useCallback((conv: ChatConversation): boolean => {
+    if (!conv || !conv.participants || !Array.isArray(conv.participants)) {
+      return false;
+    }
+    
+    const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+    const currentProfileTypeValue = currentProfileType === 'company' ? 'company' : 'user';
+    
+    // Check if current profile is a participant
+    return conv.participants.some((p: any) => 
+      p.participant_id === currentProfileId && p.participant_type === currentProfileTypeValue
+    );
+  }, [currentProfileType, activeCompany?.id, user?.id]);
+
   // Memoize filtered conversations to prevent unnecessary recalculations
   const filteredConversations = useMemo(() => {
-    if (!searchQuery.trim()) return conversations;
+    // First filter by profile - only show conversations where current profile is a participant
+    const profileFiltered = conversations.filter(conv => validateConversationForProfile(conv));
+    
+    if (!searchQuery.trim()) return profileFiltered;
     
     const query = searchQuery.toLowerCase();
-    return conversations.filter(conv => {
+    return profileFiltered.filter(conv => {
       const name = getConversationName(conv).toLowerCase();
       const preview = (conv.last_message_preview || '').toLowerCase();
       return name.includes(query) || preview.includes(query);
     });
-  }, [conversations, searchQuery]);
+  }, [conversations, searchQuery, validateConversationForProfile]);
 
   const getUnreadCount = (conversation: ChatConversation): number => {
     if (!conversation.participants || !conversation.last_message_at) {
@@ -305,15 +416,53 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
 
   // Memoize the conversation item component to prevent unnecessary re-renders
   const ConversationItem = memo(({ item, onSelect }: { item: ChatConversation; onSelect: (item: ChatConversation) => void }) => {
-    const avatarUrl = getConversationAvatar(item);
-    const name = getConversationName(item);
+    const [conversationData, setConversationData] = useState<ChatConversation>(item);
+    const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+    const getConversationByIdRef = useRef(getConversationById);
+    
+    // Keep ref updated
+    useEffect(() => {
+      getConversationByIdRef.current = getConversationById;
+    }, [getConversationById]);
+    
+    // Update conversationData when item prop changes
+    useEffect(() => {
+      setConversationData(item);
+    }, [item.id, item.last_message_at, item.last_message_preview]);
+    
+    // Fetch full conversation details if participant data is missing
+    useEffect(() => {
+      const hasMissingParticipantData = conversationData.participants?.some(p => 
+        (p.participant_type === 'user' && !p.user) || 
+        (p.participant_type === 'company' && !p.company)
+      );
+      
+      if (hasMissingParticipantData && !isLoadingDetails && getConversationByIdRef.current) {
+        setIsLoadingDetails(true);
+        getConversationByIdRef.current(conversationData.id)
+          .then(response => {
+            if (response.success && response.data) {
+              setConversationData(response.data);
+            }
+          })
+          .catch(err => {
+            console.error('Failed to fetch conversation details:', err);
+          })
+          .finally(() => {
+            setIsLoadingDetails(false);
+          });
+      }
+    }, [conversationData.id, conversationData.participants, isLoadingDetails]);
+    
+    const avatarUrl = getConversationAvatar(conversationData);
+    const name = getConversationName(conversationData);
     const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-    const unreadCount = getUnreadCount(item);
+    const unreadCount = getUnreadCount(conversationData);
 
     return (
       <TouchableOpacity
         style={styles.conversationItem}
-        onPress={() => onSelect(item)}
+        onPress={() => onSelect(conversationData)}
         activeOpacity={0.7}
       >
         <View style={styles.avatarContainer}>
@@ -341,21 +490,19 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
             ]} numberOfLines={1}>
               {name}
             </Text>
-            {item.last_message_at && (
+            {conversationData.last_message_at && (
               <Text style={styles.conversationTime}>
-                {formatTime(item.last_message_at)}
+                {formatTime(conversationData.last_message_at)}
               </Text>
             )}
           </View>
           
-          {item.last_message_preview && (
-            <Text style={[
-              styles.lastMessage,
-              unreadCount > 0 && styles.lastMessageUnread
-            ]} numberOfLines={1}>
-              {item.last_message_preview}
-            </Text>
-          )}
+          <Text style={[
+            styles.lastMessage,
+            unreadCount > 0 && styles.lastMessageUnread
+          ]} numberOfLines={1}>
+            {conversationData.last_message_preview || 'No messages yet'}
+          </Text>
         </View>
         
         <Ionicons name="chevron-forward" size={20} color="#9ca3af" />

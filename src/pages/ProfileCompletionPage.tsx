@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -86,6 +86,47 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({ options, value, onValue
   );
 };
 
+// CollapsibleSection Component
+interface CollapsibleSectionProps {
+  id: string;
+  title: string;
+  children: React.ReactNode;
+  isExpanded: boolean;
+  onToggle: () => void;
+  sectionRef?: React.RefObject<View | null>;
+}
+
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
+  id,
+  title,
+  children,
+  isExpanded,
+  onToggle,
+  sectionRef,
+}) => {
+  return (
+    <View ref={sectionRef} style={styles.collapsibleSection}>
+      <TouchableOpacity
+        style={styles.collapsibleHeader}
+        onPress={onToggle}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.collapsibleTitle}>{title}</Text>
+        <Ionicons
+          name={isExpanded ? "chevron-up" : "chevron-down"}
+          size={20}
+          color="#000"
+        />
+      </TouchableOpacity>
+      {isExpanded && (
+        <View style={styles.collapsibleContent}>
+          {children}
+        </View>
+      )}
+    </View>
+  );
+};
+
 interface ProfileFormData {
   bio: string;
   skills: string[];
@@ -131,6 +172,7 @@ interface ProfileCompletionPageProps {
   onProfileUpdated?: (updatedProfile: any) => void;
   visible?: boolean;
   onClose?: () => void;
+  initialSection?: 'basic-info' | 'details-info' | 'portfolio' | 'social-media' | 'other';
 }
 
 const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
@@ -139,8 +181,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   onProfileUpdated,
   visible = true,
   onClose,
+  initialSection,
 }) => {
-  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, uploadFile, getAccessToken, getBaseUrl, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, isAuthenticated, isGuest } = useApi();
+  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, uploadFile, getAccessToken, getBaseUrl, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, getUserProfilePictures, uploadProfilePicture, setMainProfilePicture, deleteProfilePicture, user: currentUser, isAuthenticated, isGuest } = useApi();
   
   // Check if user is a talent - only show talent-specific fields if category is 'talent'
   const isTalent = user?.category === 'talent' || user?.category === 'Talent';
@@ -174,6 +217,15 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     imageUrl: '',
   });
   
+  // Profile pictures state (using proper API structure)
+  const [profilePictures, setProfilePictures] = useState<Array<{
+    id: string;
+    image_url: string;
+    is_main: boolean;
+    sort_order: number;
+  }>>([]);
+  const [loadingProfilePictures, setLoadingProfilePictures] = useState(false);
+  
   const [currentSkill, setCurrentSkill] = useState('');
   const [currentDialect, setCurrentDialect] = useState('');
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
@@ -192,6 +244,17 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   const [currentPortfolioCaption, setCurrentPortfolioCaption] = useState('');
   const [portfolioType, setPortfolioType] = useState<'image' | 'video' | 'audio'>('image');
   const [isUploadingPortfolio, setIsUploadingPortfolio] = useState(false);
+  
+  // Collapsible sections state
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const scrollViewRef = useRef<ScrollView>(null);
+  const sectionRefs = {
+    'basic-info': useRef<View>(null),
+    'details-info': useRef<View>(null),
+    'portfolio': useRef<View>(null),
+    'social-media': useRef<View>(null),
+    'other': useRef<View>(null),
+  };
   
   // Reference data state
   const [skinTones, setSkinTones] = useState<Array<{id: string, name: string}>>([]);
@@ -233,6 +296,41 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     }
   }, [visible, user?.id, getUserSocialLinks, isGuest, isAuthenticated]);
 
+  // Load profile pictures from API
+  useEffect(() => {
+    const loadProfilePictures = async () => {
+      const userIdToFetch = currentUser?.id || user?.id;
+      if (!userIdToFetch || isGuest || !isAuthenticated) return;
+      
+      try {
+        setLoadingProfilePictures(true);
+        const response = await getUserProfilePictures(userIdToFetch);
+        if (response.success && response.data) {
+          const pictures = Array.isArray(response.data) ? response.data : [];
+          setProfilePictures(pictures);
+          
+          // Set main image URL from the main picture
+          const mainPicture = pictures.find((p: any) => p.is_main);
+          if (mainPicture) {
+            setFormData(prev => ({
+              ...prev,
+              imageUrl: mainPicture.image_url,
+            }));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load profile pictures:', error);
+        // Don't throw - just log, user can still add pictures
+      } finally {
+        setLoadingProfilePictures(false);
+      }
+    };
+
+    if (visible && (currentUser?.id || user?.id)) {
+      loadProfilePictures();
+    }
+  }, [visible, currentUser?.id, user?.id, getUserProfilePictures, isGuest, isAuthenticated]);
+
   // Initialize form data when user changes
   useEffect(() => {
     if (user) {
@@ -269,7 +367,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           gender: aboutData.gender || userDetails.gender || '',
           age: aboutData.age?.toString() || userDetails.age?.toString() || '',
           nationality: aboutData.nationality || userDetails.nationality || '',
-          location: aboutData.location || aboutData.location_text || user.location_text || userDetails.location || '',
+          location: aboutData.location || aboutData.location_text || user.location_text || userDetails.location || userDetails.location_text || '',
           height: aboutData.height_cm?.toString() || userDetails.height_cm?.toString() || '',
           weight: aboutData.weight_kg?.toString() || userDetails.weight_kg?.toString() || '',
           skinTone: aboutData.skin_tone_id || aboutData.skin_tone || userDetails.skin_tone_id || userDetails.skin_tone || '',
@@ -292,6 +390,42 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       setFormData(newFormData);
     }
   }, [user]);
+
+  // Auto-expand section when initialSection is provided
+  useEffect(() => {
+    if (initialSection && visible) {
+      setExpandedSections(prev => new Set(prev).add(initialSection));
+      
+      // Scroll to section after a brief delay to ensure it's rendered
+      setTimeout(() => {
+        const sectionRef = sectionRefs[initialSection];
+        if (sectionRef?.current && scrollViewRef.current) {
+          sectionRef.current.measureLayout(
+            scrollViewRef.current as any,
+            (x, y) => {
+              scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: true });
+            },
+            () => {
+              // Fallback: try to scroll after a longer delay
+              setTimeout(() => {
+                if (sectionRef?.current) {
+                  sectionRef.current.measureLayout(
+                    scrollViewRef.current as any,
+                    (x, y) => {
+                      scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: true });
+                    },
+                    () => {
+                      console.warn('Could not measure section layout');
+                    }
+                  );
+                }
+              }, 200);
+            }
+          );
+        }
+      }, 300);
+    }
+  }, [initialSection, visible]);
 
   // Load reference data when component mounts
   useEffect(() => {
@@ -858,23 +992,45 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           return;
         }
 
-        // Upload the file to Supabase and get the URL
+        // Upload using profile pictures API
         try {
-          const uploadResult = await uploadFile({
+          const userId = currentUser?.id || user?.id;
+          if (!userId) {
+            Alert.alert('Error', 'User ID not available.');
+            return;
+          }
+
+          // Check if this should be main (if no main picture exists)
+          const hasMainPicture = profilePictures.some((p: any) => p.is_main);
+          const shouldBeMain = !hasMainPicture;
+          
+          // Create file object for API
+          const file = {
             uri: result.uri,
             type: 'image/jpeg',
             name: result.fileName || `profile_picture_${Date.now()}.jpg`,
-          });
+          };
 
-          if (uploadResult.data?.url) {
-            handleInputChange('imageUrl', uploadResult.data.url);
+          const uploadResult = await uploadProfilePicture(file, shouldBeMain);
+          
+          if (uploadResult.success) {
+            // Reload profile pictures
+            const response = await getUserProfilePictures(userId);
+            if (response.success && response.data) {
+              const pictures = Array.isArray(response.data) ? response.data : [];
+              setProfilePictures(pictures);
+              const mainPicture = pictures.find((p: any) => p.is_main);
+              if (mainPicture) {
+                handleInputChange('imageUrl', mainPicture.image_url);
+              }
+            }
             Alert.alert('Success', 'Profile picture uploaded and updated!');
           } else {
-            throw new Error('Upload failed - no URL returned');
+            throw new Error(uploadResult.error || 'Upload failed');
           }
         } catch (uploadError: any) {
           console.error('Upload error:', uploadError);
-          Alert.alert('Upload Failed', 'Failed to upload profile picture. Please try again.');
+          Alert.alert('Upload Failed', uploadError.message || 'Failed to upload profile picture. Please try again.');
         }
       }
     } catch (error: any) {
@@ -900,23 +1056,45 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           return;
         }
 
-        // Upload the file to Supabase and get the URL
+        // Upload using profile pictures API
         try {
-          const uploadResult = await uploadFile({
+          const userId = currentUser?.id || user?.id;
+          if (!userId) {
+            Alert.alert('Error', 'User ID not available.');
+            return;
+          }
+
+          // Check if this should be main (if no main picture exists)
+          const hasMainPicture = profilePictures.some((p: any) => p.is_main);
+          const shouldBeMain = !hasMainPicture;
+          
+          // Create file object for API
+          const file = {
             uri: result.uri,
             type: 'image/jpeg',
             name: result.fileName || `profile_photo_${Date.now()}.jpg`,
-          });
+          };
 
-          if (uploadResult.data?.url) {
-            handleInputChange('imageUrl', uploadResult.data.url);
+          const uploadResult = await uploadProfilePicture(file, shouldBeMain);
+          
+          if (uploadResult.success) {
+            // Reload profile pictures
+            const response = await getUserProfilePictures(userId);
+            if (response.success && response.data) {
+              const pictures = Array.isArray(response.data) ? response.data : [];
+              setProfilePictures(pictures);
+              const mainPicture = pictures.find((p: any) => p.is_main);
+              if (mainPicture) {
+                handleInputChange('imageUrl', mainPicture.image_url);
+              }
+            }
             Alert.alert('Success', 'Profile photo uploaded and updated!');
           } else {
-            throw new Error('Upload failed - no URL returned');
+            throw new Error(uploadResult.error || 'Upload failed');
           }
         } catch (uploadError: any) {
           console.error('Upload error:', uploadError);
-          Alert.alert('Upload Failed', 'Failed to upload profile photo. Please try again.');
+          Alert.alert('Upload Failed', uploadError.message || 'Failed to upload profile photo. Please try again.');
         }
       }
     } catch (error: any) {
@@ -930,13 +1108,15 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
     setIsSubmitting(true);
     try {
-      // 1. Prepare basic profile data (bio, specialty, skills, imageUrl)
+      // 1. Prepare basic profile data (bio, specialty, skills, imageUrl, location_text, coverImages)
       // Note: social_links are handled separately via dedicated endpoints
       const basicProfileData = {
         bio: formData.bio.trim(),
         specialty: formData.specialty.trim(),
         skills: formData.skills,
         imageUrl: formData.imageUrl.trim(), // This will be mapped to image_url in ApiContext
+        location_text: formData.about.location.trim(), // Location stored in users table
+        // Note: Cover images are managed separately via profile pictures API
       };
 
       // 2. Prepare UserDetails data (age, nationality, gender only)
@@ -965,6 +1145,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         gender: genderMapping[formData.about.gender] || 'prefer_not_to_say',
         age: Number(formData.about.age),
         nationality: formData.about.nationality,
+        // Note: location is stored in users table as location_text, not in userDetails
       };
 
 
@@ -983,6 +1164,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           skin_tone_id: selectedSkinTone?.id || undefined,
           hair_color_id: selectedHairColor?.id || undefined,
           eye_color: formData.about.eyeColor || undefined,
+          // Note: location is stored in users table as location_text, not in talent profile
           chest_cm: Number(formData.about.chestCm) || undefined,
           waist_cm: Number(formData.about.waistCm) || undefined,
           hips_cm: Number(formData.about.hipsCm) || undefined,
@@ -1003,7 +1185,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       // Update basic profile
       const profileResponse = await updateProfile(basicProfileData);
 
-      // Update or create user details (age, nationality, gender)
+      // Update or create user details (age, nationality, gender, location)
       let userDetailsResponse;
       try {
         userDetailsResponse = await api.updateUserDetails(userDetailsData);
@@ -1023,7 +1205,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         try {
           accessToken = getAccessToken();
         } catch (tokenError: any) {
-          console.error('❌ Failed to get access token:', tokenError);
+          console.error(' Failed to get access token:', tokenError);
           throw new Error('Access token required for talent profile update. Please log in again.');
         }
 
@@ -1098,6 +1280,18 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     }
   };
 
+  const toggleSection = (sectionId: string) => {
+    setExpandedSections(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(sectionId)) {
+        newSet.delete(sectionId);
+      } else {
+        newSet.add(sectionId);
+      }
+      return newSet;
+    });
+  };
+
   const calculateCompletionPercentage = () => {
     const fields = [
       formData.bio,
@@ -1125,7 +1319,11 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        ref={scrollViewRef}
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+      >
         {/* Progress Indicator */}
         <View style={styles.progressContainer}>
           <Text style={styles.progressText}>Profile Completion: {completionPercentage}%</Text>
@@ -1134,154 +1332,390 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           </View>
         </View>
 
-        {/* Profile Picture Preview */}
+        {/* Basic Infos Section */}
+        <CollapsibleSection
+          id="basic-info"
+          title="Basic Infos"
+          isExpanded={expandedSections.has('basic-info')}
+          onToggle={() => toggleSection('basic-info')}
+          sectionRef={sectionRefs['basic-info']}
+        >
+          {/* Profile Picture Preview */}
           <View style={styles.profilePictureContainer}>
-          <Text style={styles.sectionTitle}>Profile Picture</Text>
-          <View style={styles.profilePictureWrapper}>
-            {formData.imageUrl ? (
-              <Image 
-                source={{ uri: formData.imageUrl }} 
-                style={styles.profilePicture}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={styles.profilePicturePlaceholder}>
-                <Text style={styles.profilePictureInitials}>
-                  {getInitials(user?.name || 'User')}
-                </Text>
-              </View>
-            )}
-          </View>
-          
-          {/* Image Selection Buttons */}
-          <View style={styles.imageSelectionContainer}>
+            <Text style={styles.sectionTitle}>Profile Picture</Text>
             <TouchableOpacity
-              style={styles.imageSelectionButton}
               onPress={pickImage}
               disabled={isSubmitting}
+              activeOpacity={0.7}
             >
-              <Ionicons name="images-outline" size={20} color="#3b82f6" />
-              <Text style={styles.imageSelectionText}>Choose Image</Text>
+              <View style={styles.profilePictureWrapper}>
+                {formData.imageUrl ? (
+                  <Image 
+                    source={{ uri: formData.imageUrl }} 
+                    style={styles.profilePicture}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.profilePicturePlaceholder}>
+                    <Ionicons name="camera-outline" size={32} color="#9ca3af" />
+                    <Text style={styles.profilePictureInitials}>
+                      {getInitials(user?.name || 'User')}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.profilePictureOverlay}>
+                  <Ionicons name="camera" size={24} color="#fff" />
+                  <Text style={styles.profilePictureOverlayText}>Tap to upload</Text>
+                </View>
+              </View>
             </TouchableOpacity>
             
-            <TouchableOpacity
-              style={styles.imageSelectionButton}
-              onPress={takePhoto}
-              disabled={isSubmitting}
-            >
-              <Ionicons name="camera" size={20} color="#10b981" />
-              <Text style={styles.imageSelectionText}>Take Photo</Text>
-            </TouchableOpacity>
+            <Text style={styles.profilePictureHint}>
+              Tap the image to choose from gallery or add an image URL below
+            </Text>
           </View>
-          
-          <Text style={styles.profilePictureHint}>
-            {formData.imageUrl ? 'Profile picture loaded' : 'Choose an image or add an image URL below'}
-          </Text>
-        </View>
 
-        {/* Debug Info */}
-        <View style={styles.debugContainer}>
-          <Text style={styles.debugTitle}>Debug Info:</Text>
-          <Text style={styles.debugText}>Bio: "{formData.bio}"</Text>
-          <Text style={styles.debugText}>Specialty: "{formData.specialty}"</Text>
-          <Text style={styles.debugText}>Image URL: "{formData.imageUrl}"</Text>
-          <Text style={styles.debugText}>Gender: "{formData.about.gender}"</Text>
-          <Text style={styles.debugText}>Age: "{formData.about.age}"</Text>
-          <Text style={styles.debugText}>Nationality: "{formData.about.nationality}"</Text>
-          <Text style={styles.debugText}>Height: "{formData.about.height}"</Text>
-          <Text style={styles.debugText}>Skills: {formData.skills.map((skill: any) => {
-            if (typeof skill === 'string') return skill;
-            return skill?.skill_name || skill?.name || skill?.skills?.name || String(skill?.skill_id || skill?.id || '');
-          }).join(', ')}</Text>
-          <Text style={styles.debugText}>Portfolio Items: {formData.portfolio.length}</Text>
-        </View>
+          {/* Cover Images Section - Using Profile Pictures API */}
+          <View style={styles.profilePictureContainer}>
+            <Text style={styles.sectionTitle}>Cover Images</Text>
+            <Text style={styles.helpText}>
+              Add multiple cover images that will be displayed at the top of your profile. These images will be shown in a swipeable carousel. The first image will be set as your main profile picture.
+            </Text>
+            
+            {loadingProfilePictures ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+                <Text style={styles.loadingText}>Loading profile pictures...</Text>
+              </View>
+            ) : (
+              <>
+                {/* Profile Pictures Grid */}
+                {profilePictures.length > 0 && (
+                  <View style={styles.coverImagesGrid}>
+                    {profilePictures.map((picture) => (
+                      <View key={picture.id} style={styles.coverImageItem}>
+                        <Image source={{ uri: picture.image_url }} style={styles.coverImageThumbnail} resizeMode="cover" />
+                        {picture.is_main && (
+                          <View style={styles.mainImageBadge}>
+                            <Ionicons name="star" size={16} color="#fff" />
+                            <Text style={styles.mainImageBadgeText}>Main</Text>
+                          </View>
+                        )}
+                        <View style={styles.coverImageActions}>
+                          {!picture.is_main && (
+                            <TouchableOpacity
+                              style={styles.setMainButton}
+                              onPress={async () => {
+                                try {
+                                  const userId = currentUser?.id || user?.id;
+                                  if (!userId) return;
+                                  await setMainProfilePicture(userId, picture.id);
+                                  // Reload profile pictures
+                                  const response = await getUserProfilePictures(userId);
+                                  if (response.success && response.data) {
+                                    const pictures = Array.isArray(response.data) ? response.data : [];
+                                    setProfilePictures(pictures);
+                                    const mainPicture = pictures.find((p: any) => p.is_main);
+                                    if (mainPicture) {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        imageUrl: mainPicture.image_url,
+                                      }));
+                                    }
+                                  }
+                                  Alert.alert('Success', 'Main profile picture updated!');
+                                } catch (error: any) {
+                                  console.error('Failed to set main picture:', error);
+                                  Alert.alert('Error', error.message || 'Failed to set main picture.');
+                                }
+                              }}
+                              disabled={isSubmitting}
+                            >
+                              <Ionicons name="star-outline" size={16} color="#3b82f6" />
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            style={styles.removeCoverImageButton}
+                            onPress={async () => {
+                              try {
+                                const userId = currentUser?.id || user?.id;
+                                if (!userId) return;
+                                await deleteProfilePicture(userId, picture.id);
+                                // Reload profile pictures
+                                const response = await getUserProfilePictures(userId);
+                                if (response.success && response.data) {
+                                  const pictures = Array.isArray(response.data) ? response.data : [];
+                                  setProfilePictures(pictures);
+                                  const mainPicture = pictures.find((p: any) => p.is_main);
+                                  if (mainPicture) {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      imageUrl: mainPicture.image_url,
+                                    }));
+                                  } else {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      imageUrl: '',
+                                    }));
+                                  }
+                                }
+                                Alert.alert('Success', 'Profile picture deleted!');
+                              } catch (error: any) {
+                                console.error('Failed to delete picture:', error);
+                                Alert.alert('Error', error.message || 'Failed to delete picture.');
+                              }
+                            }}
+                            disabled={isSubmitting}
+                          >
+                            <Ionicons name="close-circle" size={20} color="#ef4444" />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                
+                {/* Add Cover Image Buttons */}
+                <View style={styles.imageSelectionContainer}>
+                  <TouchableOpacity
+                    style={styles.imageSelectionButton}
+                    onPress={async () => {
+                      try {
+                        const result = await mediaPicker.pickImage({
+                          allowsEditing: true,
+                          quality: 0.8,
+                          maxWidth: 1920,
+                          maxHeight: 1080,
+                        });
 
-        {/* Bio */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Bio *</Text>
-          <TextInput
-            style={[styles.textArea, formErrors.bio && styles.inputError]}
-            placeholder="Tell us about yourself..."
-            placeholderTextColor="#9ca3af"
-            value={formData.bio}
-            onChangeText={(text) => handleInputChange('bio', text)}
-            multiline
-            numberOfLines={4}
-            editable={!isSubmitting}
-          />
-          {formErrors.bio && <Text style={styles.fieldError}>{formErrors.bio}</Text>}
-        </View>
+                        if (result) {
+                          if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 20)) {
+                            Alert.alert('File Too Large', 'Please select an image smaller than 20MB.');
+                            return;
+                          }
 
-        {/* Specialty */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Specialty *</Text>
+                          try {
+                            const userId = currentUser?.id || user?.id;
+                            if (!userId) {
+                              Alert.alert('Error', 'User ID not available.');
+                              return;
+                            }
+
+                            // Check if this is the first picture (should be main)
+                            const isFirstPicture = profilePictures.length === 0;
+                            
+                            // Create file object for API
+                            const file = {
+                              uri: result.uri,
+                              type: 'image/jpeg',
+                              name: result.fileName || `cover_image_${Date.now()}.jpg`,
+                            };
+
+                            const uploadResult = await uploadProfilePicture(file, isFirstPicture);
+                            
+                            if (uploadResult.success) {
+                              // Reload profile pictures
+                              const response = await getUserProfilePictures(userId);
+                              if (response.success && response.data) {
+                                const pictures = Array.isArray(response.data) ? response.data : [];
+                                setProfilePictures(pictures);
+                                const mainPicture = pictures.find((p: any) => p.is_main);
+                                if (mainPicture) {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    imageUrl: mainPicture.image_url,
+                                  }));
+                                }
+                              }
+                              Alert.alert('Success', 'Cover image uploaded!');
+                            } else {
+                              throw new Error(uploadResult.error || 'Upload failed');
+                            }
+                          } catch (uploadError: any) {
+                            console.error('Upload error:', uploadError);
+                            Alert.alert('Upload Failed', uploadError.message || 'Failed to upload cover image. Please try again.');
+                          }
+                        }
+                      } catch (error: any) {
+                        console.error('Error picking cover image:', error);
+                        Alert.alert('Error', error.message || 'Failed to pick cover image. Please try again.');
+                      }
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    <Ionicons name="image-outline" size={20} color="#3b82f6" />
+                    <Text style={styles.imageSelectionText}>Add from Gallery</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={styles.imageSelectionButton}
+                    onPress={async () => {
+                      try {
+                        const result = await mediaPicker.takePhoto({
+                          allowsEditing: true,
+                          quality: 0.8,
+                          maxWidth: 1920,
+                          maxHeight: 1080,
+                        });
+
+                        if (result) {
+                          if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 20)) {
+                            Alert.alert('File Too Large', 'Please take a photo smaller than 20MB.');
+                            return;
+                          }
+
+                          try {
+                            const userId = currentUser?.id || user?.id;
+                            if (!userId) {
+                              Alert.alert('Error', 'User ID not available.');
+                              return;
+                            }
+
+                            // Check if this is the first picture (should be main)
+                            const isFirstPicture = profilePictures.length === 0;
+                            
+                            // Create file object for API
+                            const file = {
+                              uri: result.uri,
+                              type: 'image/jpeg',
+                              name: result.fileName || `cover_photo_${Date.now()}.jpg`,
+                            };
+
+                            const uploadResult = await uploadProfilePicture(file, isFirstPicture);
+                            
+                            if (uploadResult.success) {
+                              // Reload profile pictures
+                              const response = await getUserProfilePictures(userId);
+                              if (response.success && response.data) {
+                                const pictures = Array.isArray(response.data) ? response.data : [];
+                                setProfilePictures(pictures);
+                                const mainPicture = pictures.find((p: any) => p.is_main);
+                                if (mainPicture) {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    imageUrl: mainPicture.image_url,
+                                  }));
+                                }
+                              }
+                              Alert.alert('Success', 'Cover photo uploaded!');
+                            } else {
+                              throw new Error(uploadResult.error || 'Upload failed');
+                            }
+                          } catch (uploadError: any) {
+                            console.error('Upload error:', uploadError);
+                            Alert.alert('Upload Failed', uploadError.message || 'Failed to upload cover photo. Please try again.');
+                          }
+                        }
+                      } catch (error: any) {
+                        console.error('Error taking cover photo:', error);
+                        Alert.alert('Error', error.message || 'Failed to take cover photo. Please try again.');
+                      }
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    <Ionicons name="camera-outline" size={20} color="#3b82f6" />
+                    <Text style={styles.imageSelectionText}>Take Photo</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+
+          {/* Bio */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Bio *</Text>
             <TextInput
-            style={[styles.input, formErrors.specialty && styles.inputError]}
-            placeholder="e.g., Character Actor, Voice Actor, etc."
+              style={[styles.textArea, formErrors.bio && styles.inputError]}
+              placeholder="Tell us about yourself..."
               placeholderTextColor="#9ca3af"
-            value={formData.specialty}
-            onChangeText={(text) => handleInputChange('specialty', text)}
+              value={formData.bio}
+              onChangeText={(text) => handleInputChange('bio', text)}
+              multiline
+              numberOfLines={4}
               editable={!isSubmitting}
             />
-          {formErrors.specialty && <Text style={styles.fieldError}>{formErrors.specialty}</Text>}
+            {formErrors.bio && <Text style={styles.fieldError}>{formErrors.bio}</Text>}
           </View>
 
-        {/* Skills */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Skills *</Text>
-          {loadingReferences ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#3b82f6" />
-              <Text style={styles.loadingText}>Loading skills...</Text>
+          {/* Specialty */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Specialty *</Text>
+              <TextInput
+              style={[styles.input, formErrors.specialty && styles.inputError]}
+              placeholder="e.g., Character Actor, Voice Actor, etc."
+                placeholderTextColor="#9ca3af"
+              value={formData.specialty}
+              onChangeText={(text) => handleInputChange('specialty', text)}
+                editable={!isSubmitting}
+              />
+            {formErrors.specialty && <Text style={styles.fieldError}>{formErrors.specialty}</Text>}
             </View>
-          ) : (
-            <CustomDropdown
-              options={availableSkills}
-              value={currentSkill}
-              onValueChange={(value: string) => {
-                setCurrentSkill(value);
-                if (value && !formData.skills.includes(value)) {
-                  addSkillFromDropdown(value);
-                }
-              }}
-              placeholder="Select a skill to add"
-              disabled={isSubmitting}
-            />
-          )}
-          <View style={styles.skillsList}>
-            {formData.skills.map((skill, index) => (
-              <View key={index} style={styles.skillTag}>
-                <Text style={styles.skillText}>{skill}</Text>
-                <TouchableOpacity onPress={() => removeSkill(skill)} disabled={isSubmitting}>
-                  <Ionicons name="close" size={16} color="#ef4444" />
-                </TouchableOpacity>
+
+          {/* Skills */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Skills *</Text>
+            {loadingReferences ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+                <Text style={styles.loadingText}>Loading skills...</Text>
               </View>
-            ))}
+            ) : (
+              <CustomDropdown
+                options={availableSkills}
+                value={currentSkill}
+                onValueChange={(value: string) => {
+                  setCurrentSkill(value);
+                  if (value && !formData.skills.includes(value)) {
+                    addSkillFromDropdown(value);
+                  }
+                }}
+                placeholder="Select a skill to add"
+                disabled={isSubmitting}
+              />
+            )}
+            <View style={styles.skillsList}>
+              {formData.skills.map((skill, index) => (
+                <View key={index} style={styles.skillTag}>
+                  <Text style={styles.skillText}>{skill}</Text>
+                  <TouchableOpacity onPress={() => removeSkill(skill)} disabled={isSubmitting}>
+                    <Ionicons name="close" size={16} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+            {formErrors.skills && <Text style={styles.fieldError}>{formErrors.skills}</Text>}
           </View>
-          {formErrors.skills && <Text style={styles.fieldError}>{formErrors.skills}</Text>}
-        </View>
+        </CollapsibleSection>
 
-        {/* Portfolio Section */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Portfolio</Text>
-          <Text style={styles.sectionDescription}>
-            Add images and videos to showcase your work
-          </Text>
-        </View>
-
-        {/* Portfolio Type Selector */}
+        {/* Portfolio and Video Section */}
+        <CollapsibleSection
+          id="portfolio"
+          title="Portfolio and Video"
+          isExpanded={expandedSections.has('portfolio')}
+          onToggle={() => toggleSection('portfolio')}
+          sectionRef={sectionRefs['portfolio']}
+        >
+          {/* Portfolio Type Selector - Clickable to Upload */}
         <View style={styles.portfolioTypeSelector}>
           <TouchableOpacity
             style={[styles.portfolioTypeButton, portfolioType === 'image' && styles.portfolioTypeButtonActive]}
-            onPress={() => setPortfolioType('image')}
+            onPress={async () => {
+              setPortfolioType('image');
+              await pickPortfolioImage();
+            }}
+            disabled={isSubmitting || isUploadingPortfolio}
           >
             <Text style={[styles.portfolioTypeButtonText, portfolioType === 'image' && styles.portfolioTypeButtonTextActive]}>
               📷 Image
-                    </Text>
+            </Text>
           </TouchableOpacity>
-                    <TouchableOpacity 
+          <TouchableOpacity 
             style={[styles.portfolioTypeButton, portfolioType === 'video' && styles.portfolioTypeButtonActive]}
-            onPress={() => setPortfolioType('video')}
+            onPress={async () => {
+              setPortfolioType('video');
+              await pickPortfolioVideo();
+            }}
+            disabled={isSubmitting || isUploadingPortfolio}
           >
             <Text style={[styles.portfolioTypeButtonText, portfolioType === 'video' && styles.portfolioTypeButtonTextActive]}>
               🎥 Video
@@ -1289,44 +1723,17 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.portfolioTypeButton, portfolioType === 'audio' && styles.portfolioTypeButtonActive]}
-            onPress={() => setPortfolioType('audio')}
+            onPress={() => {
+              setPortfolioType('audio');
+              Alert.alert('Coming Soon', 'Audio upload will be available soon!');
+            }}
+            disabled={isSubmitting || isUploadingPortfolio}
           >
             <Text style={[styles.portfolioTypeButtonText, portfolioType === 'audio' && styles.portfolioTypeButtonTextActive]}>
               🎵 Audio
             </Text>
-                    </TouchableOpacity>
-                  </View>
-                  
-        {/* Media Selection Buttons */}
-        {portfolioType === 'image' && (
-          <View style={styles.mediaButtonsContainer}>
-            <TouchableOpacity style={styles.mediaButton} onPress={pickPortfolioImage}>
-              <Text style={styles.mediaButtonText}>📁 Choose from Gallery</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.mediaButton} onPress={takePortfolioPhoto}>
-              <Text style={styles.mediaButtonText}>📷 Take Photo</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {portfolioType === 'video' && (
-          <View style={styles.mediaButtonsContainer}>
-            <TouchableOpacity style={styles.mediaButton} onPress={pickPortfolioVideo}>
-              <Text style={styles.mediaButtonText}>📁 Choose from Gallery</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.mediaButton} onPress={recordPortfolioVideo}>
-              <Text style={styles.mediaButtonText}>🎥 Record Video</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {portfolioType === 'audio' && (
-          <View style={styles.mediaButtonsContainer}>
-            <TouchableOpacity style={styles.mediaButton} onPress={() => Alert.alert('Coming Soon', 'Audio upload will be available soon!')}>
-              <Text style={styles.mediaButtonText}>🎵 Upload Audio</Text>
-            </TouchableOpacity>
-            </View>
-          )}
+          </TouchableOpacity>
+        </View>
           
         {/* Portfolio URL Input */}
         <View style={styles.inputContainer}>
@@ -1369,40 +1776,52 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         {formData.portfolio.length > 0 && (
           <View style={styles.portfolioList}>
             <Text style={styles.portfolioListTitle}>Your Portfolio ({formData.portfolio.length} items)</Text>
-            {formData.portfolio.map((item, index) => (
-              <View key={index} style={styles.portfolioItem}>
-                <View style={styles.portfolioItemInfo}>
-                  <Text style={styles.portfolioItemType}>
-                    {item.kind === 'image' ? '📷' : item.kind === 'video' ? '🎥' : '🎵'} {item.kind.toUpperCase()}
-                  </Text>
-                  <Text style={styles.portfolioItemUrl} numberOfLines={2}>
-                    {item.url}
-                  </Text>
+            <View style={styles.portfolioGrid}>
+              {formData.portfolio.map((item, index) => (
+                <View key={index} style={styles.portfolioThumbnailContainer}>
+                  {item.kind === 'image' ? (
+                    <Image 
+                      source={{ uri: item.url }} 
+                      style={styles.portfolioThumbnail}
+                      resizeMode="cover"
+                    />
+                  ) : item.kind === 'video' ? (
+                    <View style={styles.portfolioThumbnail}>
+                      <Ionicons name="videocam" size={32} color="#fff" />
+                      <View style={styles.portfolioVideoOverlay} />
+                    </View>
+                  ) : (
+                    <View style={styles.portfolioThumbnail}>
+                      <Ionicons name="musical-notes" size={32} color="#fff" />
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    style={styles.removePortfolioThumbnailButton}
+                    onPress={() => removePortfolioItem(index)}
+                    disabled={isSubmitting}
+                  >
+                    <Ionicons name="close-circle" size={24} color="#ef4444" />
+                  </TouchableOpacity>
                   {item.caption && (
-                    <Text style={styles.portfolioItemCaption} numberOfLines={2}>
+                    <Text style={styles.portfolioThumbnailCaption} numberOfLines={1}>
                       {item.caption}
                     </Text>
                   )}
                 </View>
-              <TouchableOpacity
-                  style={styles.removePortfolioButton}
-                  onPress={() => removePortfolioItem(index)}
-                disabled={isSubmitting}
-              >
-                  <Text style={styles.removePortfolioButtonText}>×</Text>
-              </TouchableOpacity>
+              ))}
             </View>
-            ))}
           </View>
         )}
+        </CollapsibleSection>
 
-        {/* Social Media Links Section */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Social Media & Links</Text>
-          <Text style={styles.sectionDescription}>
-            Add your social media profiles and website links
-          </Text>
-        </View>
+        {/* Social Media Section */}
+        <CollapsibleSection
+          id="social-media"
+          title="Social Media"
+          isExpanded={expandedSections.has('social-media')}
+          onToggle={() => toggleSection('social-media')}
+          sectionRef={sectionRefs['social-media']}
+        >
 
         {/* Platform Selection */}
         <View style={styles.inputContainer}>
@@ -1531,11 +1950,20 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             ))}
           </View>
         )}
+        </CollapsibleSection>
 
-        {/* Personal Information */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Personal Information</Text>
-        </View>
+        {/* Details Info Section */}
+        <CollapsibleSection
+          id="details-info"
+          title="Details Info"
+          isExpanded={expandedSections.has('details-info')}
+          onToggle={() => toggleSection('details-info')}
+          sectionRef={sectionRefs['details-info']}
+        >
+          {/* Personal Information */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Personal Information</Text>
+          </View>
 
         <View style={styles.row}>
           <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
@@ -1742,110 +2170,120 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             </View>
           </>
         )}
+        </CollapsibleSection>
 
-        {/* Professional Details - only show if user is talent */}
-        {isTalent && (
-          <>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Professional Details</Text>
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Reel/Portfolio URL</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="https://example.com/reel"
-                placeholderTextColor="#9ca3af"
-                value={formData.about.reelUrl}
-                onChangeText={(text) => handleInputChange('about.reelUrl', text)}
-                keyboardType="url"
-                editable={!isSubmitting}
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <View style={styles.checkboxContainer}>
-                  <TouchableOpacity
-                  style={styles.checkbox}
-                  onPress={() => handleInputChange('about.unionMember', !formData.about.unionMember)}
-                    disabled={isSubmitting}
-                  >
-                  <Ionicons
-                    name={formData.about.unionMember ? "checkbox" : "square-outline"}
-                    size={20}
-                    color={formData.about.unionMember ? "#8b5cf6" : "#9ca3af"}
-                  />
-                  <Text style={styles.checkboxLabel}>Union Member</Text>
-                  </TouchableOpacity>
+        {/* The Rest Section */}
+        <CollapsibleSection
+          id="other"
+          title="The Rest"
+          isExpanded={expandedSections.has('other')}
+          onToggle={() => toggleSection('other')}
+          sectionRef={sectionRefs['other']}
+        >
+          {/* Professional Details - only show if user is talent */}
+          {isTalent && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Professional Details</Text>
               </View>
-            </View>
 
-            {/* Dialects */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>Dialects/Languages</Text>
-              <View style={styles.skillInputContainer}>
-              <TextInput
-                  style={styles.skillInput}
-                  placeholder="Add a dialect or language..."
-                placeholderTextColor="#9ca3af"
-                  value={currentDialect}
-                  onChangeText={setCurrentDialect}
-                  onSubmitEditing={addDialect}
-                editable={!isSubmitting}
-              />
-                <TouchableOpacity style={styles.addButton} onPress={addDialect} disabled={isSubmitting}>
-                  <Ionicons name="add" size={20} color="#fff" />
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Reel/Portfolio URL</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="https://example.com/reel"
+                  placeholderTextColor="#9ca3af"
+                  value={formData.about.reelUrl}
+                  onChangeText={(text) => handleInputChange('about.reelUrl', text)}
+                  keyboardType="url"
+                  editable={!isSubmitting}
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <View style={styles.checkboxContainer}>
+                    <TouchableOpacity
+                    style={styles.checkbox}
+                    onPress={() => handleInputChange('about.unionMember', !formData.about.unionMember)}
+                      disabled={isSubmitting}
+                    >
+                    <Ionicons
+                      name={formData.about.unionMember ? "checkbox" : "square-outline"}
+                      size={20}
+                      color={formData.about.unionMember ? "#8b5cf6" : "#9ca3af"}
+                    />
+                    <Text style={styles.checkboxLabel}>Union Member</Text>
+                    </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Dialects */}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Dialects/Languages</Text>
+                <View style={styles.skillInputContainer}>
+                <TextInput
+                    style={styles.skillInput}
+                    placeholder="Add a dialect or language..."
+                  placeholderTextColor="#9ca3af"
+                    value={currentDialect}
+                    onChangeText={setCurrentDialect}
+                    onSubmitEditing={addDialect}
+                  editable={!isSubmitting}
+                />
+                  <TouchableOpacity style={styles.addButton} onPress={addDialect} disabled={isSubmitting}>
+                    <Ionicons name="add" size={20} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.skillsList}>
+                  {formData.about.dialects.map((dialect, index) => (
+                    <View key={index} style={styles.skillTag}>
+                      <Text style={styles.skillText}>{dialect}</Text>
+                      <TouchableOpacity onPress={() => removeDialect(dialect)} disabled={isSubmitting}>
+                        <Ionicons name="close" size={16} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              {/* Willing to Travel */}
+              <View style={styles.inputContainer}>
+                <TouchableOpacity
+                  style={styles.checkboxContainer}
+                  onPress={() => handleInputChange('about.willingToTravel', !formData.about.willingToTravel)}
+                  disabled={isSubmitting}
+                >
+                  <View style={[styles.checkbox, formData.about.willingToTravel && styles.checkboxChecked]}>
+                    {formData.about.willingToTravel && (
+                      <Ionicons name="checkmark" size={16} color="#fff" />
+                    )}
+                  </View>
+                  <Text style={styles.checkboxLabel}>Willing to travel for work</Text>
                 </TouchableOpacity>
               </View>
-              <View style={styles.skillsList}>
-                {formData.about.dialects.map((dialect, index) => (
-                  <View key={index} style={styles.skillTag}>
-                    <Text style={styles.skillText}>{dialect}</Text>
-                    <TouchableOpacity onPress={() => removeDialect(dialect)} disabled={isSubmitting}>
-                      <Ionicons name="close" size={16} color="#ef4444" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            </View>
+            </>
+          )}
 
-            {/* Willing to Travel */}
-            <View style={styles.inputContainer}>
-              <TouchableOpacity
-                style={styles.checkboxContainer}
-                onPress={() => handleInputChange('about.willingToTravel', !formData.about.willingToTravel)}
-                disabled={isSubmitting}
-              >
-                <View style={[styles.checkbox, formData.about.willingToTravel && styles.checkboxChecked]}>
-                  {formData.about.willingToTravel && (
-                    <Ionicons name="checkmark" size={16} color="#fff" />
-                  )}
-                </View>
-                <Text style={styles.checkboxLabel}>Willing to travel for work</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
-
-        {/* Image URL */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Profile Image URL</Text>
-          <TextInput
-            style={[styles.input, formErrors.imageUrl && styles.inputError]}
-            placeholder="https://example.com/image.jpg"
-            placeholderTextColor="#9ca3af"
-            value={formData.imageUrl}
-            onChangeText={(text) => handleInputChange('imageUrl', text)}
-            keyboardType="url"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!isSubmitting}
-          />
-          {formErrors.imageUrl && <Text style={styles.fieldError}>{formErrors.imageUrl}</Text>}
-          <Text style={styles.helpText}>
-            Enter a valid image URL (JPG, PNG, or GIF format recommended)
-          </Text>
-        </View>
+          {/* Image URL */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Profile Image URL</Text>
+            <TextInput
+              style={[styles.input, formErrors.imageUrl && styles.inputError]}
+              placeholder="https://example.com/image.jpg"
+              placeholderTextColor="#9ca3af"
+              value={formData.imageUrl}
+              onChangeText={(text) => handleInputChange('imageUrl', text)}
+              keyboardType="url"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isSubmitting}
+            />
+            {formErrors.imageUrl && <Text style={styles.fieldError}>{formErrors.imageUrl}</Text>}
+            <Text style={styles.helpText}>
+              Enter a valid image URL (JPG, PNG, or GIF format recommended)
+            </Text>
+          </View>
+        </CollapsibleSection>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -1949,6 +2387,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 3,
     borderColor: '#e5e7eb',
+    position: 'relative',
   },
   profilePicture: {
     width: '100%',
@@ -1960,11 +2399,78 @@ const styles = StyleSheet.create({
     backgroundColor: '#f3f4f6',
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
   },
   profilePictureInitials: {
     fontSize: 36,
     fontWeight: '800',
     color: '#9ca3af',
+  },
+  profilePictureOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  profilePictureOverlayText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  multipleImagesContainer: {
+    marginTop: 16,
+    width: '100%',
+  },
+  multipleImagesTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 12,
+  },
+  multipleImagesScroll: {
+    flexDirection: 'row',
+  },
+  multipleImageItem: {
+    marginRight: 12,
+    position: 'relative',
+  },
+  multipleImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  removeMultipleImageButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+  },
+  addMultipleImageButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    borderStyle: 'dashed',
+    backgroundColor: '#f9fafb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  addMultipleImageText: {
+    fontSize: 12,
+    color: '#3b82f6',
+    fontWeight: '500',
   },
   profilePictureHint: {
     fontSize: 12,
@@ -1972,6 +2478,66 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
     marginTop: 8,
+  },
+  // Cover Images Styles
+  coverImagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  coverImageItem: {
+    position: 'relative',
+    width: 120,
+    height: 80,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  coverImageThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  removeCoverImageButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    zIndex: 1,
+  },
+  mainImageBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: '#3b82f6',
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    zIndex: 1,
+  },
+  mainImageBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  coverImageActions: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    flexDirection: 'row',
+    gap: 4,
+    zIndex: 1,
+  },
+  setMainButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 4,
   },
   imageSelectionContainer: {
     flexDirection: 'row',
@@ -2012,6 +2578,31 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginBottom: 16,
     lineHeight: 20,
+  },
+  collapsibleSection: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    overflow: 'hidden',
+  },
+  collapsibleHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#f9fafb',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  collapsibleTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+  },
+  collapsibleContent: {
+    padding: 16,
   },
   label: {
     fontSize: 14,
@@ -2245,6 +2836,9 @@ const styles = StyleSheet.create({
     borderColor: '#d1d5db',
     backgroundColor: '#f9fafb',
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
   },
   portfolioTypeButtonActive: {
     backgroundColor: '#3b82f6',
@@ -2293,6 +2887,49 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  portfolioGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 12,
+  },
+  portfolioThumbnailContainer: {
+    width: 100,
+    position: 'relative',
+  },
+  portfolioThumbnail: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    overflow: 'hidden',
+  },
+  portfolioVideoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  portfolioThumbnailCaption: {
+    fontSize: 10,
+    color: '#6b7280',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  removePortfolioThumbnailButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    zIndex: 1,
   },
   portfolioList: {
     marginTop: 16,

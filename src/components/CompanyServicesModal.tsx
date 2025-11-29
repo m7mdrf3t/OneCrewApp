@@ -74,8 +74,6 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
       console.log('🏢 Loading services for company:', company.id);
       console.log('🏢 Company data:', JSON.stringify(company, null, 2));
 
-      const { getAvailableServicesForCompany, getCompanyServices } = api;
-
       // Load both available services and current services in parallel
       let availableResponse: any = { success: false, error: 'Not loaded yet' };
       let currentResponse: any = { success: false, error: 'Not loaded yet' };
@@ -135,7 +133,7 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
           if (company.subcategory) {
             console.log('🔄 Trying getCompanyTypeServices with subcategory:', company.subcategory);
             try {
-              const fallbackResponse = await api.getCompanyTypeServices(company.subcategory);
+              const fallbackResponse = await getCompanyTypeServices(company.subcategory);
               if (fallbackResponse.success && Array.isArray(fallbackResponse.data)) {
                 services = fallbackResponse.data;
                 console.log('✅ Got services from getCompanyTypeServices (subcategory):', services.length);
@@ -149,7 +147,7 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
           if (services.length === 0 && company.company_type_info?.code) {
             console.log('🔄 Trying getCompanyTypeServices with company_type_info.code:', company.company_type_info.code);
             try {
-              const fallbackResponse2 = await api.getCompanyTypeServices(company.company_type_info.code);
+              const fallbackResponse2 = await getCompanyTypeServices(company.company_type_info.code);
               if (fallbackResponse2.success && Array.isArray(fallbackResponse2.data)) {
                 services = fallbackResponse2.data;
                 console.log('✅ Got services from getCompanyTypeServices (code):', services.length);
@@ -216,12 +214,11 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
           services
             .map((s: CompanyService) => {
               // Try different possible structures for service ID
-              // Priority: service_id (from company_service table) > service.id (from service object) > id
-              const serviceId = s.service_id || s.service?.id || s.id || (s.service as any)?.service_id;
+              // Priority: service_id (from company_service table) > service.id (from service object)
+              const serviceId = s.service_id || s.service?.id || (s.service as any)?.service_id;
               console.log('🔍 Extracting current service ID from:', {
                 service_id: s.service_id,
                 'service.id': s.service?.id,
-                id: s.id,
                 extracted: serviceId
               });
               return serviceId;
@@ -253,211 +250,16 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
       return newSet;
     });
   };
-      // Reset state when modal closes
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!visible) {
       setSelectedServices(new Set());
       setSearchQuery('');
       setAvailableServices([]);
       setCurrentServices([]);
     }
   }, [visible, company?.id]);
-
-  const loadServices = async () => {
-    try {
-      setLoading(true);
-
-      console.log('🏢 Loading services for company:', company.id);
-      console.log('🏢 Company data:', JSON.stringify(company, null, 2));
-
-      // Load both available services and current services in parallel
-      let availableResponse: any = { success: false, error: 'Not loaded yet' };
-      let currentResponse: any = { success: false, error: 'Not loaded yet' };
-
-      try {
-        [availableResponse, currentResponse] = await Promise.allSettled([
-          getAvailableServicesForCompany(company.id),
-          getCompanyServices(company.id),
-        ]).then(results => {
-          return results.map((result, index) => {
-            if (result.status === 'fulfilled') {
-              return result.value;
-            } else {
-              console.error(`❌ Error loading ${index === 0 ? 'available' : 'current'} services:`, result.reason);
-              return { 
-                success: false, 
-                error: result.reason?.message || String(result.reason) || 'Unknown error', 
-                data: null 
-              };
-            }
-          });
-        });
-      } catch (error: any) {
-        console.error('❌ Error loading services:', error);
-        Alert.alert('Error', `Failed to load services: ${error?.message || 'Unknown error'}`);
-        setLoading(false);
-        return;
-      }
-
-      console.log('📦 Available services response:', JSON.stringify(availableResponse, null, 2));
-      console.log('📦 Current services response:', JSON.stringify(currentResponse, null, 2));
-
-      // Handle available services response
-      let services: AvailableCompanyService[] = [];
-      
-      if (availableResponse.success) {
-        // Try different response structures
-        if (Array.isArray(availableResponse.data)) {
-          services = availableResponse.data;
-        } else if (Array.isArray(availableResponse.data?.data)) {
-          services = availableResponse.data.data;
-        } else if (Array.isArray(availableResponse.data?.services)) {
-          services = availableResponse.data.services;
-        } else if (availableResponse.data && typeof availableResponse.data === 'object') {
-          // If data is an object, check if it has a services property or is a single service
-          if (Array.isArray(availableResponse.data.items)) {
-            services = availableResponse.data.items;
-          } else if (availableResponse.data.name) {
-            // Single service object
-            services = [availableResponse.data];
-          }
-        }
-        
-        console.log('✅ Parsed available services from getAvailableServicesForCompany:', services.length);
-      } else {
-        console.error('❌ Failed to get available services:', availableResponse.error);
-      }
-      
-      // Fallback 1: If no services found and company has subcategory, try getCompanyTypeServices
-      if (services.length === 0 && company.subcategory) {
-        console.log('⚠️ No services from getAvailableServicesForCompany, trying getCompanyTypeServices with subcategory:', company.subcategory);
-        try {
-          const typeServicesResponse = await getCompanyTypeServices(company.subcategory);
-          console.log('📦 getCompanyTypeServices response:', JSON.stringify(typeServicesResponse, null, 2));
-          if (typeServicesResponse.success && typeServicesResponse.data) {
-            if (Array.isArray(typeServicesResponse.data)) {
-              services = typeServicesResponse.data;
-            } else if (Array.isArray(typeServicesResponse.data?.data)) {
-              services = typeServicesResponse.data.data;
-            } else if (Array.isArray(typeServicesResponse.data?.services)) {
-              services = typeServicesResponse.data.services;
-            }
-            console.log('✅ Got services from getCompanyTypeServices:', services.length);
-          } else {
-            console.warn('⚠️ getCompanyTypeServices returned no services:', typeServicesResponse.error);
-          }
-        } catch (error) {
-          console.error('❌ Failed to get services from getCompanyTypeServices:', error);
-        }
-      }
-
-      // Fallback 2: Try using company_type_info code if subcategory didn't work
-      if (services.length === 0 && company.company_type_info?.code && company.company_type_info.code !== company.subcategory) {
-        console.log('⚠️ Trying getCompanyTypeServices with company_type_info.code:', company.company_type_info.code);
-        try {
-          const typeServicesResponse = await getCompanyTypeServices(company.company_type_info.code);
-          if (typeServicesResponse.success && typeServicesResponse.data) {
-            if (Array.isArray(typeServicesResponse.data)) {
-              services = typeServicesResponse.data;
-            } else if (Array.isArray(typeServicesResponse.data?.data)) {
-              services = typeServicesResponse.data.data;
-            } else if (Array.isArray(typeServicesResponse.data?.services)) {
-              services = typeServicesResponse.data.services;
-            }
-            console.log('✅ Got services from getCompanyTypeServices (using company_type_info.code):', services.length);
-          }
-        } catch (error) {
-          console.error('❌ Failed to get services from getCompanyTypeServices (company_type_info):', error);
-        }
-      }
-      
-      console.log('✅ Final available services:', services.length, services);
-      setAvailableServices(services);
-      
-      // Don't show alert immediately - let the user see the empty state in the UI
-      if (services.length === 0) {
-        const errorInfo = {
-          availableResponseError: availableResponse.error,
-          currentResponseError: currentResponse.error,
-          companySubcategory: company.subcategory,
-          companyTypeCode: company.company_type_info?.code,
-        };
-        console.warn('⚠️ No available services found after all attempts. Company:', {
-          id: company.id,
-          subcategory: company.subcategory,
-          company_type_info: company.company_type_info,
-          'company_type_info.code': company.company_type_info?.code,
-          errorInfo,
-        });
-        setLoadError(
-          availableResponse.error 
-            ? `Error: ${availableResponse.error}` 
-            : 'No services available for this company type'
-        );
-      } else {
-        setLoadError(null);
-      }
-
-      // Handle current services response
-      if (currentResponse.success) {
-        let services: CompanyService[] = [];
-        
-        // Try different response structures
-        if (Array.isArray(currentResponse.data)) {
-          services = currentResponse.data;
-        } else if (Array.isArray(currentResponse.data?.data)) {
-          services = currentResponse.data.data;
-        } else if (Array.isArray(currentResponse.data?.services)) {
-          services = currentResponse.data.services;
-        } else if (currentResponse.data && typeof currentResponse.data === 'object') {
-          if (Array.isArray(currentResponse.data.items)) {
-            services = currentResponse.data.items;
-          }
-        }
-        
-        console.log('✅ Parsed current services:', services.length, services);
-        setCurrentServices(services);
-
-        // Initialize selected services with current services
-        const currentServiceIds = new Set(
-          services
-            .map((s: CompanyService) => {
-              // Try different possible structures for service ID
-              // Priority: service_id (from company_service table) > service.id (from service object) > id
-              const serviceId = s.service_id || s.service?.id || s.id || (s.service as any)?.service_id;
-              console.log('🔍 Extracting current service ID from:', {
-                service_id: s.service_id,
-                'service.id': s.service?.id,
-                id: s.id,
-                extracted: serviceId
-              });
-              return serviceId;
-            })
-            .filter(Boolean)
-        );
-        console.log('✅ Current service IDs initialized:', Array.from(currentServiceIds));
-        setSelectedServices(currentServiceIds);
-      } else {
-        console.error('❌ Failed to get current services:', currentResponse.error);
-      }
-    } catch (error: any) {
-      console.error('❌ Failed to load services:', error);
-      console.error('❌ Error details:', JSON.stringify(error, null, 2));
-      Alert.alert('Error', `Failed to load services: ${error.message || 'Unknown error'}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const toggleService = (serviceId: string) => {
-    setSelectedServices((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(serviceId)) {
-        newSet.delete(serviceId);
-      } else {
-        newSet.add(serviceId);
-      }
-      return newSet;
-    });
-  };
 
   const handleSave = async () => {
     try {
@@ -472,7 +274,7 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
         currentServices
           .map((s) => {
             // Try different possible structures for service ID
-            const serviceId = s.service_id || s.service?.id || s.id || (s.service as any)?.service_id;
+            const serviceId = s.service_id || s.service?.id || (s.service as any)?.service_id;
             console.log('🔍 Extracting service ID from:', s, '→', serviceId);
             return serviceId;
           })
@@ -528,7 +330,7 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
           // We need to find the CompanyService that has this service_id
           const companyService = currentServices.find((s) => {
             // service_id in CompanyService is the actual service ID we need
-            const sId = s.service_id || s.service?.id || s.id;
+            const sId = s.service_id || s.service?.id;
             const matches = sId === serviceId;
             console.log(`🔍 Matching removal: serviceId=${serviceId}, companyService.service_id=${s.service_id}, companyService.service?.id=${s.service?.id}, matches=${matches}`);
             return matches;
@@ -538,8 +340,7 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
             console.warn(`⚠️ Could not find company service for ID: ${serviceId}`);
             console.warn(`⚠️ Available current services:`, currentServices.map(s => ({
               service_id: s.service_id,
-              'service.id': s.service?.id,
-              id: s.id
+              'service.id': s.service?.id
             })));
             return Promise.resolve({ success: false, error: `Service not found: ${serviceId}` });
           }
@@ -757,7 +558,7 @@ const CompanyServicesModal: React.FC<CompanyServicesModalProps> = ({
                         </View>
                       </View>
                       <Ionicons
-                        name={selected ? 'checkmark-circle' : 'circle-outline'}
+                        name={selected ? 'checkmark-circle' : 'ellipse-outline'}
                         size={24}
                         color={selected ? '#000' : '#71717a'}
                       />

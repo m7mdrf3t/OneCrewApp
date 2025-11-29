@@ -12,6 +12,7 @@ export interface NavigationState {
 export interface TabBarProps {
   active: string;
   onChange: (tab: string) => void;
+  onProfilePress?: () => void;
 }
 
 export interface SearchBarProps {
@@ -374,6 +375,8 @@ export interface UserProfile {
   email?: string;
   bio?: string;
   image_url?: string;
+  coverImages?: string[]; // Multiple cover images for profile hero section
+  cover_images?: string[]; // Alternative field name for backward compatibility
   category: 'crew' | 'talent' | 'company';
   primary_role?: string;
   location?: string;
@@ -585,6 +588,8 @@ export interface CertificationTemplate {
   icon_name?: string;
   display_order: number;
   active: boolean;
+  created_by_company_id?: string; // v2.8.0: Company that created this template
+  is_system_template?: boolean; // v2.8.0: Whether this is a system template
   created_at: string;
   updated_at: string;
   deleted_at?: string;
@@ -679,10 +684,16 @@ export interface Course {
   duration?: string;
   category?: string;
   status: CourseStatus;
+  primary_lecturer_id?: string;
+  number_of_sessions?: number;
+  certification_template_id?: string; // v2.8.0: Certification template for this course
+  auto_grant_certification?: boolean; // v2.8.0: Auto-grant certification on course completion
   created_at: string;
   updated_at: string;
   deleted_at?: string;
   company?: Company;
+  primary_lecturer?: User;
+  certification_template?: CertificationTemplate; // v2.8.0: Certification template relation
 }
 
 export interface CourseWithDetails extends Course {
@@ -717,6 +728,18 @@ export interface CreateCourseRequest {
   category?: string;
   status?: CourseStatus;
   instructor_ids?: string[];
+  primary_lecturer_id?: string;
+  number_of_sessions?: number;
+  // v2.8.0: Certification template (required)
+  certification_template: {
+    name: string;
+    description?: string;
+    category?: string;
+    default_expiration_days?: number;
+    icon_name?: string;
+  };
+  // v2.8.0: Auto-grant certification on course completion
+  auto_grant_certification?: boolean;
 }
 
 export interface UpdateCourseRequest {
@@ -739,6 +762,7 @@ export interface CourseCardProps {
   onSelect: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onComplete?: () => void;
   showActions?: boolean;
 }
 
@@ -761,6 +785,7 @@ export interface CourseDetailPageProps {
   onBack: () => void;
   onRegister?: () => void;
   onUnregister?: () => void;
+  onNavigate?: (page: string, data?: any) => void;
 }
 
 export interface PublicCoursesPageProps {
@@ -868,4 +893,5 @@ export interface ChatPageProps {
   conversationId?: string;
   participant?: any; // User or Company for new conversations
   onBack: () => void;
+  courseData?: CourseWithDetails; // Course data for auto-sending registration message
 }

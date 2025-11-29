@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SearchBarProps } from '../types';
 import { FilterParams } from './FilterModal';
@@ -11,13 +11,13 @@ interface EnhancedSearchBarProps extends SearchBarProps {
 }
 
 const SearchBar: React.FC<EnhancedSearchBarProps> = ({ 
-  value, 
+  value = '', 
   onChange, 
   onOpenFilter, 
   onClose,
   filters,
   onClearFilters,
-}) => {
+}: EnhancedSearchBarProps) => {
   const activeFilters = filters ? Object.entries(filters).filter(([_, val]) => {
     if (val === undefined || val === null) return false;
     if (typeof val === 'string' && val === '') return false;
@@ -42,8 +42,8 @@ const SearchBar: React.FC<EnhancedSearchBarProps> = ({
         case 'location':
         case 'gender':
         case 'accent':
-        case 'skinTone':
-        case 'hairColor':
+        case 'skin_tone':
+        case 'hair_color':
         case 'currentLocation':
         case 'shootingLocation':
           return val;
@@ -60,13 +60,24 @@ const SearchBar: React.FC<EnhancedSearchBarProps> = ({
         <Ionicons name="search" size={18} color="#6b7280" style={styles.searchIcon} />
         <TextInput
           style={styles.input}
-          value={value}
-          onChangeText={onChange}
+          value={value || ''}
+          onChangeText={(text) => {
+            if (typeof onChange === 'function') {
+              onChange(text);
+            }
+          }}
           placeholder="Search..."
           placeholderTextColor="#9ca3af"
         />
-        {value.length > 0 && (
-          <TouchableOpacity onPress={() => onChange('')} style={styles.clearButton}>
+        {value && value.length > 0 && (
+          <TouchableOpacity 
+            onPress={() => {
+              if (typeof onChange === 'function') {
+                onChange('');
+              }
+            }} 
+            style={styles.clearButton}
+          >
             <Ionicons name="close-circle" size={20} color="#9ca3af" />
           </TouchableOpacity>
         )}
@@ -110,14 +121,14 @@ const SearchBar: React.FC<EnhancedSearchBarProps> = ({
               : key === 'nationalities' ? 'Nationality'
               : key === 'skills' ? 'Skills'
               : key === 'awards' ? 'Awards'
-              : key === 'skinTone' ? 'Skin Tone'
-              : key === 'hairColor' ? 'Hair Color'
+              : key === 'skin_tone' ? 'Skin Tone'
+              : key === 'hair_color' ? 'Hair Color'
               : key === 'accent' ? 'Accent'
               : key === 'currentLocation' ? 'Current Location'
               : key === 'shootingLocation' ? 'Shooting Location'
-              : key === 'minAge' || key === 'maxAge' ? 'Age'
-              : key === 'minHeight' || key === 'maxHeight' ? 'Height'
-              : key === 'minWeight' || key === 'maxWeight' ? 'Weight'
+              : key === 'age_min' || key === 'age_max' ? 'Age'
+              : key === 'height_min' || key === 'height_max' ? 'Height'
+              : key === 'weight_min' || key === 'weight_max' ? 'Weight'
               : key.charAt(0).toUpperCase() + key.slice(1);
             
             return (

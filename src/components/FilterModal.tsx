@@ -8,6 +8,7 @@ import {
   ScrollView,
   TextInput,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, semanticSpacing } from '../constants/spacing';
@@ -19,18 +20,41 @@ export interface FilterParams {
   category?: 'talent' | 'crew' | 'company';
   role?: string;
   location?: string;
-  gender?: string;
-  minAge?: number;
-  maxAge?: number;
-  minHeight?: number;
-  maxHeight?: number;
-  minWeight?: number;
-  maxWeight?: number;
+  // Physical Attributes - exact or range
+  height?: number;
+  height_min?: number;
+  height_max?: number;
+  weight?: number;
+  weight_min?: number;
+  weight_max?: number;
+  age?: number;
+  age_min?: number;
+  age_max?: number;
+  // Body Measurements - range queries
+  chest_min?: number;
+  chest_max?: number;
+  waist_min?: number;
+  waist_max?: number;
+  hips_min?: number;
+  hips_max?: number;
+  shoe_size_min?: number;
+  shoe_size_max?: number;
+  // Appearance - partial match, supports string and ID lookup
+  skin_tone?: string;
+  hair_color?: string;
+  eye_color?: string;
+  // Personal Details
+  gender?: 'male' | 'female' | 'non_binary' | 'prefer_not_to_say' | 'other';
+  nationality?: string;
+  // Professional Preferences
+  union_member?: boolean;
+  willing_to_travel?: boolean;
+  travel_ready?: boolean;
+  // Additional filters
   accent?: string;
   nationalities?: string[];
-  skinTone?: string;
-  hairColor?: string;
   skills?: string[];
+  languages?: string[];
   awards?: string[];
   currentLocation?: string;
   shootingLocation?: string;
@@ -53,6 +77,11 @@ const RangeSlider: React.FC<{
   unit?: string;
 }> = ({ min, max, value, onChange, unit = '' }) => {
   const [localValue, setLocalValue] = useState(value);
+
+  // Sync local value with prop changes
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
 
   const handleMinChange = (newMin: number) => {
     const newValue: [number, number] = [Math.min(newMin, localValue[1]), localValue[1]];
@@ -134,34 +163,117 @@ const FilterModal: React.FC<FilterModalProps> = ({
     });
   };
 
-  const handleGenderSelect = (gender: string) => {
+  const handleGenderSelect = (gender: 'male' | 'female' | 'non_binary' | 'prefer_not_to_say' | 'other') => {
     setFilters(prev => ({
       ...prev,
       gender: prev.gender === gender ? undefined : gender,
     }));
   };
 
+  // Range validation helper
+  const validateRange = (min: number, max: number): [number, number] => {
+    if (min > max) {
+      // Swap if min > max
+      return [max, min];
+    }
+    return [min, max];
+  };
+
   const handleAgeRangeChange = (value: [number, number]) => {
+    const [min, max] = validateRange(value[0], value[1]);
     setFilters(prev => ({
       ...prev,
-      minAge: value[0],
-      maxAge: value[1],
+      age_min: min,
+      age_max: max,
     }));
   };
 
   const handleHeightRangeChange = (value: [number, number]) => {
+    const [min, max] = validateRange(value[0], value[1]);
     setFilters(prev => ({
       ...prev,
-      minHeight: value[0],
-      maxHeight: value[1],
+      height_min: min,
+      height_max: max,
     }));
   };
 
   const handleWeightRangeChange = (value: [number, number]) => {
+    const [min, max] = validateRange(value[0], value[1]);
     setFilters(prev => ({
       ...prev,
-      minWeight: value[0],
-      maxWeight: value[1],
+      weight_min: min,
+      weight_max: max,
+    }));
+  };
+
+  const handleChestRangeChange = (value: [number, number]) => {
+    const [min, max] = validateRange(value[0], value[1]);
+    setFilters(prev => ({
+      ...prev,
+      chest_min: min,
+      chest_max: max,
+    }));
+  };
+
+  const handleWaistRangeChange = (value: [number, number]) => {
+    const [min, max] = validateRange(value[0], value[1]);
+    setFilters(prev => ({
+      ...prev,
+      waist_min: min,
+      waist_max: max,
+    }));
+  };
+
+  const handleHipsRangeChange = (value: [number, number]) => {
+    const [min, max] = validateRange(value[0], value[1]);
+    setFilters(prev => ({
+      ...prev,
+      hips_min: min,
+      hips_max: max,
+    }));
+  };
+
+  const handleShoeSizeRangeChange = (value: [number, number]) => {
+    const [min, max] = validateRange(value[0], value[1]);
+    setFilters(prev => ({
+      ...prev,
+      shoe_size_min: min,
+      shoe_size_max: max,
+    }));
+  };
+
+  const handleEyeColorChange = (text: string) => {
+    setFilters(prev => ({
+      ...prev,
+      eye_color: text.trim() || undefined,
+    }));
+  };
+
+  const handleNationalityChange = (text: string) => {
+    setFilters(prev => ({
+      ...prev,
+      nationality: text.trim() || undefined,
+    }));
+  };
+
+  const handleUnionMemberToggle = (value: boolean) => {
+    setFilters(prev => ({
+      ...prev,
+      union_member: prev.union_member === value ? undefined : value,
+    }));
+  };
+
+  const handleWillingToTravelToggle = (value: boolean) => {
+    setFilters(prev => ({
+      ...prev,
+      willing_to_travel: prev.willing_to_travel === value ? undefined : value,
+    }));
+  };
+
+  const handleTravelReadyToggle = (value: boolean) => {
+    setFilters(prev => ({
+      ...prev,
+      travel_ready: prev.travel_ready === value ? undefined : value,
     }));
   };
 
@@ -193,14 +305,14 @@ const FilterModal: React.FC<FilterModalProps> = ({
   const handleSkinToneSelect = (tone: string) => {
     setFilters(prev => ({
       ...prev,
-      skinTone: prev.skinTone === tone ? undefined : tone,
+      skin_tone: prev.skin_tone === tone ? undefined : tone,
     }));
   };
 
   const handleHairColorSelect = (color: string) => {
     setFilters(prev => ({
       ...prev,
-      hairColor: prev.hairColor === color ? undefined : color,
+      hair_color: prev.hair_color === color ? undefined : color,
     }));
   };
 
@@ -257,13 +369,27 @@ const FilterModal: React.FC<FilterModalProps> = ({
   };
 
   const handleApply = () => {
-    onApply(filters);
-    onClose();
+    try {
+      if (typeof onApply === 'function') {
+        onApply(filters);
+        onClose();
+      } else {
+        console.error('onApply is not a function:', onApply, typeof onApply);
+        Alert.alert('Error', 'Filter application failed. onApply is not a function.');
+      }
+    } catch (error: any) {
+      console.error('Error applying filters:', error);
+      Alert.alert('Error', error?.message || 'Failed to apply filters. Please try again.');
+    }
   };
 
   const handleReset = () => {
     handleClear();
-    onApply({});
+    if (typeof onApply === 'function') {
+      onApply({});
+    } else {
+      console.error('onApply is not a function:', onApply);
+    }
   };
 
   const getActiveFilterCount = () => {
@@ -271,14 +397,24 @@ const FilterModal: React.FC<FilterModalProps> = ({
     if (filters.category) count++;
     if (filters.role) count++;
     if (filters.gender) count++;
-    if (filters.minAge || filters.maxAge) count++;
-    if (filters.minHeight || filters.maxHeight) count++;
-    if (filters.minWeight || filters.maxWeight) count++;
+    if (filters.age || filters.age_min || filters.age_max) count++;
+    if (filters.height || filters.height_min || filters.height_max) count++;
+    if (filters.weight || filters.weight_min || filters.weight_max) count++;
+    if (filters.chest_min || filters.chest_max) count++;
+    if (filters.waist_min || filters.waist_max) count++;
+    if (filters.hips_min || filters.hips_max) count++;
+    if (filters.shoe_size_min || filters.shoe_size_max) count++;
+    if (filters.skin_tone) count++;
+    if (filters.hair_color) count++;
+    if (filters.eye_color) count++;
+    if (filters.nationality) count++;
+    if (filters.union_member !== undefined) count++;
+    if (filters.willing_to_travel !== undefined) count++;
+    if (filters.travel_ready !== undefined) count++;
     if (filters.accent) count++;
     if (filters.nationalities && filters.nationalities.length > 0) count++;
-    if (filters.skinTone) count++;
-    if (filters.hairColor) count++;
     if (filters.skills && filters.skills.length > 0) count++;
+    if (filters.languages && filters.languages.length > 0) count++;
     if (filters.awards && filters.awards.length > 0) count++;
     if (filters.currentLocation) count++;
     if (filters.shootingLocation) count++;
@@ -322,6 +458,39 @@ const FilterModal: React.FC<FilterModalProps> = ({
                   Female
                 </Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.genderButton,
+                  filters.gender === 'non_binary' && styles.genderButtonActive,
+                ]}
+                onPress={() => handleGenderSelect('non_binary')}
+              >
+                <Text style={[styles.genderText, filters.gender === 'non_binary' && styles.genderTextActive]}>
+                  Non Binary
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.genderButton,
+                  filters.gender === 'prefer_not_to_say' && styles.genderButtonActive,
+                ]}
+                onPress={() => handleGenderSelect('prefer_not_to_say')}
+              >
+                <Text style={[styles.genderText, filters.gender === 'prefer_not_to_say' && styles.genderTextActive]}>
+                  Prefer Not To Say
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.genderButton,
+                  filters.gender === 'other' && styles.genderButtonActive,
+                ]}
+                onPress={() => handleGenderSelect('other')}
+              >
+                <Text style={[styles.genderText, filters.gender === 'other' && styles.genderTextActive]}>
+                  Other
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         );
@@ -338,19 +507,19 @@ const FilterModal: React.FC<FilterModalProps> = ({
               <RangeSlider
                 min={18}
                 max={80}
-                value={[filters.minAge || 18, filters.maxAge || 40]}
+                value={[filters.age_min || 18, filters.age_max || 40]}
                 onChange={handleAgeRangeChange}
               />
             </View>
             <View style={styles.physicalAttributeSection}>
               <View style={styles.attributeRow}>
                 <Ionicons name="resize-outline" size={20} color="#000" style={styles.attributeIcon} />
-                <Text style={styles.attributeLabel}>Height</Text>
+                <Text style={styles.attributeLabel}>Height (cm)</Text>
               </View>
               <RangeSlider
                 min={150}
                 max={220}
-                value={[filters.minHeight || 150, filters.maxHeight || 190]}
+                value={[filters.height_min || 150, filters.height_max || 190]}
                 onChange={handleHeightRangeChange}
                 unit="cm"
               />
@@ -358,14 +527,73 @@ const FilterModal: React.FC<FilterModalProps> = ({
             <View style={styles.physicalAttributeSection}>
               <View style={styles.attributeRow}>
                 <Ionicons name="resize-outline" size={20} color="#000" style={styles.attributeIcon} />
-                <Text style={styles.attributeLabel}>Weight</Text>
+                <Text style={styles.attributeLabel}>Weight (kg)</Text>
               </View>
               <RangeSlider
                 min={50}
                 max={150}
-                value={[filters.minWeight || 50, filters.maxWeight || 90]}
+                value={[filters.weight_min || 50, filters.weight_max || 90]}
                 onChange={handleWeightRangeChange}
                 unit="kg"
+              />
+            </View>
+          </View>
+        );
+
+      case 'bodyMeasurements':
+        return (
+          <View style={styles.filterContent}>
+            <View style={styles.blueLine} />
+            <View style={styles.physicalAttributeSection}>
+              <View style={styles.attributeRow}>
+                <Ionicons name="body-outline" size={20} color="#000" style={styles.attributeIcon} />
+                <Text style={styles.attributeLabel}>Chest (cm)</Text>
+              </View>
+              <RangeSlider
+                min={70}
+                max={150}
+                value={[filters.chest_min || 70, filters.chest_max || 120]}
+                onChange={handleChestRangeChange}
+                unit="cm"
+              />
+            </View>
+            <View style={styles.physicalAttributeSection}>
+              <View style={styles.attributeRow}>
+                <Ionicons name="body-outline" size={20} color="#000" style={styles.attributeIcon} />
+                <Text style={styles.attributeLabel}>Waist (cm)</Text>
+              </View>
+              <RangeSlider
+                min={60}
+                max={130}
+                value={[filters.waist_min || 60, filters.waist_max || 100]}
+                onChange={handleWaistRangeChange}
+                unit="cm"
+              />
+            </View>
+            <View style={styles.physicalAttributeSection}>
+              <View style={styles.attributeRow}>
+                <Ionicons name="body-outline" size={20} color="#000" style={styles.attributeIcon} />
+                <Text style={styles.attributeLabel}>Hips (cm)</Text>
+              </View>
+              <RangeSlider
+                min={70}
+                max={150}
+                value={[filters.hips_min || 70, filters.hips_max || 120]}
+                onChange={handleHipsRangeChange}
+                unit="cm"
+              />
+            </View>
+            <View style={styles.physicalAttributeSection}>
+              <View style={styles.attributeRow}>
+                <Ionicons name="footsteps-outline" size={20} color="#000" style={styles.attributeIcon} />
+                <Text style={styles.attributeLabel}>Shoe Size (EU)</Text>
+              </View>
+              <RangeSlider
+                min={35}
+                max={50}
+                value={[filters.shoe_size_min || 35, filters.shoe_size_max || 45]}
+                onChange={handleShoeSizeRangeChange}
+                unit="EU"
               />
             </View>
           </View>
@@ -390,7 +618,20 @@ const FilterModal: React.FC<FilterModalProps> = ({
       case 'nationality':
         return (
           <View style={styles.filterContent}>
-            <Text style={styles.instructionText}>Add one or more nationalities.</Text>
+            <View style={styles.blueLine} />
+            <Text style={styles.instructionText}>Enter nationality (partial match supported).</Text>
+            <View style={styles.inputContainer}>
+              <Ionicons name="globe-outline" size={20} color="#000" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={filters.nationality || ''}
+                onChangeText={handleNationalityChange}
+                placeholder="e.g., Egyptian, American..."
+                placeholderTextColor="#9ca3af"
+              />
+            </View>
+            {/* Legacy support for multiple nationalities */}
+            <Text style={[styles.instructionText, { marginTop: 16 }]}>Or add multiple nationalities (legacy):</Text>
             <View style={styles.addInputContainer}>
               <TextInput
                 style={styles.addInput}
@@ -426,6 +667,7 @@ const FilterModal: React.FC<FilterModalProps> = ({
       case 'skinTone':
         return (
           <View style={styles.filterContent}>
+            <View style={styles.blueLine} />
             <View style={styles.colorSwatches}>
               {skinTones.map((color, index) => (
                 <TouchableOpacity
@@ -433,13 +675,28 @@ const FilterModal: React.FC<FilterModalProps> = ({
                   style={[
                     styles.colorSwatch,
                     { backgroundColor: color },
-                    filters.skinTone === color && styles.colorSwatchActive,
+                    filters.skin_tone === color && styles.colorSwatchActive,
                   ]}
                   onPress={() => handleSkinToneSelect(color)}
                 />
               ))}
             </View>
-            {filters.skinTone && (
+            <View style={styles.inputContainer}>
+              <Ionicons name="color-palette-outline" size={20} color="#000" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={filters.skin_tone || ''}
+                onChangeText={(text) => {
+                  setFilters(prev => ({
+                    ...prev,
+                    skin_tone: text.trim() || undefined,
+                  }));
+                }}
+                placeholder="Or enter skin tone text/ID (partial match)"
+                placeholderTextColor="#9ca3af"
+              />
+            </View>
+            {filters.skin_tone && (
               <TouchableOpacity onPress={() => handleSkinToneSelect('')}>
                 <Text style={styles.clearAllText}>Clear all</Text>
               </TouchableOpacity>
@@ -450,6 +707,7 @@ const FilterModal: React.FC<FilterModalProps> = ({
       case 'hairColor':
         return (
           <View style={styles.filterContent}>
+            <View style={styles.blueLine} />
             <View style={styles.colorSwatches}>
               {hairColors.map((color, index) => (
                 <TouchableOpacity
@@ -457,17 +715,100 @@ const FilterModal: React.FC<FilterModalProps> = ({
                   style={[
                     styles.colorSwatch,
                     { backgroundColor: color },
-                    filters.hairColor === color && styles.colorSwatchActive,
+                    filters.hair_color === color && styles.colorSwatchActive,
                   ]}
                   onPress={() => handleHairColorSelect(color)}
                 />
               ))}
             </View>
-            {filters.hairColor && (
+            <View style={styles.inputContainer}>
+              <Ionicons name="cut-outline" size={20} color="#000" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={filters.hair_color || ''}
+                onChangeText={(text) => {
+                  setFilters(prev => ({
+                    ...prev,
+                    hair_color: text.trim() || undefined,
+                  }));
+                }}
+                placeholder="Or enter hair color text (partial match)"
+                placeholderTextColor="#9ca3af"
+              />
+            </View>
+            {filters.hair_color && (
               <TouchableOpacity onPress={() => handleHairColorSelect('')}>
                 <Text style={styles.clearAllText}>Clear all</Text>
               </TouchableOpacity>
             )}
+          </View>
+        );
+
+      case 'eyeColor':
+        return (
+          <View style={styles.filterContent}>
+            <View style={styles.blueLine} />
+            <View style={styles.inputContainer}>
+              <Ionicons name="eye-outline" size={20} color="#000" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={filters.eye_color || ''}
+                onChangeText={handleEyeColorChange}
+                placeholder="e.g., Brown, Blue, Green, Hazel..."
+                placeholderTextColor="#9ca3af"
+              />
+            </View>
+            {filters.eye_color && (
+              <TouchableOpacity onPress={() => handleEyeColorChange('')}>
+                <Text style={styles.clearAllText}>Clear all</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        );
+
+      case 'professionalPreferences':
+        return (
+          <View style={styles.filterContent}>
+            <View style={styles.blueLine} />
+            <View style={styles.checkboxContainer}>
+              <TouchableOpacity
+                style={styles.checkboxRow}
+                onPress={() => handleUnionMemberToggle(true)}
+              >
+                <View style={[styles.checkbox, filters.union_member === true && styles.checkboxChecked]}>
+                  {filters.union_member === true && (
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                  )}
+                </View>
+                <Text style={styles.checkboxLabel}>Union Member</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.checkboxContainer}>
+              <TouchableOpacity
+                style={styles.checkboxRow}
+                onPress={() => handleWillingToTravelToggle(true)}
+              >
+                <View style={[styles.checkbox, filters.willing_to_travel === true && styles.checkboxChecked]}>
+                  {filters.willing_to_travel === true && (
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                  )}
+                </View>
+                <Text style={styles.checkboxLabel}>Willing to Travel</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.checkboxContainer}>
+              <TouchableOpacity
+                style={styles.checkboxRow}
+                onPress={() => handleTravelReadyToggle(true)}
+              >
+                <View style={[styles.checkbox, filters.travel_ready === true && styles.checkboxChecked]}>
+                  {filters.travel_ready === true && (
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                  )}
+                </View>
+                <Text style={styles.checkboxLabel}>Travel Ready</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         );
 
@@ -569,10 +910,13 @@ const FilterModal: React.FC<FilterModalProps> = ({
   const userFilters = [
     { key: 'gender', label: 'Gender', icon: 'people-outline' },
     { key: 'physicalAttributes', label: 'Physical Attributes', icon: 'body-outline' },
-    { key: 'accent', label: 'Accent', icon: 'mic-outline' },
-    { key: 'nationality', label: 'Nationality', icon: 'globe-outline' },
+    { key: 'bodyMeasurements', label: 'Body Measurements', icon: 'resize-outline' },
     { key: 'skinTone', label: 'Skin Tone', icon: 'color-palette-outline' },
     { key: 'hairColor', label: 'Hair Color', icon: 'cut-outline' },
+    { key: 'eyeColor', label: 'Eye Color', icon: 'eye-outline' },
+    { key: 'nationality', label: 'Nationality', icon: 'globe-outline' },
+    { key: 'professionalPreferences', label: 'Professional Preferences', icon: 'briefcase-outline' },
+    { key: 'accent', label: 'Accent', icon: 'mic-outline' },
     { key: 'location', label: 'Location', icon: 'location-outline' },
     { key: 'skills', label: 'Skills', icon: 'star-outline' },
     { key: 'awards', label: 'Awards', icon: 'trophy-outline' },
@@ -721,6 +1065,7 @@ const styles = StyleSheet.create({
   },
   genderOptions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
   },
   genderButton: {
@@ -910,6 +1255,34 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     fontWeight: '600',
+  },
+  checkboxContainer: {
+    marginBottom: spacing.md,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    borderRadius: 4,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  checkboxChecked: {
+    backgroundColor: '#000',
+    borderColor: '#000',
+  },
+  checkboxLabel: {
+    fontSize: 14,
+    color: '#000',
+    flex: 1,
   },
   footer: {
     flexDirection: 'row',

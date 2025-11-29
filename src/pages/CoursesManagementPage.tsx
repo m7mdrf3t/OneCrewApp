@@ -20,12 +20,13 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
   onBack,
   onCourseSelect,
 }) => {
-  const { getAcademyCourses, createCourse, deleteCourse } = useApi();
+  const { getAcademyCourses, createCourse, deleteCourse, completeCourse } = useApi();
   const [courses, setCourses] = useState<CourseWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<CourseStatus | 'all'>('all');
   const [deletingCourseId, setDeletingCourseId] = useState<string | null>(null);
+  const [completingCourseId, setCompletingCourseId] = useState<string | null>(null);
 
   useEffect(() => {
     loadCourses();
@@ -105,6 +106,44 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
       // For now, navigate to edit, but could navigate to detail
       onCourseSelect(course);
     }
+  };
+
+  const handleCompleteCourse = (course: CourseWithDetails) => {
+    if (course.status === 'completed') {
+      Alert.alert('Course Already Completed', 'This course is already marked as completed.');
+      return;
+    }
+
+    Alert.alert(
+      'Complete Course',
+      `Mark "${course.title}" as completed?${course.auto_grant_certification ? '\n\nThis will grant certifications to all registered users.' : '\n\nYou can manually grant certifications to users if needed.'}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Complete Course',
+          onPress: async () => {
+            try {
+              setCompletingCourseId(course.id);
+              const response = await completeCourse(course.id, course.auto_grant_certification);
+              if (response.success) {
+                Alert.alert(
+                  'Success',
+                  `Course completed!${course.auto_grant_certification ? ' Certifications have been granted to all registered users.' : ''}`
+                );
+                loadCourses(); // Reload courses
+              } else {
+                Alert.alert('Error', response.error || 'Failed to complete course');
+              }
+            } catch (error: any) {
+              console.error('Failed to complete course:', error);
+              Alert.alert('Error', error.message || 'Failed to complete course');
+            } finally {
+              setCompletingCourseId(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const statusOptions: { value: CourseStatus | 'all'; label: string }[] = [
@@ -194,6 +233,7 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
               onSelect={() => handleViewCourse(course)}
               onEdit={() => handleEditCourse(course)}
               onDelete={() => handleDeleteCourse(course.id)}
+              onComplete={() => handleCompleteCourse(course)}
               showActions={true}
             />
           ))}

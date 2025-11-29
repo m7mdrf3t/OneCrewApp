@@ -97,7 +97,7 @@ const AppContent: React.FC = () => {
     if (!isLoading) {
       if (!isAuthenticated && !isGuest) {
         setAuthPage('login');
-      } else if (isAuthenticated && user?.profile_step === 'onboarding' || user?.profile_completeness === 0) {
+      } else if (isAuthenticated && (user?.profile_step === 'onboarding' || user?.profile_completeness === 0)) {
         setShowOnboarding(true);
         setAuthPage(null);
       } else {
@@ -140,7 +140,50 @@ const AppContent: React.FC = () => {
           }
           // If no main tab found, set to empty
           setTab('');
-        } else if (tabPages.includes(newCurrentPage.name)) {
+        } 
+        // Special handling for 'companyProfile': ensure we can navigate back to it
+        // If going back to companyProfile, make sure the companyId is preserved
+        else if (newCurrentPage.name === 'companyProfile') {
+          // Ensure companyId is properly set in the page data
+          // Handle both object format { companyId: '...' } and string format '...'
+          let companyId = null;
+          
+          if (!newCurrentPage.data) {
+            // If no data, use activeCompany as fallback
+            companyId = activeCompany?.id;
+          } else if (typeof newCurrentPage.data === 'string') {
+            // If data is just a string (companyId), use it directly
+            companyId = newCurrentPage.data;
+          } else if (newCurrentPage.data.companyId) {
+            // If data is an object with companyId, use it
+            companyId = newCurrentPage.data.companyId;
+          } else if (activeCompany?.id) {
+            // If data object exists but no companyId, use activeCompany
+            companyId = activeCompany.id;
+          }
+          
+          // Normalize the data format to always be an object
+          if (companyId) {
+            newCurrentPage.data = { companyId };
+          } else {
+            // If we still don't have a companyId, this is a problem
+            // Try to find companyProfile in earlier history entries
+            for (let i = newHistory.length - 2; i >= 0; i--) {
+              if (newHistory[i].name === 'companyProfile') {
+                const prevCompanyId = typeof newHistory[i].data === 'string' 
+                  ? newHistory[i].data 
+                  : newHistory[i].data?.companyId;
+                if (prevCompanyId) {
+                  newCurrentPage.data = { companyId: prevCompanyId };
+                  break;
+                }
+              }
+            }
+          }
+          
+          setTab('');
+        }
+        else if (tabPages.includes(newCurrentPage.name)) {
           setTab(newCurrentPage.name);
         } else {
           setTab('');
@@ -149,7 +192,7 @@ const AppContent: React.FC = () => {
       }
       return prevHistory;
     });
-  }, []);
+  }, [activeCompany]);
 
   const handleServiceSelect = useCallback((serviceData: any, sectionKey: string) => {
     if (sectionKey === 'academy') {
@@ -970,7 +1013,8 @@ const AppContent: React.FC = () => {
             ) : (
               <ProfileCompletionPage
                 navigation={{ goBack: handleBack }}
-                user={page.data || user}
+                user={page.data && page.data.initialSection ? { ...page.data, initialSection: undefined } : (page.data || user)}
+                initialSection={page.data?.initialSection}
                 onProfileUpdated={() => {
                   // Refresh user data or navigate back
                   handleBack();
@@ -987,7 +1031,7 @@ const AppContent: React.FC = () => {
           )}
           {page.name === 'companyProfile' && (
             <CompanyProfilePage
-              companyId={page.data?.companyId || page.data || ''}
+              companyId={page.data?.companyId || page.data || activeCompany?.id || ''}
               onBack={handleBack}
               refreshTrigger={companyProfileRefreshTrigger}
               onEdit={(company) => {
@@ -1055,6 +1099,7 @@ const AppContent: React.FC = () => {
               courseId={page.data?.courseId || ''}
               companyId={page.data?.companyId}
               onBack={handleBack}
+              onNavigate={navigateTo}
               onRegister={() => {
                 // Refresh course detail or navigate back
                 handleBack();
@@ -1089,6 +1134,7 @@ const AppContent: React.FC = () => {
             <ChatPage
               conversationId={page.data?.conversationId}
               participant={page.data?.participant}
+              courseData={page.data?.courseData}
               onBack={handleBack}
             />
           )}
@@ -1193,14 +1239,38 @@ const AppContent: React.FC = () => {
                 case 'project_member_added':
                   // Navigate to project
                   if (notification.data?.project_id) {
-                    navigateTo('projectDetail', { projectId: notification.data.project_id });
+                    (async () => {
+                      try {
+                        const projectId = notification.data?.project_id;
+                        if (projectId) {
+                          const project = await getProjectById(projectId);
+                          if (project) {
+                            navigateTo('projectDetail', project);
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Failed to fetch project for navigation:', error);
+                      }
+                    })();
                   }
                   break;
                 case 'task_assigned':
                 case 'task_completed':
                   // Navigate to project/task
                   if (notification.data?.project_id) {
-                    navigateTo('projectDetail', { projectId: notification.data.project_id });
+                    (async () => {
+                      try {
+                        const projectId = notification.data?.project_id;
+                        if (projectId) {
+                          const project = await getProjectById(projectId);
+                          if (project) {
+                            navigateTo('projectDetail', project);
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Failed to fetch project for navigation:', error);
+                      }
+                    })();
                   }
                   break;
                 case 'certification_issued':
@@ -1234,7 +1304,17 @@ const AppContent: React.FC = () => {
           />
         )}
 
-        <TabBar active={tab} onChange={handleTabChange} />
+        <TabBar 
+          active={tab} 
+          onChange={handleTabChange}
+          onProfilePress={() => {
+            if (currentProfileType === 'company' && activeCompany?.id) {
+              navigateTo('companyProfile', { companyId: activeCompany.id });
+            } else if (user) {
+              navigateTo('myProfile', user);
+            }
+          }}
+        />
 
         {history.length > 1 && (
           <TouchableOpacity

@@ -24,6 +24,7 @@ import MediaPickerService from '../services/MediaPickerService';
 const ChatPage: React.FC<ChatPageProps> = ({
   conversationId,
   participant,
+  courseData,
   onBack,
 }) => {
   const {
@@ -35,6 +36,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     getConversationById,
     createConversation,
     uploadFile,
+    getCompanyMembers,
     user,
     currentProfileType,
     activeCompany,
@@ -52,14 +54,19 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const flatListRef = useRef<FlatList>(null);
   const messageChannelIdRef = useRef<string | null>(null);
   const hasInitializedRef = useRef<string | null>(null);
+  const hasSentCourseMessageRef = useRef<{ conversationId: string; courseId: string } | null>(null);
   const getConversationByIdRef = useRef(getConversationById);
   const createConversationRef = useRef(createConversation);
+  const sendMessageRef = useRef(sendMessage);
+  const getMessagesRef = useRef(getMessages);
   
   // Keep refs updated
   useEffect(() => {
     getConversationByIdRef.current = getConversationById;
     createConversationRef.current = createConversation;
-  }, [getConversationById, createConversation]);
+    sendMessageRef.current = sendMessage;
+    getMessagesRef.current = getMessages;
+  }, [getConversationById, createConversation, sendMessage, getMessages]);
   
   const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -72,15 +79,46 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [showAttachmentOptions, setShowAttachmentOptions] = useState(false);
   const [replyingToMessage, setReplyingToMessage] = useState<ChatMessage | null>(null);
   const [otherUserTyping, setOtherUserTyping] = useState<{ userId: string; userName: string } | null>(null);
+  const [sendAsCompany, setSendAsCompany] = useState(false);
+  const [canSendAsCompany, setCanSendAsCompany] = useState(false);
+  const [checkingPermission, setCheckingPermission] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const typingStatusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const typingChannelIdRef = useRef<string | null>(null);
   const sendTypingStatusRef = useRef<((isTyping: boolean) => Promise<void>) | null>(null);
+  const companyChannelIdRef = useRef<string | null>(null);
+  const canSendAsCompanyCacheRef = useRef<{ companyId: string; canSend: boolean } | null>(null);
   const mediaPicker = MediaPickerService.getInstance();
 
   // Determine current user/company ID
   const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
   const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
+
+  // Helper function to validate conversation belongs to current profile
+  const validateConversationForProfile = useCallback((conv: ChatConversation): boolean => {
+    if (!conv || !conv.participants || !Array.isArray(conv.participants)) {
+      return false;
+    }
+    
+    const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+    const currentProfileTypeValue = currentProfileType === 'company' ? 'company' : 'user';
+    
+    // Check if current profile is a participant
+    const isParticipant = conv.participants.some((p: any) => 
+      p.participant_id === currentProfileId && p.participant_type === currentProfileTypeValue
+    );
+    
+    if (!isParticipant) {
+      console.warn('⚠️ Conversation does not belong to current profile:', {
+        conversationId: conv.id,
+        currentProfileId,
+        currentProfileType: currentProfileTypeValue,
+        participants: conv.participants,
+      });
+    }
+    
+    return isParticipant;
+  }, [currentProfileType, activeCompany?.id, user?.id]);
 
   // Load or create conversation - only once per conversationId
   useEffect(() => {
@@ -98,7 +136,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
     
     const initializeConversation = async () => {
       try {
-        console.log('🔄 Initializing conversation:', conversationKey);
+        console.log('🔄 Initializing conversation:', conversationKey, {
+          profileType: currentProfileType,
+          profileId: currentProfileType === 'company' ? activeCompany?.id : user?.id,
+        });
         setLoading(true);
         setError(null);
 
@@ -106,22 +147,68 @@ const ChatPage: React.FC<ChatPageProps> = ({
           // Load existing conversation
           const response = await getConversationByIdRef.current(conversationId);
           if (response.success && response.data) {
-            setConversation(response.data);
+            const conv = response.data;
+            
+            // Validate conversation belongs to current profile
+            if (!validateConversationForProfile(conv)) {
+              throw new Error('This conversation does not belong to your current profile. Please switch profiles to view it.');
+            }
+            
+            setConversation(conv);
             hasInitializedRef.current = conversationKey;
             await loadMessages(conversationId, 1, false);
+            
+            // Auto-send course message if courseData is provided (even for existing conversations)
+            const messageKey = courseData ? { conversationId, courseId: courseData.id } : null;
+            const alreadySent = hasSentCourseMessageRef.current && 
+              hasSentCourseMessageRef.current.conversationId === conversationId &&
+              hasSentCourseMessageRef.current.courseId === courseData?.id;
+            
+            if (courseData && !alreadySent) {
+              try {
+                const courseMessage = `I've registered for "${courseData.title}"${courseData.description ? `. ${courseData.description.substring(0, 200)}${courseData.description.length > 200 ? '...' : ''}` : ''}`;
+                await sendMessageRef.current(conversationId, {
+                  content: courseMessage,
+                  message_type: 'text',
+                });
+                if (messageKey) {
+                  hasSentCourseMessageRef.current = messageKey;
+                }
+                console.log('✅ Auto-sent course registration message to existing conversation');
+              } catch (messageError: any) {
+                console.error('Failed to send course registration message:', messageError);
+                // Don't block conversation loading if message sending fails
+              }
+            }
           } else {
             throw new Error(response.error || 'Failed to load conversation');
           }
         } else if (participant) {
           // Create new conversation
+          // Always use user_company when participant is company and current user is not a company
+          // Only use company_company when both participants are companies
           const conversationType = participant.category === 'company'
-            ? (currentProfileType === 'company' ? 'company_company' : 'user_company')
+            ? (currentProfileType === 'company' && activeCompany ? 'company_company' : 'user_company')
             : 'user_user';
 
           const participantIds = [participant.id];
+          
+          // Log profile context for verification
+          const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+          const currentProfileTypeValue = currentProfileType === 'company' ? 'company' : 'user';
+          console.log('💬 Creating conversation with profile context:', {
+            conversationType,
+            participantIds,
+            currentProfileType: currentProfileTypeValue,
+            currentProfileId,
+          });
+          
           if (currentProfileType === 'company' && activeCompany) {
             // For company conversations, we need to handle differently
             // The API will handle adding the current user/company
+            console.log('💬 Creating conversation as company profile:', activeCompany.id);
+          } else {
+            console.log('💬 Creating conversation as user profile:', user?.id);
           }
 
           const createResponse = await createConversationRef.current({
@@ -133,7 +220,117 @@ const ChatPage: React.FC<ChatPageProps> = ({
             const newConversation = createResponse.data;
             setConversation(newConversation);
             hasInitializedRef.current = conversationKey;
+            
             await loadMessages(newConversation.id, 1, false);
+            
+            // Auto-send course registration message if courseData is provided (always send, even if conversation exists)
+            const messageKey = courseData ? { conversationId: newConversation.id, courseId: courseData.id } : null;
+            const alreadySent = hasSentCourseMessageRef.current && 
+              hasSentCourseMessageRef.current.conversationId === newConversation.id &&
+              hasSentCourseMessageRef.current.courseId === courseData?.id;
+            
+            if (courseData && !alreadySent) {
+              try {
+                // First, send the course cover image if available
+                if (courseData.poster_url) {
+                  try {
+                    await sendMessageRef.current(newConversation.id, {
+                      content: '',
+                      message_type: 'image',
+                      file_url: courseData.poster_url,
+                    });
+                    console.log('✅ Sent course cover image');
+                    // Small delay to ensure image message is sent before text message
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                  } catch (imageError: any) {
+                    console.error('Failed to send course cover image:', imageError);
+                    // Continue with text message even if image fails
+                  }
+                }
+
+                // Build rich course details message
+                const courseDetails: string[] = [];
+                courseDetails.push(`📚 Course Registration`);
+                courseDetails.push(`\n🎓 ${courseData.title}`);
+                
+                if (courseData.description) {
+                  const description = courseData.description.length > 300 
+                    ? courseData.description.substring(0, 300) + '...' 
+                    : courseData.description;
+                  courseDetails.push(`\n📝 ${description}`);
+                }
+
+                // Course information
+                const infoLines: string[] = [];
+                
+                if (courseData.price !== undefined && courseData.price !== null) {
+                  infoLines.push(`💰 Price: ${courseData.price === 0 ? 'Free' : `$${courseData.price.toFixed(2)}`}`);
+                }
+                
+                if (courseData.start_date) {
+                  const startDate = new Date(courseData.start_date);
+                  infoLines.push(`📅 Start Date: ${startDate.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}`);
+                }
+                
+                if (courseData.end_date) {
+                  const endDate = new Date(courseData.end_date);
+                  infoLines.push(`📅 End Date: ${endDate.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}`);
+                }
+                
+                if (courseData.duration) {
+                  infoLines.push(`⏱️ Duration: ${courseData.duration}`);
+                }
+                
+                if (courseData.category) {
+                  infoLines.push(`🏷️ Category: ${courseData.category}`);
+                }
+                
+                if (courseData.number_of_sessions) {
+                  infoLines.push(`📖 Sessions: ${courseData.number_of_sessions}`);
+                }
+                
+                if (courseData.primary_lecturer?.name) {
+                  infoLines.push(`👨‍🏫 Lecturer: ${courseData.primary_lecturer.name}`);
+                } else if (courseData.instructors && courseData.instructors.length > 0) {
+                  const instructorNames = courseData.instructors.map(i => i.name).join(', ');
+                  infoLines.push(`👨‍🏫 Instructors: ${instructorNames}`);
+                }
+                
+                if (courseData.total_seats) {
+                  const availableSeats = courseData.available_seats !== undefined ? courseData.available_seats : courseData.total_seats;
+                  infoLines.push(`👥 Seats: ${availableSeats}/${courseData.total_seats} available`);
+                }
+
+                if (infoLines.length > 0) {
+                  courseDetails.push(`\n${infoLines.join('\n')}`);
+                }
+
+                courseDetails.push(`\n\n✅ I've registered for this course and I'm looking forward to it!`);
+
+                const courseMessage = courseDetails.join('');
+                
+                await sendMessageRef.current(newConversation.id, {
+                  content: courseMessage,
+                  message_type: 'text',
+                });
+                
+                if (messageKey) {
+                  hasSentCourseMessageRef.current = messageKey;
+                }
+                console.log('✅ Auto-sent enhanced course registration message');
+              } catch (messageError: any) {
+                console.error('Failed to send course registration message:', messageError);
+                // Don't block conversation creation if message sending fails
+              }
+            }
           } else {
             throw new Error(createResponse.error || 'Failed to create conversation');
           }
@@ -142,8 +339,22 @@ const ChatPage: React.FC<ChatPageProps> = ({
         }
       } catch (err: any) {
         console.error('Failed to initialize conversation:', err);
-        setError(err.message || 'Failed to load conversation');
-        Alert.alert('Error', err.message || 'Failed to load conversation');
+        const errorMessage = err.message || 'Failed to load conversation';
+        setError(errorMessage);
+        
+        // Handle profile mismatch errors gracefully
+        if (errorMessage.includes('does not belong to your current profile') || 
+            err?.response?.status === 403 || 
+            err?.message?.includes('403') ||
+            err?.message?.includes('not a participant')) {
+          Alert.alert(
+            'Profile Mismatch',
+            'This conversation belongs to a different profile. Please switch to the correct profile to view it.',
+            [{ text: 'OK', onPress: onBack }]
+          );
+        } else {
+          Alert.alert('Error', errorMessage);
+        }
       } finally {
         setLoading(false);
       }
@@ -157,9 +368,44 @@ const ChatPage: React.FC<ChatPageProps> = ({
       const currentKey = conversationId || (participant ? `participant-${participant.id}` : null);
       if (currentKey && currentKey !== conversationKey) {
         hasInitializedRef.current = null;
+        hasSentCourseMessageRef.current = null;
       }
     };
-  }, [conversationId, participant?.id, currentProfileType, activeCompany?.id]); // Removed function dependencies
+  }, [conversationId, participant?.id, currentProfileType, activeCompany?.id, courseData?.id, validateConversationForProfile]); // Include profile dependencies and validation function
+
+  // Handle profile changes while viewing a conversation
+  useEffect(() => {
+    if (!conversation?.id) {
+      return;
+    }
+    
+    // Validate conversation still belongs to current profile
+    const isValid = validateConversationForProfile(conversation);
+    
+    if (!isValid) {
+      console.log('🔄 Profile changed - conversation no longer valid, navigating away');
+      // Clear conversation state and navigate back
+      setConversation(null);
+      setMessages([]);
+      hasInitializedRef.current = null;
+      Alert.alert(
+        'Profile Changed',
+        'This conversation belongs to a different profile. Please switch to the correct profile to view it.',
+        [{ text: 'OK', onPress: onBack }]
+      );
+      return;
+    }
+    
+    // If conversation is still valid but profile changed, reload messages
+    // This ensures we have the latest messages for the current profile context
+    const shouldReload = hasInitializedRef.current === (conversationId || (participant ? `participant-${participant.id}` : null));
+    if (shouldReload && conversation.id) {
+      console.log('🔄 Profile changed - reloading messages for current profile');
+      loadMessages(conversation.id, 1, false).catch((err) => {
+        console.error('Failed to reload messages after profile change:', err);
+      });
+    }
+  }, [currentProfileType, activeCompany?.id, user?.id, conversation?.id, validateConversationForProfile, conversationId, participant?.id, onBack]);
 
   // Mark messages as read when conversation is viewed
   const hasMarkedAsReadRef = useRef<string | null>(null);
@@ -185,8 +431,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
         await readMessage(conversation.id);
         console.log('✅ Marked conversation as read');
         hasMarkedAsReadRef.current = conversation.id;
-      } catch (error) {
-        console.error('❌ Failed to mark conversation as read:', error);
+      } catch (error: any) {
+        // Handle 403 errors gracefully - user might not be a participant (e.g., company admin viewing user_user conversation)
+        if (error?.message?.includes('403') || error?.message?.includes('not a participant') || error?.response?.status === 403) {
+          console.log('⚠️ Cannot mark as read - user may not be a participant in this conversation type');
+          // Still mark as "attempted" to prevent repeated tries
+          hasMarkedAsReadRef.current = conversation.id;
+        } else {
+          console.error('❌ Failed to mark conversation as read:', error);
+        }
         // Don't show error to user, just log it
       }
     };
@@ -206,8 +459,17 @@ const ChatPage: React.FC<ChatPageProps> = ({
     if (!conversation?.id || !supabaseService.isInitialized()) {
       return;
     }
+    
+    // Validate conversation belongs to current profile before subscribing
+    if (!validateConversationForProfile(conversation)) {
+      console.warn('⚠️ Skipping real-time subscription - conversation does not belong to current profile');
+      return;
+    }
 
-    console.log('💬 Setting up real-time subscription for conversation:', conversation.id);
+    console.log('💬 Setting up real-time subscription for conversation:', conversation.id, {
+      profileType: currentProfileType,
+      profileId: currentProfileType === 'company' ? activeCompany?.id : user?.id,
+    });
 
     // Cleanup previous subscription
     if (messageChannelIdRef.current) {
@@ -239,11 +501,26 @@ const ChatPage: React.FC<ChatPageProps> = ({
           return updated;
         });
         
+        // Validate message belongs to current profile's conversation before processing
+        const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+        const currentProfileTypeValue = currentProfileType === 'company' ? 'company' : 'user';
+        
+        // Only process messages if conversation is valid for current profile
+        if (!validateConversationForProfile(conversation)) {
+          console.warn('⚠️ Ignoring message - conversation does not belong to current profile');
+          return;
+        }
+        
         // Mark the message as read if it's from another user and we're viewing the conversation
-        if (newMessage.sender_id !== currentUserId && newMessage.sender_type !== currentUserType) {
+        if (newMessage.sender_id !== currentProfileId && newMessage.sender_type !== currentProfileTypeValue) {
           // Mark conversation as read when receiving a new message
-          readMessage(conversation.id).catch(err => {
-            console.error('❌ Failed to mark conversation as read:', err);
+          readMessage(conversation.id).catch((err: any) => {
+            // Handle 403 errors gracefully
+            if (err?.message?.includes('403') || err?.message?.includes('not a participant') || err?.response?.status === 403) {
+              console.log('⚠️ Cannot mark as read - user may not be a participant');
+            } else {
+              console.error('❌ Failed to mark conversation as read:', err);
+            }
           });
         }
       },
@@ -312,6 +589,35 @@ const ChatPage: React.FC<ChatPageProps> = ({
       console.error('Failed to subscribe to typing indicators:', error);
     }
 
+    // Subscribe to company channel if viewing as company
+    if (currentProfileType === 'company' && activeCompany && supabaseService.isInitialized()) {
+      try {
+        const client = supabaseService.getClient();
+        if (client) {
+          const companyChannelName = `chat:company:${activeCompany.id}`;
+          const companyChannel = client.channel(companyChannelName);
+          
+          // Listen for company-related updates
+          companyChannel.on('broadcast', { event: 'company_update' }, (payload) => {
+            console.log('💼 Company update received:', payload);
+            // Handle company-related updates (e.g., new conversations, notifications)
+          });
+          
+          companyChannel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Subscribed to company channel:', companyChannelName);
+            } else if (status === 'CHANNEL_ERROR') {
+              console.error('❌ Failed to subscribe to company channel');
+            }
+          });
+          
+          companyChannelIdRef.current = companyChannelName;
+        }
+      } catch (error) {
+        console.error('Failed to subscribe to company channel:', error);
+      }
+    }
+
     return () => {
       if (messageChannelIdRef.current) {
         console.log('🔌 Unsubscribing from chat messages');
@@ -330,6 +636,19 @@ const ChatPage: React.FC<ChatPageProps> = ({
         }
         typingChannelIdRef.current = null;
       }
+      if (companyChannelIdRef.current) {
+        try {
+          const client = supabaseService.getClient();
+          if (client) {
+            const companyChannel = client.channel(companyChannelIdRef.current);
+            companyChannel.unsubscribe();
+            console.log('🔌 Unsubscribed from company channel');
+          }
+        } catch (error) {
+          console.error('Failed to unsubscribe from company channel:', error);
+        }
+        companyChannelIdRef.current = null;
+      }
       // Clear typing timeout
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
@@ -339,7 +658,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         sendTypingStatusRef.current(false);
       }
     };
-  }, [conversation?.id, currentUserId]);
+  }, [conversation?.id, currentProfileType, activeCompany?.id, user?.id, validateConversationForProfile]);
 
   const loadMessages = useCallback(async (convId: string, pageNum: number = 1, append: boolean = false) => {
     try {
@@ -497,7 +816,18 @@ const ChatPage: React.FC<ChatPageProps> = ({
       }
     } catch (err: any) {
       console.error('Failed to send message:', err);
-      Alert.alert('Error', err.message || 'Failed to send message');
+      
+      // Handle 403 permission errors specifically
+      if (err.response?.status === 403 || err.status === 403 || err.message?.includes('403') || err.message?.toLowerCase().includes('permission')) {
+        Alert.alert(
+          'Permission Denied',
+          'Only company owners and admins can send messages as the company. Please switch to your personal account or contact a company admin.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Error', err.message || 'Failed to send message');
+      }
+      
       // Restore message text on error
       setNewMessage(messageText);
     } finally {
@@ -714,10 +1044,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   const isCurrentUserMessage = (message: ChatMessage): boolean => {
+    // Ensure we're checking against the current profile context
+    const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+    const currentProfileTypeValue = currentProfileType === 'company' ? 'company' : 'user';
+    
     if (message.sender_type === 'user') {
-      return message.sender_id === user?.id;
+      return message.sender_type === currentProfileTypeValue && message.sender_id === currentProfileId;
     } else if (message.sender_type === 'company') {
-      return currentProfileType === 'company' && message.sender_id === activeCompany?.id;
+      return message.sender_type === currentProfileTypeValue && message.sender_id === currentProfileId;
     }
     return false;
   };
@@ -730,6 +1064,73 @@ const ChatPage: React.FC<ChatPageProps> = ({
     }
     return 'Unknown';
   };
+
+  const getSenderDisplayText = (message: ChatMessage): { name: string; subtitle?: string } => {
+    if (message.sender_type === 'user') {
+      return {
+        name: message.sender_user?.name || 'Unknown User',
+      };
+    } else if (message.sender_type === 'company') {
+      const companyName = message.sender_company?.name || 'Unknown Company';
+      if (message.sent_by_user && message.sent_by_user.id !== message.sender_id) {
+        return {
+          name: companyName,
+          subtitle: `Sent by ${message.sent_by_user.name || 'Unknown User'}`,
+        };
+      }
+      return {
+        name: companyName,
+      };
+    }
+    return { name: 'Unknown' };
+  };
+
+  // Check if user can send messages as company (owner/admin only)
+  const checkCanSendAsCompany = useCallback(async (): Promise<boolean> => {
+    if (currentProfileType !== 'company' || !activeCompany || !user) {
+      return false;
+    }
+
+    // Check cache first
+    if (canSendAsCompanyCacheRef.current && canSendAsCompanyCacheRef.current.companyId === activeCompany.id) {
+      return canSendAsCompanyCacheRef.current.canSend;
+    }
+
+    try {
+      setCheckingPermission(true);
+      const membersResponse = await getCompanyMembers(activeCompany.id);
+      if (membersResponse.success && membersResponse.data) {
+        const members = Array.isArray(membersResponse.data) ? membersResponse.data : (membersResponse.data.data || []);
+        const userMember = members.find((m: any) => m.user_id === user.id);
+        const canSend = userMember && (userMember.role === 'owner' || userMember.role === 'admin');
+        
+        // Cache the result
+        canSendAsCompanyCacheRef.current = {
+          companyId: activeCompany.id,
+          canSend: !!canSend,
+        };
+        
+        setCanSendAsCompany(!!canSend);
+        return !!canSend;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to check company member permissions:', error);
+      return false;
+    } finally {
+      setCheckingPermission(false);
+    }
+  }, [currentProfileType, activeCompany, user, getCompanyMembers]);
+
+  // Check permissions when conversation or profile changes
+  useEffect(() => {
+    if (conversation && (conversation.conversation_type === 'user_company' || conversation.conversation_type === 'company_company')) {
+      checkCanSendAsCompany();
+    } else {
+      setCanSendAsCompany(false);
+      setSendAsCompany(false);
+    }
+  }, [conversation?.id, conversation?.conversation_type, currentProfileType, activeCompany?.id, checkCanSendAsCompany]);
 
   const formatTime = (timestamp: string): string => {
     const date = new Date(timestamp);
@@ -785,7 +1186,17 @@ const ChatPage: React.FC<ChatPageProps> = ({
       >
         {!isCurrentUser && (
           <View style={styles.avatarContainer}>
-            {getParticipantAvatar() ? (
+            {item.sender_type === 'company' && item.sender_company?.logo_url ? (
+              <Image
+                source={{ uri: item.sender_company.logo_url }}
+                style={styles.messageAvatar as ImageStyle}
+              />
+            ) : item.sender_type === 'user' && item.sender_user?.image_url ? (
+              <Image
+                source={{ uri: item.sender_user.image_url }}
+                style={styles.messageAvatar as ImageStyle}
+              />
+            ) : getParticipantAvatar() ? (
               <Image
                 source={{ uri: getParticipantAvatar() || '' }}
                 style={styles.messageAvatar as ImageStyle}
@@ -803,9 +1214,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
         <View style={[
           styles.messageBubble,
           isCurrentUser ? styles.currentUserBubble : styles.otherUserBubble,
+          item.sender_type === 'company' && styles.companyMessageBubble,
         ]}>
           {!isCurrentUser && (
-            <Text style={styles.senderName}>{getSenderName(item)}</Text>
+            <View>
+              <Text style={styles.senderName}>{getSenderDisplayText(item).name}</Text>
+              {getSenderDisplayText(item).subtitle && (
+                <Text style={styles.senderSubtitle}>{getSenderDisplayText(item).subtitle}</Text>
+              )}
+            </View>
           )}
           
           {/* Reply context */}
@@ -1063,6 +1480,31 @@ const ChatPage: React.FC<ChatPageProps> = ({
               onPress={handleRemoveAttachment}
             >
               <Ionicons name="close-circle" size={24} color="#ef4444" />
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {/* Send as Company Toggle */}
+        {canSendAsCompany && conversation && (conversation.conversation_type === 'user_company' || conversation.conversation_type === 'company_company') && (
+          <View style={styles.sendAsCompanyContainer}>
+            <TouchableOpacity
+              style={styles.sendAsCompanyToggle}
+              onPress={() => setSendAsCompany(!sendAsCompany)}
+              disabled={checkingPermission}
+            >
+              <View style={[styles.toggleSwitch, sendAsCompany && styles.toggleSwitchActive]}>
+                <View style={[styles.toggleThumb, sendAsCompany && styles.toggleThumbActive]} />
+              </View>
+              <View style={styles.sendAsCompanyLabel}>
+                {sendAsCompany && activeCompany?.logo_url ? (
+                  <Image source={{ uri: activeCompany.logo_url }} style={styles.companyToggleLogo} />
+                ) : (
+                  <Ionicons name="business" size={16} color={sendAsCompany ? "#3b82f6" : "#6b7280"} />
+                )}
+                <Text style={[styles.sendAsCompanyText, sendAsCompany && styles.sendAsCompanyTextActive]}>
+                  {sendAsCompany ? `Send as ${activeCompany?.name || 'Company'}` : 'Send as yourself'}
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
         )}
@@ -1435,8 +1877,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#4b5563',
-    marginBottom: 4,
+    marginBottom: 2,
     letterSpacing: 0.2,
+  },
+  senderSubtitle: {
+    fontSize: 11,
+    fontWeight: '400',
+    color: '#6b7280',
+    marginBottom: 4,
+    fontStyle: 'italic',
+  },
+  companyMessageBubble: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#6366f1',
+    backgroundColor: '#f0f4ff',
   },
   messageText: {
     fontSize: 15,
@@ -1876,6 +2330,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     fontStyle: 'italic',
+  },
+  sendAsCompanyContainer: {
+    paddingHorizontal: semanticSpacing.modalPadding,
+    paddingVertical: spacing.sm,
+    backgroundColor: '#f9fafb',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  sendAsCompanyToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  toggleSwitch: {
+    width: 44,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#d1d5db',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  toggleSwitchActive: {
+    backgroundColor: '#3b82f6',
+  },
+  toggleThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleThumbActive: {
+    transform: [{ translateX: 20 }],
+  },
+  sendAsCompanyLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flex: 1,
+  },
+  companyToggleLogo: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+  sendAsCompanyText: {
+    fontSize: 13,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  sendAsCompanyTextActive: {
+    color: '#3b82f6',
+    fontWeight: '600',
   },
 });
 

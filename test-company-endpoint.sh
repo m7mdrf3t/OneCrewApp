@@ -3,7 +3,7 @@
 # Test script for /api/companies endpoint
 # Usage: ./test-company-endpoint.sh <YOUR_AUTH_TOKEN>
 
-BASE_URL="https://onecrewbe-production.up.railway.app"
+BASE_URL="https://onecrew-backend-309236356616.us-central1.run.app"
 ENDPOINT="/api/companies"
 
 # Get token from argument or prompt

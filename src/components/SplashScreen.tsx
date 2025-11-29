@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Animated, Image } from 'react-native';
+import { View, StyleSheet, Animated } from 'react-native';
+import { Image } from 'expo-image';
 
 interface SplashScreenProps {
   onFinished: () => void;
@@ -33,7 +34,8 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinished }) => {
         <Image 
           source={require('../../assets/Steps_02.gif')} 
           style={styles.splashImage}
-          resizeMode="contain"
+          contentFit="contain"
+          transition={200}
         />
       </Animated.View>
     </View>
@@ -43,17 +45,20 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinished }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
     justifyContent: 'center',
     alignItems: 'center',
   },
   content: {
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  splashImage: {
     width: '100%',
     height: '100%',
+  },
+  splashImage: {
+    width: '80%',
+    maxWidth: 400,
+    aspectRatio: 756 / 346,
   },
 });
 

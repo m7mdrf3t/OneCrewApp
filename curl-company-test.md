@@ -2,7 +2,7 @@
 
 ## Base URL
 ```
-https://onecrewbe-production.up.railway.app
+https://onecrew-backend-309236356616.us-central1.run.app
 ```
 
 ## 1. Quick Test (Minimal Required Fields)
@@ -10,7 +10,7 @@ https://onecrewbe-production.up.railway.app
 Replace `YOUR_TOKEN_HERE` with your actual JWT token from the app:
 
 ```bash
-curl -X POST "https://onecrewbe-production.up.railway.app/api/companies" \
+curl -X POST "https://onecrew-backend-309236356616.us-central1.run.app/api/companies" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE" \
   -d '{
@@ -22,7 +22,7 @@ curl -X POST "https://onecrewbe-production.up.railway.app/api/companies" \
 ## 2. Full Test (All Fields)
 
 ```bash
-curl -X POST "https://onecrewbe-production.up.railway.app/api/companies" \
+curl -X POST "https://onecrew-backend-309236356616.us-central1.run.app/api/companies" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE" \
   -d '{
@@ -44,7 +44,7 @@ curl -X POST "https://onecrewbe-production.up.railway.app/api/companies" \
 ## 3. Quick One-Liner (Verbose Output)
 
 ```bash
-curl -v -X POST "https://onecrewbe-production.up.railway.app/api/companies" \
+curl -v -X POST "https://onecrew-backend-309236356616.us-central1.run.app/api/companies" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN_HERE" \
   -d '{"name":"Test Company","subcategory":"production_house"}'

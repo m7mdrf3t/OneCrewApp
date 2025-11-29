@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking, Modal, Dimensions, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
@@ -36,6 +36,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     getUserCertifications,
     getBaseUrl,
     getProjects,
+    getUserProfilePictures,
   } = useApi();
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
@@ -54,6 +55,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   const [showProjectSelectionModal, setShowProjectSelectionModal] = useState(false);
   const [availableProjects, setAvailableProjects] = useState<any[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [currentCoverImageIndex, setCurrentCoverImageIndex] = useState(0);
+  const coverImageScrollRef = useRef<ScrollView>(null);
+  const [profilePictures, setProfilePictures] = useState<Array<{
+    id: string;
+    image_url: string;
+    is_main: boolean;
+    sort_order: number;
+  }>>([]);
+  const [loadingProfilePictures, setLoadingProfilePictures] = useState(false);
 
   // Load projects for selection - only owner projects
   const loadProjects = async (): Promise<any[]> => {
@@ -301,7 +311,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             portfolio: (response.data as any).user_portfolios || (response.data as any).portfolio || [],
             // Preserve languages and abilities
             languages: (response.data as any).languages || (response.data as any).user_languages?.map((lang: any) => lang.language_name || lang.name || lang) || [],
-            abilities: (response.data as any).abilities || (response.data as any).user_abilities?.map((ability: any) => ability.ability_name || ability.name || ability) || []
+            abilities: (response.data as any).abilities || (response.data as any).user_abilities?.map((ability: any) => ability.ability_name || ability.name || ability) || [],
+            // Note: Cover images are now loaded separately via getUserProfilePictures API
           };
           
           console.log('🔍 Final transformed profile skills:', transformedProfile.skills);
@@ -387,6 +398,38 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
     loadSocialLinks();
   }, [isCurrentUser, currentUser?.id, getUserSocialLinks, isGuest, isAuthenticated, userProfile?.social_links, profile?.id, userProfile?.id]);
+
+  // Load profile pictures from API
+  useEffect(() => {
+    const loadProfilePictures = async () => {
+      const userIdToFetch = profile?.id || userProfile?.id;
+      if (!userIdToFetch) return;
+
+      try {
+        setLoadingProfilePictures(true);
+        const response = await getUserProfilePictures(userIdToFetch);
+        if (response.success && response.data) {
+          const pictures = Array.isArray(response.data) ? response.data : [];
+          // Sort: main first, then by sort_order, then by created_at
+          const sortedPictures = pictures.sort((a: any, b: any) => {
+            if (a.is_main && !b.is_main) return -1;
+            if (!a.is_main && b.is_main) return 1;
+            if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          });
+          setProfilePictures(sortedPictures);
+          console.log('🖼️ Profile pictures loaded:', sortedPictures.length, 'pictures');
+        }
+      } catch (error) {
+        console.error('Failed to load profile pictures:', error);
+        // Don't show error to user, just log it
+      } finally {
+        setLoadingProfilePictures(false);
+      }
+    };
+
+    loadProfilePictures();
+  }, [profile?.id, userProfile?.id, getUserProfilePictures]);
 
   const isInTeam = myTeam.some(member => member.id === userProfile.id);
 
@@ -553,21 +596,97 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         />
         
         <View style={styles.hero}>
-          {userProfile.imageUrl || userProfile.image_url ? (
-            <Image 
-              source={{ uri: userProfile.imageUrl || userProfile.image_url }} 
-              style={styles.heroImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <Text style={styles.heroInitials}>{getInitials(userProfile.name)}</Text>
-          )}
-          {/* Calendar Icon - Top Right */}
-          <TouchableOpacity style={styles.heroCalendarIcon}>
-            <View style={styles.calendarIconCircle}>
-              <Ionicons name="calendar-outline" size={18} color="#000" />
-            </View>
-          </TouchableOpacity>
+          {/* Display profile pictures from API */}
+          {(() => {
+            // Use profile pictures from API if available, otherwise fallback to single imageUrl
+            const allCoverImages = profilePictures.length > 0
+              ? profilePictures.map((p: any) => p.image_url)
+              : (userProfile.imageUrl || userProfile.image_url ? [userProfile.imageUrl || userProfile.image_url] : []);
+            
+            if (loadingProfilePictures) {
+              return (
+                <View style={styles.heroLoadingContainer}>
+                  <ActivityIndicator size="large" color="#fff" />
+                </View>
+              );
+            }
+            
+            if (allCoverImages.length === 0) {
+              return (
+                <Text style={styles.heroInitials}>{getInitials(userProfile.name)}</Text>
+              );
+            }
+            
+            // If only one image, display it directly
+            if (allCoverImages.length === 1) {
+              return (
+                <>
+                  <Image 
+                    source={{ uri: allCoverImages[0] }} 
+                    style={styles.heroImage}
+                    resizeMode="cover"
+                  />
+                  {/* Calendar Icon - Top Right */}
+                  <TouchableOpacity style={styles.heroCalendarIcon}>
+                    <View style={styles.calendarIconCircle}>
+                      <Ionicons name="calendar-outline" size={18} color="#000" />
+                    </View>
+                  </TouchableOpacity>
+                </>
+              );
+            }
+            
+            // Multiple cover images - show carousel
+            return (
+              <>
+                <ScrollView
+                  ref={coverImageScrollRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={(event) => {
+                    const scrollPosition = event.nativeEvent.contentOffset.x;
+                    const index = Math.round(scrollPosition / Dimensions.get('window').width);
+                    setCurrentCoverImageIndex(index);
+                  }}
+                  scrollEventThrottle={16}
+                  style={styles.heroScrollView}
+                >
+                  {allCoverImages.map((imageUrl: string, index: number) => (
+                    <View key={index} style={styles.heroImageContainer}>
+                      <Image
+                        source={{ uri: imageUrl }}
+                        style={styles.heroImage}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  ))}
+                </ScrollView>
+                
+                {/* Pagination Indicators */}
+                {allCoverImages.length > 1 && (
+                  <View style={styles.coverImagePagination}>
+                    {allCoverImages.map((_, index: number) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.coverImageDot,
+                          index === currentCoverImageIndex && styles.coverImageDotActive,
+                        ]}
+                      />
+                    ))}
+                  </View>
+                )}
+                
+                {/* Calendar Icon - Top Right */}
+                <TouchableOpacity style={styles.heroCalendarIcon}>
+                  <View style={styles.calendarIconCircle}>
+                    <Ionicons name="calendar-outline" size={18} color="#000" />
+                  </View>
+                </TouchableOpacity>
+              </>
+            );
+          })()}
         </View>
         <View style={styles.profileContainer}>
           <View style={styles.nameRow}> 
@@ -1363,7 +1482,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f4f4f5',
   },
   header: {
     flexDirection: 'row',
@@ -1371,7 +1490,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 2,
     borderBottomColor: '#000',
-    padding: semanticSpacing.containerPaddingLarge,
+    padding: semanticSpacing.containerPadding,
     paddingTop: semanticSpacing.containerPaddingLarge,
   },
   backButton: {
@@ -1381,9 +1500,8 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: 'bold',
     color: '#000',
-    lineHeight: 22,
   },
   placeholder: {
     width: 32,
@@ -1397,6 +1515,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+    overflow: 'hidden',
+  },
+  heroLoadingContainer: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroScrollView: {
+    width: '100%',
+    height: '100%',
+  },
+  heroImageContainer: {
+    width: Dimensions.get('window').width,
+    height: '100%',
   },
   heroInitials: {
     fontSize: 180,
@@ -1405,9 +1538,29 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   heroImage: {
-    width: '100%',
+    width: Dimensions.get('window').width,
     height: '100%',
     borderRadius: 0,
+  },
+  coverImagePagination: {
+    position: 'absolute',
+    bottom: 16,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  coverImageDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  coverImageDotActive: {
+    width: 24,
+    backgroundColor: '#fff',
   },
   heroCalendarIcon: {
     position: 'absolute',
@@ -1429,31 +1582,29 @@ const styles = StyleSheet.create({
     padding: 0,
     paddingBottom: semanticSpacing.containerPaddingLarge,
     backgroundColor: '#fff',
-    paddingHorizontal: semanticSpacing.containerPaddingLarge,
+    paddingHorizontal: spacing.sm,
     paddingTop: semanticSpacing.containerPaddingLarge,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginBottom: spacing.xs,
   },
   name: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#000',
-    lineHeight: 28,
+    marginBottom: 2,
   },
   lastSeen: {
     fontSize: 14,
-    color: '#6b7280',
-    marginBottom: semanticSpacing.sectionGap,
-    lineHeight: 20,
+    color: '#71717a',
+    marginBottom: semanticSpacing.containerPaddingLarge,
   },
   ctaRow: {
     flexDirection: 'row',
     gap: semanticSpacing.containerPadding,
-    marginBottom: semanticSpacing.sectionGap,
+    marginBottom: semanticSpacing.containerPaddingLarge,
   },
   ctaButton: {
     flex: 1,
@@ -1463,11 +1614,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 14,
     gap: spacing.sm,
-    minHeight: 44,
   },
   ctaLight: {
     backgroundColor: '#fff',
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#000',
   },
   ctaDark: {
@@ -1477,36 +1627,32 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-    lineHeight: 22,
   },
   ctaTextLight: {
     color: '#000',
     fontSize: 16,
     fontWeight: '600',
-    lineHeight: 22,
   },
-  // Info Card Styles - Consistent design
+  // Info Card Styles (matching reference design)
   infoCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: semanticSpacing.containerPaddingLarge,
-    marginBottom: semanticSpacing.sectionGap,
-    marginHorizontal: 0,
+    padding: 16,
+    marginBottom: 16,
+    marginHorizontal: 8,
     borderWidth: 2,
-    borderColor: '#e5e7eb',
+    borderColor: '#d4d4d8',
   },
   infoSectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     color: '#000',
-    marginBottom: semanticSpacing.containerPadding,
-    lineHeight: 22,
+    marginBottom: 12,
   },
   aboutText: {
     fontSize: 14,
     color: '#000',
     lineHeight: 20,
-    fontWeight: '400',
   },
   personalInfoGrid: {
     flexDirection: 'row',
@@ -1514,27 +1660,23 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   infoTag: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
+    backgroundColor: '#f4f4f5',
+    borderRadius: spacing.sm,
     paddingHorizontal: semanticSpacing.containerPadding,
     paddingVertical: spacing.sm,
     marginBottom: spacing.sm,
     minWidth: '45%',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
   },
   infoTagLabel: {
     fontSize: 12,
-    color: '#6b7280',
+    color: '#71717a',
     marginBottom: spacing.xs,
     fontWeight: '500',
-    lineHeight: 16,
   },
   infoTagValue: {
     fontSize: 14,
     color: '#000',
-    fontWeight: '600',
-    lineHeight: 20,
+    fontWeight: '700',
   },
   tagList: {
     flexDirection: 'row',
@@ -1543,15 +1685,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   infoChip: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 20,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
+    backgroundColor: '#f4f4f5',
+    borderRadius: semanticSpacing.containerPaddingLarge,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: semanticSpacing.tightPadding,
     flexDirection: 'row',
     alignItems: 'center',
     gap: semanticSpacing.tightGap,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
   },
   chipIcon: {
     marginRight: semanticSpacing.iconPaddingSmall,
@@ -1560,7 +1700,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#000',
     fontWeight: '500',
-    lineHeight: 16,
   },
   // Gallery Styles
   galleryContainer: {
@@ -1595,21 +1734,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f4f4f5',
     gap: semanticSpacing.tightGap,
     minWidth: 0,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
   },
   galleryTabActive: {
     backgroundColor: '#000',
-    borderColor: '#000',
   },
   galleryTabText: {
     fontSize: 14,
     color: '#000',
     fontWeight: '600',
-    lineHeight: 20,
   },
   galleryTabTextActive: {
     color: '#fff',
@@ -1628,7 +1763,7 @@ const styles = StyleSheet.create({
   albumCard: {
     width: (Dimensions.get('window').width - 64) / 2,
     height: 200,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f4f4f5',
     borderRadius: 12,
     padding: semanticSpacing.containerPaddingLarge,
     justifyContent: 'flex-end',
@@ -1650,7 +1785,7 @@ const styles = StyleSheet.create({
   albumTitleLarge: {
     fontSize: 64,
     fontWeight: '800',
-    color: '#9ca3af',
+    color: '#d1d5db',
     opacity: 0.3,
     textAlign: 'center',
   },
@@ -1665,7 +1800,6 @@ const styles = StyleSheet.create({
     color: '#000',
     marginBottom: spacing.sm,
     textAlign: 'left',
-    lineHeight: 22,
   },
   albumStats: {
     flexDirection: 'row',
@@ -1679,20 +1813,14 @@ const styles = StyleSheet.create({
     color: '#000',
     marginRight: spacing.sm,
     textAlign: 'left',
-    lineHeight: 16,
-    fontWeight: '500',
   },
   emptyGallery: {
     padding: spacing.xxl,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   emptyGalleryText: {
     fontSize: 14,
     color: '#9ca3af',
-    lineHeight: 20,
-    fontWeight: '400',
-    textAlign: 'center',
   },
   // Contact Section Styles
   contactHeader: {
@@ -1708,7 +1836,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#000',
     lineHeight: 20,
-    fontWeight: '400',
   },
   talentDetailsContainer: {
     backgroundColor: '#fff',
@@ -1758,31 +1885,28 @@ const styles = StyleSheet.create({
   statsContainer: {
     flexDirection: 'row',
     gap: semanticSpacing.containerPadding,
-    marginBottom: semanticSpacing.sectionGap,
-    marginHorizontal: 0,
+    marginBottom: semanticSpacing.containerPaddingLarge,
+    marginHorizontal: spacing.sm,
     width: 'auto',
   },
   statCard: {
     flex: 1,
     backgroundColor: '#fff',
     borderRadius: 12,
-    paddingVertical: semanticSpacing.containerPaddingLarge,
+    paddingVertical: 18,
     borderWidth: 2,
-    borderColor: '#e5e7eb',
+    borderColor: '#111111',
     alignItems: 'center',
   },
   statNumber: {
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#000',
-    lineHeight: 24,
   },
   statLabel: {
     fontSize: 12,
-    color: '#6b7280',
+    color: '#71717a',
     marginTop: spacing.xs,
-    fontWeight: '500',
-    lineHeight: 16,
   },
   // Legacy styles - keeping for backward compatibility
   bioContainer: {
@@ -1834,7 +1958,7 @@ const styles = StyleSheet.create({
   actionsContainer: {
     width: '100%',
     gap: semanticSpacing.containerPadding,
-    marginHorizontal: 0,
+    marginHorizontal: spacing.sm,
     marginBottom: semanticSpacing.containerPaddingLarge,
   },
   actionButton: {
@@ -1846,7 +1970,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     gap: spacing.sm,
     marginBottom: spacing.sm,
-    minHeight: 44,
   },
   primaryButton: {
     backgroundColor: '#3b82f6',
@@ -1867,13 +1990,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-    lineHeight: 22,
   },
   secondaryButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '500',
-    lineHeight: 22,
   },
   loadingContainer: {
     flex: 1,
@@ -1882,11 +2003,9 @@ const styles = StyleSheet.create({
     padding: 40,
   },
   loadingText: {
-    marginTop: semanticSpacing.containerPaddingLarge,
+    marginTop: 16,
     fontSize: 16,
-    color: '#6b7280',
-    lineHeight: 22,
-    fontWeight: '400',
+    color: '#71717a',
   },
   errorContainer: {
     flex: 1,
@@ -1895,13 +2014,11 @@ const styles = StyleSheet.create({
     padding: 40,
   },
   errorText: {
-    marginTop: semanticSpacing.containerPaddingLarge,
+    marginTop: 16,
     fontSize: 16,
     color: '#ef4444',
     textAlign: 'center',
-    marginBottom: spacing.xxl,
-    lineHeight: 22,
-    fontWeight: '400',
+    marginBottom: 24,
   },
   retryButton: {
     backgroundColor: '#3b82f6',
@@ -1969,10 +2086,10 @@ const styles = StyleSheet.create({
   editSectionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: semanticSpacing.containerPadding,
-    paddingVertical: spacing.xs,
-    borderRadius: 8,
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
     backgroundColor: '#eff6ff',
   },
   editSectionButtonText: {
@@ -2015,8 +2132,8 @@ const styles = StyleSheet.create({
   emptySocialLinksContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.xxl,
-    paddingHorizontal: semanticSpacing.containerPaddingLarge,
+    paddingVertical: 32,
+    paddingHorizontal: 16,
     backgroundColor: '#f9fafb',
     borderRadius: 12,
     borderWidth: 1,
@@ -2027,46 +2144,42 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
     textAlign: 'center',
-    marginTop: spacing.sm,
-    marginBottom: semanticSpacing.containerPaddingLarge,
-    lineHeight: 20,
-    fontWeight: '400',
+    marginTop: 12,
+    marginBottom: 16,
   },
   addSocialLinksButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 6,
     backgroundColor: '#3b82f6',
-    paddingHorizontal: semanticSpacing.containerPaddingLarge,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    minHeight: 44,
   },
   addSocialLinksButtonText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
-    lineHeight: 20,
   },
   // Section Title Row (with icon)
   sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: semanticSpacing.containerPadding,
+    gap: 8,
+    marginBottom: 12,
     justifyContent: 'space-between',
   },
   // Certificates & Awards Styles
   certificatesGrid: {
     flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
+    gap: 12,
+    marginTop: 8,
   },
   certificateCard: {
     flex: 1,
     backgroundColor: '#000',
     borderRadius: 12,
-    padding: semanticSpacing.containerPaddingLarge,
+    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 100,
@@ -2076,34 +2189,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
     textAlign: 'center',
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
-    lineHeight: 20,
+    marginTop: 8,
+    marginBottom: 4,
   },
   certificateYear: {
     fontSize: 12,
     color: '#fff',
     textAlign: 'center',
     opacity: 0.8,
-    lineHeight: 16,
-    fontWeight: '400',
   },
   // Social Media Grid Styles
   socialMediaGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.xs,
+    gap: 12,
+    marginTop: 8,
   },
   socialMediaButton: {
     flex: 1,
     minWidth: '45%',
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f3f4f6',
     borderRadius: 12,
-    padding: semanticSpacing.containerPaddingLarge,
+    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
+    gap: 8,
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
@@ -2115,7 +2225,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#000',
     fontWeight: '500',
-    lineHeight: 20,
   },
   // Media sections styles
   mediaContainer: {
@@ -2124,8 +2233,8 @@ const styles = StyleSheet.create({
   imageGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
+    gap: 8,
+    marginTop: 12,
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
     width: '100%',
@@ -2133,7 +2242,7 @@ const styles = StyleSheet.create({
   imageGridItem: {
     width: '31%', // 3 columns with gaps: approximately 31% per item to account for 8px gaps
     aspectRatio: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f4f4f5',
     borderRadius: 8,
     overflow: 'hidden',
     borderWidth: 1,
@@ -2152,15 +2261,15 @@ const styles = StyleSheet.create({
   videoGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
+    gap: 8,
+    marginTop: 12,
     alignItems: 'flex-start',
     justifyContent: 'flex-start',
   },
   videoGridItem: {
     width: (Dimensions.get('window').width - 64 - 8) / 2, // 2 columns for videos, accounting for gallery padding
     aspectRatio: 16/9,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#f4f4f5',
     borderRadius: 8,
     overflow: 'hidden',
     borderWidth: 1,
@@ -2196,18 +2305,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: semanticSpacing.containerPadding,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 8,
   },
   profileTypeText: {
     fontSize: 14,
-    color: '#6b7280',
-    marginLeft: spacing.sm,
+    color: '#71717a',
+    marginLeft: 6,
     fontStyle: 'italic',
-    lineHeight: 20,
-    fontWeight: '400',
   },
   // Modal styles
   modalOverlay: {
@@ -2239,9 +2346,8 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: 'bold',
     color: '#000',
-    lineHeight: 22,
   },
   modalContent: {
     padding: 16,
@@ -2271,39 +2377,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#000',
-    marginBottom: spacing.xs,
-    lineHeight: 22,
+    marginBottom: 4,
   },
   projectItemDescription: {
     fontSize: 14,
     color: '#6b7280',
-    lineHeight: 20,
-    fontWeight: '400',
   },
   loadingText: {
-    marginTop: spacing.sm,
+    marginTop: 12,
     fontSize: 14,
     color: '#6b7280',
     textAlign: 'center',
-    lineHeight: 20,
-    fontWeight: '400',
   },
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#000',
     textAlign: 'center',
-    marginBottom: spacing.sm,
-    marginTop: spacing.sm,
-    lineHeight: 22,
+    marginBottom: 8,
+    marginTop: 12,
   },
   emptySubtext: {
     fontSize: 14,
     color: '#6b7280',
     textAlign: 'center',
-    paddingHorizontal: spacing.xl,
-    lineHeight: 20,
-    fontWeight: '400',
+    paddingHorizontal: 20,
   },
   closeButton: {
     position: 'absolute',
@@ -2337,8 +2435,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     textAlign: 'center',
-    lineHeight: 22,
-    fontWeight: '400',
   },
   // Certifications section styles
   certificationsList: {
@@ -2349,20 +2445,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.xl,
+    paddingVertical: 20,
   },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.xxl,
-    gap: spacing.sm,
+    paddingVertical: 32,
+    gap: 8,
   },
   emptyStateText: {
     fontSize: 14,
     color: '#9ca3af',
     textAlign: 'center',
-    lineHeight: 20,
-    fontWeight: '400',
   },
 });
 

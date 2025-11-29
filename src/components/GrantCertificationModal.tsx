@@ -36,6 +36,8 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     getAuthorizedCertifications,
     grantCertification,
     uploadFile,
+    getAcademyCourses,
+    getCourseRegistrations,
   } = useApi();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,18 +53,38 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [granting, setGranting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  
+  // Course selection state
+  const [courses, setCourses] = useState<any[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState<any | null>(null);
+  const [courseRegistrations, setCourseRegistrations] = useState<any[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [loadingRegistrations, setLoadingRegistrations] = useState(false);
+  const [userSelectionMethod, setUserSelectionMethod] = useState<'course' | 'search'>('course');
 
   useEffect(() => {
     if (visible) {
       loadAuthorizedCertifications();
+      if (company.subcategory === 'academy') {
+        loadCourses();
+      }
       resetForm();
       
       // If a user ID is preselected, fetch and set that user
       if (preselectedUserId) {
         loadPreselectedUser(preselectedUserId);
+        setUserSelectionMethod('search');
       }
     }
   }, [visible, company.id, preselectedUserId]);
+
+  useEffect(() => {
+    if (selectedCourse) {
+      loadCourseRegistrations(selectedCourse.id);
+    } else {
+      setCourseRegistrations([]);
+    }
+  }, [selectedCourse]);
 
   const loadPreselectedUser = async (userId: string) => {
     try {
@@ -133,6 +155,57 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     setNotes('');
     setCertificateUrl('');
     setFilteredUsers([]);
+    setSelectedCourse(null);
+    setCourseRegistrations([]);
+    setUserSelectionMethod('course');
+  };
+
+  const loadCourses = async () => {
+    try {
+      setLoadingCourses(true);
+      const coursesData = await getAcademyCourses(company.id);
+      setCourses(Array.isArray(coursesData) ? coursesData : []);
+    } catch (error) {
+      console.error('Failed to load courses:', error);
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
+
+  const loadCourseRegistrations = async (courseId: string) => {
+    try {
+      setLoadingRegistrations(true);
+      const registrationsData = await getCourseRegistrations(courseId);
+      const allRegistrations = Array.isArray(registrationsData) ? registrationsData : [];
+      
+      // Filter out cancelled and deleted registrations, and deduplicate by user_id
+      const activeRegistrations = allRegistrations.filter(
+        (reg: any) => !reg.cancelled_at && !reg.deleted_at
+      );
+      
+      // Deduplicate by user_id - keep only the most recent registration per user
+      const uniqueRegistrations = activeRegistrations.reduce((acc: any[], reg: any) => {
+        const existingIndex = acc.findIndex((r) => r.user_id === reg.user_id);
+        if (existingIndex === -1) {
+          acc.push(reg);
+        } else {
+          const existing = acc[existingIndex];
+          const existingDate = new Date(existing.registered_at || existing.created_at);
+          const newDate = new Date(reg.registered_at || reg.created_at);
+          if (newDate > existingDate) {
+            acc[existingIndex] = reg;
+          }
+        }
+        return acc;
+      }, []);
+      
+      setCourseRegistrations(uniqueRegistrations);
+    } catch (error) {
+      console.error('Failed to load course registrations:', error);
+      Alert.alert('Error', 'Failed to load course registrations');
+    } finally {
+      setLoadingRegistrations(false);
+    }
   };
 
   // Map invalid icon names to valid Ionicons names
@@ -290,21 +363,234 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
             </Text>
           </View>
 
-          {/* User Selection */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Select User</Text>
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color="#9ca3af" style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search by name, email, or role..."
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholderTextColor="#9ca3af"
-              />
+          {/* User Selection Method Toggle */}
+          {company.subcategory === 'academy' && courses.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Select User</Text>
+              <View style={styles.methodToggle}>
+                <TouchableOpacity
+                  style={[
+                    styles.methodButton,
+                    userSelectionMethod === 'course' && styles.methodButtonActive,
+                  ]}
+                  onPress={() => {
+                    setUserSelectionMethod('course');
+                    setSelectedUser(null);
+                    setSearchQuery('');
+                    setFilteredUsers([]);
+                  }}
+                >
+                  <Ionicons 
+                    name="school-outline" 
+                    size={18} 
+                    color={userSelectionMethod === 'course' ? '#fff' : '#6b7280'} 
+                  />
+                  <Text
+                    style={[
+                      styles.methodButtonText,
+                      userSelectionMethod === 'course' && styles.methodButtonTextActive,
+                    ]}
+                  >
+                    From Course
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.methodButton,
+                    userSelectionMethod === 'search' && styles.methodButtonActive,
+                  ]}
+                  onPress={() => {
+                    setUserSelectionMethod('search');
+                    setSelectedCourse(null);
+                    setCourseRegistrations([]);
+                    setSelectedUser(null);
+                  }}
+                >
+                  <Ionicons 
+                    name="search-outline" 
+                    size={18} 
+                    color={userSelectionMethod === 'search' ? '#fff' : '#6b7280'} 
+                  />
+                  <Text
+                    style={[
+                      styles.methodButtonText,
+                      userSelectionMethod === 'search' && styles.methodButtonTextActive,
+                    ]}
+                  >
+                    Search User
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
+          )}
 
-            {selectedUser && (
+          {/* Course Selection (if academy and method is 'course') */}
+          {company.subcategory === 'academy' && userSelectionMethod === 'course' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Select Course</Text>
+              {loadingCourses ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#3b82f6" />
+                </View>
+              ) : courses.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="school-outline" size={32} color="#d1d5db" />
+                  <Text style={styles.emptyStateText}>No courses available</Text>
+                </View>
+              ) : (
+                <View style={styles.coursesList}>
+                  {courses.map((course) => (
+                    <TouchableOpacity
+                      key={course.id}
+                      style={[
+                        styles.courseItem,
+                        selectedCourse?.id === course.id && styles.courseItemSelected,
+                      ]}
+                      onPress={() => setSelectedCourse(course)}
+                    >
+                      <View style={styles.courseInfo}>
+                        <Text style={styles.courseTitle}>{course.title}</Text>
+                        <Text style={styles.courseStatus}>
+                          {course.status} • {course.registration_count || 0} registered
+                        </Text>
+                      </View>
+                      {selectedCourse?.id === course.id && (
+                        <Ionicons name="checkmark-circle" size={20} color="#3b82f6" />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Course Registrations (if course selected) */}
+          {userSelectionMethod === 'course' && selectedCourse && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                Registered Users ({courseRegistrations.length})
+              </Text>
+              {loadingRegistrations ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#3b82f6" />
+                </View>
+              ) : courseRegistrations.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Ionicons name="people-outline" size={32} color="#d1d5db" />
+                  <Text style={styles.emptyStateText}>No users registered for this course</Text>
+                </View>
+              ) : (
+                <View style={styles.registrationsList}>
+                  {courseRegistrations.map((registration) => {
+                    const user = registration.user;
+                    const isSelected = selectedUser?.id === user?.id;
+                    return (
+                      <TouchableOpacity
+                        key={registration.id}
+                        style={[
+                          styles.registrationItem,
+                          isSelected && styles.registrationItemSelected,
+                        ]}
+                        onPress={() => handleSelectUser(user)}
+                      >
+                        <View style={styles.userInfo}>
+                          {user?.image_url ? (
+                            <Image
+                              source={{ uri: user.image_url }}
+                              style={styles.userAvatar}
+                            />
+                          ) : (
+                            <View style={[styles.userAvatar, styles.userAvatarPlaceholder]}>
+                              <Text style={styles.userAvatarText}>
+                                {(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={styles.userDetails}>
+                            <Text style={styles.userName}>
+                              {user?.name || user?.email || 'Unknown User'}
+                            </Text>
+                            <Text style={styles.registrationDate}>
+                              Registered: {new Date(registration.registered_at).toLocaleDateString()}
+                            </Text>
+                            {registration.status === 'completed' && (
+                              <View style={styles.completedBadge}>
+                                <Ionicons name="checkmark-circle" size={12} color="#10b981" />
+                                <Text style={styles.completedText}>Course Completed</Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+                        {isSelected && (
+                          <Ionicons name="checkmark-circle" size={24} color="#3b82f6" />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* User Search (if method is 'search') */}
+          {userSelectionMethod === 'search' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Search User</Text>
+              <View style={styles.searchContainer}>
+                <Ionicons name="search" size={20} color="#9ca3af" style={styles.searchIcon} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search by name, email, or role..."
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholderTextColor="#9ca3af"
+                />
+              </View>
+
+
+              {searching ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#3b82f6" />
+                </View>
+              ) : filteredUsers.length > 0 && !selectedUser ? (
+                <View style={styles.resultsContainer}>
+                  {filteredUsers.map((user) => (
+                    <TouchableOpacity
+                      key={user.id}
+                      style={styles.userItem}
+                      onPress={() => handleSelectUser(user)}
+                    >
+                      {user.image_url ? (
+                        <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} />
+                      ) : (
+                        <View style={[styles.userItemAvatar, styles.userItemAvatarPlaceholder]}>
+                          <Text style={styles.userItemAvatarText}>
+                            {(user.name || user.email || 'U').charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.userItemInfo}>
+                        <Text style={styles.userItemName}>
+                          {user.name || user.email || 'Unknown User'}
+                        </Text>
+                        {user.primary_role && (
+                          <Text style={styles.userItemRole}>
+                            {user.primary_role.replace(/_/g, ' ')}
+                          </Text>
+                        )}
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          )}
+
+          {/* Selected User Display (common for both methods) */}
+          {selectedUser && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Selected User</Text>
               <View style={styles.selectedUserContainer}>
                 <View style={styles.selectedUserInfo}>
                   {selectedUser.image_url ? (
@@ -340,45 +626,8 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                   <Ionicons name="close-circle" size={24} color="#ef4444" />
                 </TouchableOpacity>
               </View>
-            )}
-
-            {searching ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#3b82f6" />
-              </View>
-            ) : filteredUsers.length > 0 && !selectedUser ? (
-              <View style={styles.resultsContainer}>
-                {filteredUsers.map((user) => (
-                  <TouchableOpacity
-                    key={user.id}
-                    style={styles.userItem}
-                    onPress={() => handleSelectUser(user)}
-                  >
-                    {user.image_url ? (
-                      <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} />
-                    ) : (
-                      <View style={[styles.userItemAvatar, styles.userItemAvatarPlaceholder]}>
-                        <Text style={styles.userItemAvatarText}>
-                          {(user.name || user.email || 'U').charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={styles.userItemInfo}>
-                      <Text style={styles.userItemName}>
-                        {user.name || user.email || 'Unknown User'}
-                      </Text>
-                      {user.primary_role && (
-                        <Text style={styles.userItemRole}>
-                          {user.primary_role.replace(/_/g, ' ')}
-                        </Text>
-                      )}
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : null}
-          </View>
+            </View>
+          )}
 
           {/* Certification Template Selection */}
           <View style={styles.section}>
@@ -803,6 +1052,99 @@ const styles = StyleSheet.create({
   grantButtonText: {
     color: '#ffffff',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  methodToggle: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  methodButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#ffffff',
+    gap: 8,
+  },
+  methodButtonActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  methodButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6b7280',
+  },
+  methodButtonTextActive: {
+    color: '#ffffff',
+  },
+  coursesList: {
+    gap: 8,
+  },
+  courseItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  courseItemSelected: {
+    borderColor: '#3b82f6',
+    backgroundColor: '#eff6ff',
+  },
+  courseInfo: {
+    flex: 1,
+  },
+  courseTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  courseStatus: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  registrationsList: {
+    gap: 8,
+  },
+  registrationItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  registrationItemSelected: {
+    borderColor: '#3b82f6',
+    backgroundColor: '#eff6ff',
+  },
+  registrationDate: {
+    fontSize: 11,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  completedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 4,
+  },
+  completedText: {
+    fontSize: 11,
+    color: '#10b981',
     fontWeight: '600',
   },
 });
