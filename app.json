@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "One Crew",
+    "name": "Steps",
     "slug": "one-crew",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -16,7 +16,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.onecrew.steps",
+      "bundleIdentifier": "com.steps.diggers",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -26,7 +26,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.onecrew.steps"
+      "package": "com.steps.diggers"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -40,7 +40,16 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#000000",
+          "sounds": [],
+          "mode": "production"
+        }
+      ]
     ],
     "runtimeVersion": {
       "policy": "appVersion"

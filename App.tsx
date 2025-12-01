@@ -1,11 +1,13 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, Image } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
+import * as Notifications from 'expo-notifications';
 
 // Context
 import { ApiProvider, useApi } from './src/contexts/ApiContext';
+import pushNotificationService from './src/services/PushNotificationService';
 
 // Components
 import TabBar from './src/components/TabBar';
@@ -91,6 +93,121 @@ const AppContent: React.FC = () => {
       setTheme(systemColorScheme);
     }
   }, [systemColorScheme]);
+
+  // Push notification handlers
+  const notificationListener = useRef<Notifications.Subscription>();
+  const responseListener = useRef<Notifications.Subscription>();
+
+  useEffect(() => {
+    // Set up notification received listener (when app is in foreground)
+    notificationListener.current = pushNotificationService.addNotificationReceivedListener(
+      (notification) => {
+        console.log('📨 Notification received:', notification);
+        // You can show a custom in-app notification here if needed
+        // The notification will be automatically displayed by the system
+      }
+    );
+
+    // Set up notification response listener (when user taps notification)
+    responseListener.current = pushNotificationService.addNotificationResponseReceivedListener(
+      (response) => {
+        console.log('👆 Notification tapped:', response);
+        const data = response.notification.request.content.data;
+        
+        // Handle navigation based on notification data
+        if (data) {
+          // Handle different notification types
+          if (data.type === 'company_invitation' && user) {
+            setShowNotificationModal(false);
+            setShowInvitationListModal(true);
+          } else if (data.type === 'project_created' || data.type === 'project_member_added') {
+            if (data.project_id) {
+              (async () => {
+                try {
+                  const project = await getProjectById(data.project_id);
+                  if (project) {
+                    navigateTo('projectDetail', project);
+                  }
+                } catch (error) {
+                  console.error('Failed to fetch project for navigation:', error);
+                }
+              })();
+            }
+          } else if (data.type === 'task_assigned' || data.type === 'task_completed') {
+            if (data.project_id) {
+              (async () => {
+                try {
+                  const project = await getProjectById(data.project_id);
+                  if (project) {
+                    navigateTo('projectDetail', project);
+                  }
+                } catch (error) {
+                  console.error('Failed to fetch project for navigation:', error);
+                }
+              })();
+            }
+          } else if (data.type === 'message_received') {
+            if (data.conversation_id) {
+              navigateTo('chat', { conversationId: data.conversation_id });
+            }
+          } else if (data.link_url) {
+            // Handle custom link URLs
+            console.log('Navigate to:', data.link_url);
+          }
+        }
+      }
+    );
+
+    // Initialize push notifications
+    pushNotificationService.initialize().catch((error) => {
+      console.warn('⚠️ Failed to initialize push notifications:', error);
+    });
+
+    // Handle notification that opened the app (if app was closed)
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) {
+        console.log('📱 App opened from notification:', response);
+        const data = response.notification.request.content.data;
+        
+        // Handle navigation based on notification data
+        if (data) {
+          // Small delay to ensure app is fully loaded
+          setTimeout(() => {
+            if (data.type === 'company_invitation' && user) {
+              setShowNotificationModal(false);
+              setShowInvitationListModal(true);
+            } else if (data.type === 'project_created' || data.type === 'project_member_added') {
+              if (data.project_id) {
+                (async () => {
+                  try {
+                    const project = await getProjectById(data.project_id);
+                    if (project) {
+                      navigateTo('projectDetail', project);
+                    }
+                  } catch (error) {
+                    console.error('Failed to fetch project for navigation:', error);
+                  }
+                })();
+              }
+            } else if (data.type === 'message_received') {
+              if (data.conversation_id) {
+                navigateTo('chat', { conversationId: data.conversation_id });
+              }
+            }
+          }, 1000);
+        }
+      }
+    });
+
+    return () => {
+      if (notificationListener.current) {
+        pushNotificationService.removeNotificationSubscription(notificationListener.current);
+      }
+      if (responseListener.current) {
+        pushNotificationService.removeNotificationSubscription(responseListener.current);
+      }
+    };
+  }, [user, getProjectById, navigateTo]);
 
   // Handle authentication state changes
   useEffect(() => {

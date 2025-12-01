@@ -31,6 +31,8 @@ import {
 } from '../types';
 import ReferenceDataService from '../services/ReferenceDataService';
 import supabaseService from '../services/SupabaseService';
+import pushNotificationService from '../services/PushNotificationService';
+import { initializeGoogleSignIn, signInWithGoogle } from '../services/GoogleAuthService';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
 import { FilterParams } from '../components/FilterModal';
 
@@ -47,6 +49,7 @@ interface ApiContextType {
   login: (credentials: LoginRequest) => Promise<AuthResponse>;
   logout: () => Promise<void>;
   signup: (userData: SignupRequest) => Promise<AuthResponse>;
+  googleSignIn: (category?: 'crew' | 'talent' | 'company', primaryRole?: string) => Promise<AuthResponse>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
   // Guest session methods
@@ -377,6 +380,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         ReferenceDataService.setApi(api);
         console.log('ReferenceDataService initialized with API');
         
+        // Initialize Google Sign-In
+        try {
+          await initializeGoogleSignIn();
+          console.log('✅ Google Sign-In initialized');
+        } catch (err) {
+          console.warn('⚠️ Failed to initialize Google Sign-In:', err);
+          // Don't block app initialization if Google Sign-In fails
+        }
+        
         if (api.auth.isAuthenticated()) {
           const currentUser = api.auth.getCurrentUser();
           console.log('👤 User already authenticated:', currentUser);
@@ -567,6 +579,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       setUser(userData);
       setIsAuthenticated(true);
       
+      // Register for push notifications after successful login
+      setTimeout(async () => {
+        try {
+          console.log('📱 Registering for push notifications...');
+          const pushToken = await pushNotificationService.initialize();
+          if (pushToken && userData.id) {
+            await registerPushToken(pushToken, userData.id);
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to register push notifications:', error);
+        }
+      }, 500);
+      
       // Fetch complete user profile data after login
       setTimeout(async () => {
         console.log('🔄 Fetching complete user profile after login...');
@@ -639,6 +664,189 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const googleSignIn = async (category?: 'crew' | 'talent' | 'company', primaryRole?: string) => {
+    console.log('🔐 Google Sign-In attempt');
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Step 1: Get ID token from Google
+      console.log('📱 Requesting Google Sign-In...');
+      const idToken = await signInWithGoogle();
+      console.log('✅ Google ID token received');
+      
+      // Step 2: Send ID token to backend
+      const requestBody: any = {
+        idToken: idToken,
+      };
+      
+      // Add category and primary_role if provided (for new users)
+      if (category) {
+        requestBody.category = category;
+        if (primaryRole) {
+          requestBody.primary_role = primaryRole;
+        }
+      }
+      
+      console.log('📤 Sending Google auth request to backend:', {
+        hasIdToken: !!idToken,
+        category: category || 'not provided',
+        primaryRole: primaryRole || 'not provided',
+      });
+      
+      const response = await fetch(`${baseUrl}/api/auth/google`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const responseText = await response.text();
+      
+      if (!response.ok) {
+        let errorMessage = responseText || `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch {
+          // Not JSON, use text response as error message
+        }
+        
+        // Check if error is about missing category
+        if (errorMessage.toLowerCase().includes('category') && errorMessage.toLowerCase().includes('required')) {
+          console.log('⚠️ Category required for new user');
+          // Return a special error that can be caught by the UI to show category selection
+          const categoryError = new Error('CATEGORY_REQUIRED');
+          (categoryError as any).code = 'CATEGORY_REQUIRED';
+          throw categoryError;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      // Parse response
+      let authResponse;
+      try {
+        authResponse = JSON.parse(responseText);
+      } catch (parseError: any) {
+        console.error('❌ Failed to parse response as JSON:', responseText);
+        throw new Error(responseText || 'Server returned invalid JSON response');
+      }
+      
+      console.log('✅ Google Sign-In successful:', authResponse);
+      
+      // Extract user data and token
+      let userData = null;
+      let token = null;
+      
+      if (authResponse.data) {
+        if (authResponse.data.user) {
+          userData = authResponse.data.user;
+        } else if (authResponse.data.userData) {
+          userData = authResponse.data.userData;
+        } else if (authResponse.data.id || authResponse.data.name || authResponse.data.email) {
+          userData = authResponse.data;
+        }
+        
+        if (authResponse.data.token) {
+          token = authResponse.data.token;
+        } else if (authResponse.data.accessToken) {
+          token = authResponse.data.accessToken;
+        }
+      }
+      
+      // Fallback to root level
+      if (!userData) {
+        userData = authResponse.user;
+      }
+      
+      if (!token) {
+        token = authResponse.token || authResponse.accessToken;
+      }
+      
+      if (!userData) {
+        throw new Error('Google Sign-In response missing user data');
+      }
+      
+      if (!token) {
+        throw new Error('Google Sign-In response missing authentication token');
+      }
+      
+      console.log('🔑 Storing access token and user data');
+      
+      // Store auth data using the same method as login
+      if ((api as any).auth && typeof (api as any).auth.setAuthData === 'function') {
+        await (api as any).auth.setAuthData({
+          token: token,
+          user: userData
+        });
+      } else {
+        if ((api as any).apiClient && typeof (api as any).apiClient.setAuthToken === 'function') {
+          (api as any).apiClient.setAuthToken(token);
+        }
+        
+        if ((api as any).auth) {
+          (api as any).auth.authToken = token;
+          (api as any).auth.token = token;
+          (api as any).auth.accessToken = token;
+          (api as any).auth.currentUser = userData;
+        }
+      }
+      
+      // Update user state
+      setUser(userData);
+      setIsAuthenticated(true);
+      
+      // Register for push notifications after successful login
+      setTimeout(async () => {
+        try {
+          console.log('📱 Registering for push notifications...');
+          const pushToken = await pushNotificationService.initialize();
+          if (pushToken && userData.id) {
+            await registerPushToken(pushToken, userData.id);
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to register push notifications:', error);
+        }
+      }, 500);
+      
+      // Fetch complete user profile data after login
+      setTimeout(async () => {
+        console.log('🔄 Fetching complete user profile after Google Sign-In...');
+        try {
+          const completeUser = await fetchCompleteUserProfile(userData.id, userData);
+          if (completeUser) {
+            console.log('👤 Complete user profile loaded:', completeUser);
+            setUser(completeUser as User);
+          }
+        } catch (err) {
+          console.warn('⚠️ Failed to load complete user profile:', err);
+        }
+      }, 1000);
+      
+      return {
+        user: userData,
+        token: token,
+      } as AuthResponse;
+      
+    } catch (err: any) {
+      console.error('❌ Google Sign-In failed:', err);
+      
+      // Don't set error state for category required - let UI handle it
+      if (err.code === 'CATEGORY_REQUIRED') {
+        throw err;
+      }
+      
+      setIsAuthenticated(false);
+      setUser(null);
+      setError(err.message || 'Google Sign-In failed');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async () => {
     setIsLoading(true);
     try {
@@ -647,6 +855,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         supabaseService.unsubscribe(notificationChannelId);
         setNotificationChannelId(null);
       }
+      
+      // Clear push notification token
+      await pushNotificationService.clearToken();
+      await pushNotificationService.setBadgeCount(0);
       
       await api.auth.logout();
       setUser(null);
@@ -667,6 +879,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         supabaseService.unsubscribe(notificationChannelId);
         setNotificationChannelId(null);
       }
+      
+      // Clear push notification token even on error
+      await pushNotificationService.clearToken();
+      await pushNotificationService.setBadgeCount(0);
     } finally {
       setIsLoading(false);
     }
@@ -4916,6 +5132,40 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Push notification token registration
+  const registerPushToken = async (token: string, userId: string) => {
+    try {
+      console.log('📱 Registering push token with backend:', token.substring(0, 20) + '...');
+      
+      // Try to register via API endpoint
+      // Note: Adjust the endpoint based on your backend API structure
+      const response = await fetch(`${baseUrl}/api/users/${userId}/push-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getAccessToken()}`,
+        },
+        body: JSON.stringify({
+          push_token: token,
+          platform: Platform.OS,
+        }),
+      });
+
+      if (!response.ok) {
+        // If endpoint doesn't exist, log warning but don't fail
+        console.warn('⚠️ Push token registration endpoint not available:', response.status);
+        return;
+      }
+
+      const result = await response.json();
+      console.log('✅ Push token registered successfully');
+      return result;
+    } catch (error) {
+      // Don't throw - push token registration is not critical for app functionality
+      console.warn('⚠️ Failed to register push token with backend:', error);
+    }
+  };
+
   // Notification methods
   const getNotifications = async (params?: NotificationParams) => {
     try {
@@ -5272,6 +5522,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     // Authentication methods
     login,
     signup,
+    googleSignIn,
     logout,
     forgotPassword,
     resetPassword,

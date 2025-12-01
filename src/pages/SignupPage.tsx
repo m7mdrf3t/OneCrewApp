@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import CategorySelectionModal from '../components/CategorySelectionModal';
 
 interface SignupPageProps {
   onNavigateToLogin: () => void;
@@ -22,7 +23,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
   onNavigateToLogin,
   onSignupSuccess,
 }) => {
-  const { signup, isLoading, error, clearError } = useApi();
+  const { signup, googleSignIn, isLoading, error, clearError } = useApi();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -34,6 +35,8 @@ const SignupPage: React.FC<SignupPageProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
 
   const categories = [
     { key: 'crew', label: 'Crew Member', icon: 'people' },
@@ -127,6 +130,37 @@ const SignupPage: React.FC<SignupPageProps> = ({
   const handleCategoryChange = (category: 'crew' | 'talent' | 'company') => {
     setFormData(prev => ({ ...prev, category, primaryRole: '' }));
     setFormErrors(prev => ({ ...prev, primaryRole: '' }));
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      clearError();
+      setPendingGoogleSignIn(true);
+      // Try without category first (for existing users)
+      await googleSignIn();
+      onSignupSuccess();
+    } catch (err: any) {
+      // Check if error is about category being required
+      if (err.code === 'CATEGORY_REQUIRED' || err.message?.includes('Category') || err.message?.includes('category')) {
+        // Show category selection modal
+        setShowCategoryModal(true);
+      } else {
+        Alert.alert('Google Sign-Up Failed', err.message || 'Please try again.');
+      }
+    } finally {
+      setPendingGoogleSignIn(false);
+    }
+  };
+
+  const handleCategorySelect = async (category: 'crew' | 'talent' | 'company', primaryRole?: string) => {
+    try {
+      setShowCategoryModal(false);
+      clearError();
+      await googleSignIn(category, primaryRole);
+      onSignupSuccess();
+    } catch (err: any) {
+      Alert.alert('Google Sign-Up Failed', err.message || 'Please try again.');
+    }
   };
 
   return (
@@ -331,6 +365,19 @@ const SignupPage: React.FC<SignupPageProps> = ({
             <View style={styles.dividerLine} />
           </View>
 
+          <TouchableOpacity
+            style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
+            onPress={handleGoogleSignIn}
+            disabled={isLoading || pendingGoogleSignIn}
+          >
+            <View style={styles.googleButtonContent}>
+              <Ionicons name="logo-google" size={20} color="#4285F4" />
+              <Text style={styles.googleButtonText}>
+                {pendingGoogleSignIn ? 'Signing Up...' : 'Sign up with Google'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+
           <View style={styles.loginContainer}>
             <Text style={styles.loginText}>Already have an account? </Text>
             <TouchableOpacity onPress={onNavigateToLogin} disabled={isLoading}>
@@ -339,6 +386,13 @@ const SignupPage: React.FC<SignupPageProps> = ({
           </View>
         </View>
       </ScrollView>
+
+      <CategorySelectionModal
+        visible={showCategoryModal}
+        onSelect={handleCategorySelect}
+        onCancel={() => setShowCategoryModal(false)}
+        isLoading={isLoading || pendingGoogleSignIn}
+      />
     </KeyboardAvoidingView>
   );
 };
@@ -523,6 +577,28 @@ const styles = StyleSheet.create({
   loginLink: {
     color: '#3b82f6',
     fontSize: 14,
+    fontWeight: '600',
+  },
+  googleButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: '#d4d4d8',
+  },
+  googleButtonDisabled: {
+    opacity: 0.5,
+  },
+  googleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  googleButtonText: {
+    color: '#000',
+    fontSize: 16,
     fontWeight: '600',
   },
 });
