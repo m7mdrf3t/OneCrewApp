@@ -98,13 +98,25 @@ export const signInWithGoogle = async (): Promise<string> => {
 
     // Check if Google Play Services are available (Android only)
     if (Platform.OS === 'android') {
-      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      try {
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      } catch (playServicesError: any) {
+        console.warn('Google Play Services check failed:', playServicesError);
+        // Continue anyway - the sign-in will fail with a clearer error if needed
+      }
     }
 
-    // Sign in
-    const userInfo = await GoogleSignin.signIn();
+    // Sign in - wrap in try-catch to handle native crashes gracefully
+    let userInfo;
+    try {
+      userInfo = await GoogleSignin.signIn();
+    } catch (signInError: any) {
+      console.error('GoogleSignin.signIn() threw error:', signInError);
+      // Re-throw with more context
+      throw signInError;
+    }
     
-    if (!userInfo.idToken) {
+    if (!userInfo || !userInfo.idToken) {
       throw new Error('No ID token received from Google Sign-In');
     }
 
@@ -112,20 +124,30 @@ export const signInWithGoogle = async (): Promise<string> => {
     return userInfo.idToken;
   } catch (error: any) {
     console.error('❌ Google Sign-In error:', error);
+    console.error('Error details:', {
+      message: error?.message,
+      code: error?.code,
+      name: error?.name,
+      stack: error?.stack,
+    });
 
     if (!GoogleSignin) {
       throw new Error('Google Sign-In native module not available. Please rebuild the app.');
     }
 
-    if (statusCodes && error.code === statusCodes.SIGN_IN_CANCELLED) {
-      throw new Error('Sign in was cancelled');
-    } else if (statusCodes && error.code === statusCodes.IN_PROGRESS) {
-      throw new Error('Sign in is already in progress');
-    } else if (statusCodes && error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-      throw new Error('Google Play Services not available or outdated');
-    } else {
-      throw new Error(error.message || 'Google Sign-In failed');
+    if (statusCodes) {
+      if (error?.code === statusCodes.SIGN_IN_CANCELLED) {
+        throw new Error('Sign in was cancelled');
+      } else if (error?.code === statusCodes.IN_PROGRESS) {
+        throw new Error('Sign in is already in progress');
+      } else if (error?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        throw new Error('Google Play Services not available or outdated');
+      }
     }
+    
+    // Return a user-friendly error message
+    const errorMessage = error?.message || error?.toString() || 'Google Sign-In failed';
+    throw new Error(errorMessage);
   }
 };
 

@@ -98,12 +98,14 @@ const LoginPage: React.FC<LoginPageProps> = ({
       await googleSignIn();
       onLoginSuccess();
     } catch (err: any) {
+      console.error('Google Sign-In error in LoginPage:', err);
       // Check if error is about category being required
-      if (err.code === 'CATEGORY_REQUIRED' || err.message?.includes('Category') || err.message?.includes('category')) {
+      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
         // Show category selection modal
         setShowCategoryModal(true);
       } else {
-        Alert.alert('Google Sign-In Failed', err.message || 'Please try again.');
+        const errorMessage = err?.message || err?.toString() || 'Google Sign-In failed. Please try again.';
+        Alert.alert('Google Sign-In Failed', errorMessage);
       }
     } finally {
       setPendingGoogleSignIn(false);
@@ -114,10 +116,15 @@ const LoginPage: React.FC<LoginPageProps> = ({
     try {
       setShowCategoryModal(false);
       clearError();
+      setPendingGoogleSignIn(true);
       await googleSignIn(category, primaryRole);
       onLoginSuccess();
     } catch (err: any) {
-      Alert.alert('Google Sign-In Failed', err.message || 'Please try again.');
+      console.error('Google Sign-In error in category select:', err);
+      const errorMessage = err?.message || err?.toString() || 'Google Sign-In failed. Please try again.';
+      Alert.alert('Google Sign-In Failed', errorMessage);
+    } finally {
+      setPendingGoogleSignIn(false);
     }
   };
 
@@ -154,6 +161,12 @@ const LoginPage: React.FC<LoginPageProps> = ({
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoading}
+                onFocus={() => {
+                  // Clear any errors when user focuses on input
+                  if (formErrors.email) {
+                    setFormErrors(prev => ({ ...prev, email: '' }));
+                  }
+                }}
               />
             </View>
             {formErrors.email && <Text style={styles.fieldError}>{formErrors.email}</Text>}
@@ -173,6 +186,12 @@ const LoginPage: React.FC<LoginPageProps> = ({
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoading}
+                onFocus={() => {
+                  // Clear any errors when user focuses on input
+                  if (formErrors.password) {
+                    setFormErrors(prev => ({ ...prev, password: '' }));
+                  }
+                }}
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
@@ -229,7 +248,14 @@ const LoginPage: React.FC<LoginPageProps> = ({
 
           <TouchableOpacity
             style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
-            onPress={handleGoogleSignIn}
+            onPress={() => {
+              try {
+                handleGoogleSignIn();
+              } catch (err: any) {
+                console.error('Error in Google Sign-In button handler:', err);
+                Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+              }
+            }}
             disabled={isLoading || pendingGoogleSignIn}
           >
             <View style={styles.googleButtonContent}>

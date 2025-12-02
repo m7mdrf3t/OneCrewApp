@@ -140,12 +140,14 @@ const SignupPage: React.FC<SignupPageProps> = ({
       await googleSignIn();
       onSignupSuccess();
     } catch (err: any) {
+      console.error('Google Sign-In error in SignupPage:', err);
       // Check if error is about category being required
-      if (err.code === 'CATEGORY_REQUIRED' || err.message?.includes('Category') || err.message?.includes('category')) {
+      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
         // Show category selection modal
         setShowCategoryModal(true);
       } else {
-        Alert.alert('Google Sign-Up Failed', err.message || 'Please try again.');
+        const errorMessage = err?.message || err?.toString() || 'Google Sign-Up failed. Please try again.';
+        Alert.alert('Google Sign-Up Failed', errorMessage);
       }
     } finally {
       setPendingGoogleSignIn(false);
@@ -156,10 +158,15 @@ const SignupPage: React.FC<SignupPageProps> = ({
     try {
       setShowCategoryModal(false);
       clearError();
+      setPendingGoogleSignIn(true);
       await googleSignIn(category, primaryRole);
       onSignupSuccess();
     } catch (err: any) {
-      Alert.alert('Google Sign-Up Failed', err.message || 'Please try again.');
+      console.error('Google Sign-In error in category select:', err);
+      const errorMessage = err?.message || err?.toString() || 'Google Sign-Up failed. Please try again.';
+      Alert.alert('Google Sign-Up Failed', errorMessage);
+    } finally {
+      setPendingGoogleSignIn(false);
     }
   };
 
@@ -367,7 +374,14 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
           <TouchableOpacity
             style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
-            onPress={handleGoogleSignIn}
+            onPress={() => {
+              try {
+                handleGoogleSignIn();
+              } catch (err: any) {
+                console.error('Error in Google Sign-In button handler:', err);
+                Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+              }
+            }}
             disabled={isLoading || pendingGoogleSignIn}
           >
             <View style={styles.googleButtonContent}>

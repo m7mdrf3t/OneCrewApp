@@ -1,0 +1,49 @@
+env: load .env
+env: export SUPABASE_URL SUPABASE_ANON_KEY
+› Skipping dev server
+› Planning build
+    Run script build phase '[CP-User] [Hermes] Replace Hermes for the right configuration, if needed' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'hermes-engine' from project 'Pods')
+› Executing react-native Pods/hermes-engine » [CP-User] [Hermes] Replace Hermes for the right configuration, if needed
+› Executing react-native Pods/ReactNativeDependencies » [CP-User] [RNDeps] Replace React Native Dependencies for the right configuration, if needed
+› Executing react-native Pods/React-Core-prebuilt » [CP-User] [RNDeps] Replace React Native Core for the right configuration, if needed
+› Preparing Pods/React-Core-React-Core_privacy » ResourceBundle-React-Core_privacy-React-Core-Info.plist
+› Preparing Pods/React-cxxreact-React-cxxreact_privacy » ResourceBundle-React-cxxreact_privacy-React-cxxreact-Info.plist
+› Executing react-native Pods/React-RCTFBReactNativeSpec » [CP-User] [RN]Check FBReactNativeSpec
+› Preparing Pods/EXApplication-ExpoApplication_privacy » ResourceBundle-ExpoApplication_privacy-EXApplication-Info.plist
+› Preparing expo-constants Pods/EXConstants-EXConstants » ResourceBundle-EXConstants-EXConstants-Info.plist
+› Preparing Pods/EXConstants-ExpoConstants_privacy » ResourceBundle-ExpoConstants_privacy-EXConstants-Info.plist
+› Executing expo-constants Pods/EXConstants » [CP-User] Generate app.config for prebuilt Constants.manifest
+› Preparing Pods/EXNotifications-ExpoNotifications_privacy » ResourceBundle-ExpoNotifications_privacy-EXNotifications-Info.plist
+› Preparing expo-updates Pods/ReachabilitySwift-ReachabilitySwift » ResourceBundle-ReachabilitySwift-ReachabilitySwift-Info.plist
+› Preparing expo-updates Pods/EXUpdates-EXUpdates » ResourceBundle-EXUpdates-EXUpdates-Info.plist
+    Run script build phase '[CP-User] Generate updates resources for expo-updates' will be run during every build because it does not specify any outputs. To address this issue, either add output dependencies to the script phase, or configure it to run in every build by unchecking "Based on dependency analysis" in the script phase. (in target 'EXUpdates' from project 'Pods')
+› Executing expo-updates Pods/EXUpdates » [CP-User] Generate updates resources for expo-updates
+› Preparing Pods/AppAuth-AppAuthCore_Privacy » ResourceBundle-AppAuthCore_Privacy-AppAuth-Info.plist
+› Preparing Pods/GTMAppAuth-GTMAppAuth_Privacy » ResourceBundle-GTMAppAuth_Privacy-GTMAppAuth-Info.plist
+› Preparing Pods/GTMSessionFetcher-GTMSessionFetcher_Core_Privacy » ResourceBundle-GTMSessionFetcher_Core_Privacy-GTMSessionFetcher-Info.plist
+› Preparing Pods/GoogleUtilities-GoogleUtilities_Privacy » ResourceBundle-GoogleUtilities_Privacy-GoogleUtilities-Info.plist
+› Preparing Pods/PromisesObjC-FBLPromises_Privacy » ResourceBundle-FBLPromises_Privacy-PromisesObjC-Info.plist
+› Preparing @react-native-google-signin/google-signin Pods/GoogleSignIn-GoogleSignIn » ResourceBundle-GoogleSignIn-GoogleSignIn-Info.plist
+› Preparing Pods/ExpoDevice-ExpoDevice_privacy » ResourceBundle-ExpoDevice_privacy-ExpoDevice-Info.plist
+› Preparing Pods/ExpoFileSystem-ExpoFileSystem_privacy » ResourceBundle-ExpoFileSystem_privacy-ExpoFileSystem-Info.plist
+› Preparing expo-image Pods/SDWebImage-SDWebImage » ResourceBundle-SDWebImage-SDWebImage-Info.plist
+› Preparing Pods/expo-dev-menu-EXDevMenu » ResourceBundle-EXDevMenu-expo-dev-menu-Info.plist
+› Preparing Pods/expo-dev-launcher-EXDevLauncher » ResourceBundle-EXDevLauncher-expo-dev-launcher-Info.plist
+› Preparing Pods/RNCAsyncStorage-RNCAsyncStorage_resources » ResourceBundle-RNCAsyncStorage_resources-RNCAsyncStorage-Info.plist
+› Preparing Pods/react-native-image-picker-RNImagePickerPrivacyInfo » ResourceBundle-RNImagePickerPrivacyInfo-react-native-image-picker-Info.plist
+› Executing OneCrew » [Expo] Configure project
+› Executing OneCrew » Bundle React Native code and images
+› Executing OneCrew » [CP] Copy Pods Resources
+› Preparing OneCrew » Info.plist
+› Signing   OneCrew » OneCrew.debug.dylib
+› Signing   OneCrew » __preview.dylib
+› Signing   OneCrew » OneCrew.app
+› Build Succeeded
+
+› 0 error(s), and 2 warning(s)
+
+Waiting on http://localhost:8081
+› Installing /Users/mohamedhafez.isobar.com/Library/Developer/Xcode/DerivedData/OneCrew-gofjsuynzjpmrbcuoqizqpnaoprs/Build/Products/Debug-iphonesimulator/OneCrew.app
+› Installing on iPhone 16 Pro Max
+› Opening on iPhone 16 Pro Max (com.steps.diggers)
+› Opening exp+one-crew://expo-development-client/?url=http%3A%2F%2F192.168.1.3%3A8081 on iPhone 16 Pro Max
