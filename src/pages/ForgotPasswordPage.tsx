@@ -8,23 +8,27 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import PasswordResetProgress from '../components/PasswordResetProgress';
+import SuccessAnimation from '../components/SuccessAnimation';
 
 interface ForgotPasswordPageProps {
   onNavigateToLogin: () => void;
-  onNavigateToResetPassword: (email: string) => void;
+  onNavigateToVerifyOtp: (email: string) => void;
 }
 
 const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
   onNavigateToLogin,
-  onNavigateToResetPassword,
+  onNavigateToVerifyOtp,
 }) => {
   const { forgotPassword, isLoading, error, clearError } = useApi();
   const [email, setEmail] = useState('');
-  const [isEmailSent, setIsEmailSent] = useState(false);
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [emailValid, setEmailValid] = useState<boolean | null>(null);
 
   const validateForm = () => {
     const errors: { [key: string]: string } = {};
@@ -44,10 +48,49 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
 
     try {
       clearError();
+      console.log('🔄 Starting password reset request for:', email.trim().toLowerCase());
       await forgotPassword(email.trim().toLowerCase());
-      setIsEmailSent(true);
+      
+      console.log('✅ Password reset request completed successfully');
+      
+      // Show success animation
+      setShowSuccess(true);
+      
+      // Navigate to OTP verification screen after delay
+      setTimeout(() => {
+        onNavigateToVerifyOtp(email.trim().toLowerCase());
+      }, 500);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to send reset email. Please try again.');
+      console.error('❌ Error in handleSendResetEmail:', err);
+      const errorMessage = err.message || err.response?.data?.message || 'Failed to send reset email. Please try again.';
+      
+      // Ensure error is set in context
+      if (error) {
+        console.log('📝 Error from context:', error);
+      }
+      
+      // Show a more helpful alert for rate limiting
+      if (errorMessage.toLowerCase().includes('too many') || 
+          errorMessage.toLowerCase().includes('rate limit') ||
+          errorMessage.toLowerCase().includes('wait')) {
+        Alert.alert(
+          'Too Many Requests',
+          errorMessage + '\n\nThis is a security measure to prevent abuse. Please wait a few minutes before trying again.',
+          [
+            { text: 'OK' },
+            { text: 'Retry', onPress: handleSendResetEmail, style: 'default' },
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Error Sending Verification Code',
+          errorMessage + '\n\nPlease check your email address and try again.',
+          [
+            { text: 'OK' },
+            { text: 'Retry', onPress: handleSendResetEmail, style: 'default' },
+          ]
+        );
+      }
     }
   };
 
@@ -56,51 +99,18 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
     if (formErrors.email) {
       setFormErrors(prev => ({ ...prev, email: '' }));
     }
+    
+    // Real-time email validation feedback
+    if (text.length > 0) {
+      const isValid = /\S+@\S+\.\S+/.test(text);
+      setEmailValid(isValid);
+    } else {
+      setEmailValid(null);
+    }
+    
+    clearError();
   };
 
-  const handleResendEmail = () => {
-    setIsEmailSent(false);
-    setEmail('');
-  };
-
-  if (isEmailSent) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.content}>
-          <View style={styles.successIcon}>
-            <Ionicons name="mail" size={48} color="#10b981" />
-          </View>
-          
-          <Text style={styles.title}>Check Your Email</Text>
-          <Text style={styles.subtitle}>
-            We've sent a password reset link to{'\n'}
-            <Text style={styles.emailText}>{email}</Text>
-          </Text>
-          
-          <Text style={styles.instructions}>
-            Please check your email and click the link to reset your password. 
-            If you don't see the email, check your spam folder.
-          </Text>
-
-          <TouchableOpacity
-            style={styles.resendButton}
-            onPress={handleResendEmail}
-            disabled={isLoading}
-          >
-            <Text style={styles.resendButtonText}>Send Another Email</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.backToLoginButton}
-            onPress={onNavigateToLogin}
-            disabled={isLoading}
-          >
-            <Text style={styles.backToLoginText}>Back to Sign In</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
 
   return (
     <KeyboardAvoidingView
@@ -108,6 +118,8 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>
+        <PasswordResetProgress currentStep={1} />
+        
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
@@ -121,8 +133,15 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
         </View>
 
         <Text style={styles.subtitle}>
-          Enter your email address and we'll send you a link to reset your password.
+          Enter your email address and we'll send you a 6-digit verification code to reset your password.
         </Text>
+
+        {showSuccess && (
+          <SuccessAnimation
+            message="Verification code sent!"
+            autoDismiss={false}
+          />
+        )}
 
         {error && (
           <View style={styles.errorContainer}>
@@ -133,8 +152,22 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
 
         <View style={styles.inputContainer}>
           <Text style={styles.label}>Email</Text>
-          <View style={[styles.inputWrapper, formErrors.email && styles.inputError]}>
-            <Ionicons name="mail" size={20} color="#71717a" style={styles.inputIcon} />
+          <View style={[
+            styles.inputWrapper,
+            formErrors.email && styles.inputError,
+            emailValid === true && styles.inputValid,
+            emailValid === false && email.length > 0 && styles.inputInvalid,
+          ]}>
+            <Ionicons
+              name="mail"
+              size={20}
+              color={
+                emailValid === true ? '#10b981' :
+                emailValid === false && email.length > 0 ? '#ef4444' :
+                '#71717a'
+              }
+              style={styles.inputIcon}
+            />
             <TextInput
               style={styles.input}
               placeholder="Enter your email"
@@ -144,21 +177,40 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
-              editable={!isLoading}
+              editable={!isLoading && !showSuccess}
             />
+            {emailValid === true && (
+              <Ionicons name="checkmark-circle" size={20} color="#10b981" />
+            )}
+            {emailValid === false && email.length > 0 && (
+              <Ionicons name="close-circle" size={20} color="#ef4444" />
+            )}
           </View>
           {formErrors.email && <Text style={styles.fieldError}>{formErrors.email}</Text>}
+          {emailValid === false && email.length > 0 && !formErrors.email && (
+            <Text style={styles.fieldError}>Please enter a valid email address</Text>
+          )}
         </View>
 
+        {isLoading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color="#000" />
+            <Text style={styles.loadingText}>Sending verification code...</Text>
+          </View>
+        )}
+
         <TouchableOpacity
-          style={[styles.sendButton, isLoading && styles.sendButtonDisabled]}
+          style={[styles.sendButton, (isLoading || showSuccess) && styles.sendButtonDisabled]}
           onPress={handleSendResetEmail}
-          disabled={isLoading}
+          disabled={isLoading || showSuccess}
         >
           {isLoading ? (
-            <Text style={styles.sendButtonText}>Sending...</Text>
+            <View style={styles.buttonContent}>
+              <ActivityIndicator size="small" color="#fff" style={styles.buttonSpinner} />
+              <Text style={styles.sendButtonText}>Sending Code...</Text>
+            </View>
           ) : (
-            <Text style={styles.sendButtonText}>Send Reset Link</Text>
+            <Text style={styles.sendButtonText}>Send Verification Code</Text>
           )}
         </TouchableOpacity>
 
@@ -262,6 +314,12 @@ const styles = StyleSheet.create({
   inputError: {
     borderColor: '#ef4444',
   },
+  inputValid: {
+    borderColor: '#10b981',
+  },
+  inputInvalid: {
+    borderColor: '#ef4444',
+  },
   inputIcon: {
     marginRight: 12,
   },
@@ -325,6 +383,23 @@ const styles = StyleSheet.create({
   helpLink: {
     color: '#3b82f6',
     fontWeight: '600',
+  },
+  loadingOverlay: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#71717a',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonSpinner: {
+    marginRight: 8,
   },
 });
 

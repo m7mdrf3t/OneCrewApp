@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import MediaPickerService, { MediaPickerResult } from '../services/MediaPickerService';
+import DatePicker from '../components/DatePicker';
 
 // Helper function to get initials
 const getInitials = (name: string) => {
@@ -145,7 +146,7 @@ interface ProfileFormData {
   }>;
   about: {
     gender: string;
-    age: string;
+    birthday: string | null;
     nationality: string;
     location: string;
     height: string;
@@ -196,7 +197,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     socialLinks: [],
     about: {
       gender: '',
-      age: '',
+      birthday: null,
       nationality: '',
       location: '',
       height: '',
@@ -365,7 +366,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         socialLinks: [], // Will be loaded separately from API
         about: {
           gender: aboutData.gender || userDetails.gender || '',
-          age: aboutData.age?.toString() || userDetails.age?.toString() || '',
+          birthday: aboutData.birthday || userDetails.birthday || null,
           nationality: aboutData.nationality || userDetails.nationality || '',
           location: aboutData.location || aboutData.location_text || user.location_text || userDetails.location || userDetails.location_text || '',
           height: aboutData.height_cm?.toString() || userDetails.height_cm?.toString() || '',
@@ -472,8 +473,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       errors.gender = 'Gender is required';
     }
 
-    if (!formData.about.age) {
-      errors.age = 'Age is required';
+    if (!formData.about.birthday) {
+      errors.birthday = 'Date of birth is required';
     }
 
     if (!formData.about.nationality) {
@@ -510,9 +511,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       setFormData(prev => ({ ...prev, [field]: value }));
     }
 
-    // Clear error when user starts typing
-    if (formErrors[field]) {
-      setFormErrors(prev => ({ ...prev, [field]: '' }));
+    // Clear error when user starts typing/selecting
+    const errorField = field.includes('.') ? field.split('.').pop() : field;
+    if (formErrors[errorField || field]) {
+      setFormErrors(prev => ({ ...prev, [errorField || field]: '' }));
     }
   };
 
@@ -1143,7 +1145,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
       const userDetailsData = {
         gender: genderMapping[formData.about.gender] || 'prefer_not_to_say',
-        age: Number(formData.about.age),
+        birthday: formData.about.birthday || null,
         nationality: formData.about.nationality,
         // Note: location is stored in users table as location_text, not in userDetails
       };
@@ -1298,7 +1300,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       formData.specialty,
       formData.skills.length > 0,
       formData.about.gender,
-      formData.about.age,
+      formData.about.birthday,
       formData.about.nationality,
       formData.about.location,
     ];
@@ -1985,17 +1987,19 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             </View>
 
           <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-            <Text style={styles.label}>Age *</Text>
-            <TextInput
-              style={[styles.input, formErrors.age && styles.inputError]}
-              placeholder="25"
-              placeholderTextColor="#9ca3af"
-              value={formData.about.age}
-              onChangeText={(text) => handleInputChange('about.age', text)}
-              keyboardType="numeric"
-              editable={!isSubmitting}
+            <DatePicker
+              label="Date of Birth *"
+              value={formData.about.birthday}
+              onChange={(date) => handleInputChange('about.birthday', date)}
+              placeholder="Select your birthday"
+              mode="date"
+              maximumDate={new Date()} // Can't be in the future
+              minimumDate={new Date(1900, 0, 1)} // Reasonable minimum date
+              disabled={isSubmitting}
+              required={true}
+              error={formErrors.birthday}
+              style={{ marginBottom: 0 }}
             />
-            {formErrors.age && <Text style={styles.fieldError}>{formErrors.age}</Text>}
           </View>
         </View>
 

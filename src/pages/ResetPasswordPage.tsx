@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,23 +8,27 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { validatePassword, getPasswordRequirements } from '../utils/passwordValidator';
+import PasswordResetProgress from '../components/PasswordResetProgress';
+import SuccessAnimation from '../components/SuccessAnimation';
+import PasswordStrengthMeter from '../components/PasswordStrengthMeter';
 
 interface ResetPasswordPageProps {
-  token: string;
+  resetToken: string;
   onNavigateToLogin: () => void;
   onResetSuccess: () => void;
 }
 
 const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
-  token,
+  resetToken,
   onNavigateToLogin,
   onResetSuccess,
 }) => {
-  const { api, isLoading, error, clearError } = useApi();
+  const { resetPassword, isLoading, error, clearError } = useApi();
   const [formData, setFormData] = useState({
     password: '',
     confirmPassword: '',
@@ -32,6 +36,7 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const validateForm = () => {
     const errors: { [key: string]: string } = {};
@@ -57,32 +62,52 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
 
   const handleResetPassword = async () => {
     if (!validateForm()) return;
+    if (isLoading || showSuccess) return; // Prevent double submission
 
     try {
       clearError();
-      await api.auth.confirmPasswordReset(token, formData.password);
-      Alert.alert(
-        'Success',
-        'Your password has been reset successfully. You can now sign in with your new password.',
-        [
-          {
-            text: 'OK',
-            onPress: onResetSuccess,
-          },
-        ]
-      );
+      // Use resetPassword from context (handles token clearing automatically)
+      await resetPassword(resetToken, formData.password);
+      
+      // Show success screen
+      setShowSuccess(true);
+      
+      // Auto-navigate to login after 2 seconds
+      setTimeout(() => {
+        onResetSuccess();
+      }, 2000);
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to reset password. Please try again.';
       
-      // Handle token expiration/invalid errors
-      if (errorMessage.toLowerCase().includes('token') || errorMessage.toLowerCase().includes('expired') || errorMessage.toLowerCase().includes('invalid')) {
+      // Handle rate limiting (429)
+      if (errorMessage.toLowerCase().includes('rate limit') || 
+          errorMessage.toLowerCase().includes('too many') ||
+          errorMessage.toLowerCase().includes('429') ||
+          errorMessage.toLowerCase().includes('wait')) {
         Alert.alert(
-          'Reset Link Expired',
-          'The password reset link has expired or is invalid. Please request a new password reset link.',
+          'Too Many Requests',
+          errorMessage + '\n\nThis is a security measure to prevent abuse. Please wait before trying again.',
+          [
+            { text: 'OK' },
+            { text: 'Retry', onPress: handleResetPassword, style: 'default' },
+          ]
+        );
+      }
+      // Handle token expiration/invalid errors
+      else if (errorMessage.toLowerCase().includes('token') || 
+               errorMessage.toLowerCase().includes('expired') || 
+               errorMessage.toLowerCase().includes('invalid')) {
+        Alert.alert(
+          'Reset Token Expired',
+          'The reset token has expired or is invalid. Please request a new password reset.',
           [
             {
-              text: 'Request New Link',
+              text: 'Request New Reset',
               onPress: () => onNavigateToLogin(),
+            },
+            {
+              text: 'Cancel',
+              style: 'cancel',
             },
           ]
         );
@@ -99,12 +124,35 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
     }
   };
 
+  // Show success screen
+  if (showSuccess) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.successContent}>
+          <PasswordResetProgress currentStep={3} />
+          <SuccessAnimation
+            message="Password Reset Successful!"
+            autoDismiss={false}
+          />
+          <Text style={styles.successSubtitle}>
+            Your password has been reset successfully.
+          </Text>
+          <Text style={styles.redirectText}>
+            Redirecting to login...
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>
+        <PasswordResetProgress currentStep={3} />
+        
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
@@ -158,6 +206,9 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
               />
             </TouchableOpacity>
           </View>
+          {formData.password.length > 0 && (
+            <PasswordStrengthMeter password={formData.password} />
+          )}
           {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
         </View>
 
@@ -233,13 +284,23 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
           </View>
         </View>
 
+        {isLoading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color="#000" />
+            <Text style={styles.loadingText}>Resetting password...</Text>
+          </View>
+        )}
+
         <TouchableOpacity
-          style={[styles.resetButton, isLoading && styles.resetButtonDisabled]}
+          style={[styles.resetButton, (isLoading || showSuccess) && styles.resetButtonDisabled]}
           onPress={handleResetPassword}
-          disabled={isLoading}
+          disabled={isLoading || showSuccess}
         >
           {isLoading ? (
-            <Text style={styles.resetButtonText}>Resetting...</Text>
+            <View style={styles.buttonContent}>
+              <ActivityIndicator size="small" color="#fff" style={styles.buttonSpinner} />
+              <Text style={styles.resetButtonText}>Resetting...</Text>
+            </View>
           ) : (
             <Text style={styles.resetButtonText}>Reset Password</Text>
           )}
@@ -396,6 +457,42 @@ const styles = StyleSheet.create({
   helpLink: {
     color: '#3b82f6',
     fontWeight: '600',
+  },
+  successContent: {
+    flex: 1,
+    padding: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successSubtitle: {
+    fontSize: 16,
+    color: '#71717a',
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  redirectText: {
+    fontSize: 14,
+    color: '#9ca3af',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  loadingOverlay: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#71717a',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonSpinner: {
+    marginRight: 8,
   },
 });
 

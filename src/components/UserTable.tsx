@@ -16,7 +16,8 @@ interface User {
   skills?: string[];
   about?: {
     gender?: string;
-    age?: number;
+    age?: number; // Keep for backward compatibility
+    birthday?: string; // ISO date format: YYYY-MM-DD
     nationality?: string;
     location?: string;
     height_cm?: number;
@@ -191,11 +192,14 @@ const UserTable: React.FC<UserTableProps> = ({
                     </View>
                   )}
                   
-                  {user.about.age && (
+                  {user.about.birthday && (
                     <View style={styles.detailRow}>
                       <Ionicons name="calendar" size={12} color={isDark ? '#9ca3af' : '#6b7280'} />
                       <Text style={[styles.detailText, { color: isDark ? '#9ca3af' : '#6b7280' }]}>
-                        {user.about.age} years
+                        {(() => {
+                            const dob = new Date(user.about.birthday);
+                            return dob.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                          })()}
                       </Text>
                     </View>
                   )}

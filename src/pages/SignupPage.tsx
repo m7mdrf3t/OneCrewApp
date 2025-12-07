@@ -181,7 +181,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
     >
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.title}>Join OneCrew</Text>
+          <Text style={styles.title}>Join cool steps</Text>
           <Text style={styles.subtitle}>Create your account to get started</Text>
         </View>
 

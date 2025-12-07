@@ -780,10 +780,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                     <Text style={styles.infoTagValue}>{userProfile.about.gender}</Text>
                   </View>
                 )}
-                {userProfile.about.age && (
+                {userProfile.about.birthday && (
                   <View style={styles.infoTag}>
-                    <Text style={styles.infoTagLabel}>Age</Text>
-                    <Text style={styles.infoTagValue}>{userProfile.about.age}</Text>
+                    <Text style={styles.infoTagLabel}>Date of Birth</Text>
+                    <Text style={styles.infoTagValue}>
+                      {(() => {
+                          const dob = new Date(userProfile.about.birthday);
+                          return dob.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                        })()}
+                    </Text>
                   </View>
                 )}
                 {userProfile.about.nationality && (

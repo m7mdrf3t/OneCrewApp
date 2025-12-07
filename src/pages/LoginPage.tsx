@@ -149,7 +149,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.title}>Welcome Back</Text>
-          <Text style={styles.subtitle}>Sign in to your OneCrew account</Text>
+          <Text style={styles.subtitle}>Sign in to your cool steps account</Text>
         </View>
 
         <View style={styles.form}>

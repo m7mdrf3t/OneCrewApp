@@ -51,7 +51,8 @@ interface ApiContextType {
   signup: (userData: SignupRequest) => Promise<AuthResponse>;
   googleSignIn: (category?: 'crew' | 'talent' | 'company', primaryRole?: string) => Promise<AuthResponse>;
   forgotPassword: (email: string) => Promise<void>;
-  resetPassword: (token: string, newPassword: string) => Promise<void>;
+  verifyResetOtp: (email: string, otpCode: string) => Promise<{ resetToken: string }>;
+  resetPassword: (resetToken: string, newPassword: string) => Promise<void>;
   verifyEmail: (token: string, type?: string) => Promise<void>;
   resendVerificationEmail: (email: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -923,90 +924,36 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Step 1: Request password reset (sends OTP to email)
   const forgotPassword = async (email: string) => {
     setIsLoading(true);
     setError(null);
     
     try {
-      // Try multiple common endpoint patterns
-      const endpointsToTry = [
-        '/api/auth/reset-password',
-        '/api/auth/password-reset',
-        '/api/auth/password/reset',
-        '/api/auth/request-reset',
-        '/api/auth/forgot-password',
-      ];
+      console.log('📧 Requesting password reset OTP for:', email);
+      console.log('📧 API client instance:', api);
+      console.log('📧 API auth methods:', Object.keys(api.auth || {}));
       
-      let lastError: any = null;
-      
-      for (const endpoint of endpointsToTry) {
-        try {
-          console.log('📧 Requesting password reset for:', email);
-          console.log('🌐 Trying endpoint:', `${baseUrl}${endpoint}`);
-          console.log('📤 Request body:', { email });
-          
-          const response = await fetch(`${baseUrl}${endpoint}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ email }),
-          });
-
-          const responseText = await response.text();
-          
-          if (!response.ok) {
-            // If it's a 404, try the next endpoint
-            if (response.status === 404) {
-              console.warn(`⚠️ Endpoint ${endpoint} returned 404, trying next...`);
-              lastError = new Error(`Route ${endpoint} not found`);
-              continue;
-            }
-            
-            // For other errors, throw immediately
-            let errorMessage = responseText || `HTTP ${response.status}: ${response.statusText}`;
-            let errorData: any = {};
-            try {
-              errorData = JSON.parse(responseText);
-              errorMessage = errorData.message || errorData.error || errorMessage;
-            } catch {
-              // Not JSON, use text response as error message
-            }
-            
-            console.error('❌ HTTP Error:', response.status, errorData);
-            throw new Error(errorMessage);
-          }
-
-          // Success! Parse and return
-          let result;
-          try {
-            result = JSON.parse(responseText);
-          } catch (parseError: any) {
-            console.error('❌ Failed to parse response as JSON:', responseText);
-            throw new Error(responseText || 'Server returned invalid JSON response');
-          }
-          
-          console.log(`✅ Password reset email sent successfully via ${endpoint}`);
-          return result;
-        } catch (err: any) {
-          // If it's not a 404, throw immediately
-          if (err.message && !err.message.includes('not found') && !err.message.includes('404')) {
-            throw err;
-          }
-          lastError = err;
-          continue;
-        }
+      // Check if the method exists
+      if (!api.auth || typeof api.auth.requestPasswordReset !== 'function') {
+        const errorMsg = 'Password reset method not available. Please check API client version.';
+        console.error('❌', errorMsg);
+        setError(errorMsg);
+        throw new Error(errorMsg);
       }
       
-      // If we get here, all endpoints failed
-      const errorMessage = lastError?.message || 'Failed to send reset email. None of the common endpoints are available.';
-      console.error('❌ All password reset endpoints failed. Last error:', lastError);
-      console.error('💡 Please check your backend API documentation for the correct password reset endpoint.');
-      setError(errorMessage);
-      throw new Error(errorMessage);
+      const response = await api.auth.requestPasswordReset(email);
+      console.log('📧 API Response:', response);
+      console.log('✅ Password reset OTP sent successfully');
     } catch (err: any) {
-      const errorMessage = err.message || 'Failed to send reset email';
+      const errorMessage = err.message || err.response?.data?.message || 'Failed to send reset email. Please try again.';
       console.error('❌ Password reset request failed:', err);
+      console.error('❌ Error details:', {
+        message: err.message,
+        response: err.response,
+        status: err.response?.status,
+        data: err.response?.data,
+      });
       setError(errorMessage);
       throw err;
     } finally {
@@ -1014,21 +961,221 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const resetPassword = async (token: string, newPassword: string) => {
+  // Step 2: Verify OTP code and get reset token
+  const verifyResetOtp = async (email: string, otpCode: string) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      console.log('🔐 Verifying OTP code for:', email);
+      console.log('🔐 API client instance:', api);
+      console.log('🔐 API auth methods:', Object.keys(api.auth || {}));
+      
+      // Check if the method exists
+      if (!api.auth) {
+        const errorMsg = 'API auth object not available. Please check API client initialization.';
+        console.error('❌', errorMsg);
+        setError(errorMsg);
+        throw new Error(errorMsg);
+      }
+      
+      // The method exists in the API client source code, but may not be enumerable
+      // Try multiple ways to call it
+      let result;
+      const authService = api.auth as any;
+      
+      // Method 1: Try calling directly (even if typeof says undefined, it might work)
+      try {
+        console.log('✅ Attempting to call authService.verifyResetOtp() directly');
+        result = await authService.verifyResetOtp(email.trim().toLowerCase(), otpCode);
+        console.log('✅ API client method call successful');
+      } catch (directCallError: any) {
+        console.log('⚠️ Direct call failed, trying via prototype:', directCallError.message);
+        
+        // Method 2: Try calling via prototype
+        try {
+          const prototype = Object.getPrototypeOf(authService);
+          if (prototype && typeof prototype.verifyResetOtp === 'function') {
+            console.log('✅ Calling via prototype');
+            result = await prototype.verifyResetOtp.call(authService, email.trim().toLowerCase(), otpCode);
+            console.log('✅ Prototype call successful');
+          } else {
+            throw new Error('Method not found on prototype');
+          }
+        } catch (prototypeError: any) {
+          console.log('⚠️ Prototype call failed, using apiClient.post:', prototypeError.message);
+          
+          // Method 3: Use apiClient.post directly (this should work)
+          const apiClient = authService?.apiClient || (api as any).apiClient;
+          if (apiClient && typeof apiClient.post === 'function') {
+            console.log('✅ Using apiClient.post directly');
+            try {
+              const response = await apiClient.post('/api/auth/verify-reset-otp', {
+                email: email.trim().toLowerCase(),
+                token: otpCode
+              });
+              
+              console.log('📥 apiClient.post response:', response);
+              
+              if (response.success && response.data) {
+                result = { resetToken: response.data.resetToken || response.data.reset_token };
+              } else {
+                throw new Error(response.error || 'OTP verification failed');
+              }
+            } catch (apiClientError: any) {
+              console.error('❌ apiClient.post failed:', apiClientError);
+              
+              // If 404, the backend route isn't deployed yet
+              if (apiClientError.message?.includes('404') || apiClientError.message?.includes('not found')) {
+                throw new Error('The OTP verification endpoint is not available on the deployed backend. The route exists in the backend code but needs to be deployed. Please contact your backend team to deploy the latest code with the /api/auth/verify-reset-otp endpoint.');
+              }
+              
+              throw apiClientError;
+            }
+          } else {
+            throw new Error('apiClient.post not available');
+          }
+        }
+      }
+      
+      console.log('🔐 API Response:', result);
+      console.log('✅ OTP verified successfully, reset token obtained');
+      
+      // Ensure result has resetToken
+      if (!result || !result.resetToken) {
+        throw new Error('Invalid response: resetToken not found');
+      }
+      
+      return result; // Returns { resetToken: "..." }
+    } catch (err: any) {
+      const errorMessage = err.message || err.response?.data?.message || 'Invalid or expired OTP code. Please try again.';
+      console.error('❌ OTP verification failed:', err);
+      console.error('❌ Error details:', {
+        message: err.message,
+        response: err.response,
+        status: err.response?.status,
+        data: err.response?.data,
+      });
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Step 3: Confirm password reset using reset token (not OTP code)
+  const resetPassword = async (resetToken: string, newPassword: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      // Use confirmPasswordReset from API client 2.9.0
-      await api.auth.confirmPasswordReset(token, newPassword);
-    } catch (err: any) {
-      const errorMessage = err.message || 'Failed to reset password';
-      setError(errorMessage);
+      console.log('🔑 Confirming password reset with reset token');
       
-      // Handle specific error cases
-      if (errorMessage.toLowerCase().includes('token') || errorMessage.toLowerCase().includes('expired') || errorMessage.toLowerCase().includes('invalid')) {
-        throw new Error('The reset link has expired or is invalid. Please request a new password reset link.');
+      // API client has a bug - it sends "token" instead of "resetToken"
+      // Use direct API call with correct field name
+      const apiBaseUrl = (api as any).baseUrl || baseUrl;
+      const confirmUrl = `${apiBaseUrl}/api/auth/confirm-reset-password`;
+      
+      console.log('🌐 Making direct API call to:', confirmUrl);
+      console.log('📤 Request payload:', { resetToken, newPassword });
+      
+      const response = await fetch(confirmUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          resetToken: resetToken, // Backend expects resetToken, not token
+          newPassword: newPassword,
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { message: errorText || `HTTP ${response.status}: ${response.statusText}` };
+        }
+        
+        const errorMessage = errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMessage);
       }
       
+      const responseData = await response.json();
+      console.log('✅ Password reset successfully:', responseData);
+      
+      // Password reset invalidates all sessions - clear auth state completely
+      console.log('🧹 Clearing auth state after password reset...');
+      
+      // Stop heartbeat and background processes first
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      
+      // Clear local auth state first
+      setIsAuthenticated(false);
+      setUser(null);
+      
+      // Clear notifications and subscriptions
+      setNotifications([]);
+      setUnreadNotificationCount(0);
+      setUnreadConversationCount(0);
+      
+      // Unsubscribe from real-time notifications
+      if (notificationChannelId) {
+        supabaseService.unsubscribe(notificationChannelId);
+        setNotificationChannelId(null);
+      }
+      
+      // Clear push notification token
+      await pushNotificationService.clearToken().catch(() => {});
+      await pushNotificationService.setBadgeCount(0).catch(() => {});
+      
+      // Clear API client auth state
+      try {
+        if (api.auth) {
+          (api.auth as any).clearAuthData();
+          (api.auth as any).removeAuthToken();
+        }
+        // Try logout API call (may fail since token is invalidated, that's OK)
+        await api.auth.logout().catch(() => {
+          console.log('⚠️ Logout API call failed (expected - token already invalidated)');
+        });
+      } catch (err) {
+        console.log('⚠️ Error clearing auth state (non-critical):', err);
+      }
+      
+      console.log('✅ Auth state cleared - user must sign in with new password');
+    } catch (err: any) {
+      const errorMessage = err.message || err.response?.data?.message || 'Failed to reset password';
+      const statusCode = err.status || err.response?.status || err.statusCode;
+      
+      console.error('❌ Password reset confirmation failed:', err);
+      console.error('❌ Error details:', {
+        message: errorMessage,
+        status: statusCode,
+        response: err.response,
+      });
+      
+      // Handle rate limiting (429)
+      if (statusCode === 429 || errorMessage.toLowerCase().includes('429') || errorMessage.toLowerCase().includes('rate limit') || errorMessage.toLowerCase().includes('too many')) {
+        const retryAfter = err.response?.headers?.['retry-after'] || err.retryAfter || 60;
+        const minutes = Math.ceil(retryAfter / 60);
+        const rateLimitError = `Too many password reset attempts. Please wait ${minutes} minute${minutes !== 1 ? 's' : ''} before trying again.`;
+        setError(rateLimitError);
+        throw new Error(rateLimitError);
+      }
+      
+      // Handle token expiration/invalid errors
+      if (errorMessage.toLowerCase().includes('token') || errorMessage.toLowerCase().includes('expired') || errorMessage.toLowerCase().includes('invalid')) {
+        const tokenError = 'The reset token has expired or is invalid. Please request a new password reset.';
+        setError(tokenError);
+        throw new Error(tokenError);
+      }
+      
+      setError(errorMessage);
       throw err;
     } finally {
       setIsLoading(false);
@@ -5711,6 +5858,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     googleSignIn,
     logout,
     forgotPassword,
+    verifyResetOtp,
     resetPassword,
     // Guest session methods
     createGuestSession,
@@ -5915,3 +6063,4 @@ export const useApi = (): ApiContextType => {
 };
 
 export default ApiContext;
+

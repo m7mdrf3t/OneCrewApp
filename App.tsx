@@ -45,6 +45,7 @@ import LoginPage from './src/pages/LoginPage';
 import SignupPage from './src/pages/SignupPage';
 import ForgotPasswordPage from './src/pages/ForgotPasswordPage';
 import ResetPasswordPage from './src/pages/ResetPasswordPage';
+import VerifyOtpPage from './src/pages/VerifyOtpPage';
 import OnboardingPage from './src/pages/OnboardingPage';
 import CompanyRegistrationPage from './src/pages/CompanyRegistrationPage';
 import CompanyProfilePage from './src/pages/CompanyProfilePage';
@@ -63,14 +64,15 @@ import { spacing, semanticSpacing } from './src/constants/spacing';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState('spot');
   const [myTeam, setMyTeam] = useState([MOCK_PROFILES[0], MOCK_PROFILES[1]]);
-  const [authPage, setAuthPage] = useState<'login' | 'signup' | 'forgot-password' | 'reset-password' | 'onboarding' | null>(null);
+  const [authPage, setAuthPage] = useState<'login' | 'signup' | 'forgot-password' | 'verify-otp' | 'reset-password' | 'onboarding' | null>(null);
   const [resetToken, setResetToken] = useState<string>('');
+  const [resetEmail, setResetEmail] = useState<string>('');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showProjectCreation, setShowProjectCreation] = useState(false);
   const [currentProject, setCurrentProject] = useState<ProjectDashboardData | null>(null);
@@ -801,9 +803,35 @@ const AppContent: React.FC = () => {
     setAuthPage('forgot-password');
   };
 
-  const handleNavigateToResetPassword = (email: string) => {
-    setResetToken('sample-token'); // In real app, this would come from URL params
+  const handleNavigateToVerifyOtp = (email: string) => {
+    setResetEmail(email);
+    setAuthPage('verify-otp');
+  };
+
+  const handleNavigateToResetPassword = (token: string) => {
+    setResetToken(token);
     setAuthPage('reset-password');
+  };
+
+  const handleResendOtp = async () => {
+    // Resend OTP by calling forgotPassword again
+    if (!resetEmail) {
+      console.error('❌ Cannot resend OTP: resetEmail is not set');
+      return;
+    }
+    try {
+      console.log('🔄 Resending OTP to:', resetEmail);
+      await forgotPassword(resetEmail);
+      console.log('✅ OTP resent successfully');
+    } catch (error: any) {
+      console.error('❌ Failed to resend OTP:', error);
+      const errorMessage = error.message || 'Failed to resend verification code. Please try again.';
+      Alert.alert(
+        'Error',
+        errorMessage,
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   const handleLoginSuccess = () => {
@@ -908,7 +936,18 @@ const AppContent: React.FC = () => {
       return (
         <ForgotPasswordPage
           onNavigateToLogin={handleNavigateToLogin}
+          onNavigateToVerifyOtp={handleNavigateToVerifyOtp}
+        />
+      );
+    }
+
+    if (authPage === 'verify-otp') {
+      return (
+        <VerifyOtpPage
+          email={resetEmail}
+          onNavigateToLogin={handleNavigateToLogin}
           onNavigateToResetPassword={handleNavigateToResetPassword}
+          onResendOtp={handleResendOtp}
         />
       );
     }
@@ -916,7 +955,7 @@ const AppContent: React.FC = () => {
     if (authPage === 'reset-password') {
       return (
         <ResetPasswordPage
-          token={resetToken}
+          resetToken={resetToken}
           onNavigateToLogin={handleNavigateToLogin}
           onResetSuccess={handleResetSuccess}
         />

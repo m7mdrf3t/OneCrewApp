@@ -997,9 +997,12 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                           {/* Talent-specific details */}
                           {user.category === 'talent' && user.about && (
                             <View style={styles.talentDetails}>
-                              {user.about.age && (
+                              {user.about.birthday && (
                                 <Text style={styles.talentDetailText}>
-                                  {user.about.age} years
+                                  {(() => {
+                                      const dob = new Date(user.about.birthday);
+                                      return dob.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                                    })()}
                                 </Text>
                               )}
                               {user.about.height_cm && (
