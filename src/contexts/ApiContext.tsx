@@ -52,6 +52,9 @@ interface ApiContextType {
   googleSignIn: (category?: 'crew' | 'talent' | 'company', primaryRole?: string) => Promise<AuthResponse>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
+  verifyEmail: (token: string, type?: string) => Promise<void>;
+  resendVerificationEmail: (email: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   // Guest session methods
   createGuestSession: () => Promise<GuestSessionData>;
   browseUsersAsGuest: (params?: FilterParams & { page?: number; limit?: number }) => Promise<any>;
@@ -466,12 +469,24 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!response.ok) {
         // Try to parse as JSON, but fallback to text if it's not JSON
         let errorMessage = responseText || `HTTP ${response.status}: ${response.statusText}`;
+        let errorData: any = {};
         try {
-          const errorData = JSON.parse(responseText);
+          errorData = JSON.parse(responseText);
           errorMessage = errorData.message || errorData.error || errorMessage;
         } catch {
           // Not JSON, use text response as error message
         }
+        
+        // Check for account lockout errors
+        const errorLower = errorMessage.toLowerCase();
+        if (errorLower.includes('lockout') || errorLower.includes('locked') || errorLower.includes('too many attempts')) {
+          const lockoutError: any = new Error(errorMessage);
+          lockoutError.code = 'ACCOUNT_LOCKOUT';
+          lockoutError.lockoutDuration = errorData.lockoutDuration || errorData.lockout_duration || 3600; // Default 1 hour in seconds
+          lockoutError.remainingTime = errorData.remainingTime || errorData.remaining_time;
+          throw lockoutError;
+        }
+        
         throw new Error(errorMessage);
       }
 
@@ -627,12 +642,32 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           return authResponse;
         } catch (apiErr: any) {
           console.error('❌ API client also failed:', apiErr);
+          
+          // Check for account lockout in API client error
+          const errorLower = apiErr.message?.toLowerCase() || '';
+          if (errorLower.includes('lockout') || errorLower.includes('locked') || errorLower.includes('too many attempts')) {
+            const lockoutError: any = new Error(apiErr.message || 'Account locked due to too many failed login attempts');
+            lockoutError.code = 'ACCOUNT_LOCKOUT';
+            setIsAuthenticated(false);
+            setUser(null);
+            setError(lockoutError.message);
+            throw lockoutError;
+          }
+          
           setIsAuthenticated(false);
           setUser(null);
           setError(apiErr.message || 'Login failed');
           throw apiErr;
         }
       } else {
+        // Check for account lockout in direct fetch error
+        if (err.code === 'ACCOUNT_LOCKOUT') {
+          setIsAuthenticated(false);
+          setUser(null);
+          setError(err.message);
+          throw err;
+        }
+        
         setIsAuthenticated(false);
         setUser(null);
         setError(err.message || 'Login failed');
@@ -891,10 +926,88 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const forgotPassword = async (email: string) => {
     setIsLoading(true);
     setError(null);
+    
     try {
-      await api.auth.requestPasswordReset(email);
+      // Try multiple common endpoint patterns
+      const endpointsToTry = [
+        '/api/auth/reset-password',
+        '/api/auth/password-reset',
+        '/api/auth/password/reset',
+        '/api/auth/request-reset',
+        '/api/auth/forgot-password',
+      ];
+      
+      let lastError: any = null;
+      
+      for (const endpoint of endpointsToTry) {
+        try {
+          console.log('📧 Requesting password reset for:', email);
+          console.log('🌐 Trying endpoint:', `${baseUrl}${endpoint}`);
+          console.log('📤 Request body:', { email });
+          
+          const response = await fetch(`${baseUrl}${endpoint}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email }),
+          });
+
+          const responseText = await response.text();
+          
+          if (!response.ok) {
+            // If it's a 404, try the next endpoint
+            if (response.status === 404) {
+              console.warn(`⚠️ Endpoint ${endpoint} returned 404, trying next...`);
+              lastError = new Error(`Route ${endpoint} not found`);
+              continue;
+            }
+            
+            // For other errors, throw immediately
+            let errorMessage = responseText || `HTTP ${response.status}: ${response.statusText}`;
+            let errorData: any = {};
+            try {
+              errorData = JSON.parse(responseText);
+              errorMessage = errorData.message || errorData.error || errorMessage;
+            } catch {
+              // Not JSON, use text response as error message
+            }
+            
+            console.error('❌ HTTP Error:', response.status, errorData);
+            throw new Error(errorMessage);
+          }
+
+          // Success! Parse and return
+          let result;
+          try {
+            result = JSON.parse(responseText);
+          } catch (parseError: any) {
+            console.error('❌ Failed to parse response as JSON:', responseText);
+            throw new Error(responseText || 'Server returned invalid JSON response');
+          }
+          
+          console.log(`✅ Password reset email sent successfully via ${endpoint}`);
+          return result;
+        } catch (err: any) {
+          // If it's not a 404, throw immediately
+          if (err.message && !err.message.includes('not found') && !err.message.includes('404')) {
+            throw err;
+          }
+          lastError = err;
+          continue;
+        }
+      }
+      
+      // If we get here, all endpoints failed
+      const errorMessage = lastError?.message || 'Failed to send reset email. None of the common endpoints are available.';
+      console.error('❌ All password reset endpoints failed. Last error:', lastError);
+      console.error('💡 Please check your backend API documentation for the correct password reset endpoint.');
+      setError(errorMessage);
+      throw new Error(errorMessage);
     } catch (err: any) {
-      setError(err.message || 'Failed to send reset email');
+      const errorMessage = err.message || 'Failed to send reset email';
+      console.error('❌ Password reset request failed:', err);
+      setError(errorMessage);
       throw err;
     } finally {
       setIsLoading(false);
@@ -905,9 +1018,82 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      await api.auth.resetPassword(token, newPassword);
+      // Use confirmPasswordReset from API client 2.9.0
+      await api.auth.confirmPasswordReset(token, newPassword);
     } catch (err: any) {
-      setError(err.message || 'Failed to reset password');
+      const errorMessage = err.message || 'Failed to reset password';
+      setError(errorMessage);
+      
+      // Handle specific error cases
+      if (errorMessage.toLowerCase().includes('token') || errorMessage.toLowerCase().includes('expired') || errorMessage.toLowerCase().includes('invalid')) {
+        throw new Error('The reset link has expired or is invalid. Please request a new password reset link.');
+      }
+      
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyEmail = async (token: string, type?: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.auth.verifyEmail(token, type);
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to verify email';
+      setError(errorMessage);
+      
+      // Handle token expiration
+      if (errorMessage.toLowerCase().includes('token') || errorMessage.toLowerCase().includes('expired') || errorMessage.toLowerCase().includes('invalid')) {
+        throw new Error('The verification link has expired or is invalid. Please request a new verification email.');
+      }
+      
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const resendVerificationEmail = async (email: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.auth.resendVerificationEmail(email);
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to resend verification email';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.auth.changePassword(currentPassword, newPassword);
+      
+      // Password change invalidates all sessions - log out user
+      console.log('🔐 Password changed - invalidating session');
+      await logout();
+      
+      // Show message that user needs to log in again
+      Alert.alert(
+        'Password Changed',
+        'Your password has been changed successfully. Please sign in again with your new password.',
+        [{ text: 'OK' }]
+      );
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to change password';
+      setError(errorMessage);
+      
+      // Handle current password mismatch
+      if (errorMessage.toLowerCase().includes('current password') || errorMessage.toLowerCase().includes('incorrect password')) {
+        throw new Error('Current password is incorrect. Please try again.');
+      }
+      
       throw err;
     } finally {
       setIsLoading(false);

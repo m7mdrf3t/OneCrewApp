@@ -62,7 +62,20 @@ const LoginPage: React.FC<LoginPageProps> = ({
       await login({ email: email.trim().toLowerCase(), password });
       onLoginSuccess();
     } catch (err: any) {
-      Alert.alert('Login Failed', err.message || 'Please check your credentials and try again.');
+      // Handle account lockout specifically
+      if (err.code === 'ACCOUNT_LOCKOUT' || err.message?.toLowerCase().includes('lockout') || err.message?.toLowerCase().includes('locked')) {
+        const lockoutDuration = err.lockoutDuration || 3600; // Default 1 hour
+        const remainingTime = err.remainingTime || lockoutDuration;
+        const minutes = Math.ceil(remainingTime / 60);
+        
+        Alert.alert(
+          'Account Locked',
+          `Your account has been temporarily locked due to too many failed login attempts. Please try again in ${minutes} minute${minutes !== 1 ? 's' : ''}.`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Login Failed', err.message || 'Please check your credentials and try again.');
+      }
     }
   };
 
@@ -161,6 +174,8 @@ const LoginPage: React.FC<LoginPageProps> = ({
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoading}
+                textContentType="emailAddress"
+                autoComplete="email"
                 onFocus={() => {
                   // Clear any errors when user focuses on input
                   if (formErrors.email) {
@@ -186,6 +201,8 @@ const LoginPage: React.FC<LoginPageProps> = ({
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoading}
+                textContentType="password"
+                autoComplete="password"
                 onFocus={() => {
                   // Clear any errors when user focuses on input
                   if (formErrors.password) {

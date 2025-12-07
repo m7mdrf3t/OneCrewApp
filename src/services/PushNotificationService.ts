@@ -116,7 +116,27 @@ class PushNotificationService {
       }
 
       return token;
-    } catch (error) {
+    } catch (error: any) {
+      // Handle iOS-specific errors gracefully
+      const errorMessage = error?.message || String(error);
+      
+      // Check for common iOS push notification errors that occur in development
+      if (
+        errorMessage.includes('aps-environment') ||
+        errorMessage.includes('entitlement') ||
+        errorMessage.includes('Expo Go') ||
+        errorMessage.includes('development build')
+      ) {
+        console.warn(
+          '⚠️ Push notifications not available:',
+          Platform.OS === 'ios' 
+            ? 'iOS push notifications require a standalone build with proper entitlements. This is expected in Expo Go or development builds without proper credentials.'
+            : 'Push notifications require proper configuration.'
+        );
+        return null;
+      }
+      
+      // Log other errors but don't fail the app
       console.error('❌ Error registering for push notifications:', error);
       return null;
     }

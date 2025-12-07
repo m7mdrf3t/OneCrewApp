@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import CategorySelectionModal from '../components/CategorySelectionModal';
+import { validatePassword, getPasswordRequirements } from '../utils/passwordValidator';
 
 interface SignupPageProps {
   onNavigateToLogin: () => void;
@@ -84,8 +85,11 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
     if (!formData.password.trim()) {
       errors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
-      errors.password = 'Password must be at least 8 characters';
+    } else {
+      const passwordValidation = validatePassword(formData.password);
+      if (!passwordValidation.isValid) {
+        errors.password = passwordValidation.errors[0]; // Show first error
+      }
     }
 
     if (!formData.confirmPassword.trim()) {
@@ -202,6 +206,8 @@ const SignupPage: React.FC<SignupPageProps> = ({
                 autoCapitalize="words"
                 autoCorrect={false}
                 editable={!isLoading}
+                textContentType="name"
+                autoComplete="name"
               />
             </View>
             {formErrors.name && <Text style={styles.fieldError}>{formErrors.name}</Text>}
@@ -221,6 +227,8 @@ const SignupPage: React.FC<SignupPageProps> = ({
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoading}
+                textContentType="emailAddress"
+                autoComplete="email"
               />
             </View>
             {formErrors.email && <Text style={styles.fieldError}>{formErrors.email}</Text>}
@@ -305,6 +313,9 @@ const SignupPage: React.FC<SignupPageProps> = ({
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoading}
+                textContentType="newPassword"
+                autoComplete="password-new"
+                passwordRules="minlength: 8; required: lower; required: upper; required: digit;"
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
@@ -319,9 +330,27 @@ const SignupPage: React.FC<SignupPageProps> = ({
               </TouchableOpacity>
             </View>
             {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
-            <Text style={styles.passwordRequirements}>
-              Password must be at least 8 characters long
-            </Text>
+            <View style={styles.passwordRequirementsList}>
+              <Text style={styles.requirementsTitle}>Password Requirements:</Text>
+              {getPasswordRequirements().map((req) => {
+                const isMet = req.test(formData.password);
+                return (
+                  <View key={req.key} style={styles.requirementItem}>
+                    <Ionicons
+                      name={isMet ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={14}
+                      color={isMet ? '#10b981' : '#9ca3af'}
+                    />
+                    <Text style={[
+                      styles.requirementText,
+                      isMet && styles.requirementTextMet
+                    ]}>
+                      {req.label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
           </View>
 
           <View style={styles.inputContainer}>
@@ -338,6 +367,9 @@ const SignupPage: React.FC<SignupPageProps> = ({
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoading}
+                textContentType="newPassword"
+                autoComplete="password-new"
+                passwordRules="minlength: 8; required: lower; required: upper; required: digit;"
               />
               <TouchableOpacity
                 onPress={() => setShowConfirmPassword(!showConfirmPassword)}
@@ -498,6 +530,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  passwordRequirementsList: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  requirementsTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 8,
+  },
+  requirementItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  requirementText: {
+    fontSize: 11,
+    color: '#9ca3af',
+    marginLeft: 6,
+  },
+  requirementTextMet: {
+    color: '#10b981',
   },
   categoryContainer: {
     flexDirection: 'row',

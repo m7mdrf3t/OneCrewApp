@@ -53,6 +53,8 @@ import CoursesManagementPage from './src/pages/CoursesManagementPage';
 import CourseEditPage from './src/pages/CourseEditPage';
 import CourseDetailPage from './src/pages/CourseDetailPage';
 import PublicCoursesPage from './src/pages/PublicCoursesPage';
+import SettingsPage from './src/pages/SettingsPage';
+import ScreenshotHelper from './src/components/ScreenshotHelper';
 
 // Data
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
@@ -521,9 +523,8 @@ const AppContent: React.FC = () => {
   }, []);
 
   const handleSettings = useCallback(() => {
-    // TODO: Navigate to settings page
-    console.log('Navigate to Settings');
-  }, []);
+    navigateTo('settings', null);
+  }, [navigateTo]);
 
   const handleProfileEdit = useCallback(() => {
     if (user) {
@@ -1255,6 +1256,11 @@ const AppContent: React.FC = () => {
               onBack={handleBack}
             />
           )}
+          {page.name === 'settings' && (
+            <SettingsPage
+              onBack={handleBack}
+            />
+          )}
         </View>
 
         {/* Project Creation Modal */}
@@ -1466,6 +1472,11 @@ const AppContent: React.FC = () => {
           project={selectedProject}
           onSave={handleSaveProjectDetails}
         />
+
+        {/* Screenshot Helper - Only visible in development mode */}
+        {__DEV__ && (
+          <ScreenshotHelper onNavigate={navigateTo} />
+        )}
       </View>
     );
   };

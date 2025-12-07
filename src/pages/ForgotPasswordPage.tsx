@@ -21,7 +21,7 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
   onNavigateToLogin,
   onNavigateToResetPassword,
 }) => {
-  const { api, isLoading, error, clearError } = useApi();
+  const { forgotPassword, isLoading, error, clearError } = useApi();
   const [email, setEmail] = useState('');
   const [isEmailSent, setIsEmailSent] = useState(false);
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
@@ -44,7 +44,7 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
 
     try {
       clearError();
-      await api.auth.requestPasswordReset(email.trim().toLowerCase());
+      await forgotPassword(email.trim().toLowerCase());
       setIsEmailSent(true);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to send reset email. Please try again.');

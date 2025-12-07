@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import { validatePassword, getPasswordRequirements } from '../utils/passwordValidator';
 
 interface ResetPasswordPageProps {
   token: string;
@@ -37,8 +38,11 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
 
     if (!formData.password.trim()) {
       errors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
-      errors.password = 'Password must be at least 8 characters';
+    } else {
+      const passwordValidation = validatePassword(formData.password);
+      if (!passwordValidation.isValid) {
+        errors.password = passwordValidation.errors[0]; // Show first error
+      }
     }
 
     if (!formData.confirmPassword.trim()) {
@@ -56,7 +60,7 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
 
     try {
       clearError();
-      await api.auth.resetPassword(token, formData.password);
+      await api.auth.confirmPasswordReset(token, formData.password);
       Alert.alert(
         'Success',
         'Your password has been reset successfully. You can now sign in with your new password.',
@@ -68,7 +72,23 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
         ]
       );
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to reset password. Please try again.');
+      const errorMessage = err.message || 'Failed to reset password. Please try again.';
+      
+      // Handle token expiration/invalid errors
+      if (errorMessage.toLowerCase().includes('token') || errorMessage.toLowerCase().includes('expired') || errorMessage.toLowerCase().includes('invalid')) {
+        Alert.alert(
+          'Reset Link Expired',
+          'The password reset link has expired or is invalid. Please request a new password reset link.',
+          [
+            {
+              text: 'Request New Link',
+              onPress: () => onNavigateToLogin(),
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
     }
   };
 
@@ -122,6 +142,9 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
               autoCapitalize="none"
               autoCorrect={false}
               editable={!isLoading}
+              textContentType="newPassword"
+              autoComplete="password-new"
+              passwordRules="minlength: 8; required: lower; required: upper; required: digit;"
             />
             <TouchableOpacity
               onPress={() => setShowPassword(!showPassword)}
@@ -136,9 +159,6 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
             </TouchableOpacity>
           </View>
           {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
-          <Text style={styles.passwordRequirements}>
-            Password must be at least 8 characters long
-          </Text>
         </View>
 
         <View style={styles.inputContainer}>
@@ -155,6 +175,9 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
               autoCapitalize="none"
               autoCorrect={false}
               editable={!isLoading}
+              textContentType="newPassword"
+              autoComplete="password-new"
+              passwordRules="minlength: 8; required: lower; required: upper; required: digit;"
             />
             <TouchableOpacity
               onPress={() => setShowConfirmPassword(!showConfirmPassword)}
@@ -173,19 +196,28 @@ const ResetPasswordPage: React.FC<ResetPasswordPageProps> = ({
 
         <View style={styles.passwordRequirements}>
           <Text style={styles.requirementsTitle}>Password Requirements:</Text>
-          <View style={styles.requirementItem}>
-            <Ionicons
-              name={formData.password.length >= 6 ? 'checkmark-circle' : 'ellipse-outline'}
-              size={16}
-              color={formData.password.length >= 6 ? '#10b981' : '#9ca3af'}
-            />
-            <Text style={[
-              styles.requirementText,
-              formData.password.length >= 6 && styles.requirementTextMet
-            ]}>
-              At least 6 characters
-            </Text>
-          </View>
+          {(() => {
+            const passwordValidation = validatePassword(formData.password);
+            const requirements = getPasswordRequirements();
+            return requirements.map((req) => {
+              const isMet = req.test(formData.password);
+              return (
+                <View key={req.key} style={styles.requirementItem}>
+                  <Ionicons
+                    name={isMet ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={16}
+                    color={isMet ? '#10b981' : '#9ca3af'}
+                  />
+                  <Text style={[
+                    styles.requirementText,
+                    isMet && styles.requirementTextMet
+                  ]}>
+                    {req.label}
+                  </Text>
+                </View>
+              );
+            });
+          })()}
           <View style={styles.requirementItem}>
             <Ionicons
               name={formData.password === formData.confirmPassword && formData.password.length > 0 ? 'checkmark-circle' : 'ellipse-outline'}
