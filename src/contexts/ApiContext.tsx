@@ -290,6 +290,149 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 
+  // Flag to prevent duplicate 401 handling
+  const isHandling401Ref = useRef(false);
+  const last401ErrorRef = useRef<number>(0);
+  // Flag to track recent login to prevent immediate 401 handling after password reset + login
+  const recentLoginRef = useRef<number>(0);
+  const RECENT_LOGIN_WINDOW = 30000; // 30 seconds - don't handle 401s if user just logged in (increased for password reset scenarios)
+
+  /**
+   * Clear all authentication data from all possible storage locations
+   * This ensures no tokens persist after password reset or logout
+   */
+  const clearAllAuthData = async () => {
+    console.log('🧹 Clearing all authentication data...');
+    
+    try {
+      // Clear AsyncStorage auth-related keys
+      const authKeys = [
+        'authToken',
+        'authData',
+        'accessToken',
+        'token',
+        'user',
+        'currentUser',
+      ];
+      
+      for (const key of authKeys) {
+        try {
+          await AsyncStorage.removeItem(key);
+        } catch (err) {
+          console.warn(`⚠️ Failed to remove ${key} from AsyncStorage:`, err);
+        }
+      }
+
+      // Clear API client's internal auth state
+      if (api.auth) {
+        try {
+          if (typeof (api.auth as any).clearAuthData === 'function') {
+            await (api.auth as any).clearAuthData();
+          }
+          if (typeof (api.auth as any).removeAuthToken === 'function') {
+            await (api.auth as any).removeAuthToken();
+          }
+          // Clear any direct properties
+          (api.auth as any).authToken = null;
+          (api.auth as any).token = null;
+          (api.auth as any).accessToken = null;
+          (api.auth as any).currentUser = null;
+        } catch (err) {
+          console.warn('⚠️ Error clearing API auth state:', err);
+        }
+      }
+
+      // Clear API client headers if they exist
+      if ((api as any).apiClient) {
+        try {
+          if ((api as any).apiClient.defaultHeaders) {
+            delete (api as any).apiClient.defaultHeaders['Authorization'];
+          }
+          if (typeof (api as any).apiClient.setAuthToken === 'function') {
+            (api as any).apiClient.setAuthToken(null);
+          }
+        } catch (err) {
+          console.warn('⚠️ Error clearing API client headers:', err);
+        }
+      }
+
+      console.log('✅ All authentication data cleared');
+    } catch (err) {
+      console.error('❌ Error clearing auth data:', err);
+    }
+  };
+
+  /**
+   * Handle 401 errors by clearing auth state and forcing re-login
+   */
+  const handle401Error = async (error: any) => {
+    const now = Date.now();
+    const errorMessage = error?.message || error?.error || '';
+    
+    // Don't handle 401 if user just logged in (within RECENT_LOGIN_WINDOW)
+    // This prevents false positives after password reset + login
+    if (now - recentLoginRef.current < RECENT_LOGIN_WINDOW) {
+      console.log('⚠️ Recent login detected - skipping 401 handling to prevent false logout');
+      console.log(`⚠️ Time since login: ${now - recentLoginRef.current}ms (window: ${RECENT_LOGIN_WINDOW}ms)`);
+      return;
+    }
+    
+    // Prevent duplicate handling within 5 seconds
+    if (isHandling401Ref.current || (now - last401ErrorRef.current < 5000)) {
+      console.log('⚠️ 401 error handling already in progress or too recent, skipping...');
+      return;
+    }
+
+    // Check if this is a token invalidation error
+    if (error?.status === 401 || error?.statusCode === 401) {
+      const isTokenInvalidated = 
+        errorMessage.toLowerCase().includes('token has been invalidated') ||
+        errorMessage.toLowerCase().includes('invalidated') ||
+        errorMessage.toLowerCase().includes('please sign in again');
+
+      if (isTokenInvalidated) {
+        isHandling401Ref.current = true;
+        last401ErrorRef.current = now;
+        
+        console.log('🔒 Token invalidated - clearing auth state and forcing re-login');
+        
+        try {
+          // Stop heartbeat
+          if (heartbeatIntervalRef.current) {
+            clearInterval(heartbeatIntervalRef.current);
+            heartbeatIntervalRef.current = null;
+          }
+
+          // Clear all auth data
+          await clearAllAuthData();
+
+          // Clear local state
+          setIsAuthenticated(false);
+          setUser(null);
+          setNotifications([]);
+          setUnreadNotificationCount(0);
+          setUnreadConversationCount(0);
+
+          // Unsubscribe from real-time notifications
+          if (notificationChannelId) {
+            supabaseService.unsubscribe(notificationChannelId);
+            setNotificationChannelId(null);
+          }
+
+          // Clear push notification token
+          await pushNotificationService.clearToken().catch(() => {});
+          await pushNotificationService.setBadgeCount(0).catch(() => {});
+
+          console.log('✅ Auth state cleared due to token invalidation');
+        } catch (err) {
+          console.error('❌ Error during 401 handling:', err);
+        } finally {
+          isHandling401Ref.current = false;
+        }
+      }
+    }
+  };
+
   // Test network connectivity - try multiple endpoints
   const testConnectivity = async () => {
     const endpointsToTry = [
@@ -393,7 +536,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           // Don't block app initialization if Google Sign-In fails
         }
         
-        if (api.auth.isAuthenticated()) {
+        // Check if password was recently reset - if so, don't restore tokens
+        const passwordResetFlag = await AsyncStorage.getItem('passwordResetFlag');
+        if (passwordResetFlag === 'true') {
+          console.log('⚠️ Password reset flag detected - skipping token restoration');
+          console.log('⚠️ User must log in again after password reset');
+          // Clear any tokens that might have been restored by API client
+          await clearAllAuthData();
+          setIsAuthenticated(false);
+          setUser(null);
+        } else if (api.auth.isAuthenticated()) {
           const currentUser = api.auth.getCurrentUser();
           console.log('👤 User already authenticated:', currentUser);
           console.log('👤 User details:', {
@@ -569,6 +721,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         category: userData.category
       });
       
+      // Clear any existing tokens before storing new ones to ensure complete replacement
+      console.log('🧹 Clearing old tokens before storing new token...');
+      await clearAllAuthData();
+      
+      // Clear password reset flag if it exists (user successfully logged in after reset)
+      try {
+        await AsyncStorage.removeItem('passwordResetFlag');
+        console.log('✅ Password reset flag cleared');
+      } catch (err) {
+        console.warn('⚠️ Failed to clear password reset flag:', err);
+      }
+      
       // Use the AuthService's setAuthData method to properly store the token
       if ((api as any).auth && typeof (api as any).auth.setAuthData === 'function') {
         console.log('🔑 Using AuthService.setAuthData to store token...');
@@ -590,6 +754,27 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           (api as any).auth.currentUser = userData;
         }
       }
+      
+      // CRITICAL: Ensure API client headers are updated immediately after storing token
+      // This prevents race conditions where API calls are made before token is available
+      if ((api as any).apiClient) {
+        if (!(api as any).apiClient.defaultHeaders) {
+          (api as any).apiClient.defaultHeaders = {};
+        }
+        (api as any).apiClient.defaultHeaders['Authorization'] = `Bearer ${token}`;
+        console.log('✅ API client headers updated with new token');
+      }
+      
+      // Also update auth service properties directly to ensure immediate availability
+      if ((api as any).auth) {
+        (api as any).auth.authToken = token;
+        (api as any).auth.token = token;
+        (api as any).auth.accessToken = token;
+      }
+      
+      // Mark recent login FIRST to prevent immediate 401 handling (before setIsAuthenticated triggers API calls)
+      recentLoginRef.current = Date.now();
+      console.log('✅ Recent login timestamp set - 401 handling will be skipped for', RECENT_LOGIN_WINDOW, 'ms');
       
       // Update user state
       setUser(userData);
@@ -811,6 +996,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       console.log('🔑 Storing access token and user data');
       
+      // Clear any existing tokens before storing new ones to ensure complete replacement
+      console.log('🧹 Clearing old tokens before storing new token...');
+      await clearAllAuthData();
+      
+      // Clear password reset flag if it exists (user successfully signed in after reset)
+      try {
+        await AsyncStorage.removeItem('passwordResetFlag');
+        console.log('✅ Password reset flag cleared');
+      } catch (err) {
+        console.warn('⚠️ Failed to clear password reset flag:', err);
+      }
+      
       // Store auth data using the same method as login
       if ((api as any).auth && typeof (api as any).auth.setAuthData === 'function') {
         await (api as any).auth.setAuthData({
@@ -829,6 +1026,27 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           (api as any).auth.currentUser = userData;
         }
       }
+      
+      // CRITICAL: Ensure API client headers are updated immediately after storing token
+      // This prevents race conditions where API calls are made before token is available
+      if ((api as any).apiClient) {
+        if (!(api as any).apiClient.defaultHeaders) {
+          (api as any).apiClient.defaultHeaders = {};
+        }
+        (api as any).apiClient.defaultHeaders['Authorization'] = `Bearer ${token}`;
+        console.log('✅ API client headers updated with new token');
+      }
+      
+      // Also update auth service properties directly to ensure immediate availability
+      if ((api as any).auth) {
+        (api as any).auth.authToken = token;
+        (api as any).auth.token = token;
+        (api as any).auth.accessToken = token;
+      }
+      
+      // Mark recent login FIRST to prevent immediate 401 handling (before setIsAuthenticated triggers API calls)
+      recentLoginRef.current = Date.now();
+      console.log('✅ Recent login timestamp set - 401 handling will be skipped for', RECENT_LOGIN_WINDOW, 'ms');
       
       // Update user state
       setUser(userData);
@@ -1133,18 +1351,24 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       await pushNotificationService.clearToken().catch(() => {});
       await pushNotificationService.setBadgeCount(0).catch(() => {});
       
-      // Clear API client auth state
+      // Clear ALL authentication data from all storage locations
+      await clearAllAuthData();
+      
+      // Set password reset flag to prevent token restoration on next app start
       try {
-        if (api.auth) {
-          (api.auth as any).clearAuthData();
-          (api.auth as any).removeAuthToken();
-        }
-        // Try logout API call (may fail since token is invalidated, that's OK)
+        await AsyncStorage.setItem('passwordResetFlag', 'true');
+        console.log('✅ Password reset flag set - tokens will not be restored on next app start');
+      } catch (err) {
+        console.warn('⚠️ Failed to set password reset flag:', err);
+      }
+      
+      // Try logout API call (may fail since token is invalidated, that's OK)
+      try {
         await api.auth.logout().catch(() => {
           console.log('⚠️ Logout API call failed (expected - token already invalidated)');
         });
       } catch (err) {
-        console.log('⚠️ Error clearing auth state (non-critical):', err);
+        console.log('⚠️ Error during logout API call (non-critical):', err);
       }
       
       console.log('✅ Auth state cleared - user must sign in with new password');
@@ -4186,8 +4410,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         const response = await api.getCompanyServices(companyId);
         return response;
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to get company services:', error);
+        // Handle 401 errors
+        await handle401Error(error);
         throw error;
       }
     }, { ttl: CacheTTL.MEDIUM }); // Company services change when services are added/removed - 5min TTL
@@ -5280,6 +5506,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         return response;
       } catch (error: any) {
         console.error('❌ Failed to fetch conversations:', error);
+        // Handle 401 errors
+        await handle401Error(error);
         throw error;
       }
     }, { useCache: false }); // Disabled caching for real-time data
@@ -5517,8 +5745,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         return notificationsList;
       }
       throw new Error(response.error || 'Failed to get notifications');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to get notifications:', error);
+      // Handle 401 errors
+      await handle401Error(error);
       throw error;
     }
   };
@@ -5532,8 +5762,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         return count;
       }
       return 0;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to get unread notification count:', error);
+      // Handle 401 errors
+      await handle401Error(error);
       return 0;
     }
   };
@@ -5602,7 +5834,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       await api.chat.sendHeartbeat();
       console.log('✅ Heartbeat sent');
     } catch (error: any) {
-      // Silently fail - heartbeat is not critical
+      // Handle 401 errors - token invalidated, need to logout
+      if (error?.status === 401 || error?.statusCode === 401) {
+        const errorMessage = error?.message || error?.error || '';
+        if (errorMessage.toLowerCase().includes('token has been invalidated') ||
+            errorMessage.toLowerCase().includes('invalidated') ||
+            errorMessage.toLowerCase().includes('please sign in again')) {
+          console.warn('⚠️ Heartbeat failed due to token invalidation - clearing auth state');
+          await handle401Error(error);
+          return;
+        }
+      }
+      // Silently fail for other errors - heartbeat is not critical
       console.warn('⚠️ Heartbeat failed (non-critical):', error.message || error);
     }
   };
@@ -5860,6 +6103,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     forgotPassword,
     verifyResetOtp,
     resetPassword,
+    verifyEmail,
+    resendVerificationEmail,
+    changePassword,
     // Guest session methods
     createGuestSession,
     browseUsersAsGuest,
