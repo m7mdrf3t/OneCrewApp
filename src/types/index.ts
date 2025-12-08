@@ -191,6 +191,12 @@ export interface ConvertGuestToUserRequest {
   };
 }
 
+export interface GoogleAuthRequest {
+  idToken: string;
+  category?: 'crew' | 'talent' | 'company';
+  primary_role?: string;
+}
+
 // Task Management Props
 export interface ProjectDetailPageProps {
   project: ProjectWithDetails;

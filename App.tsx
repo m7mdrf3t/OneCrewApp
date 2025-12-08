@@ -1215,6 +1215,13 @@ const AppContent: React.FC = () => {
                   companyId: course.company_id,
                 });
               }}
+              onNavigate={(pageName: string, data?: any) => {
+                if (pageName === 'auth') {
+                  setAuthPage(data?.page || 'login');
+                } else {
+                  navigateTo(pageName, data);
+                }
+              }}
             />
           )}
           {page.name === 'companyEdit' && page.data?.company && (

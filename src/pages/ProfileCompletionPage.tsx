@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import MediaPickerService, { MediaPickerResult } from '../services/MediaPickerService';
 import DatePicker from '../components/DatePicker';
+import UploadProgressBar from '../components/UploadProgressBar';
+import ImageUploadWithProgress from '../components/ImageUploadWithProgress';
 
 // Helper function to get initials
 const getInitials = (name: string) => {
@@ -184,7 +186,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   onClose,
   initialSection,
 }) => {
-  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, uploadFile, getAccessToken, getBaseUrl, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, getUserProfilePictures, uploadProfilePicture, setMainProfilePicture, deleteProfilePicture, user: currentUser, isAuthenticated, isGuest } = useApi();
+  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, getRoles, uploadFile, getAccessToken, getBaseUrl, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, getUserProfilePictures, uploadProfilePicture, setMainProfilePicture, deleteProfilePicture, user: currentUser, isAuthenticated, isGuest } = useApi();
   
   // Check if user is a talent - only show talent-specific fields if category is 'talent'
   const isTalent = user?.category === 'talent' || user?.category === 'Talent';
@@ -232,6 +234,12 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  // Roles autocomplete state
+  const [availableRoles, setAvailableRoles] = useState<Array<{ id: string; name: string; category?: string }>>([]);
+  const [filteredRoles, setFilteredRoles] = useState<Array<{ id: string; name: string; category?: string }>>([]);
+  const [showRoleSuggestions, setShowRoleSuggestions] = useState(false);
+  const [loadingRoles, setLoadingRoles] = useState(false);
+  
   // Social media links state
   const [editingSocialLinkIndex, setEditingSocialLinkIndex] = useState<number | null>(null);
   const [newSocialLink, setNewSocialLink] = useState({
@@ -245,6 +253,26 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   const [currentPortfolioCaption, setCurrentPortfolioCaption] = useState('');
   const [portfolioType, setPortfolioType] = useState<'image' | 'video' | 'audio'>('image');
   const [isUploadingPortfolio, setIsUploadingPortfolio] = useState(false);
+  
+  // Upload progress state
+  const [uploadProgress, setUploadProgress] = useState<{
+    visible: boolean;
+    progress?: number;
+    label: string;
+  }>({
+    visible: false,
+    progress: undefined,
+    label: 'Uploading...',
+  });
+  
+  // Track which image is being uploaded
+  const [uploadingImage, setUploadingImage] = useState<{
+    type: 'profile' | 'cover' | 'portfolio' | null;
+    progress?: number;
+  }>({
+    type: null,
+    progress: undefined,
+  });
   
   // Collapsible sections state
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
@@ -434,12 +462,13 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       setLoadingReferences(true);
       try {
         
-        const [skinTonesRes, hairColorsRes, skillsRes, abilitiesRes, languagesRes] = await Promise.all([
+        const [skinTonesRes, hairColorsRes, skillsRes, abilitiesRes, languagesRes, rolesRes] = await Promise.all([
           getSkinTones(),
           getHairColors(),
           getSkills(),
           getAbilities(),
           getLanguages(),
+          getRoles(),
         ]);
 
         setSkinTones(skinTonesRes.data || []);
@@ -447,6 +476,12 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         setAvailableSkills(skillsRes.data || []);
         setAbilities(abilitiesRes.data || []);
         setLanguages(languagesRes.data || []);
+        
+        // Load roles for autocomplete
+        if (rolesRes.success && rolesRes.data) {
+          const rolesData = Array.isArray(rolesRes.data) ? rolesRes.data : [];
+          setAvailableRoles(rolesData);
+        }
         
       } catch (error) {
         console.error('Error loading reference data:', error);
@@ -457,6 +492,32 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
     loadReferenceData();
   }, []);
+
+  // Filter roles based on specialty input
+  useEffect(() => {
+    if (formData.specialty.trim().length > 0) {
+      const query = formData.specialty.toLowerCase().trim();
+      const filtered = availableRoles.filter(role => 
+        role.name.toLowerCase().includes(query)
+      );
+      setFilteredRoles(filtered);
+      setShowRoleSuggestions(filtered.length > 0 && formData.specialty.trim().length > 0);
+    } else {
+      setFilteredRoles([]);
+      setShowRoleSuggestions(false);
+    }
+  }, [formData.specialty, availableRoles]);
+
+  // Handle specialty input change
+  const handleSpecialtyChange = (text: string) => {
+    handleInputChange('specialty', text);
+  };
+
+  // Handle role selection from suggestions
+  const handleRoleSelect = (roleName: string) => {
+    handleInputChange('specialty', roleName);
+    setShowRoleSuggestions(false);
+  };
 
   const validateForm = () => {
     const errors: { [key: string]: string } = {};
@@ -705,6 +766,11 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     }
 
     setIsUploadingPortfolio(true);
+    setUploadProgress({
+      visible: true,
+      progress: undefined,
+      label: `Adding ${portfolioType} to portfolio...`,
+    });
     try {
       const newItem = {
         kind: portfolioType === 'audio' ? 'image' : portfolioType, // Convert audio to image for API compatibility
@@ -730,6 +796,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       } else {
       }
 
+      setUploadProgress({ visible: false, label: '' });
       // Clear form
       setCurrentPortfolioUrl('');
       setCurrentPortfolioCaption('');
@@ -738,6 +805,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       Alert.alert('Success', 'Portfolio item added successfully!');
     } catch (error: any) {
       console.error('Error adding portfolio item:', error);
+      setUploadProgress({ visible: false, label: '' });
       Alert.alert('Error', 'Failed to add portfolio item. Please try again.');
     } finally {
       setIsUploadingPortfolio(false);
@@ -787,6 +855,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
         // Upload the file to Supabase and get the URL
         setIsUploadingPortfolio(true);
+        setUploadingImage({ type: 'portfolio', progress: undefined });
         try {
           const uploadResult = await uploadFile({
             uri: result.uri,
@@ -794,6 +863,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             name: result.fileName || `portfolio_image_${Date.now()}.jpg`,
           });
 
+          setUploadingImage({ type: null });
           if (uploadResult.data?.url) {
             setCurrentPortfolioUrl(uploadResult.data.url);
             setPortfolioType('image');
@@ -803,6 +873,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           }
         } catch (uploadError: any) {
           console.error('Upload error:', uploadError);
+          setUploadingImage({ type: null });
           Alert.alert('Upload Failed', 'Failed to upload image. Please try again.');
         } finally {
           setIsUploadingPortfolio(false);
@@ -831,6 +902,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
         // Upload the file to Supabase and get the URL
         setIsUploadingPortfolio(true);
+        setUploadingImage({ type: 'portfolio', progress: undefined });
         try {
           const uploadResult = await uploadFile({
             uri: result.uri,
@@ -838,6 +910,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             name: result.fileName || `portfolio_photo_${Date.now()}.jpg`,
           });
 
+          setUploadingImage({ type: null });
           if (uploadResult.data?.url) {
             setCurrentPortfolioUrl(uploadResult.data.url);
             setPortfolioType('image');
@@ -847,6 +920,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           }
         } catch (uploadError: any) {
           console.error('Upload error:', uploadError);
+          setUploadingImage({ type: null });
           Alert.alert('Upload Failed', 'Failed to upload photo. Please try again.');
         } finally {
           setIsUploadingPortfolio(false);
@@ -890,6 +964,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
         // Upload the file to Supabase and get the URL
         setIsUploadingPortfolio(true);
+        setUploadingImage({ type: 'portfolio', progress: undefined });
         try {
           const uploadResult = await uploadFile({
             uri: result.uri,
@@ -897,6 +972,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             name: result.fileName || `portfolio_video_${Date.now()}.mp4`,
           });
 
+          setUploadingImage({ type: null });
           if (uploadResult.data?.url) {
             setCurrentPortfolioUrl(uploadResult.data.url);
             setPortfolioType('video');
@@ -906,6 +982,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           }
         } catch (uploadError: any) {
           console.error('Upload error:', uploadError);
+          setUploadingImage({ type: null });
           Alert.alert('Upload Failed', 'Failed to upload video. Please try again.');
         } finally {
           setIsUploadingPortfolio(false);
@@ -949,6 +1026,11 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
         // Upload the file to Supabase and get the URL
         setIsUploadingPortfolio(true);
+        setUploadProgress({
+          visible: true,
+          progress: undefined,
+          label: 'Uploading portfolio video...',
+        });
         try {
           const uploadResult = await uploadFile({
             uri: result.uri,
@@ -956,6 +1038,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             name: result.fileName || `portfolio_recorded_${Date.now()}.mp4`,
           });
 
+          setUploadProgress({ visible: false, label: '' });
           if (uploadResult.data?.url) {
             setCurrentPortfolioUrl(uploadResult.data.url);
             setPortfolioType('video');
@@ -965,6 +1048,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           }
         } catch (uploadError: any) {
           console.error('Upload error:', uploadError);
+          setUploadingImage({ type: null });
           Alert.alert('Upload Failed', 'Failed to upload video. Please try again.');
         } finally {
           setIsUploadingPortfolio(false);
@@ -973,6 +1057,60 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     } catch (error: any) {
       console.error('Error recording portfolio video:', error);
       Alert.alert('Error', error.message || 'Failed to record portfolio video. Please try again.');
+    }
+  };
+
+  // Audio upload function (for future implementation)
+  const pickPortfolioAudio = async () => {
+    try {
+      // For now, show alert that audio upload is coming soon
+      // When audio picker is implemented, uncomment and use this code:
+      /*
+      const result = await mediaPicker.pickAudio({
+        quality: 0.8,
+      });
+
+      if (result) {
+        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 50)) {
+          Alert.alert('File Too Large', 'Please select an audio file smaller than 50MB.');
+          return;
+        }
+
+        // Upload the file to Supabase and get the URL
+        setIsUploadingPortfolio(true);
+        setUploadProgress({
+          visible: true,
+          progress: undefined,
+          label: 'Uploading portfolio audio...',
+        });
+        try {
+          const uploadResult = await uploadFile({
+            uri: result.uri,
+            type: 'audio/mpeg',
+            name: result.fileName || `portfolio_audio_${Date.now()}.mp3`,
+          });
+
+          setUploadProgress({ visible: false, label: '' });
+          if (uploadResult.data?.url) {
+            setCurrentPortfolioUrl(uploadResult.data.url);
+            setPortfolioType('audio');
+            Alert.alert('Success', 'Portfolio audio uploaded! Add a caption and click "Add to Portfolio".');
+          } else {
+            throw new Error('Upload failed - no URL returned');
+          }
+        } catch (uploadError: any) {
+          console.error('Upload error:', uploadError);
+          setUploadProgress({ visible: false, label: '' });
+          Alert.alert('Upload Failed', 'Failed to upload audio. Please try again.');
+        } finally {
+          setIsUploadingPortfolio(false);
+        }
+      }
+      */
+      Alert.alert('Coming Soon', 'Audio upload will be available soon!');
+    } catch (error: any) {
+      console.error('Error picking portfolio audio:', error);
+      Alert.alert('Error', error.message || 'Failed to pick portfolio audio. Please try again.');
     }
   };
 
@@ -1013,7 +1151,13 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             name: result.fileName || `profile_picture_${Date.now()}.jpg`,
           };
 
+          // Show upload progress on image placeholder
+          setUploadingImage({ type: 'profile', progress: undefined });
+
           const uploadResult = await uploadProfilePicture(file, shouldBeMain);
+          
+          // Hide progress
+          setUploadingImage({ type: null });
           
           if (uploadResult.success) {
             // Reload profile pictures
@@ -1032,6 +1176,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           }
         } catch (uploadError: any) {
           console.error('Upload error:', uploadError);
+          setUploadingImage({ type: null });
           Alert.alert('Upload Failed', uploadError.message || 'Failed to upload profile picture. Please try again.');
         }
       }
@@ -1077,8 +1222,11 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             name: result.fileName || `profile_photo_${Date.now()}.jpg`,
           };
 
+          setUploadingImage({ type: 'profile', progress: undefined });
+
           const uploadResult = await uploadProfilePicture(file, shouldBeMain);
           
+          setUploadingImage({ type: null });
           if (uploadResult.success) {
             // Reload profile pictures
             const response = await getUserProfilePictures(userId);
@@ -1096,6 +1244,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           }
         } catch (uploadError: any) {
           console.error('Upload error:', uploadError);
+          setUploadingImage({ type: null });
           Alert.alert('Upload Failed', uploadError.message || 'Failed to upload profile photo. Please try again.');
         }
       }
@@ -1145,7 +1294,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
       const userDetailsData = {
         gender: genderMapping[formData.about.gender] || 'prefer_not_to_say',
-        birthday: formData.about.birthday || null,
+        birthday: formData.about.birthday || undefined,
         nationality: formData.about.nationality,
         // Note: location is stored in users table as location_text, not in userDetails
       };
@@ -1326,6 +1475,15 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         style={styles.content} 
         showsVerticalScrollIndicator={false}
       >
+        {/* Upload Progress Bar */}
+        {uploadProgress.visible && (
+          <UploadProgressBar
+            progress={uploadProgress.progress}
+            label={uploadProgress.label}
+            visible={uploadProgress.visible}
+          />
+        )}
+        
         {/* Progress Indicator */}
         <View style={styles.progressContainer}>
           <Text style={styles.progressText}>Profile Completion: {completionPercentage}%</Text>
@@ -1347,29 +1505,31 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             <Text style={styles.sectionTitle}>Profile Picture</Text>
             <TouchableOpacity
               onPress={pickImage}
-              disabled={isSubmitting}
+              disabled={isSubmitting || uploadingImage.type === 'profile'}
               activeOpacity={0.7}
             >
-              <View style={styles.profilePictureWrapper}>
-                {formData.imageUrl ? (
-                  <Image 
-                    source={{ uri: formData.imageUrl }} 
-                    style={styles.profilePicture}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.profilePicturePlaceholder}>
-                    <Ionicons name="camera-outline" size={32} color="#9ca3af" />
-                    <Text style={styles.profilePictureInitials}>
-                      {getInitials(user?.name || 'User')}
-                    </Text>
+              <ImageUploadWithProgress
+                imageUrl={formData.imageUrl}
+                placeholderSize={{ width: 120, height: 120 }}
+                borderRadius={60}
+                isUploading={uploadingImage.type === 'profile'}
+                uploadProgress={uploadingImage.progress}
+                uploadLabel="Uploading profile picture..."
+                disabled={isSubmitting || uploadingImage.type === 'profile'}
+              >
+                <View style={styles.profilePicturePlaceholder}>
+                  <Ionicons name="camera-outline" size={32} color="#9ca3af" />
+                  <Text style={styles.profilePictureInitials}>
+                    {getInitials(user?.name || 'User')}
+                  </Text>
+                </View>
+                {!uploadingImage.type && (
+                  <View style={styles.profilePictureOverlay}>
+                    <Ionicons name="camera" size={24} color="#fff" />
+                    <Text style={styles.profilePictureOverlayText}>Tap to upload</Text>
                   </View>
                 )}
-                <View style={styles.profilePictureOverlay}>
-                  <Ionicons name="camera" size={24} color="#fff" />
-                  <Text style={styles.profilePictureOverlayText}>Tap to upload</Text>
-                </View>
-              </View>
+              </ImageUploadWithProgress>
             </TouchableOpacity>
             
             <Text style={styles.profilePictureHint}>
@@ -1396,7 +1556,16 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                   <View style={styles.coverImagesGrid}>
                     {profilePictures.map((picture) => (
                       <View key={picture.id} style={styles.coverImageItem}>
-                        <Image source={{ uri: picture.image_url }} style={styles.coverImageThumbnail} resizeMode="cover" />
+                        <ImageUploadWithProgress
+                          imageUrl={picture.image_url}
+                          placeholderSize={{ width: 120, height: 80 }}
+                          borderRadius={8}
+                          isUploading={false}
+                        >
+                          <View style={styles.coverImagePlaceholder}>
+                            <Ionicons name="image-outline" size={24} color="#9ca3af" />
+                          </View>
+                        </ImageUploadWithProgress>
                         {picture.is_main && (
                           <View style={styles.mainImageBadge}>
                             <Ionicons name="star" size={16} color="#fff" />
@@ -1477,6 +1646,26 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                   </View>
                 )}
                 
+                {/* Show uploading placeholder for cover images */}
+                {uploadingImage.type === 'cover' && (
+                  <View style={styles.coverImagesGrid}>
+                    <View style={styles.coverImageItem}>
+                      <ImageUploadWithProgress
+                        imageUrl={undefined}
+                        placeholderSize={{ width: 120, height: 80 }}
+                        borderRadius={8}
+                        isUploading={true}
+                        uploadProgress={uploadingImage.progress}
+                        uploadLabel="Uploading cover image..."
+                      >
+                        <View style={styles.coverImagePlaceholder}>
+                          <Ionicons name="image-outline" size={24} color="#9ca3af" />
+                        </View>
+                      </ImageUploadWithProgress>
+                    </View>
+                  </View>
+                )}
+                
                 {/* Add Cover Image Buttons */}
                 <View style={styles.imageSelectionContainer}>
                   <TouchableOpacity
@@ -1513,8 +1702,11 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                               name: result.fileName || `cover_image_${Date.now()}.jpg`,
                             };
 
+                            setUploadingImage({ type: 'cover', progress: undefined });
+
                             const uploadResult = await uploadProfilePicture(file, isFirstPicture);
                             
+                            setUploadingImage({ type: null });
                             if (uploadResult.success) {
                               // Reload profile pictures
                               const response = await getUserProfilePictures(userId);
@@ -1535,6 +1727,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                             }
                           } catch (uploadError: any) {
                             console.error('Upload error:', uploadError);
+                            setUploadingImage({ type: null });
                             Alert.alert('Upload Failed', uploadError.message || 'Failed to upload cover image. Please try again.');
                           }
                         }
@@ -1583,8 +1776,11 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                               name: result.fileName || `cover_photo_${Date.now()}.jpg`,
                             };
 
+                            setUploadingImage({ type: 'cover', progress: undefined });
+
                             const uploadResult = await uploadProfilePicture(file, isFirstPicture);
                             
+                            setUploadingImage({ type: null });
                             if (uploadResult.success) {
                               // Reload profile pictures
                               const response = await getUserProfilePictures(userId);
@@ -1605,6 +1801,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                             }
                           } catch (uploadError: any) {
                             console.error('Upload error:', uploadError);
+                            setUploadingImage({ type: null });
                             Alert.alert('Upload Failed', uploadError.message || 'Failed to upload cover photo. Please try again.');
                           }
                         }
@@ -1642,16 +1839,51 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           {/* Specialty */}
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Specialty *</Text>
+            <View style={styles.autocompleteContainer}>
               <TextInput
-              style={[styles.input, formErrors.specialty && styles.inputError]}
-              placeholder="e.g., Character Actor, Voice Actor, etc."
+                style={[styles.input, formErrors.specialty && styles.inputError]}
+                placeholder="e.g., Character Actor, Voice Actor, etc."
                 placeholderTextColor="#9ca3af"
-              value={formData.specialty}
-              onChangeText={(text) => handleInputChange('specialty', text)}
+                value={formData.specialty}
+                onChangeText={handleSpecialtyChange}
+                onFocus={() => {
+                  if (formData.specialty.trim().length > 0 && filteredRoles.length > 0) {
+                    setShowRoleSuggestions(true);
+                  }
+                }}
+                onBlur={() => {
+                  // Delay hiding suggestions to allow for selection
+                  setTimeout(() => setShowRoleSuggestions(false), 200);
+                }}
                 editable={!isSubmitting}
               />
-            {formErrors.specialty && <Text style={styles.fieldError}>{formErrors.specialty}</Text>}
+              {showRoleSuggestions && filteredRoles.length > 0 && (
+                <View style={styles.suggestionsContainer}>
+                  <ScrollView 
+                    style={styles.suggestionsList}
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled={true}
+                  >
+                    {filteredRoles.slice(0, 10).map((role) => (
+                      <TouchableOpacity
+                        key={role.id}
+                        style={styles.suggestionItem}
+                        onPress={() => handleRoleSelect(role.name)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="checkmark-circle-outline" size={16} color="#3b82f6" style={styles.suggestionIcon} />
+                        <Text style={styles.suggestionText}>{role.name}</Text>
+                        {role.category && (
+                          <Text style={styles.suggestionCategory}>{role.category}</Text>
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
             </View>
+            {formErrors.specialty && <Text style={styles.fieldError}>{formErrors.specialty}</Text>}
+          </View>
 
           {/* Skills */}
           <View style={styles.inputContainer}>
@@ -1725,9 +1957,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.portfolioTypeButton, portfolioType === 'audio' && styles.portfolioTypeButtonActive]}
-            onPress={() => {
+            onPress={async () => {
               setPortfolioType('audio');
-              Alert.alert('Coming Soon', 'Audio upload will be available soon!');
+              await pickPortfolioAudio();
             }}
             disabled={isSubmitting || isUploadingPortfolio}
           >
@@ -2504,6 +2736,13 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  coverImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   removeCoverImageButton: {
     position: 'absolute',
     top: -8,
@@ -2823,6 +3062,54 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     marginTop: 4,
+    fontStyle: 'italic',
+  },
+  // Autocomplete styles
+  autocompleteContainer: {
+    position: 'relative',
+    zIndex: 1000,
+  },
+  suggestionsContainer: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    marginTop: 4,
+    maxHeight: 200,
+    zIndex: 1001,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  suggestionsList: {
+    maxHeight: 200,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  suggestionIcon: {
+    marginRight: 8,
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#000',
+  },
+  suggestionCategory: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginLeft: 8,
     fontStyle: 'italic',
   },
   // Portfolio styles

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
-import { Platform, AppState, AppStateStatus } from 'react-native';
+import { Platform, AppState, AppStateStatus, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore - expo-constants types may not be available in all environments
 import Constants from 'expo-constants';
@@ -7,6 +7,7 @@ import OneCrewApi, { User, AuthResponse, LoginRequest, SignupRequest, ApiError }
 import { 
   GuestSessionData, 
   ConvertGuestToUserRequest, 
+  GoogleAuthRequest,
   TaskWithAssignments, 
   ProjectWithDetails, 
   ProjectMember,
@@ -53,7 +54,7 @@ interface ApiContextType {
   forgotPassword: (email: string) => Promise<void>;
   verifyResetOtp: (email: string, otpCode: string) => Promise<{ resetToken: string }>;
   resetPassword: (resetToken: string, newPassword: string) => Promise<void>;
-  verifyEmail: (token: string, type?: string) => Promise<void>;
+  verifyEmail: (token: string, type?: "signup" | "email_change") => Promise<void>;
   resendVerificationEmail: (email: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   // Guest session methods
@@ -897,17 +898,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('✅ Google ID token received');
       
       // Step 2: Send ID token to backend
-      const requestBody: any = {
+      const requestBody: GoogleAuthRequest = {
         idToken: idToken,
+        ...(category && { category }),
+        ...(primaryRole && { primary_role: primaryRole }),
       };
-      
-      // Add category and primary_role if provided (for new users)
-      if (category) {
-        requestBody.category = category;
-        if (primaryRole) {
-          requestBody.primary_role = primaryRole;
-        }
-      }
       
       console.log('📤 Sending Google auth request to backend:', {
         hasIdToken: !!idToken,
@@ -1406,7 +1401,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const verifyEmail = async (token: string, type?: string) => {
+  const verifyEmail = async (token: string, type?: "signup" | "email_change") => {
     setIsLoading(true);
     setError(null);
     try {

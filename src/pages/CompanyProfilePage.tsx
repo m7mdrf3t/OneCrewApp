@@ -30,6 +30,7 @@ import CertificationCard from '../components/CertificationCard';
 import CourseCard from '../components/CourseCard';
 import CourseRegistrationModal from '../components/CourseRegistrationModal';
 import MediaPickerService from '../services/MediaPickerService';
+import UploadProgressBar from '../components/UploadProgressBar';
 
 interface CompanyProfilePageProps {
   companyId: string;
@@ -41,6 +42,7 @@ interface CompanyProfilePageProps {
   onManageCourses?: (company: Company) => void;
   onCourseSelect?: (course: CourseWithDetails) => void;
   refreshTrigger?: number;
+  onNavigate?: (page: string, data?: any) => void;
 }
 
 const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
@@ -53,6 +55,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   onManageCourses,
   onCourseSelect,
   refreshTrigger,
+  onNavigate,
 }) => {
   const {
     getCompany,
@@ -71,6 +74,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     addCompanyDocument,
     deleteCompanyDocument,
     uploadFile,
+    isGuest,
+    isAuthenticated,
   } = useApi();
 
   const [company, setCompany] = useState<Company | null>(null);
@@ -93,6 +98,15 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const [documents, setDocuments] = useState<CompanyDocument[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    visible: boolean;
+    progress?: number;
+    label: string;
+  }>({
+    visible: false,
+    progress: undefined,
+    label: 'Uploading...',
+  });
   const mediaPicker = MediaPickerService.getInstance();
 
   useEffect(() => {
@@ -553,6 +567,41 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   };
 
+  const handleStartChat = () => {
+    if (!company) return;
+    
+    if (isGuest || !isAuthenticated) {
+      Alert.alert(
+        'Sign In Required',
+        'Please sign in to start a conversation with the academy.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Sign In', 
+            onPress: () => {
+              // Navigate to login if onNavigate is available
+              if (onNavigate) {
+                onNavigate('auth', { page: 'login' });
+              }
+            }
+          }
+        ]
+      );
+      return;
+    }
+
+    // Navigate to chat with academy
+    if (onNavigate) {
+      const participant = {
+        id: company.id,
+        category: 'company' as const,
+        name: company.name,
+        logo_url: company.logo_url,
+      };
+      onNavigate('chat', { participant });
+    }
+  };
+
   const handleUploadLogo = async () => {
     if (!company?.id) return;
 
@@ -623,6 +672,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
     try {
       setUploadingLogo(true);
+      setUploadProgress({
+        visible: true,
+        progress: undefined,
+        label: 'Uploading company logo...',
+      });
 
       const file = {
         uri: imageResult.uri,
@@ -632,6 +686,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
       const response = await uploadCompanyLogo(company.id, file);
 
+      setUploadProgress({ visible: false });
       if (response.success && response.data?.url) {
         // Reload company data to show new logo
         await loadCompanyData();
@@ -641,6 +696,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to upload logo:', error);
+      setUploadProgress({ visible: false });
       const errorMessage = error.message || 'Failed to upload company logo.';
       
       // Provide more helpful error messages
@@ -712,6 +768,17 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Upload Progress Bar */}
+        {uploadProgress.visible && (
+          <View style={{ padding: 16 }}>
+            <UploadProgressBar
+              progress={uploadProgress.progress}
+              label={uploadProgress.label}
+              visible={uploadProgress.visible}
+            />
+          </View>
+        )}
+        
         {company.subcategory === 'academy' ? (
           /* Academy Layout - Matching Design */
           <>
@@ -724,6 +791,21 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="school" size={50} color="#71717a" />
                 </View>
               )}
+              
+              {/* Chat Icon - Top Right Corner */}
+              {!canEdit() && (
+                <TouchableOpacity
+                  style={styles.chatIconButton}
+                  onPress={handleStartChat}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.chatIconContainer}>
+                    <Ionicons name="chatbubble" size={20} color="#fff" />
+                  </View>
+                </TouchableOpacity>
+              )}
+              
+              {/* Upload Logo Button - Bottom Right (only for editors) */}
               {canEdit() && (
                 <TouchableOpacity
                   style={styles.uploadLogoButton}
@@ -755,7 +837,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               )}
 
               {/* Contact Information */}
-              {(company.email || company.phone) && (
+              {(company.email || company.phone || company.location_text) && (
                 <View style={styles.contactSection}>
                   {company.email && (
                     <TouchableOpacity style={styles.contactItem} onPress={handleEmailPress}>
@@ -769,6 +851,13 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                       <Ionicons name="call-outline" size={16} color="#000" />
                       <Text style={styles.contactText}>{company.phone}</Text>
                     </TouchableOpacity>
+                  )}
+
+                  {company.location_text && (
+                    <View style={styles.contactItem}>
+                      <Ionicons name="location-outline" size={16} color="#000" />
+                      <Text style={styles.contactText}>{company.location_text}</Text>
+                    </View>
                   )}
                 </View>
               )}
@@ -1599,6 +1688,27 @@ const styles = StyleSheet.create({
   coursesHorizontalContent: {
     paddingRight: 10,
     gap: 12,
+  },
+  chatIconButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 10,
+  },
+  chatIconContainer: {
+    backgroundColor: '#3b82f6',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   uploadLogoButton: {
     position: 'absolute',

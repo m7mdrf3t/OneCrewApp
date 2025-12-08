@@ -185,11 +185,24 @@ const ChatPage: React.FC<ChatPageProps> = ({
           }
         } else if (participant) {
           // Create new conversation
-          // Always use user_company when participant is company and current user is not a company
-          // Only use company_company when both participants are companies
-          const conversationType = participant.category === 'company'
-            ? (currentProfileType === 'company' && activeCompany ? 'company_company' : 'user_company')
-            : 'user_user';
+          // IMPORTANT: When chatting with an academy/company, we need to determine the conversation type correctly
+          // The backend requires that to create company_company conversations, the user must be a verified company member
+          // Following the course registration pattern: users interact with academies as regular users, not as companies
+          // So we default to user_company to avoid backend errors
+          // Users can still send messages as company later if they have permissions (via sendAsCompany toggle)
+          
+          let conversationType: 'user_user' | 'user_company' | 'company_company';
+          
+          if (participant.category === 'company') {
+            // User chatting with a company/academy
+            // Always use user_company for safety - the backend will reject company_company if user is not a company member
+            // This matches the course registration flow where users interact with academies as regular users
+            conversationType = 'user_company';
+            console.log('💬 Creating user_company conversation (user chatting with academy)');
+          } else {
+            // User chatting with another user
+            conversationType = 'user_user';
+          }
 
           const participantIds = [participant.id];
           
@@ -201,15 +214,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
             participantIds,
             currentProfileType: currentProfileTypeValue,
             currentProfileId,
+            hasActiveCompany: !!activeCompany,
+            hasUser: !!user,
+            note: 'Using user_company for academy chats (users can send as company later if authorized)',
           });
-          
-          if (currentProfileType === 'company' && activeCompany) {
-            // For company conversations, we need to handle differently
-            // The API will handle adding the current user/company
-            console.log('💬 Creating conversation as company profile:', activeCompany.id);
-          } else {
-            console.log('💬 Creating conversation as user profile:', user?.id);
-          }
 
           const createResponse = await createConversationRef.current({
             conversation_type: conversationType,

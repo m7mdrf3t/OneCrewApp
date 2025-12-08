@@ -30,7 +30,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
     email: '',
     password: '',
     confirmPassword: '',
-    category: 'crew' as 'crew' | 'talent' | 'company',
+    category: 'crew' as 'crew' | 'talent',
     primaryRole: '',
   });
   const [showPassword, setShowPassword] = useState(false);
@@ -42,7 +42,6 @@ const SignupPage: React.FC<SignupPageProps> = ({
   const categories = [
     { key: 'crew', label: 'Crew Member', icon: 'people' },
     { key: 'talent', label: 'Talent', icon: 'star' },
-    { key: 'company', label: 'Company', icon: 'business' },
   ];
 
   const crewRoles = [
@@ -55,15 +54,10 @@ const SignupPage: React.FC<SignupPageProps> = ({
     'actor', 'voice_actor', 'singer', 'dancer', 'model'
   ];
 
-  const companyRoles = [
-    'production_house', 'agency', 'studio', 'post_house', 'equipment_rental'
-  ];
-
   const getRolesForCategory = (category: string) => {
     switch (category) {
       case 'crew': return crewRoles;
       case 'talent': return talentRoles;
-      case 'company': return companyRoles;
       default: return [];
     }
   };
@@ -131,7 +125,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
     }
   };
 
-  const handleCategoryChange = (category: 'crew' | 'talent' | 'company') => {
+  const handleCategoryChange = (category: 'crew' | 'talent') => {
     setFormData(prev => ({ ...prev, category, primaryRole: '' }));
     setFormErrors(prev => ({ ...prev, primaryRole: '' }));
   };
@@ -158,7 +152,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
     }
   };
 
-  const handleCategorySelect = async (category: 'crew' | 'talent' | 'company', primaryRole?: string) => {
+  const handleCategorySelect = async (category: 'crew' | 'talent', primaryRole?: string) => {
     try {
       setShowCategoryModal(false);
       clearError();

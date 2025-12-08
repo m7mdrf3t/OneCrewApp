@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 interface CategorySelectionModalProps {
   visible: boolean;
-  onSelect: (category: 'crew' | 'talent' | 'company', primaryRole?: string) => void;
+  onSelect: (category: 'crew' | 'talent', primaryRole?: string) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
@@ -23,13 +23,12 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
   onCancel,
   isLoading = false,
 }) => {
-  const [selectedCategory, setSelectedCategory] = useState<'crew' | 'talent' | 'company'>('crew');
+  const [selectedCategory, setSelectedCategory] = useState<'crew' | 'talent'>('crew');
   const [selectedRole, setSelectedRole] = useState<string>('');
 
   const categories = [
     { key: 'crew', label: 'Crew Member', icon: 'people' },
     { key: 'talent', label: 'Talent', icon: 'star' },
-    { key: 'company', label: 'Company', icon: 'business' },
   ];
 
   const crewRoles = [
@@ -42,20 +41,15 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
     'actor', 'voice_actor', 'singer', 'dancer', 'model'
   ];
 
-  const companyRoles = [
-    'production_house', 'agency', 'studio', 'post_house', 'equipment_rental'
-  ];
-
   const getRolesForCategory = (category: string) => {
     switch (category) {
       case 'crew': return crewRoles;
       case 'talent': return talentRoles;
-      case 'company': return companyRoles;
       default: return [];
     }
   };
 
-  const handleCategoryChange = (category: 'crew' | 'talent' | 'company') => {
+  const handleCategoryChange = (category: 'crew' | 'talent') => {
     setSelectedCategory(category);
     setSelectedRole(''); // Reset role when category changes
   };
