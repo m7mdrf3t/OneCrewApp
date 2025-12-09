@@ -164,16 +164,30 @@ const SignupPage: React.FC<SignupPageProps> = ({
   };
 
   const handleGoogleSignIn = async () => {
+    // Prevent multiple simultaneous calls
+    if (pendingGoogleSignIn || isLoading) {
+      console.log('⚠️ Google Sign-In already in progress, ignoring duplicate call');
+      return;
+    }
+
     try {
       clearError();
       setPendingGoogleSignIn(true);
+      
       // Try without category first (for existing users)
       const authResponse = await googleSignIn();
       // For Google Sign-In, use the email from the response or form data
       const email = authResponse?.user?.email || formData.email.trim().toLowerCase() || '';
       onSignupSuccess(email);
     } catch (err: any) {
-      console.error('Google Sign-In error in SignupPage:', err);
+      console.error('❌ Google Sign-In error in SignupPage:', err);
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled Google Sign-In');
+        return;
+      }
+      
       // Check if error is about category being required
       if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
         // Show category selection modal
@@ -437,14 +451,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
           <TouchableOpacity
             style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
-            onPress={() => {
-              try {
-                handleGoogleSignIn();
-              } catch (err: any) {
-                console.error('Error in Google Sign-In button handler:', err);
-                Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-              }
-            }}
+            onPress={handleGoogleSignIn}
             disabled={isLoading || pendingGoogleSignIn}
           >
             <View style={styles.googleButtonContent}>

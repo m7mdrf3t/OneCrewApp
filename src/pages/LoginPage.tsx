@@ -104,14 +104,28 @@ const LoginPage: React.FC<LoginPageProps> = ({
   };
 
   const handleGoogleSignIn = async () => {
+    // Prevent multiple simultaneous calls
+    if (pendingGoogleSignIn || isLoading) {
+      console.log('⚠️ Google Sign-In already in progress, ignoring duplicate call');
+      return;
+    }
+
     try {
       clearError();
       setPendingGoogleSignIn(true);
+      
       // Try without category first (for existing users)
       await googleSignIn();
       onLoginSuccess();
     } catch (err: any) {
-      console.error('Google Sign-In error in LoginPage:', err);
+      console.error('❌ Google Sign-In error in LoginPage:', err);
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled Google Sign-In');
+        return;
+      }
+      
       // Check if error is about category being required
       if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
         // Show category selection modal
@@ -265,14 +279,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
 
           <TouchableOpacity
             style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
-            onPress={() => {
-              try {
-                handleGoogleSignIn();
-              } catch (err: any) {
-                console.error('Error in Google Sign-In button handler:', err);
-                Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-              }
-            }}
+            onPress={handleGoogleSignIn}
             disabled={isLoading || pendingGoogleSignIn}
           >
             <View style={styles.googleButtonContent}>

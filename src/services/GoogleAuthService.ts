@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 // Dynamically import GoogleSignin to handle cases where native module isn't available
 let GoogleSignin: any;
 let statusCodes: any;
+let isInitialized = false;
 
 try {
   const googleSignInModule = require('@react-native-google-signin/google-signin');
@@ -77,10 +78,12 @@ export const initializeGoogleSignIn = async () => {
     }
 
     GoogleSignin.configure(config);
+    isInitialized = true;
 
     console.log('✅ Google Sign-In initialized successfully');
   } catch (error) {
     console.error('❌ Failed to initialize Google Sign-In:', error);
+    isInitialized = false;
     // Don't throw - allow app to continue without Google Sign-In
     console.warn('⚠️ App will continue without Google Sign-In. Rebuild the app to enable it.');
   }
@@ -92,8 +95,47 @@ export const initializeGoogleSignIn = async () => {
  */
 export const signInWithGoogle = async (): Promise<string> => {
   try {
+    // Check if native module is available
     if (!GoogleSignin) {
-      throw new Error('Google Sign-In native module not available. Please rebuild the app: npx expo run:ios or npx expo run:android');
+      const errorMsg = 'Google Sign-In native module not available. Please rebuild the app: npx expo run:ios or npx expo run:android';
+      console.error('❌', errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    // Ensure Google Sign-In is initialized
+    if (!isInitialized) {
+      console.warn('⚠️ Google Sign-In not initialized yet. Initializing now...');
+      await initializeGoogleSignIn();
+      if (!isInitialized) {
+        throw new Error('Failed to initialize Google Sign-In. Please try again.');
+      }
+    }
+
+    // Ensure Google Sign-In is configured before attempting sign-in
+    // This is especially important on iOS where configuration might not persist
+    try {
+      // Re-configure to ensure it's set up correctly
+      const config: any = {
+        webClientId: WEB_CLIENT_ID,
+        offlineAccess: true,
+        forceCodeForRefreshToken: true,
+        scopes: ['email', 'profile'],
+      };
+
+      if (Platform.OS === 'ios') {
+        const iosClientIdToUse = IOS_CLIENT_ID.includes('YOUR_IOS_CLIENT_ID_HERE') 
+          ? WEB_CLIENT_ID 
+          : IOS_CLIENT_ID;
+        if (iosClientIdToUse) {
+          config.iosClientId = iosClientIdToUse;
+        }
+      }
+
+      GoogleSignin.configure(config);
+      console.log('✅ Google Sign-In re-configured before sign-in');
+    } catch (configError: any) {
+      console.warn('⚠️ Failed to re-configure Google Sign-In:', configError);
+      // Continue anyway - it might already be configured
     }
 
     // Check if Google Play Services are available (Android only)
@@ -109,11 +151,30 @@ export const signInWithGoogle = async (): Promise<string> => {
     // Sign in - wrap in try-catch to handle native crashes gracefully
     let userInfo;
     try {
-      userInfo = await GoogleSignin.signIn();
+      // Use a timeout to prevent hanging on iOS
+      const signInPromise = GoogleSignin.signIn();
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Google Sign-In timed out after 30 seconds')), 30000);
+      });
+      
+      userInfo = await Promise.race([signInPromise, timeoutPromise]) as any;
     } catch (signInError: any) {
-      console.error('GoogleSignin.signIn() threw error:', signInError);
+      console.error('❌ GoogleSignin.signIn() threw error:', signInError);
+      
+      // Handle specific error codes
+      if (statusCodes) {
+        if (signInError?.code === statusCodes.SIGN_IN_CANCELLED) {
+          throw new Error('Sign in was cancelled');
+        } else if (signInError?.code === statusCodes.IN_PROGRESS) {
+          throw new Error('Sign in is already in progress');
+        } else if (signInError?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+          throw new Error('Google Play Services not available or outdated');
+        }
+      }
+      
       // Re-throw with more context
-      throw signInError;
+      const errorMessage = signInError?.message || signInError?.toString() || 'Google Sign-In failed';
+      throw new Error(errorMessage);
     }
     
     if (!userInfo || !userInfo.idToken) {
@@ -128,25 +189,17 @@ export const signInWithGoogle = async (): Promise<string> => {
       message: error?.message,
       code: error?.code,
       name: error?.name,
+      platform: Platform.OS,
       stack: error?.stack,
     });
 
-    if (!GoogleSignin) {
-      throw new Error('Google Sign-In native module not available. Please rebuild the app.');
-    }
-
-    if (statusCodes) {
-      if (error?.code === statusCodes.SIGN_IN_CANCELLED) {
-        throw new Error('Sign in was cancelled');
-      } else if (error?.code === statusCodes.IN_PROGRESS) {
-        throw new Error('Sign in is already in progress');
-      } else if (error?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-        throw new Error('Google Play Services not available or outdated');
-      }
+    // Don't throw if user cancelled - this is expected behavior
+    if (statusCodes && error?.code === statusCodes.SIGN_IN_CANCELLED) {
+      throw new Error('Sign in was cancelled');
     }
     
     // Return a user-friendly error message
-    const errorMessage = error?.message || error?.toString() || 'Google Sign-In failed';
+    const errorMessage = error?.message || error?.toString() || 'Google Sign-In failed. Please try again.';
     throw new Error(errorMessage);
   }
 };
