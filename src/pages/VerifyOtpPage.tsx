@@ -18,24 +18,28 @@ import OTPTimer from '../components/OTPTimer';
 
 interface VerifyOtpPageProps {
   email: string;
+  mode?: 'password-reset' | 'email-verification';
   onNavigateToLogin: () => void;
-  onNavigateToResetPassword: (resetToken: string) => void;
+  onNavigateToResetPassword?: (resetToken: string) => void;
+  onVerificationSuccess?: () => void;
   onResendOtp: () => void;
 }
 
 const VerifyOtpPage: React.FC<VerifyOtpPageProps> = ({
   email,
+  mode = 'password-reset',
   onNavigateToLogin,
   onNavigateToResetPassword,
+  onVerificationSuccess,
   onResendOtp,
 }) => {
-  const { verifyResetOtp, isLoading, error, clearError } = useApi();
+  const { verifyResetOtp, verifyEmail, verifySignupOtp, isLoading, error, clearError } = useApi();
   const [otpCode, setOtpCode] = useState(['', '', '', '', '', '']);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [showSuccess, setShowSuccess] = useState(false);
   const [isExpired, setIsExpired] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendCooldown, setResendCooldown] = useState(60); // Start with 60 seconds (1 minute) cooldown
   const pulseAnims = useRef([
     new Animated.Value(1),
     new Animated.Value(1),
@@ -74,15 +78,41 @@ const VerifyOtpPage: React.FC<VerifyOtpPageProps> = ({
 
     try {
       clearError();
-      const result = await verifyResetOtp(email, otpString);
       
-      // Show success animation
-      setShowSuccess(true);
-      
-      // Navigate to reset password page after delay
-      setTimeout(() => {
-        onNavigateToResetPassword(result.resetToken);
-      }, 500);
+      if (mode === 'email-verification') {
+        // Signup email verification flow - use new verifySignupOtp endpoint
+        await verifySignupOtp(email, otpString);
+        
+        // Show success animation
+        setShowSuccess(true);
+        
+        // Call success callback if provided
+        if (onVerificationSuccess) {
+          setTimeout(() => {
+            onVerificationSuccess();
+          }, 1500);
+        } else {
+          // Default: navigate to login after delay
+          setTimeout(() => {
+            onNavigateToLogin();
+          }, 1500);
+        }
+      } else {
+        // Password reset flow (existing behavior)
+        if (!onNavigateToResetPassword) {
+          throw new Error('onNavigateToResetPassword callback is required for password-reset mode');
+        }
+        
+        const result = await verifyResetOtp(email, otpString);
+        
+        // Show success animation
+        setShowSuccess(true);
+        
+        // Navigate to reset password page after delay
+        setTimeout(() => {
+          onNavigateToResetPassword(result.resetToken);
+        }, 500);
+      }
     } catch (err: any) {
       const errorMessage = err.message || 'Invalid or expired OTP code. Please try again.';
       
@@ -188,13 +218,14 @@ const VerifyOtpPage: React.FC<VerifyOtpPageProps> = ({
   }, [resendCooldown]);
 
   const handleResend = () => {
+    // Disable resend until cooldown timer finishes (1 minute)
     if (resendCooldown > 0) return;
     
     setOtpCode(['', '', '', '', '', '']);
     setFormErrors({});
     clearError();
     setIsExpired(false);
-    setResendCooldown(60); // 60 second cooldown
+    setResendCooldown(60); // Reset to 60 seconds (1 minute) cooldown after resend
     onResendOtp();
   };
 
@@ -216,7 +247,7 @@ const VerifyOtpPage: React.FC<VerifyOtpPageProps> = ({
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>
-        <PasswordResetProgress currentStep={2} />
+        {mode === 'password-reset' && <PasswordResetProgress currentStep={2} />}
         
         <View style={styles.header}>
           <TouchableOpacity
@@ -226,17 +257,22 @@ const VerifyOtpPage: React.FC<VerifyOtpPageProps> = ({
           >
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
-          <Text style={styles.title}>Verify Code</Text>
+          <Text style={styles.title}>
+            {mode === 'email-verification' ? 'Verify Your Email' : 'Verify Code'}
+          </Text>
           <View style={styles.placeholder} />
         </View>
 
         <Text style={styles.subtitle}>
-          We've sent a 6-digit verification code to{'\n'}
+          {mode === 'email-verification' 
+            ? `We've sent a 6-digit verification code to verify your email address.\nPlease check your inbox at`
+            : `We've sent a 6-digit verification code to`}
+          {'\n'}
           <Text style={styles.emailText}>{email}</Text>
         </Text>
 
         <OTPTimer
-          initialMinutes={10}
+          initialMinutes={1}
           onExpire={handleTimerExpire}
           onWarning={() => {
             // Optional: Show warning alert
@@ -245,7 +281,9 @@ const VerifyOtpPage: React.FC<VerifyOtpPageProps> = ({
 
         {showSuccess && (
           <SuccessAnimation
-            message="Code verified successfully!"
+            message={mode === 'email-verification' 
+              ? "Email verified successfully! Please log in to continue."
+              : "Code verified successfully!"}
             autoDismiss={false}
           />
         )}
@@ -330,13 +368,23 @@ const VerifyOtpPage: React.FC<VerifyOtpPageProps> = ({
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.backToLoginButton}
-          onPress={onNavigateToLogin}
-          disabled={isLoading}
-        >
-          <Text style={styles.backToLoginText}>Back to Sign In</Text>
-        </TouchableOpacity>
+        {mode === 'email-verification' ? (
+          <TouchableOpacity
+            style={styles.backToLoginButton}
+            onPress={onNavigateToLogin}
+            disabled={isLoading || showSuccess}
+          >
+            <Text style={styles.backToLoginText}>Go to Sign In</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.backToLoginButton}
+            onPress={onNavigateToLogin}
+            disabled={isLoading}
+          >
+            <Text style={styles.backToLoginText}>Back to Sign In</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </KeyboardAvoidingView>
   );

@@ -64,15 +64,16 @@ import { spacing, semanticSpacing } from './src/constants/spacing';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState('spot');
   const [myTeam, setMyTeam] = useState([MOCK_PROFILES[0], MOCK_PROFILES[1]]);
-  const [authPage, setAuthPage] = useState<'login' | 'signup' | 'forgot-password' | 'verify-otp' | 'reset-password' | 'onboarding' | null>(null);
+  const [authPage, setAuthPage] = useState<'login' | 'signup' | 'forgot-password' | 'verify-otp' | 'verify-email-otp' | 'reset-password' | 'onboarding' | null>(null);
   const [resetToken, setResetToken] = useState<string>('');
   const [resetEmail, setResetEmail] = useState<string>('');
+  const [signupEmail, setSignupEmail] = useState<string>('');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showProjectCreation, setShowProjectCreation] = useState(false);
   const [currentProject, setCurrentProject] = useState<ProjectDashboardData | null>(null);
@@ -98,9 +99,18 @@ const AppContent: React.FC = () => {
     }
   }, [systemColorScheme]);
 
+  // Navigation function - declared early so it can be used in useEffect hooks
+  const navigateTo = useCallback((pageName: string, data: any = null) => {
+    const newPage = { name: pageName, data };
+    setHistory(prevHistory => [...prevHistory, newPage]);
+    if (pageName !== 'home') {
+      setTab('');
+    }
+  }, []);
+
   // Push notification handlers
-  const notificationListener = useRef<Notifications.Subscription>();
-  const responseListener = useRef<Notifications.Subscription>();
+  const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
+  const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
 
   useEffect(() => {
     // Set up notification received listener (when app is in foreground)
@@ -125,10 +135,10 @@ const AppContent: React.FC = () => {
             setShowNotificationModal(false);
             setShowInvitationListModal(true);
           } else if (data.type === 'project_created' || data.type === 'project_member_added') {
-            if (data.project_id) {
+            if (data.project_id && typeof data.project_id === 'string') {
               (async () => {
                 try {
-                  const project = await getProjectById(data.project_id);
+                  const project = await getProjectById(data.project_id as string);
                   if (project) {
                     navigateTo('projectDetail', project);
                   }
@@ -138,10 +148,10 @@ const AppContent: React.FC = () => {
               })();
             }
           } else if (data.type === 'task_assigned' || data.type === 'task_completed') {
-            if (data.project_id) {
+            if (data.project_id && typeof data.project_id === 'string') {
               (async () => {
                 try {
-                  const project = await getProjectById(data.project_id);
+                  const project = await getProjectById(data.project_id as string);
                   if (project) {
                     navigateTo('projectDetail', project);
                   }
@@ -151,8 +161,8 @@ const AppContent: React.FC = () => {
               })();
             }
           } else if (data.type === 'message_received') {
-            if (data.conversation_id) {
-              navigateTo('chat', { conversationId: data.conversation_id });
+            if (data.conversation_id && typeof data.conversation_id === 'string') {
+              navigateTo('chat', { conversationId: data.conversation_id as string });
             }
           } else if (data.link_url) {
             // Handle custom link URLs
@@ -181,10 +191,10 @@ const AppContent: React.FC = () => {
               setShowNotificationModal(false);
               setShowInvitationListModal(true);
             } else if (data.type === 'project_created' || data.type === 'project_member_added') {
-              if (data.project_id) {
+              if (data.project_id && typeof data.project_id === 'string') {
                 (async () => {
                   try {
-                    const project = await getProjectById(data.project_id);
+                    const project = await getProjectById(data.project_id as string);
                     if (project) {
                       navigateTo('projectDetail', project);
                     }
@@ -194,8 +204,8 @@ const AppContent: React.FC = () => {
                 })();
               }
             } else if (data.type === 'message_received') {
-              if (data.conversation_id) {
-                navigateTo('chat', { conversationId: data.conversation_id });
+              if (data.conversation_id && typeof data.conversation_id === 'string') {
+                navigateTo('chat', { conversationId: data.conversation_id as string });
               }
             }
           }, 1000);
@@ -216,8 +226,18 @@ const AppContent: React.FC = () => {
   // Handle authentication state changes
   useEffect(() => {
     if (!isLoading) {
+      // Don't override authPage if user is in OTP verification flow (signupEmail is set)
+      // This allows the OTP verification page to stay visible even when isAuthenticated is false
+      if (signupEmail && authPage === 'verify-email-otp') {
+        console.log('🔒 [App] Preserving verify-email-otp page - user is in OTP verification flow');
+        return; // Don't change authPage - user needs to complete OTP verification
+      }
+      
       if (!isAuthenticated && !isGuest) {
-        setAuthPage('login');
+        // Only set to login if we're not already on an auth page (signup, forgot-password, etc.)
+        if (!authPage || authPage === null) {
+          setAuthPage('login');
+        }
       } else if (isAuthenticated && (user?.profile_step === 'onboarding' || user?.profile_completeness === 0)) {
         setShowOnboarding(true);
         setAuthPage(null);
@@ -226,21 +246,13 @@ const AppContent: React.FC = () => {
         setShowOnboarding(false);
       }
     }
-  }, [isAuthenticated, isLoading, user, isGuest]);
+  }, [isAuthenticated, isLoading, user, isGuest, signupEmail, authPage]);
 
   const page = history[history.length - 1];
 
   const toggleTheme = () => {
     setTheme(current => (current === 'light' ? 'dark' : 'light'));
   };
-
-  const navigateTo = useCallback((pageName: string, data: any = null) => {
-    const newPage = { name: pageName, data };
-    setHistory(prevHistory => [...prevHistory, newPage]);
-    if (pageName !== 'home') {
-      setTab('');
-    }
-  }, []);
 
   const handleBack = useCallback(() => {
     setHistory(prevHistory => {
@@ -842,9 +854,44 @@ const AppContent: React.FC = () => {
     setAuthPage(null);
   };
 
-  const handleSignupSuccess = () => {
-    setShowOnboarding(true);
-    setAuthPage(null);
+  const handleSignupSuccess = (email: string) => {
+    console.log('🚀 [App] handleSignupSuccess called with email:', email);
+    setSignupEmail(email);
+    console.log('🚀 [App] Setting authPage to verify-email-otp');
+    setAuthPage('verify-email-otp');
+    console.log('✅ [App] Navigation to OTP verification page initiated');
+  };
+
+  const handleNavigateToVerifyEmailOtp = (email: string) => {
+    setSignupEmail(email);
+    setAuthPage('verify-email-otp');
+  };
+
+  const handleEmailVerificationSuccess = () => {
+    // Navigate to login (success message already shown by VerifyOtpPage)
+    setAuthPage('login');
+    setSignupEmail('');
+  };
+
+  const handleResendVerificationEmail = async () => {
+    if (!signupEmail) {
+      console.error('❌ Cannot resend verification email: signupEmail is not set');
+      return;
+    }
+    try {
+      console.log('🔄 Resending verification email to:', signupEmail);
+      await resendVerificationEmail(signupEmail);
+      console.log('✅ Verification email resent successfully');
+      Alert.alert('Email Sent', 'A new verification code has been sent to your email.');
+    } catch (error: any) {
+      console.error('❌ Failed to resend verification email:', error);
+      const errorMessage = error.message || 'Failed to resend verification email. Please try again.';
+      Alert.alert(
+        'Error',
+        errorMessage,
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   const handleOnboardingComplete = async () => {
@@ -945,9 +992,35 @@ const AppContent: React.FC = () => {
       return (
         <VerifyOtpPage
           email={resetEmail}
+          mode="password-reset"
           onNavigateToLogin={handleNavigateToLogin}
           onNavigateToResetPassword={handleNavigateToResetPassword}
           onResendOtp={handleResendOtp}
+        />
+      );
+    }
+
+    if (authPage === 'verify-email-otp') {
+      console.log('📱 [App] Rendering VerifyOtpPage with email:', signupEmail);
+      if (!signupEmail) {
+        console.error('❌ [App] signupEmail is empty! Cannot render VerifyOtpPage');
+        // Fallback: show login page if email is missing
+        return (
+          <LoginPage
+            onNavigateToSignup={handleNavigateToSignup}
+            onNavigateToForgotPassword={handleNavigateToForgotPassword}
+            onLoginSuccess={handleLoginSuccess}
+            onGuestMode={handleGuestMode}
+          />
+        );
+      }
+      return (
+        <VerifyOtpPage
+          email={signupEmail}
+          mode="email-verification"
+          onNavigateToLogin={handleNavigateToLogin}
+          onVerificationSuccess={handleEmailVerificationSuccess}
+          onResendOtp={handleResendVerificationEmail}
         />
       );
     }

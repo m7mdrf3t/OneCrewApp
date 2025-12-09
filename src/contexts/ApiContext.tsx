@@ -54,7 +54,8 @@ interface ApiContextType {
   forgotPassword: (email: string) => Promise<void>;
   verifyResetOtp: (email: string, otpCode: string) => Promise<{ resetToken: string }>;
   resetPassword: (resetToken: string, newPassword: string) => Promise<void>;
-  verifyEmail: (token: string, type?: "signup" | "email_change") => Promise<void>;
+  verifyEmail: (email: string, token: string, type?: "signup" | "email_change") => Promise<void>;
+  verifySignupOtp: (email: string, token: string) => Promise<AuthResponse>;
   resendVerificationEmail: (email: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   // Guest session methods
@@ -869,17 +870,72 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     console.log('📝 Signup attempt:', { email: userData.email, name: userData.name });
     setIsLoading(true);
     setError(null);
+    
+    // CRITICAL: Ensure no auth data exists before signup
+    // We will NOT save anything during signup - token only comes after OTP verification
+    setIsAuthenticated(false);
+    setUser(null);
+    
     try {
+      // Call the library's signup method
+      // NOTE: The library's signup() method does NOT call setAuthData() - it explicitly avoids saving
+      // because there's no token yet. Token will only be saved after verifySignupOtp() succeeds.
       const authResponse = await api.auth.signup(userData);
+      
       console.log('✅ Signup successful:', authResponse);
-      setUser(authResponse.user);
-      setIsAuthenticated(true);
-      return authResponse;
+      console.log('📧 OTP verification is MANDATORY - NO token saved, NO authentication until OTP is verified');
+      
+      // Ensure we're not authenticated (double-check)
+      setIsAuthenticated(false);
+      setUser(null);
+      
+      // Ensure no auth data is stored (the library shouldn't save anything, but be extra safe)
+      try {
+        await clearAllAuthData();
+        console.log('🧹 Verified no auth data is stored (as expected)');
+      } catch (clearErr) {
+        console.warn('⚠️ Error clearing auth data (non-critical):', clearErr);
+      }
+      
+      // Return response with requiresEmailVerification flag
+      // The token will ONLY be retrieved and saved after verifySignupOtp() succeeds
+      const response = {
+        ...authResponse,
+        requiresEmailVerification: true
+      } as any;
+      console.log('📤 [ApiContext] Returning signup response:', { 
+        hasUser: !!response.user, 
+        requiresEmailVerification: response.requiresEmailVerification 
+      });
+      return response;
     } catch (err: any) {
       console.error('Signup failed:', err);
       setIsAuthenticated(false);
       setUser(null);
-      setError(err.message || 'Signup failed');
+      
+      // If it's a SecureStore error, it means something tried to save during signup
+      // This shouldn't happen, but if it does, we'll handle it gracefully
+      if (err.message?.includes('SecureStore') || err.message?.includes('JSON-encoding')) {
+        console.error('⚠️ SecureStore error during signup - something tried to save data (this shouldn\'t happen)');
+        console.error('⚠️ The library\'s signup() method should NOT save anything - token only comes after OTP verification');
+        
+        // Try to extract the response if signup actually succeeded
+        const errorData = (err as any).response?.data || (err as any).data;
+        if (errorData) {
+          console.log('✅ Signup actually succeeded, returning response despite SecureStore error');
+          setIsAuthenticated(false);
+          setUser(null);
+          // Clear any partial saves
+          await clearAllAuthData();
+          return {
+            ...errorData,
+            requiresEmailVerification: true
+          } as any;
+        }
+        setError('Signup completed but encountered an internal error. Please check your email for the verification code.');
+      } else {
+        setError(err.message || 'Signup failed');
+      }
       throw err;
     } finally {
       setIsLoading(false);
@@ -1401,10 +1457,49 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const verifyEmail = async (token: string, type?: "signup" | "email_change") => {
+  const verifySignupOtp = async (email: string, token: string) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      console.log('🔐 Verifying signup OTP code for:', email);
+      
+      // Use the library's verifySignupOtp method (available in v2.14.0+)
+      // IMPORTANT: This method will call setAuthData() internally to save the token to SecureStore
+      // This is the ONLY place where we save auth data - NOT during signup, ONLY after OTP verification
+      const authResponse = await api.auth.verifySignupOtp(email.trim().toLowerCase(), token);
+      
+      console.log('✅ Signup OTP verified successfully:', authResponse);
+      console.log('🔑 Token has been saved to SecureStore by the library (setAuthData called internally)');
+      
+      // Set user and authenticate after successful verification
+      if (authResponse.user) {
+        setUser(authResponse.user);
+        setIsAuthenticated(true);
+        console.log('✅ User authenticated after OTP verification - token is now saved');
+        return authResponse;
+      } else {
+        throw new Error('User data not found in response');
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || err.response?.data?.message || 'Invalid or expired OTP code. Please try again.';
+      console.error('❌ Signup OTP verification failed:', err);
+      setError(errorMessage);
+      setIsAuthenticated(false);
+      setUser(null);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const verifyEmail = async (email: string, token: string, type?: "signup" | "email_change") => {
     setIsLoading(true);
     setError(null);
     try {
+      // New library version (v2.14.0) signature: verifyEmail(token: string, type?: 'signup' | 'email_change')
+      // The email is not needed as a parameter - it's encoded in the token or handled by backend
+      // Note: For signup verification, use verifySignupOtp instead
       await api.auth.verifyEmail(token, type);
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to verify email';
@@ -6099,6 +6194,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     verifyResetOtp,
     resetPassword,
     verifyEmail,
+    verifySignupOtp,
     resendVerificationEmail,
     changePassword,
     // Guest session methods

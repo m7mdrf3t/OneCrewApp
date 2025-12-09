@@ -17,14 +17,14 @@ import { validatePassword, getPasswordRequirements } from '../utils/passwordVali
 
 interface SignupPageProps {
   onNavigateToLogin: () => void;
-  onSignupSuccess: () => void;
+  onSignupSuccess: (email: string) => void;
 }
 
 const SignupPage: React.FC<SignupPageProps> = ({
   onNavigateToLogin,
   onSignupSuccess,
 }) => {
-  const { signup, googleSignIn, isLoading, error, clearError } = useApi();
+  const { signup, googleSignIn, isLoading, error, clearError, isAuthenticated } = useApi();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -38,6 +38,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const categories = [
     { key: 'crew', label: 'Crew Member', icon: 'people' },
@@ -102,19 +103,51 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
   const handleSignup = async () => {
     if (!validateForm()) return;
+    
+    // Prevent double submission
+    if (isSubmitting || isLoading) {
+      console.log('⚠️ Signup already in progress, ignoring duplicate call');
+      return;
+    }
 
     try {
+      setIsSubmitting(true);
       clearError();
-      await signup({
+      const userEmail = formData.email.trim().toLowerCase();
+      console.log('📧 [SignupPage] Attempting signup with email:', userEmail, 'at', new Date().toISOString());
+      const signupResponse = await signup({
         name: formData.name.trim(),
-        email: formData.email.trim().toLowerCase(),
+        email: userEmail,
         password: formData.password,
         category: formData.category,
         primary_role: formData.primaryRole,
       });
-      onSignupSuccess();
+      
+      // MANDATORY: Always navigate to OTP verification page after signup
+      // User MUST verify email via OTP before being authenticated
+      console.log('✅ [SignupPage] Signup successful - MANDATORY OTP verification required');
+      console.log('📧 [SignupPage] Email for OTP verification:', userEmail);
+      console.log('🚀 [SignupPage] Calling onSignupSuccess to navigate to OTP verification page');
+      onSignupSuccess(userEmail);
+      console.log('✅ [SignupPage] onSignupSuccess called successfully');
     } catch (err: any) {
-      Alert.alert('Signup Failed', err.message || 'Please try again.');
+      console.error('❌ [SignupPage] Signup error details:', {
+        message: err.message,
+        code: err.code,
+        status: err.status,
+        email: formData.email.trim().toLowerCase(),
+        timestamp: new Date().toISOString(),
+      });
+      
+      // Provide more helpful error message for duplicate email
+      let errorMessage = err.message || 'Please try again.';
+      if (err.message?.toLowerCase().includes('already exists') || err.status === 409) {
+        errorMessage = `An account with email ${formData.email.trim().toLowerCase()} already exists. If this is your account, please try logging in instead.`;
+      }
+      
+      Alert.alert('Signup Failed', errorMessage);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -135,8 +168,10 @@ const SignupPage: React.FC<SignupPageProps> = ({
       clearError();
       setPendingGoogleSignIn(true);
       // Try without category first (for existing users)
-      await googleSignIn();
-      onSignupSuccess();
+      const authResponse = await googleSignIn();
+      // For Google Sign-In, use the email from the response or form data
+      const email = authResponse?.user?.email || formData.email.trim().toLowerCase() || '';
+      onSignupSuccess(email);
     } catch (err: any) {
       console.error('Google Sign-In error in SignupPage:', err);
       // Check if error is about category being required
@@ -157,8 +192,10 @@ const SignupPage: React.FC<SignupPageProps> = ({
       setShowCategoryModal(false);
       clearError();
       setPendingGoogleSignIn(true);
-      await googleSignIn(category, primaryRole);
-      onSignupSuccess();
+      const authResponse = await googleSignIn(category, primaryRole);
+      // For Google Sign-In, use the email from the response or form data
+      const email = authResponse?.user?.email || formData.email.trim().toLowerCase() || '';
+      onSignupSuccess(email);
     } catch (err: any) {
       console.error('Google Sign-In error in category select:', err);
       const errorMessage = err?.message || err?.toString() || 'Google Sign-Up failed. Please try again.';
@@ -381,9 +418,9 @@ const SignupPage: React.FC<SignupPageProps> = ({
           </View>
 
           <TouchableOpacity
-            style={[styles.signupButton, isLoading && styles.signupButtonDisabled]}
+            style={[styles.signupButton, (isLoading || isSubmitting) && styles.signupButtonDisabled]}
             onPress={handleSignup}
-            disabled={isLoading}
+            disabled={isLoading || isSubmitting}
           >
             {isLoading ? (
               <Text style={styles.signupButtonText}>Creating Account...</Text>
