@@ -32,3 +32,4 @@ echo "To test the existing email that's failing, use:"
 echo "curl -X POST \"$API_URL\" -H \"Content-Type: application/json\" -d '{\"email\":\"nahib26220@datehype.com\",\"name\":\"TestUser\",\"password\":\"Password123\",\"category\":\"crew\",\"primary_role\":\"director\"}'"
 
 
+
