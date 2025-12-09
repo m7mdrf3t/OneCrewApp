@@ -18,7 +18,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.steps.diggers",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCalendarsUsageDescription": "We need access to your calendar to sync your events and manage your schedule.",
+        "NSLocationWhenInUseUsageDescription": "We need your location to add map locations to events and help you find nearby studios.",
+        "NSLocationAlwaysUsageDescription": "We need your location to provide location-based features for your events."
       }
     },
     "android": {
@@ -26,7 +29,13 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.steps.diggers"
+      "package": "com.steps.diggers",
+      "permissions": [
+        "READ_CALENDAR",
+        "WRITE_CALENDAR",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

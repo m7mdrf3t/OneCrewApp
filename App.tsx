@@ -53,6 +53,10 @@ import CoursesManagementPage from './src/pages/CoursesManagementPage';
 import CourseEditPage from './src/pages/CourseEditPage';
 import CourseDetailPage from './src/pages/CourseDetailPage';
 import PublicCoursesPage from './src/pages/PublicCoursesPage';
+import AgendaPage from './src/pages/AgendaPage';
+import AllAgendaPage from './src/pages/AllAgendaPage';
+import BookingRequestsPage from './src/pages/BookingRequestsPage';
+import WeeklySchedulePage from './src/pages/WeeklySchedulePage';
 
 // Data
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
@@ -244,7 +248,7 @@ const AppContent: React.FC = () => {
         const currentPage = prevHistory[prevHistory.length - 1];
         const newHistory = prevHistory.slice(0, -1);
         const newCurrentPage = newHistory[newHistory.length - 1];
-        const tabPages = ['home', 'projects', 'spot'];
+        const tabPages = ['home', 'projects', 'spot', 'wall'];
         
         // Special handling for 'myProfile': find the last main tab in history
         if (currentPage.name === 'myProfile') {
@@ -1008,6 +1012,14 @@ const AppContent: React.FC = () => {
           {page.name === 'spot' && (
             <SpotPage isDark={isDark} onNavigate={navigateTo} />
           )}
+          {page.name === 'wall' && (
+            <AgendaPage
+              onBack={handleBack}
+              onProfileSelect={handleProfileSelect}
+              onNavigate={navigateTo}
+              myTeam={myTeam}
+            />
+          )}
           {page.name === 'newsDetail' && (
             <NewsDetailPage
               slug={page.data?.slug}
@@ -1253,6 +1265,31 @@ const AppContent: React.FC = () => {
               participant={page.data?.participant}
               courseData={page.data?.courseData}
               onBack={handleBack}
+            />
+          )}
+          {page.name === 'allAgenda' && (
+            <AllAgendaPage
+              onBack={handleBack}
+              onNavigate={navigateTo}
+              agenda={undefined} // Will use AsyncStorage internally
+              onProfileSelect={handleProfileSelect}
+            />
+          )}
+          {page.name === 'sPage' && (
+            <WeeklySchedulePage
+              onBack={handleBack}
+              onNavigate={navigateTo}
+            />
+          )}
+          {page.name === 'bookingRequests' && (
+            <BookingRequestsPage
+              onBack={handleBack}
+              onNavigate={navigateTo}
+              projects={[]} // Will be populated from API
+              requests={undefined} // Will use AsyncStorage internally
+              onRespond={(requestId, status) => {
+                console.log('Booking request responded:', requestId, status);
+              }}
             />
           )}
         </View>

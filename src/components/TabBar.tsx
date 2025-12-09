@@ -10,6 +10,7 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
     { key: 'home', label: 'Home', icon: 'home' },
     { key: 'projects', label: 'Projects', icon: 'folder' },
     { key: 'spot', label: 'Spot', icon: 'search' },
+    { key: 'wall', label: 'Agenda', icon: 'calendar' },
   ];
 
   return (
