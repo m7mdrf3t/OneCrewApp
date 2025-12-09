@@ -98,9 +98,18 @@ const AppContent: React.FC = () => {
     }
   }, [systemColorScheme]);
 
+  // Navigation function - defined early so it can be used in useEffect
+  const navigateTo = useCallback((pageName: string, data: any = null) => {
+    const newPage = { name: pageName, data };
+    setHistory(prevHistory => [...prevHistory, newPage]);
+    if (pageName !== 'home') {
+      setTab('');
+    }
+  }, []);
+
   // Push notification handlers
-  const notificationListener = useRef<Notifications.Subscription>();
-  const responseListener = useRef<Notifications.Subscription>();
+  const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
+  const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
 
   useEffect(() => {
     // Set up notification received listener (when app is in foreground)
@@ -125,10 +134,10 @@ const AppContent: React.FC = () => {
             setShowNotificationModal(false);
             setShowInvitationListModal(true);
           } else if (data.type === 'project_created' || data.type === 'project_member_added') {
-            if (data.project_id) {
+            if (data.project_id && typeof data.project_id === 'string') {
               (async () => {
                 try {
-                  const project = await getProjectById(data.project_id);
+                  const project = await getProjectById(data.project_id as string);
                   if (project) {
                     navigateTo('projectDetail', project);
                   }
@@ -138,10 +147,10 @@ const AppContent: React.FC = () => {
               })();
             }
           } else if (data.type === 'task_assigned' || data.type === 'task_completed') {
-            if (data.project_id) {
+            if (data.project_id && typeof data.project_id === 'string') {
               (async () => {
                 try {
-                  const project = await getProjectById(data.project_id);
+                  const project = await getProjectById(data.project_id as string);
                   if (project) {
                     navigateTo('projectDetail', project);
                   }
@@ -151,8 +160,8 @@ const AppContent: React.FC = () => {
               })();
             }
           } else if (data.type === 'message_received') {
-            if (data.conversation_id) {
-              navigateTo('chat', { conversationId: data.conversation_id });
+            if (data.conversation_id && typeof data.conversation_id === 'string') {
+              navigateTo('chat', { conversationId: data.conversation_id as string });
             }
           } else if (data.link_url) {
             // Handle custom link URLs
@@ -181,10 +190,10 @@ const AppContent: React.FC = () => {
               setShowNotificationModal(false);
               setShowInvitationListModal(true);
             } else if (data.type === 'project_created' || data.type === 'project_member_added') {
-              if (data.project_id) {
+              if (data.project_id && typeof data.project_id === 'string') {
                 (async () => {
                   try {
-                    const project = await getProjectById(data.project_id);
+                    const project = await getProjectById(data.project_id as string);
                     if (project) {
                       navigateTo('projectDetail', project);
                     }
@@ -194,8 +203,8 @@ const AppContent: React.FC = () => {
                 })();
               }
             } else if (data.type === 'message_received') {
-              if (data.conversation_id) {
-                navigateTo('chat', { conversationId: data.conversation_id });
+              if (data.conversation_id && typeof data.conversation_id === 'string') {
+                navigateTo('chat', { conversationId: data.conversation_id as string });
               }
             }
           }, 1000);
@@ -233,14 +242,6 @@ const AppContent: React.FC = () => {
   const toggleTheme = () => {
     setTheme(current => (current === 'light' ? 'dark' : 'light'));
   };
-
-  const navigateTo = useCallback((pageName: string, data: any = null) => {
-    const newPage = { name: pageName, data };
-    setHistory(prevHistory => [...prevHistory, newPage]);
-    if (pageName !== 'home') {
-      setTab('');
-    }
-  }, []);
 
   const handleBack = useCallback(() => {
     setHistory(prevHistory => {
