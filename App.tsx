@@ -1288,7 +1288,8 @@ const AppContent: React.FC = () => {
               projects={[]} // Will be populated from API
               requests={undefined} // Will use AsyncStorage internally
               onRespond={(requestId, status) => {
-                console.log('Booking request responded:', requestId, status);
+                // Handle booking request response
+                // TODO: Implement API call to respond to booking request
               }}
             />
           )}
