@@ -9,6 +9,7 @@ import { HomePageProps } from '../types';
 import { SECTIONS } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
+import { filterRolesByCategory, getRoleName } from '../utils/roleCategorizer';
 
 interface User {
   id: string;
@@ -54,9 +55,10 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   user,
   onOpenMainMenu,
 }) => {
-  const { api, getUsersDirect, isGuest, browseUsersAsGuest, getCompanies } = useApi();
+  const { api, getUsersDirect, isGuest, browseUsersAsGuest, getCompanies, getRoles } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -291,6 +293,23 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     }
   }, [searchQuery, filters, getCompanies]);
 
+  // Fetch roles from API on mount
+  useEffect(() => {
+    const loadRoles = async () => {
+      try {
+        const response = await getRoles();
+        if (response.success && response.data) {
+          const rolesData = Array.isArray(response.data) ? response.data : [];
+          setRoles(rolesData);
+          console.log('✅ Roles loaded for home page:', rolesData.length);
+        }
+      } catch (err) {
+        console.error('Failed to load roles:', err);
+      }
+    };
+    loadRoles();
+  }, [getRoles]);
+
   // Reset and fetch when filters or search change
   useEffect(() => {
     setUsersPage(1);
@@ -375,24 +394,6 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     return null;
   };
 
-  // Filter sections to only show: talent, individuals (Crew), onehub (Studios & Agencies), academy
-  const allowedSectionKeys = ['talent', 'individuals', 'onehub', 'academy'];
-  
-  const filteredSections = useMemo(() => {
-    const allowedSections = SECTIONS.filter(section => allowedSectionKeys.includes(section.key));
-    
-    if (!searchQuery) return allowedSections;
-    const lowerCaseQuery = searchQuery.toLowerCase();
-
-    return allowedSections.filter(section => {
-      const hasMatchingItem = section.items.some(item =>
-        item.label.toLowerCase().includes(lowerCaseQuery)
-      );
-      return section.title.toLowerCase().includes(lowerCaseQuery) || hasMatchingItem;
-    });
-  }, [searchQuery]);
-
-
   // Users are already filtered by API, just categorize them
   const usersByCategory = useMemo(() => {
     const categorized = {
@@ -403,6 +404,119 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     
     return categorized;
   }, [users]);
+
+  // Count users by role for crew section (normalize role names for matching)
+  const roleCounts = useMemo(() => {
+    const counts: { [key: string]: number } = {};
+    if (usersByCategory?.crew) {
+      usersByCategory.crew.forEach(user => {
+        if (user.primary_role) {
+          // Normalize role name for matching (lowercase, replace spaces/special chars with underscore)
+          const normalized = user.primary_role.toLowerCase().replace(/[^a-z0-9]/g, '_');
+          counts[normalized] = (counts[normalized] || 0) + 1;
+        }
+      });
+    }
+    return counts;
+  }, [usersByCategory?.crew]);
+
+  // Filter sections to only show: talent, individuals (Crew), onehub (Studios & Agencies), academy
+  const allowedSectionKeys = ['talent', 'individuals', 'onehub', 'academy'];
+  
+  const filteredSections = useMemo(() => {
+    const allowedSections = SECTIONS.filter(section => allowedSectionKeys.includes(section.key));
+    
+    // Dynamically update the crew (individuals) and talent sections with API roles
+    // But only if roles have loaded, otherwise use original section items
+    const updatedSections = allowedSections.map(section => {
+      if (section.key === 'individuals') {
+        // Only update if roles have loaded
+        if (roles.length > 0) {
+          // Filter crew roles using the same logic as signup
+          const crewRolesFiltered = filterRolesByCategory(roles, 'crew');
+          
+          // Create section items from API roles with user counts
+          const crewItems = crewRolesFiltered.map((role: any) => {
+            const roleName = getRoleName(role);
+            // Normalize role name for matching
+            const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            const count = roleCounts[normalized] || 0;
+            return {
+              label: roleName,
+              users: count
+            };
+          });
+
+          // Sort: roles with users first (descending by count), then roles without users alphabetically
+          const sortedItems = crewItems.sort((a, b) => {
+            if (a.users > 0 && b.users === 0) return -1;
+            if (a.users === 0 && b.users > 0) return 1;
+            if (a.users > 0 && b.users > 0) return b.users - a.users;
+            return a.label.localeCompare(b.label);
+          });
+
+          // Update with API roles (use original items as fallback if empty)
+          return {
+            ...section,
+            items: sortedItems.length > 0 ? sortedItems : section.items
+          };
+        }
+        // Fallback to original section items if roles haven't loaded
+        return section;
+      } else if (section.key === 'talent') {
+        // Only update if roles have loaded
+        if (roles.length > 0) {
+          // Filter talent roles using the same logic as signup
+          const talentRolesFiltered = filterRolesByCategory(roles, 'talent');
+          
+          // Create section items from API roles with user counts
+          const talentItems = talentRolesFiltered.map((role: any) => {
+            const roleName = getRoleName(role);
+            // Normalize role name for matching
+            const normalizedRole = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            // Count talent users with this role (normalize user's role for comparison)
+            const count = (usersByCategory?.talent || []).filter(u => {
+              if (!u.primary_role) return false;
+              const normalizedUserRole = u.primary_role.toLowerCase().replace(/[^a-z0-9]/g, '_');
+              return normalizedUserRole === normalizedRole;
+            }).length;
+            return {
+              label: roleName,
+              users: count
+            };
+          });
+
+          // Sort: roles with users first (descending by count), then roles without users alphabetically
+          const sortedItems = talentItems.sort((a, b) => {
+            if (a.users > 0 && b.users === 0) return -1;
+            if (a.users === 0 && b.users > 0) return 1;
+            if (a.users > 0 && b.users > 0) return b.users - a.users;
+            return a.label.localeCompare(b.label);
+          });
+
+          // Update with API roles (use original items as fallback if empty)
+          return {
+            ...section,
+            items: sortedItems.length > 0 ? sortedItems : section.items
+          };
+        }
+        // Fallback to original section items if roles haven't loaded
+        return section;
+      }
+      // For other sections (onehub, academy), keep original items
+      return section;
+    });
+    
+    if (!searchQuery) return updatedSections;
+    const lowerCaseQuery = searchQuery.toLowerCase();
+
+    return updatedSections.filter(section => {
+      const hasMatchingItem = section.items.some(item =>
+        item.label.toLowerCase().includes(lowerCaseQuery)
+      );
+      return section.title.toLowerCase().includes(lowerCaseQuery) || hasMatchingItem;
+    });
+  }, [searchQuery, roles, roleCounts, usersByCategory]);
 
   // Categorize companies by type
   const companiesByType = useMemo(() => {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import CategorySelectionModal from '../components/CategorySelectionModal';
 import { validatePassword, getPasswordRequirements } from '../utils/passwordValidator';
+import { categorizeRole, filterRolesByCategory } from '../utils/roleCategorizer';
 
 interface SignupPageProps {
   onNavigateToLogin: () => void;
@@ -24,7 +25,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
   onNavigateToLogin,
   onSignupSuccess,
 }) => {
-  const { signup, googleSignIn, isLoading, error, clearError, isAuthenticated } = useApi();
+  const { signup, googleSignIn, isLoading, error, clearError, isAuthenticated, getRoles } = useApi();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -39,21 +40,84 @@ const SignupPage: React.FC<SignupPageProps> = ({
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [crewRoles, setCrewRoles] = useState<string[]>([]);
+  const [talentRoles, setTalentRoles] = useState<string[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
 
   const categories = [
     { key: 'crew', label: 'Crew Member', icon: 'people' },
     { key: 'talent', label: 'Talent', icon: 'star' },
   ];
 
-  const crewRoles = [
+  // Fallback roles in case API fails
+  const fallbackCrewRoles = [
     'actor', 'voice_actor', 'director', 'dop', 'editor', 'producer',
     'scriptwriter', 'gaffer', 'grip', 'sound_engineer', 'makeup_artist',
     'stylist', 'vfx', 'colorist'
   ];
 
-  const talentRoles = [
+  const fallbackTalentRoles = [
     'actor', 'voice_actor', 'singer', 'dancer', 'model'
   ];
+
+  // Use the shared categorizeRole function from utils
+
+  // Load roles from API
+  useEffect(() => {
+    const loadRoles = async () => {
+      setRolesLoading(true);
+      try {
+        const response = await getRoles();
+        if (response.success && response.data) {
+          const rolesData = Array.isArray(response.data) ? response.data : [];
+          
+          // Extract role names and categorize them
+          const crew: string[] = [];
+          const talent: string[] = [];
+          
+          // Use the shared filterRolesByCategory function
+          const crewRolesFiltered = filterRolesByCategory(rolesData, 'crew');
+          const talentRolesFiltered = filterRolesByCategory(rolesData, 'talent');
+          
+          crewRolesFiltered.forEach((role: any) => {
+            const roleName = typeof role === 'string' ? role : (role.name || role);
+            const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            if (!crew.includes(normalized)) {
+              crew.push(normalized);
+            }
+          });
+          
+          talentRolesFiltered.forEach((role: any) => {
+            const roleName = typeof role === 'string' ? role : (role.name || role);
+            const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            if (!talent.includes(normalized)) {
+              talent.push(normalized);
+            }
+          });
+          
+          // Sort roles for consistent display
+          crew.sort();
+          talent.sort();
+          
+          setCrewRoles(crew.length > 0 ? crew : fallbackCrewRoles);
+          setTalentRoles(talent.length > 0 ? talent : fallbackTalentRoles);
+        } else {
+          // Use fallback if API fails
+          setCrewRoles(fallbackCrewRoles);
+          setTalentRoles(fallbackTalentRoles);
+        }
+      } catch (err) {
+        console.error('Failed to load roles from API, using fallback:', err);
+        // Use fallback on error
+        setCrewRoles(fallbackCrewRoles);
+        setTalentRoles(fallbackTalentRoles);
+      } finally {
+        setRolesLoading(false);
+      }
+    };
+
+    loadRoles();
+  }, [getRoles]);
 
   const getRolesForCategory = (category: string) => {
     switch (category) {
@@ -314,32 +378,38 @@ const SignupPage: React.FC<SignupPageProps> = ({
             <Text style={styles.label}>Primary Role</Text>
             <View style={[styles.inputWrapper, formErrors.primaryRole && styles.inputError]}>
               <Ionicons name="briefcase" size={20} color="#71717a" style={styles.inputIcon} />
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.roleScrollView}
-              >
-                {getRolesForCategory(formData.category).map((role) => (
-                  <TouchableOpacity
-                    key={role}
-                    style={[
-                      styles.roleButton,
-                      formData.primaryRole === role && styles.roleButtonActive,
-                    ]}
-                    onPress={() => handleInputChange('primaryRole', role)}
-                    disabled={isLoading}
-                  >
-                    <Text
+              {rolesLoading ? (
+                <View style={styles.roleLoadingContainer}>
+                  <Text style={styles.roleLoadingText}>Loading roles...</Text>
+                </View>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.roleScrollView}
+                >
+                  {getRolesForCategory(formData.category).map((role) => (
+                    <TouchableOpacity
+                      key={role}
                       style={[
-                        styles.roleButtonText,
-                        formData.primaryRole === role && styles.roleButtonTextActive,
+                        styles.roleButton,
+                        formData.primaryRole === role && styles.roleButtonActive,
                       ]}
+                      onPress={() => handleInputChange('primaryRole', role)}
+                      disabled={isLoading}
                     >
-                      {role.replace('_', ' ').toUpperCase()}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+                      <Text
+                        style={[
+                          styles.roleButtonText,
+                          formData.primaryRole === role && styles.roleButtonTextActive,
+                        ]}
+                      >
+                        {role.replace(/_/g, ' ').toUpperCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
             </View>
             {formErrors.primaryRole && <Text style={styles.fieldError}>{formErrors.primaryRole}</Text>}
           </View>
@@ -625,6 +695,14 @@ const styles = StyleSheet.create({
   },
   roleScrollView: {
     flex: 1,
+  },
+  roleLoadingContainer: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  roleLoadingText: {
+    color: '#71717a',
+    fontSize: 14,
   },
   roleButton: {
     backgroundColor: '#f4f4f5',

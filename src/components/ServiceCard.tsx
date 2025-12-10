@@ -38,7 +38,7 @@ const ITEM_ICONS: { [key: string]: keyof typeof Ionicons.glyphMap } = {
 
 const ServiceCard: React.FC<ServiceCardProps> = ({ item, onSelect }) => {
   const iconName = ITEM_ICONS[item.label] || 'film';
-  const userCount = item.users ? item.users.toLocaleString() : '0';
+  const profileCount = (item.users !== undefined && item.users !== null) ? item.users.toLocaleString() : '0';
 
   return (
     <TouchableOpacity
@@ -51,9 +51,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ item, onSelect }) => {
       </View>
       <View style={styles.content}>
         <Text style={styles.label}>{item.label}</Text>
-        {item.users && (
-          <Text style={styles.userCount}>{userCount} users</Text>
-        )}
+        <Text style={styles.userCount}>{profileCount} {profileCount === '1' ? 'profile' : 'profiles'}</Text>
       </View>
       <Ionicons name="chevron-forward" size={16} color="#71717a" />
     </TouchableOpacity>

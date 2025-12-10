@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useApi } from '../contexts/ApiContext';
+import { categorizeRole, filterRolesByCategory } from '../utils/roleCategorizer';
 
 interface CategorySelectionModalProps {
   visible: boolean;
@@ -23,23 +25,89 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
   onCancel,
   isLoading = false,
 }) => {
+  const { getRoles } = useApi();
   const [selectedCategory, setSelectedCategory] = useState<'crew' | 'talent'>('crew');
   const [selectedRole, setSelectedRole] = useState<string>('');
+  const [crewRoles, setCrewRoles] = useState<string[]>([]);
+  const [talentRoles, setTalentRoles] = useState<string[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
 
   const categories = [
     { key: 'crew', label: 'Crew Member', icon: 'people' },
     { key: 'talent', label: 'Talent', icon: 'star' },
   ];
 
-  const crewRoles = [
+  // Fallback roles in case API fails
+  const fallbackCrewRoles = [
     'actor', 'voice_actor', 'director', 'dop', 'editor', 'producer',
     'scriptwriter', 'gaffer', 'grip', 'sound_engineer', 'makeup_artist',
     'stylist', 'vfx', 'colorist'
   ];
 
-  const talentRoles = [
+  const fallbackTalentRoles = [
     'actor', 'voice_actor', 'singer', 'dancer', 'model'
   ];
+
+  // Use the shared categorizeRole function from utils
+
+  // Load roles from API
+  useEffect(() => {
+    if (!visible) return; // Only load when modal is visible
+    
+    const loadRoles = async () => {
+      setRolesLoading(true);
+      try {
+        const response = await getRoles();
+        if (response.success && response.data) {
+          const rolesData = Array.isArray(response.data) ? response.data : [];
+          
+          // Extract role names and categorize them
+          const crew: string[] = [];
+          const talent: string[] = [];
+          
+          // Use the shared filterRolesByCategory function
+          const crewRolesFiltered = filterRolesByCategory(rolesData, 'crew');
+          const talentRolesFiltered = filterRolesByCategory(rolesData, 'talent');
+          
+          crewRolesFiltered.forEach((role: any) => {
+            const roleName = typeof role === 'string' ? role : (role.name || role);
+            const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            if (!crew.includes(normalized)) {
+              crew.push(normalized);
+            }
+          });
+          
+          talentRolesFiltered.forEach((role: any) => {
+            const roleName = typeof role === 'string' ? role : (role.name || role);
+            const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            if (!talent.includes(normalized)) {
+              talent.push(normalized);
+            }
+          });
+          
+          // Sort roles for consistent display
+          crew.sort();
+          talent.sort();
+          
+          setCrewRoles(crew.length > 0 ? crew : fallbackCrewRoles);
+          setTalentRoles(talent.length > 0 ? talent : fallbackTalentRoles);
+        } else {
+          // Use fallback if API fails
+          setCrewRoles(fallbackCrewRoles);
+          setTalentRoles(fallbackTalentRoles);
+        }
+      } catch (err) {
+        console.error('Failed to load roles from API, using fallback:', err);
+        // Use fallback on error
+        setCrewRoles(fallbackCrewRoles);
+        setTalentRoles(fallbackTalentRoles);
+      } finally {
+        setRolesLoading(false);
+      }
+    };
+
+    loadRoles();
+  }, [visible, getRoles]);
 
   const getRolesForCategory = (category: string) => {
     switch (category) {
@@ -113,34 +181,40 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Primary Role</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.roleScrollView}
-              contentContainerStyle={styles.roleScrollContent}
-            >
-              {roles.map((role) => (
-                <TouchableOpacity
-                  key={role}
-                  style={[
-                    styles.roleButton,
-                    selectedRole === role && styles.roleButtonActive,
-                  ]}
-                  onPress={() => setSelectedRole(role)}
-                  disabled={isLoading}
-                >
-                  <Text
+            {rolesLoading ? (
+              <View style={styles.roleLoadingContainer}>
+                <Text style={styles.roleLoadingText}>Loading roles...</Text>
+              </View>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.roleScrollView}
+                contentContainerStyle={styles.roleScrollContent}
+              >
+                {roles.map((role) => (
+                  <TouchableOpacity
+                    key={role}
                     style={[
-                      styles.roleButtonText,
-                      selectedRole === role && styles.roleButtonTextActive,
+                      styles.roleButton,
+                      selectedRole === role && styles.roleButtonActive,
                     ]}
+                    onPress={() => setSelectedRole(role)}
+                    disabled={isLoading}
                   >
-                    {role.replace('_', ' ').toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            {!selectedRole && (
+                    <Text
+                      style={[
+                        styles.roleButtonText,
+                        selectedRole === role && styles.roleButtonTextActive,
+                      ]}
+                    >
+                      {role.replace(/_/g, ' ').toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+            {!selectedRole && !rolesLoading && (
               <Text style={styles.roleHint}>Please select your primary role</Text>
             )}
           </View>
@@ -243,6 +317,14 @@ const styles = StyleSheet.create({
   },
   roleScrollContent: {
     paddingRight: 16,
+  },
+  roleLoadingContainer: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  roleLoadingText: {
+    color: '#71717a',
+    fontSize: 14,
   },
   roleButton: {
     backgroundColor: '#f4f4f5',

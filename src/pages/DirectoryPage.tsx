@@ -643,40 +643,27 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     // First, apply filter criteria to all users
     const filteredByCriteria = users.filter(matchesFilters);
     
-    // Map section items to actual user roles
-    const roleMapping: { [key: string]: string[] } = {
-      'Actor': ['actor'],
-      'Singer': ['singer'],
-      'Dancer': ['dancer'],
-      'Director': ['director'],
-      'Producer': ['producer'],
-      'Writer': ['scriptwriter', 'writer'],
-      'DOP': ['dop'],
-      'Editor': ['editor'],
-      'Composer': ['composer'],
-      'VFX Artist': ['vfx'],
-      'Colorist': ['colorist'],
-      'Sound Engineer': ['sound_engineer'],
-      'Sound Designer': ['sound_designer'],
-      'Gaffer': ['gaffer'],
-      'Grip': ['grip'],
-      'Makeup Artist': ['makeup_artist'],
-      'Stylist': ['stylist'],
-    };
-
     const sectionUsers: { [key: string]: User[] } = {};
     
     section.items.forEach(item => {
-      const roles = roleMapping[item.label] || [];
+      // Use the item label directly as the role to match
+      // Normalize both the item label and user's primary_role for comparison
+      const itemLabelNormalized = item.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      
       const categoryUsers = filteredByCriteria.filter(user => {
         // Check if user's category matches section
         if (section.key === 'talent' && user.category !== 'talent') return false;
         if (section.key === 'individuals' && user.category !== 'crew') return false;
         
-        // Check if user's role matches the item
-        return roles.some(role => 
-          user.primary_role?.toLowerCase().includes(role.toLowerCase())
-        );
+        // Check if user's role matches the item label
+        if (!user.primary_role) return false;
+        
+        const userRoleNormalized = user.primary_role.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        
+        // Match if normalized roles are the same, or if one contains the other
+        return userRoleNormalized === itemLabelNormalized ||
+               userRoleNormalized.includes(itemLabelNormalized) ||
+               itemLabelNormalized.includes(userRoleNormalized);
       });
       
       sectionUsers[item.label] = categoryUsers;
