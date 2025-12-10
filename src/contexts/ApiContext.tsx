@@ -90,9 +90,9 @@ interface ApiContextType {
   getLanguages: () => Promise<any>;
   getServices: () => Promise<any>;
   // Roles and Categories methods
-  getRoles: () => Promise<any>;
+  getRoles: (options?: { category?: 'crew' | 'talent' | 'company' | 'guest'; active?: boolean }) => Promise<any>;
   getCategories: () => Promise<any>;
-  getRolesWithDescriptions: () => Promise<any>;
+  getRolesWithDescriptions: (options?: { category?: 'crew' | 'talent' | 'company' | 'guest'; active?: boolean }) => Promise<any>;
   getCategoriesWithDescriptions: () => Promise<any>;
   // User filtering methods
   getUsersByRole: (role: string) => Promise<any>;
@@ -2528,14 +2528,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // Roles and Categories methods
-  const getRoles = async () => {
+  const getRoles = async (options?: { category?: 'crew' | 'talent' | 'company' | 'guest'; active?: boolean }) => {
     return performanceMonitor.trackApiCall(
       'Get Roles',
-      `${baseUrl}/api/roles`,
+      `${baseUrl}/api/roles${options?.category ? `?category=${options.category}` : ''}`,
       'GET',
       async () => {
         try {
-          console.log('🔍 Fetching roles using API client...');
+          console.log('🔍 Fetching roles using API client...', options ? `with options: ${JSON.stringify(options)}` : '');
           
           // Ensure API is initialized
           if (!api) {
@@ -2550,19 +2550,29 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             
             // Try using the apiClient directly
             console.log('🔍 Trying direct apiClient call...');
-            const response = await (api as any).apiClient.get('/api/roles');
+            const params = new URLSearchParams();
+            if (options?.category) {
+              params.append('category', options.category);
+            }
+            if (options?.active !== undefined) {
+              params.append('active', String(options.active));
+            }
+            const queryString = params.toString();
+            const url = `/api/roles${queryString ? `?${queryString}` : ''}`;
+            const response = await (api as any).apiClient.get(url);
             console.log('✅ Direct API call successful:', response);
             return response;
           }
           
-          const response = await api.getRoles();
+          const response = await api.getRoles(options);
       
       if (response.success && response.data) {
         // Convert string array to object array format
+        // If category filter was used, the roles are already filtered by the API
         const rolesData = response.data.map((role: string, index: number) => ({
           id: (index + 1).toString(),
           name: role,
-          category: getRoleCategory(role)
+          category: options?.category || getRoleCategory(role)
         }));
         
         console.log('✅ Roles fetched:', rolesData);
@@ -2668,19 +2678,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const getRolesWithDescriptions = async () => {
+  const getRolesWithDescriptions = async (options?: { category?: 'crew' | 'talent' | 'company' | 'guest'; active?: boolean }) => {
     try {
-      console.log('🔍 Fetching roles with descriptions using API client...');
-      const response = await api.getRolesWithDescriptions();
+      console.log('🔍 Fetching roles with descriptions using API client...', options ? `with options: ${JSON.stringify(options)}` : '');
+      const response = await api.getRolesWithDescriptions(options);
       
       if (response.success && response.data) {
         // Convert to our expected format
+        // If category filter was used, the roles are already filtered by the API
         const rolesData = response.data.map((role: any, index: number) => ({
           id: (index + 1).toString(),
           name: role.value,
           label: role.label,
           description: role.description,
-          category: getRoleCategory(role.value)
+          category: options?.category || getRoleCategory(role.value)
         }));
         
         console.log('✅ Roles with descriptions fetched:', rolesData);
@@ -2693,7 +2704,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
     } catch (err: any) {
       console.error('❌ Failed to fetch roles with descriptions:', err);
-      return getRoles(); // Fallback to basic roles
+      return getRoles(options); // Fallback to basic roles with same options
     }
   };
 
@@ -3034,7 +3045,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Fetch complete user profile data
   const fetchCompleteUserProfile = async (userId: string, userData?: any) => {
     const cacheKey = `complete-user-profile-${userId}`;
-    return rateLimiter.execute(cacheKey, async () => {
+    return performanceMonitor.trackApiCall(
+      'Fetch Complete User Profile',
+      `${baseUrl}/api/users/${userId}`,
+      'GET',
+      () => rateLimiter.execute(cacheKey, async () => {
       try {
         console.log('👤 Fetching complete user profile for:', userId);
         const accessToken = getAccessToken();
@@ -3131,7 +3146,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Return existing userData if available, otherwise null
         return userData || null;
       }
-    }, { ttl: CacheTTL.MEDIUM, persistent: true });
+    }, { ttl: CacheTTL.MEDIUM, persistent: true })
+    );
   };
 
   // Direct fetch method for getting users
@@ -3778,24 +3794,36 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const getProjects = async (): Promise<any[]> => {
-    try {
-      const response = await api.getProjects();
+    return performanceMonitor.trackApiCall(
+      'Get Projects',
+      `${baseUrl}/api/projects`,
+      'GET',
+      async () => {
+        try {
+          const response = await api.getProjects();
       if (response.success && response.data) {
         // Handle both array and paginated response
         return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
       } else {
         throw new Error(response.error || 'Failed to fetch projects');
       }
-    } catch (error) {
-      console.error('Failed to get projects:', error);
-      throw error;
-    }
+        } catch (error) {
+          console.error('Failed to get projects:', error);
+          throw error;
+        }
+      }
+    );
   };
 
   const getAllProjects = async (): Promise<any[]> => {
-    try {
-      // Try getMyProjects first (returns projects where user is owner or member)
-      let projects: any[] = [];
+    return performanceMonitor.trackApiCall(
+      'Get All Projects',
+      `${baseUrl}/api/projects/all`,
+      'GET',
+      async () => {
+        try {
+          // Try getMyProjects first (returns projects where user is owner or member)
+          let projects: any[] = [];
       try {
         const myProjectsResponse = await api.getMyProjects();
         if (myProjectsResponse.success && myProjectsResponse.data) {
@@ -3835,10 +3863,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       );
       
       return enrichedProjects;
-    } catch (error) {
-      console.error('❌ Failed to get all user projects:', error);
-      throw error;
-    }
+        } catch (error) {
+          console.error('❌ Failed to get all user projects:', error);
+          throw error;
+        }
+      }
+    );
   };
 
   const getProjectTasks = async (projectId: string): Promise<TaskWithAssignments[]> => {
@@ -3857,8 +3887,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const getProjectById = async (projectId: string): Promise<ProjectWithDetails> => {
-    try {
-      const response = await api.getProjectById(projectId);
+    return performanceMonitor.trackApiCall(
+      'Get Project By ID',
+      `${baseUrl}/api/projects/${projectId}`,
+      'GET',
+      async () => {
+        try {
+          const response = await api.getProjectById(projectId);
       
       if (response.success && response.data) {
         // getProjectById should return a single project object, not an array
@@ -3866,10 +3901,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       } else {
         throw new Error(response.error || 'Failed to get project details');
       }
-    } catch (error) {
-      console.error('Failed to get project details:', error);
-      throw error;
-    }
+        } catch (error) {
+          console.error('Failed to get project details:', error);
+          throw error;
+        }
+      }
+    );
   };
 
   const getProjectMembers = async (projectId: string): Promise<ProjectMember[]> => {
@@ -5432,7 +5469,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Course Management Methods (v2.4.0)
   const getAcademyCourses = async (companyId: string, filters?: { status?: CourseStatus; category?: string }) => {
     const cacheKey = `academy-courses-${companyId}-${JSON.stringify(filters || {})}`;
-    return rateLimiter.execute(cacheKey, async () => {
+    return performanceMonitor.trackApiCall(
+      'Get Academy Courses',
+      `${baseUrl}/api/companies/${companyId}/courses`,
+      'GET',
+      () => rateLimiter.execute(cacheKey, async () => {
       try {
         const response = await api.getAcademyCourses(companyId, filters);
         if (response.success && response.data) {
@@ -5444,7 +5485,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get academy courses:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.SHORT }); // Course lists change when courses are added/updated - 30s TTL
+    }, { ttl: CacheTTL.SHORT }) // Course lists change when courses are added/updated - 30s TTL
+    );
   };
 
   const createCourse = async (companyId: string, courseData: CreateCourseRequest) => {

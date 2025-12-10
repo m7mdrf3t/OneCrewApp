@@ -9,7 +9,7 @@ import { HomePageProps } from '../types';
 import { SECTIONS } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
-import { filterRolesByCategory, getRoleName } from '../utils/roleCategorizer';
+import { getRoleName, filterRolesByCategory } from '../utils/roleCategorizer';
 
 interface User {
   id: string;
@@ -58,7 +58,8 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   const { api, getUsersDirect, isGuest, browseUsersAsGuest, getCompanies, getRoles } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
-  const [roles, setRoles] = useState<any[]>([]);
+  const [crewRoles, setCrewRoles] = useState<any[]>([]);
+  const [talentRoles, setTalentRoles] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -293,15 +294,26 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     }
   }, [searchQuery, filters, getCompanies]);
 
-  // Fetch roles from API on mount
+  // Fetch crew and talent roles separately using backend category filtering
   useEffect(() => {
     const loadRoles = async () => {
       try {
-        const response = await getRoles();
-        if (response.success && response.data) {
-          const rolesData = Array.isArray(response.data) ? response.data : [];
-          setRoles(rolesData);
-          console.log('✅ Roles loaded for home page:', rolesData.length);
+        // Fetch crew roles using backend category filter
+        const crewResponse = await getRoles({ category: 'crew' });
+        if (crewResponse.success && crewResponse.data) {
+          const crewRolesData = Array.isArray(crewResponse.data) ? crewResponse.data : [];
+          setCrewRoles(crewRolesData);
+          console.log('✅ Crew roles loaded for home page:', crewRolesData.length, 'roles');
+          console.log('📋 Crew roles:', crewRolesData.map((r: any) => getRoleName(r)).slice(0, 5));
+        }
+
+        // Fetch talent roles using backend category filter
+        const talentResponse = await getRoles({ category: 'talent' });
+        if (talentResponse.success && talentResponse.data) {
+          const talentRolesData = Array.isArray(talentResponse.data) ? talentResponse.data : [];
+          setTalentRoles(talentRolesData);
+          console.log('✅ Talent roles loaded for home page:', talentRolesData.length, 'roles');
+          console.log('📋 Talent roles:', talentRolesData.map((r: any) => getRoleName(r)).slice(0, 5));
         }
       } catch (err) {
         console.error('Failed to load roles:', err);
@@ -430,13 +442,10 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     // But only if roles have loaded, otherwise use original section items
     const updatedSections = allowedSections.map(section => {
       if (section.key === 'individuals') {
-        // Only update if roles have loaded
-        if (roles.length > 0) {
-          // Filter crew roles using the same logic as signup
-          const crewRolesFiltered = filterRolesByCategory(roles, 'crew');
-          
-          // Create section items from API roles with user counts
-          const crewItems = crewRolesFiltered.map((role: any) => {
+        // Only update if crew roles have loaded
+        if (crewRoles.length > 0) {
+          // Create section items from API crew roles with user counts
+          const crewItems = crewRoles.map((role: any) => {
             const roleName = getRoleName(role);
             // Normalize role name for matching
             const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
@@ -464,13 +473,10 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
         // Fallback to original section items if roles haven't loaded
         return section;
       } else if (section.key === 'talent') {
-        // Only update if roles have loaded
-        if (roles.length > 0) {
-          // Filter talent roles using the same logic as signup
-          const talentRolesFiltered = filterRolesByCategory(roles, 'talent');
-          
-          // Create section items from API roles with user counts
-          const talentItems = talentRolesFiltered.map((role: any) => {
+        // Only update if talent roles have loaded
+        if (talentRoles.length > 0) {
+          // Create section items from API talent roles with user counts
+          const talentItems = talentRoles.map((role: any) => {
             const roleName = getRoleName(role);
             // Normalize role name for matching
             const normalizedRole = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
@@ -516,7 +522,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       );
       return section.title.toLowerCase().includes(lowerCaseQuery) || hasMatchingItem;
     });
-  }, [searchQuery, roles, roleCounts, usersByCategory]);
+  }, [searchQuery, crewRoles, talentRoles, roleCounts, usersByCategory]);
 
   // Categorize companies by type
   const companiesByType = useMemo(() => {

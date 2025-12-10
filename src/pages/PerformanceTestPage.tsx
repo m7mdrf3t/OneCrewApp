@@ -20,7 +20,20 @@ interface PerformanceTestPageProps {
 }
 
 const PerformanceTestPage: React.FC<PerformanceTestPageProps> = ({ onBack }) => {
-  const { api, getUsersDirect, getCompanies, getRoles, healthCheck } = useApi();
+  const { 
+    api, 
+    getUsersDirect, 
+    getCompanies, 
+    getRoles, 
+    healthCheck,
+    fetchCompleteUserProfile,
+    getProjects,
+    getAllProjects,
+    getProjectById,
+    getAcademyCourses,
+    user,
+    activeCompany
+  } = useApi();
   const [metrics, setMetrics] = useState<PerformanceMetric[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -116,6 +129,91 @@ const PerformanceTestPage: React.FC<PerformanceTestPageProps> = ({ onBack }) => 
         () => getUsersDirect({ limit: 100, page: 1 })
       );
 
+      // Test 7: Get Projects
+      try {
+        await performanceMonitor.trackApiCall(
+          'Get Projects',
+          '/api/projects',
+          'GET',
+          () => getProjects()
+        );
+      } catch (err) {
+        console.warn('Get Projects test failed (may require authentication):', err);
+      }
+
+      // Test 8: Get All Projects
+      try {
+        await performanceMonitor.trackApiCall(
+          'Get All Projects',
+          '/api/projects/all',
+          'GET',
+          () => getAllProjects()
+        );
+      } catch (err) {
+        console.warn('Get All Projects test failed (may require authentication):', err);
+      }
+
+      // Test 9: Get Specific Project (if projects exist)
+      try {
+        const projects = await getProjects();
+        if (projects && projects.length > 0) {
+          const firstProjectId = projects[0].id;
+          await performanceMonitor.trackApiCall(
+            'Get Project By ID',
+            `/api/projects/${firstProjectId}`,
+            'GET',
+            () => getProjectById(firstProjectId)
+          );
+        }
+      } catch (err) {
+        console.warn('Get Project By ID test failed:', err);
+      }
+
+      // Test 10: Fetch Complete User Profile (if user exists)
+      try {
+        if (user?.id) {
+          await performanceMonitor.trackApiCall(
+            'Fetch Complete User Profile',
+            `/api/users/${user.id}`,
+            'GET',
+            () => fetchCompleteUserProfile(user.id)
+          );
+        }
+      } catch (err) {
+        console.warn('Fetch Complete User Profile test failed:', err);
+      }
+
+      // Test 11: Get Academy Courses (if company exists)
+      try {
+        if (activeCompany?.id) {
+          await performanceMonitor.trackApiCall(
+            'Get Academy Courses',
+            `/api/companies/${activeCompany.id}/courses`,
+            'GET',
+            () => getAcademyCourses(activeCompany.id)
+          );
+        } else {
+          // Try to get companies first, then test academy courses
+          const companiesResponse = await getCompanies({ limit: 5, page: 1 });
+          if (companiesResponse?.data && Array.isArray(companiesResponse.data) && companiesResponse.data.length > 0) {
+            const companyWithAcademy = companiesResponse.data.find((c: any) => 
+              c.subcategory === 'academy' || c.company_type_info?.code === 'academy'
+            ) || companiesResponse.data[0];
+            
+            if (companyWithAcademy?.id) {
+              await performanceMonitor.trackApiCall(
+                'Get Academy Courses',
+                `/api/companies/${companyWithAcademy.id}/courses`,
+                'GET',
+                () => getAcademyCourses(companyWithAcademy.id)
+              );
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Get Academy Courses test failed:', err);
+      }
+
       Alert.alert('Tests Complete', 'Performance tests have been completed. Check the metrics below.');
     } catch (error: any) {
       Alert.alert('Test Error', error.message || 'An error occurred during testing');
@@ -123,7 +221,21 @@ const PerformanceTestPage: React.FC<PerformanceTestPageProps> = ({ onBack }) => 
       setIsRunning(false);
       refreshMetrics();
     }
-  }, [api, getUsersDirect, getCompanies, getRoles, healthCheck, refreshMetrics]);
+  }, [
+    api, 
+    getUsersDirect, 
+    getCompanies, 
+    getRoles, 
+    healthCheck, 
+    getProjects,
+    getAllProjects,
+    getProjectById,
+    fetchCompleteUserProfile,
+    getAcademyCourses,
+    user,
+    activeCompany,
+    refreshMetrics
+  ]);
 
   // Clear all metrics
   const handleClearMetrics = () => {
