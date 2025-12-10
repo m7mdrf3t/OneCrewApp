@@ -441,6 +441,23 @@ export const MOCK_PROFILES = MOCK_PROFILES_DATA.map(profile => ({
   imageUrl: createPlaceholder(400, 600, '000000', 'FFFFFF', getInitials(profile.name))
 }));
 
+// Mock Companies Data
+export const MOCK_COMPANIES_DATA: Company[] = [
+  { id: 101, name: 'Aroma', specialty: 'Post-production', category: 'Post house', location: 'Giza, EG', about: { Founded: '2008', 'Team Size': '60+', Website: 'aroma-studios.com' }, services: ['VFX', 'CGI', 'Editing'], stats: { followers: '30k', projects: 250, likes: '18k' }, imageUrl: '' },
+  { id: 102, name: 'Shift Studio', specialty: 'Post-production', category: 'Post house', location: 'Giza, EG', about: { Founded: '2014', 'Team Size': '35+', Website: 'shift-studio.com' }, services: ['VFX', 'Editing', 'Animation'], stats: { followers: '18k', projects: 180, likes: '10k' }, imageUrl: '' },
+  { id: 109, name: 'Tarek Nour Communications', specialty: 'Advertising Agency', category: 'Agency', location: 'Cairo, EG', about: { Founded: '1979', 'Team Size': '200+', Website: 'tarek-nour.com' }, services: ['Advertising', 'Marketing Strategy', 'Branding'], stats: { followers: '100k', projects: 1000, likes: '50k' }, imageUrl: '' },
+  { id: 110, name: 'Leo Burnett Cairo', specialty: 'Advertising Agency', category: 'Agency', location: 'Giza, EG', about: { Founded: '1990s', 'Team Size': '100+', Website: 'leoburnett.com' }, services: ['Integrated Communications', 'Brand Building', 'Social Media'], stats: { followers: '75k', projects: 600, likes: '40k' }, imageUrl: '' },
+  { id: 113, name: 'Orca Production', specialty: 'Film & Commercial Production', category: 'Production Houses', location: 'Cairo, EG', about: { Founded: '2016', 'Team Size': '45+', Website: 'orcaproduction.com' }, services: ['Commercials', 'Feature Films', 'Music Videos'], stats: { followers: '35k', projects: 150, likes: '22k' }, imageUrl: '' },
+  { id: 114, name: 'Lighthouse Films', specialty: 'Film Production', category: 'Production Houses', location: 'Cairo, EG', about: { Founded: '2010', 'Team Size': '50+', Website: 'lighthouse.film' }, services: ['Cinematography', 'Post-production', 'VFX'], stats: { followers: '25k', projects: 80, likes: '15k' }, imageUrl: '' },
+  { id: 120, name: 'The Garage', specialty: 'Sound Recording & Mixing', category: 'Sound Studio', location: 'Cairo, EG', about: { Founded: '2020', 'Team Size': '5+', Website: 'thegarage.audio' }, services: ['Voice Over Recording', 'Sound Mix', 'ADR'], stats: { followers: '7k', projects: 90, likes: '4.5k' }, imageUrl: '' },
+  { id: 121, name: 'The Casting Hub', specialty: 'Talent Casting', category: 'Casting Studio', location: 'Cairo, EG', about: { Founded: '2015', 'Team Size': '10+', Website: 'thecastinghub.com' }, services: ['Actor Casting', 'Extras Casting', 'Voice Over Casting'], stats: { followers: '12k', projects: 300, likes: '9k' }, imageUrl: '' },
+];
+
+export const MOCK_COMPANIES = MOCK_COMPANIES_DATA.map(company => ({
+  ...company,
+  imageUrl: createPlaceholder(800, 400, '1a1a1a', 'FFFFFF', company.name)
+}));
+
 export const MOCK_PROJECTS_DATA: Project[] = [
   {
     id: 1,
@@ -473,6 +490,150 @@ export const MOCK_PROJECTS_DATA: Project[] = [
         services: ["Location"]
       }
     ]
+  }
+];
+
+// =====================================================
+// AGENDA MOCK DATA
+// =====================================================
+
+export interface MockAgendaEvent {
+  id: string;
+  title: string;
+  time: string; // Display format: "9:00 AM - 1:00 PM"
+  inTime: string; // 24h format: "09:00"
+  outTime: string; // 24h format: "13:00"
+  location?: string;
+  description?: string;
+  attendees?: Profile[];
+  status: 'Pending' | 'In Progress' | 'Completed' | 'On Hold' | 'Cancelled';
+  isCollapsed?: boolean;
+  type?: 'personal' | 'work';
+}
+
+export interface MockAgenda {
+  SU: MockAgendaEvent[];
+  MO: MockAgendaEvent[];
+  TU: MockAgendaEvent[];
+  WE: MockAgendaEvent[];
+  TH: MockAgendaEvent[];
+  FR: MockAgendaEvent[];
+  SA: MockAgendaEvent[];
+}
+
+export const MOCK_AGENDA: MockAgenda = {
+  'SU': [],
+  'MO': [
+    {
+      id: 'mo-1',
+      title: "Dentist",
+      time: '9:00 AM - 1:00 PM',
+      inTime: '09:00',
+      outTime: '13:00',
+      location: 'Downtown Cairo',
+      description: 'Dentist appointment.',
+      attendees: [MOCK_PROFILES[4], MOCK_PROFILES[5]],
+      status: 'Pending',
+      isCollapsed: true,
+      type: 'personal'
+    },
+    {
+      id: 'mo-5',
+      title: "Voice Over Recording Session",
+      time: '1:00 PM - 4:00 PM',
+      inTime: '13:00',
+      outTime: '16:00',
+      location: 'The Garage',
+      description: 'Recording for the new radio ad.',
+      attendees: [MOCK_PROFILES[1], MOCK_PROFILES[0]],
+      status: 'Pending',
+      isCollapsed: true
+    },
+    {
+      id: 'mo-3',
+      title: "Cinema",
+      time: '9:00 PM - 11:00 PM',
+      inTime: '21:00',
+      outTime: '23:00',
+      location: 'One Crew Office',
+      description: 'Going to the cinema.',
+      attendees: [MOCK_PROFILES[2]],
+      status: 'Pending',
+      isCollapsed: true,
+      type: 'personal'
+    },
+  ],
+  'TU': [],
+  'WE': [
+    {
+      id: 'we-1',
+      title: 'Commercial Shoot Day 1',
+      time: '6:00 AM - 6:00 PM',
+      inTime: '06:00',
+      outTime: '18:00',
+      location: 'Desert Road Studio',
+      description: 'Full day of shooting for the new car commercial.',
+      attendees: [MOCK_PROFILES[0], MOCK_PROFILES[5], MOCK_PROFILES[3]],
+      status: 'In Progress',
+      isCollapsed: true
+    },
+  ],
+  'TH': [],
+  'FR': [],
+  'SA': []
+};
+
+export interface MockBookingRequest {
+  id: string;
+  from: {
+    id: number;
+    name: string;
+  };
+  project: string;
+  role: string;
+  dates: string;
+  hours?: string;
+  location?: string;
+  status: 'pending' | 'accepted' | 'declined' | 'suggested_edit';
+}
+
+export const MOCK_BOOKING_REQUESTS: MockBookingRequest[] = [
+  {
+    id: 'br-1',
+    from: {
+      id: 1,
+      name: 'Aya Mahmoud'
+    },
+    project: 'Stranger Things',
+    role: 'Lead Actor',
+    dates: 'Aug 15 - Aug 20, 2025',
+    hours: '9:00 AM - 6:00 PM',
+    location: 'Cairo Studio',
+    status: 'pending'
+  },
+  {
+    id: 'br-2',
+    from: {
+      id: 2,
+      name: 'Karim Adel'
+    },
+    project: 'New Commercial',
+    role: 'Voice Actor',
+    dates: 'Sep 1 - Sep 3, 2025',
+    hours: '10:00 AM - 4:00 PM',
+    location: 'The Garage Studio',
+    status: 'pending'
+  },
+  {
+    id: 'br-3',
+    from: {
+      id: 3,
+      name: 'Salma Ibrahim'
+    },
+    project: 'Theater Production',
+    role: 'Supporting Actress',
+    dates: 'Oct 10 - Oct 15, 2025',
+    status: 'accepted'
   }
 ];
 

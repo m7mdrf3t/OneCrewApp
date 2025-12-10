@@ -56,6 +56,10 @@ import CourseDetailPage from './src/pages/CourseDetailPage';
 import PublicCoursesPage from './src/pages/PublicCoursesPage';
 import SettingsPage from './src/pages/SettingsPage';
 import ScreenshotHelper from './src/components/ScreenshotHelper';
+import AgendaPage from './src/pages/AgendaPage';
+import AllAgendaPage from './src/pages/AllAgendaPage';
+import BookingRequestsPage from './src/pages/BookingRequestsPage';
+import WeeklySchedulePage from './src/pages/WeeklySchedulePage';
 
 // Data
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
@@ -99,7 +103,7 @@ const AppContent: React.FC = () => {
     }
   }, [systemColorScheme]);
 
-  // Navigation function - declared early so it can be used in useEffect hooks
+  // Navigation function - defined early so it can be used in useEffect
   const navigateTo = useCallback((pageName: string, data: any = null) => {
     const newPage = { name: pageName, data };
     setHistory(prevHistory => [...prevHistory, newPage]);
@@ -260,7 +264,7 @@ const AppContent: React.FC = () => {
         const currentPage = prevHistory[prevHistory.length - 1];
         const newHistory = prevHistory.slice(0, -1);
         const newCurrentPage = newHistory[newHistory.length - 1];
-        const tabPages = ['home', 'projects', 'spot'];
+        const tabPages = ['home', 'projects', 'spot', 'wall'];
         
         // Special handling for 'myProfile': find the last main tab in history
         if (currentPage.name === 'myProfile') {
@@ -1121,6 +1125,14 @@ const AppContent: React.FC = () => {
           {page.name === 'spot' && (
             <SpotPage isDark={isDark} onNavigate={navigateTo} />
           )}
+          {page.name === 'wall' && (
+            <AgendaPage
+              onBack={handleBack}
+              onProfileSelect={handleProfileSelect}
+              onNavigate={navigateTo}
+              myTeam={myTeam}
+            />
+          )}
           {page.name === 'newsDetail' && (
             <NewsDetailPage
               slug={page.data?.slug}
@@ -1378,6 +1390,32 @@ const AppContent: React.FC = () => {
           {page.name === 'settings' && (
             <SettingsPage
               onBack={handleBack}
+            />
+          )}
+          {page.name === 'allAgenda' && (
+            <AllAgendaPage
+              onBack={handleBack}
+              onNavigate={navigateTo}
+              agenda={undefined} // Will use AsyncStorage internally
+              onProfileSelect={handleProfileSelect}
+            />
+          )}
+          {page.name === 'sPage' && (
+            <WeeklySchedulePage
+              onBack={handleBack}
+              onNavigate={navigateTo}
+            />
+          )}
+          {page.name === 'bookingRequests' && (
+            <BookingRequestsPage
+              onBack={handleBack}
+              onNavigate={navigateTo}
+              projects={[]} // Will be populated from API
+              requests={undefined} // Will use AsyncStorage internally
+              onRespond={(requestId, status) => {
+                // Handle booking request response
+                // TODO: Implement API call to respond to booking request
+              }}
             />
           )}
         </View>
