@@ -16,9 +16,10 @@ import { validatePassword, getPasswordRequirements } from '../utils/passwordVali
 
 interface SettingsPageProps {
   onBack: () => void;
+  onNavigate?: (pageName: string) => void;
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
+const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
   const { changePassword, isLoading, error, clearError } = useApi();
   const [formData, setFormData] = useState({
     currentPassword: '',
@@ -314,6 +315,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack }) => {
             </Text>
           </View>
         </View>
+
+        {__DEV__ && onNavigate && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Developer Tools</Text>
+            <TouchableOpacity
+              style={styles.devButton}
+              onPress={() => onNavigate('performanceTest')}
+            >
+              <Ionicons name="speedometer" size={20} color="#000" />
+              <Text style={styles.devButtonText}>Performance Monitor</Text>
+              <Ionicons name="chevron-forward" size={20} color="#71717a" />
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -505,6 +520,22 @@ const styles = StyleSheet.create({
     color: '#1e40af',
     lineHeight: 18,
     marginLeft: 12,
+  },
+  devButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    gap: 12,
+  },
+  devButtonText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#000',
   },
 });
 

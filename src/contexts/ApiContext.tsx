@@ -37,6 +37,7 @@ import { initializeGoogleSignIn, signInWithGoogle } from '../services/GoogleAuth
 import agendaService from '../services/AgendaService';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
 import { FilterParams } from '../components/FilterModal';
+import performanceMonitor from '../services/PerformanceMonitor';
 import {
   AgendaEvent,
   CreateAgendaEventRequest,
@@ -2528,28 +2529,33 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Roles and Categories methods
   const getRoles = async () => {
-    try {
-      console.log('🔍 Fetching roles using API client...');
-      
-      // Ensure API is initialized
-      if (!api) {
-        throw new Error('API client not initialized');
-      }
-      
-      // Check if the method exists
-      if (typeof api.getRoles !== 'function') {
-        console.log('🔍 API client methods available:', Object.getOwnPropertyNames(Object.getPrototypeOf(api)));
-        console.log('🔍 getRoles method exists:', typeof api.getRoles);
-        console.log('🔍 API client prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(api)));
-        
-        // Try using the apiClient directly
-        console.log('🔍 Trying direct apiClient call...');
-        const response = await (api as any).apiClient.get('/api/roles');
-        console.log('✅ Direct API call successful:', response);
-        return response;
-      }
-      
-      const response = await api.getRoles();
+    return performanceMonitor.trackApiCall(
+      'Get Roles',
+      `${baseUrl}/api/roles`,
+      'GET',
+      async () => {
+        try {
+          console.log('🔍 Fetching roles using API client...');
+          
+          // Ensure API is initialized
+          if (!api) {
+            throw new Error('API client not initialized');
+          }
+          
+          // Check if the method exists
+          if (typeof api.getRoles !== 'function') {
+            console.log('🔍 API client methods available:', Object.getOwnPropertyNames(Object.getPrototypeOf(api)));
+            console.log('🔍 getRoles method exists:', typeof api.getRoles);
+            console.log('🔍 API client prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(api)));
+            
+            // Try using the apiClient directly
+            console.log('🔍 Trying direct apiClient call...');
+            const response = await (api as any).apiClient.get('/api/roles');
+            console.log('✅ Direct API call successful:', response);
+            return response;
+          }
+          
+          const response = await api.getRoles();
       
       if (response.success && response.data) {
         // Convert string array to object array format
@@ -2567,25 +2573,27 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       } else {
         throw new Error(response.error || 'Failed to fetch roles');
       }
-    } catch (err: any) {
-      console.error('❌ Failed to fetch roles:', err);
-      // Return mock roles as fallback
-      return {
-        success: true,
-        data: [
-          { id: '1', name: 'Writer', category: 'Creative' },
-          { id: '2', name: 'Director', category: 'Creative' },
-          { id: '3', name: 'Producer', category: 'Production' },
-          { id: '4', name: 'Actor', category: 'Talent' },
-          { id: '5', name: 'Cinematographer', category: 'Technical' },
-          { id: '6', name: 'Editor', category: 'Technical' },
-          { id: '7', name: 'Sound Engineer', category: 'Technical' },
-          { id: '8', name: 'Casting Director', category: 'Production' },
-          { id: '9', name: 'Location Manager', category: 'Production' },
-          { id: '10', name: 'Production Designer', category: 'Creative' },
-        ]
-      };
-    }
+        } catch (err: any) {
+          console.error('❌ Failed to fetch roles:', err);
+          // Return mock roles as fallback
+          return {
+            success: true,
+            data: [
+              { id: '1', name: 'Writer', category: 'Creative' },
+              { id: '2', name: 'Director', category: 'Creative' },
+              { id: '3', name: 'Producer', category: 'Production' },
+              { id: '4', name: 'Actor', category: 'Talent' },
+              { id: '5', name: 'Cinematographer', category: 'Technical' },
+              { id: '6', name: 'Editor', category: 'Technical' },
+              { id: '7', name: 'Sound Engineer', category: 'Technical' },
+              { id: '8', name: 'Casting Director', category: 'Production' },
+              { id: '9', name: 'Location Manager', category: 'Production' },
+              { id: '10', name: 'Production Designer', category: 'Creative' },
+            ]
+          };
+        }
+      }
+    );
   };
 
   // Helper function to categorize roles
@@ -3133,9 +3141,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     page?: number;
   } = {}) => {
     const cacheKey = `users-direct-${JSON.stringify(params)}`;
-    return rateLimiter.execute(cacheKey, async () => {
-      try {
-        console.log('👥 Fetching users with direct fetch...', params);
+    return performanceMonitor.trackApiCall(
+      'Get Users Direct',
+      `${baseUrl}/api/users`,
+      'GET',
+      () => rateLimiter.execute(cacheKey, async () => {
+        try {
+          console.log('👥 Fetching users with direct fetch...', params);
         
         // Debug: Check if user is authenticated
         console.log('🔍 Auth state check:', {
@@ -3235,7 +3247,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         throw err;
       }
-    }, { ttl: CacheTTL.SHORT }); // Users list changes frequently - 30s TTL for fresh data
+    }, { ttl: CacheTTL.SHORT }) // Users list changes frequently - 30s TTL for fresh data
+    );
   };
 
   // Debug method to check authentication state
@@ -3373,7 +3386,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const healthCheck = async () => {
-    return await api.healthCheck();
+    return performanceMonitor.trackApiCall(
+      'Health Check',
+      `${baseUrl}/api/health`,
+      'GET',
+      () => api.healthCheck()
+    );
   };
 
   // Portfolio management methods
@@ -4680,28 +4698,33 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     location?: string;
   }) => {
     const cacheKey = `companies-${JSON.stringify(params || {})}`;
-    return rateLimiter.execute(cacheKey, async () => {
-      try {
-        // Build query parameters for the API
-        const queryParams: any = {};
-        if (params?.limit) queryParams.limit = params.limit;
-        if (params?.page) queryParams.page = params.page;
-        if (params?.search) queryParams.q = params.search;
-        if (params?.category) queryParams.category = params.category;
-        if (params?.location) queryParams.location = params.location;
-        
-        const response = await api.getCompanies(Object.keys(queryParams).length > 0 ? queryParams : undefined);
-        return response;
-      } catch (error: any) {
-        // Handle rate limiting gracefully
-        if (error.status === 429 || error.statusCode === 429 || error.message?.includes('429')) {
-          console.warn('⚠️ Rate limited on getCompanies, returning empty result');
-          return { success: true, data: [] };
+    return performanceMonitor.trackApiCall(
+      'Get Companies',
+      `${baseUrl}/api/companies`,
+      'GET',
+      () => rateLimiter.execute(cacheKey, async () => {
+        try {
+          // Build query parameters for the API
+          const queryParams: any = {};
+          if (params?.limit) queryParams.limit = params.limit;
+          if (params?.page) queryParams.page = params.page;
+          if (params?.search) queryParams.q = params.search;
+          if (params?.category) queryParams.category = params.category;
+          if (params?.location) queryParams.location = params.location;
+          
+          const response = await api.getCompanies(Object.keys(queryParams).length > 0 ? queryParams : undefined);
+          return response;
+        } catch (error: any) {
+          // Handle rate limiting gracefully
+          if (error.status === 429 || error.statusCode === 429 || error.message?.includes('429')) {
+            console.warn('⚠️ Rate limited on getCompanies, returning empty result');
+            return { success: true, data: [] };
+          }
+          console.error('Failed to get companies:', error);
+          throw error;
         }
-        console.error('Failed to get companies:', error);
-        throw error;
-      }
-    }, { ttl: CacheTTL.LONG, persistent: true }); // Company listings change rarely - 30min TTL with persistence
+      }, { ttl: CacheTTL.LONG, persistent: true }) // Company listings change rarely - 30min TTL with persistence
+    );
   };
 
   // Company Services Methods

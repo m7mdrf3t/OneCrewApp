@@ -60,6 +60,7 @@ import AgendaPage from './src/pages/AgendaPage';
 import AllAgendaPage from './src/pages/AllAgendaPage';
 import BookingRequestsPage from './src/pages/BookingRequestsPage';
 import WeeklySchedulePage from './src/pages/WeeklySchedulePage';
+import PerformanceTestPage from './src/pages/PerformanceTestPage';
 
 // Data
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
@@ -1389,6 +1390,12 @@ const AppContent: React.FC = () => {
           )}
           {page.name === 'settings' && (
             <SettingsPage
+              onBack={handleBack}
+              onNavigate={navigateTo}
+            />
+          )}
+          {page.name === 'performanceTest' && (
+            <PerformanceTestPage
               onBack={handleBack}
             />
           )}
