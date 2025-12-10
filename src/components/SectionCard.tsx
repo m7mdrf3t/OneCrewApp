@@ -27,9 +27,6 @@ const SectionCard: React.FC<SectionCardProps> = ({ section, onClick }) => {
       </View>
       <View style={styles.content}>
         <Text style={styles.title}>{section.title}</Text>
-        {section.userCount !== undefined && (
-          <Text style={styles.userCount}>{section.userCount} members</Text>
-        )}
       </View>
       <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
     </TouchableOpacity>
