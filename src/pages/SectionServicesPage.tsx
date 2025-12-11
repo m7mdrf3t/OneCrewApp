@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ServiceCard from '../components/ServiceCard';
 import { useApi } from '../contexts/ApiContext';
 import { User } from '../types';
-import { filterRolesByCategory, getRoleName } from '../utils/roleCategorizer';
+import { getRoleName } from '../utils/roleCategorizer';
 
 interface SectionServicesPageProps {
   section: {
@@ -36,32 +36,42 @@ const SectionServicesPage: React.FC<SectionServicesPageProps> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      // Fetch roles from API
-      const rolesResponse = await getRoles();
+      // Determine category filter based on section
+      const categoryFilter = section.key === 'individuals' ? 'crew' : section.key === 'talent' ? 'talent' : undefined;
+      
+      // Fetch roles from API with category filter
+      const rolesResponse = categoryFilter 
+        ? await getRoles({ category: categoryFilter })
+        : await getRoles();
+      
       if (rolesResponse.success && rolesResponse.data) {
         const rolesData = Array.isArray(rolesResponse.data) ? rolesResponse.data : [];
         setRoles(rolesData);
+        console.log(`✅ ${categoryFilter || 'All'} roles loaded:`, rolesData.length);
       }
 
-      // Fetch users from API
+      // Fetch users from API with category filter
       let usersData: User[] = [];
       if (isGuest) {
         const guestResponse = await browseUsersAsGuest({ 
           limit: 1000,
-          category: section.key === 'individuals' ? 'crew' : section.key === 'talent' ? 'talent' : undefined
+          category: categoryFilter
         });
         if (guestResponse.success && guestResponse.data) {
           usersData = Array.isArray(guestResponse.data) ? guestResponse.data : (guestResponse.data.data || []);
         }
       } else {
-        const usersResponse = await getUsersDirect({ limit: 1000 });
+        // Send category filter for authenticated users too
+        const usersResponse = await getUsersDirect({ 
+          limit: 1000,
+          category: categoryFilter
+        });
         if (usersResponse.success && usersResponse.data) {
           usersData = Array.isArray(usersResponse.data) ? usersResponse.data : (usersResponse.data.data || []);
         }
       }
       
-      // Filter users by category
-      const categoryFilter = section.key === 'individuals' ? 'crew' : section.key === 'talent' ? 'talent' : undefined;
+      // Users are already filtered by backend, but keep client-side filter as fallback
       const filteredUsers = categoryFilter 
         ? usersData.filter(u => u.category === categoryFilter)
         : usersData;
@@ -131,20 +141,13 @@ const SectionServicesPage: React.FC<SectionServicesPageProps> = ({
       return section.items;
     }
 
-    // Filter roles based on section category using the same logic as signup
+    // Roles are already filtered by backend API based on category
+    // No need for client-side filtering since we're using category filter in getRoles()
     let filteredRoles = roles;
     
-    if (section.key === 'individuals') {
-      // Crew section: use the same categorization as signup
-      filteredRoles = filterRolesByCategory(roles, 'crew');
-    } else if (section.key === 'talent') {
-      // Talent section: use the same categorization as signup
-      filteredRoles = filterRolesByCategory(roles, 'talent');
-    } else {
-      // For other sections (technicians, specialized), keep all roles
-      // These sections might have their own specific roles
-      filteredRoles = roles;
-    }
+    // For sections without category (technicians, specialized), keep all roles
+    // These sections might have their own specific roles
+    // Note: If backend filtering isn't perfect, we can add fallback client-side filtering here
 
     // Create items with real counts
     const items = filteredRoles.map((role: any) => {
