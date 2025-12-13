@@ -249,8 +249,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   });
   
   // Portfolio state
-  const [currentPortfolioUrl, setCurrentPortfolioUrl] = useState('');
-  const [currentPortfolioCaption, setCurrentPortfolioCaption] = useState('');
   const [portfolioType, setPortfolioType] = useState<'image' | 'video' | 'audio'>('image');
   const [isUploadingPortfolio, setIsUploadingPortfolio] = useState(false);
   
@@ -759,23 +757,17 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   };
 
   // Portfolio management functions
-  const addPortfolioItem = async () => {
-    if (!currentPortfolioUrl.trim()) {
-      Alert.alert('Error', 'Please enter a URL for the portfolio item');
+  const addPortfolioItem = async (url: string, kind: 'image' | 'video' | 'audio', caption?: string) => {
+    if (!url || !url.trim()) {
+      Alert.alert('Error', 'Invalid URL for the portfolio item');
       return;
     }
 
-    setIsUploadingPortfolio(true);
-    setUploadProgress({
-      visible: true,
-      progress: undefined,
-      label: `Adding ${portfolioType} to portfolio...`,
-    });
     try {
       const newItem = {
-        kind: portfolioType === 'audio' ? 'image' : portfolioType, // Convert audio to image for API compatibility
-        url: currentPortfolioUrl.trim(),
-        caption: currentPortfolioCaption.trim() || undefined,
+        kind: kind === 'audio' ? 'image' : kind, // Convert audio to image for API compatibility
+        url: url.trim(),
+        caption: caption?.trim() || undefined,
         sort_order: formData.portfolio.length,
       };
 
@@ -786,29 +778,22 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       }));
 
       // Only try to save to API if it's a proper URL (not a local file path)
-      const isLocalFile = currentPortfolioUrl.startsWith('file://') || currentPortfolioUrl.startsWith('/');
+      const isLocalFile = url.startsWith('file://') || url.startsWith('/');
       
       if (!isLocalFile) {
         try {
           await api.addPortfolioItem(newItem);
         } catch (apiError) {
+          console.error('API error adding portfolio item:', apiError);
         }
-      } else {
       }
 
-      setUploadProgress({ visible: false, label: '' });
-      // Clear form
-      setCurrentPortfolioUrl('');
-      setCurrentPortfolioCaption('');
-      setPortfolioType('image');
-
-      Alert.alert('Success', 'Portfolio item added successfully!');
+      // Show brief success feedback
+      // Note: Removed Alert.alert for less intrusive UX - item appears in grid immediately
     } catch (error: any) {
       console.error('Error adding portfolio item:', error);
-      setUploadProgress({ visible: false, label: '' });
       Alert.alert('Error', 'Failed to add portfolio item. Please try again.');
-    } finally {
-      setIsUploadingPortfolio(false);
+      throw error;
     }
   };
 
@@ -865,9 +850,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
           setUploadingImage({ type: null });
           if (uploadResult.data?.url) {
-            setCurrentPortfolioUrl(uploadResult.data.url);
-            setPortfolioType('image');
-            Alert.alert('Success', 'Portfolio image uploaded! Add a caption and click "Add to Portfolio".');
+            // Directly add to portfolio after upload
+            await addPortfolioItem(uploadResult.data.url, 'image');
           } else {
             throw new Error('Upload failed - no URL returned');
           }
@@ -912,9 +896,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
           setUploadingImage({ type: null });
           if (uploadResult.data?.url) {
-            setCurrentPortfolioUrl(uploadResult.data.url);
-            setPortfolioType('image');
-            Alert.alert('Success', 'Portfolio photo uploaded! Add a caption and click "Add to Portfolio".');
+            // Directly add to portfolio after upload
+            await addPortfolioItem(uploadResult.data.url, 'image');
           } else {
             throw new Error('Upload failed - no URL returned');
           }
@@ -974,9 +957,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
           setUploadingImage({ type: null });
           if (uploadResult.data?.url) {
-            setCurrentPortfolioUrl(uploadResult.data.url);
-            setPortfolioType('video');
-            Alert.alert('Success', 'Portfolio video uploaded! Add a caption and click "Add to Portfolio".');
+            // Directly add to portfolio after upload
+            await addPortfolioItem(uploadResult.data.url, 'video');
           } else {
             throw new Error('Upload failed - no URL returned');
           }
@@ -1026,11 +1008,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
         // Upload the file to Supabase and get the URL
         setIsUploadingPortfolio(true);
-        setUploadProgress({
-          visible: true,
-          progress: undefined,
-          label: 'Uploading portfolio video...',
-        });
+        setUploadingImage({ type: 'portfolio', progress: undefined });
         try {
           const uploadResult = await uploadFile({
             uri: result.uri,
@@ -1038,11 +1016,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             name: result.fileName || `portfolio_recorded_${Date.now()}.mp4`,
           });
 
-          setUploadProgress({ visible: false, label: '' });
+          setUploadingImage({ type: null });
           if (uploadResult.data?.url) {
-            setCurrentPortfolioUrl(uploadResult.data.url);
-            setPortfolioType('video');
-            Alert.alert('Success', 'Portfolio video uploaded! Add a caption and click "Add to Portfolio".');
+            // Directly add to portfolio after upload
+            await addPortfolioItem(uploadResult.data.url, 'video');
           } else {
             throw new Error('Upload failed - no URL returned');
           }
@@ -1492,10 +1469,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           </View>
         </View>
 
-        {/* Basic Infos Section */}
+        {/* Basic Information Section */}
         <CollapsibleSection
           id="basic-info"
-          title="Basic Infos"
+          title="Basic Information"
           isExpanded={expandedSections.has('basic-info')}
           onToggle={() => toggleSection('basic-info')}
           sectionRef={sectionRefs['basic-info']}
@@ -1921,10 +1898,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           </View>
         </CollapsibleSection>
 
-        {/* Portfolio and Video Section */}
+        {/* Portfolio Section */}
         <CollapsibleSection
           id="portfolio"
-          title="Portfolio and Video"
+          title="Portfolio"
           isExpanded={expandedSections.has('portfolio')}
           onToggle={() => toggleSection('portfolio')}
           sectionRef={sectionRefs['portfolio']}
@@ -1968,43 +1945,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             </Text>
           </TouchableOpacity>
         </View>
-          
-        {/* Portfolio URL Input */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Portfolio URL (Optional)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder={`Enter ${portfolioType} URL manually or use buttons above to upload`}
-            value={currentPortfolioUrl}
-            onChangeText={setCurrentPortfolioUrl}
-            multiline
-            editable={!isSubmitting}
-          />
-        </View>
-
-        {/* Portfolio Caption Input */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Caption (Optional)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Add a caption for this portfolio item"
-            value={currentPortfolioCaption}
-            onChangeText={setCurrentPortfolioCaption}
-            multiline
-            editable={!isSubmitting}
-          />
-        </View>
-
-        {/* Add Portfolio Item Button */}
-              <TouchableOpacity
-          style={[styles.addPortfolioButton, isUploadingPortfolio && styles.addPortfolioButtonDisabled]}
-          onPress={addPortfolioItem}
-          disabled={isUploadingPortfolio || isSubmitting}
-        >
-          <Text style={styles.addPortfolioButtonText}>
-            {isUploadingPortfolio ? 'Adding...' : 'Add to Portfolio'}
-          </Text>
-              </TouchableOpacity>
               
         {/* Portfolio Items List */}
         {formData.portfolio.length > 0 && (
@@ -2186,10 +2126,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         )}
         </CollapsibleSection>
 
-        {/* Details Info Section */}
+        {/* Personal Details Section */}
         <CollapsibleSection
           id="details-info"
-          title="Details Info"
+          title="Personal Details"
           isExpanded={expandedSections.has('details-info')}
           onToggle={() => toggleSection('details-info')}
           sectionRef={sectionRefs['details-info']}
@@ -2408,10 +2348,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         )}
         </CollapsibleSection>
 
-        {/* The Rest Section */}
+        {/* Additional Information Section */}
         <CollapsibleSection
           id="other"
-          title="The Rest"
+          title="Additional Information"
           isExpanded={expandedSections.has('other')}
           onToggle={() => toggleSection('other')}
           sectionRef={sectionRefs['other']}

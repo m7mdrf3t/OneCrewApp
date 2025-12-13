@@ -563,9 +563,24 @@ class PushNotificationService {
    */
   async initialize(): Promise<string | null> {
     console.log('🚀 [Init] Initializing PushNotificationService...');
-    if (this.isInitialized) {
+    if (this.isInitialized && this.token) {
       console.log('✅ [Init] Service already initialized, returning existing token');
       return this.token;
+    }
+    
+    // If service is initialized but token is null, try to get stored token or re-register
+    if (this.isInitialized && !this.token) {
+      console.log('⚠️ [Init] Service initialized but token is null, checking stored token...');
+      const storedToken = await this.getStoredToken();
+      if (storedToken) {
+        console.log('✅ [Init] Found stored token, using it');
+        this.token = storedToken;
+        return storedToken;
+      } else {
+        console.log('⚠️ [Init] No stored token found, will re-register...');
+        // Reset initialization flag to allow re-registration
+        this.isInitialized = false;
+      }
     }
 
     this.configure();

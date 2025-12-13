@@ -765,14 +765,48 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
           {/* About Section */}
           <View style={styles.infoCard}>
-            <Text style={styles.infoSectionTitle}>About</Text>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.infoSectionTitle}>About</Text>
+              {isCurrentUser && (
+                <TouchableOpacity
+                  style={styles.editSectionButton}
+                  onPress={() => {
+                    if (isGuest) {
+                      setPromptAction('edit your profile');
+                      setShowSignUpPrompt(true);
+                    } else {
+                      onNavigate?.('profileCompletion', { ...userProfile, initialSection: 'basic-info' });
+                    }
+                  }}
+                >
+                  <Ionicons name="create-outline" size={16} color="#3b82f6" />
+                </TouchableOpacity>
+              )}
+            </View>
             <Text style={styles.aboutText}>{userProfile.bio || 'No bio available'}</Text>
           </View>
 
           {/* Personal Information Grid */}
           {userProfile.about && (
             <View style={styles.infoCard}>
-              <Text style={styles.infoSectionTitle}>Personal Information</Text>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.infoSectionTitle}>Personal Information</Text>
+                {isCurrentUser && (
+                  <TouchableOpacity
+                    style={styles.editSectionButton}
+                    onPress={() => {
+                      if (isGuest) {
+                        setPromptAction('edit your profile');
+                        setShowSignUpPrompt(true);
+                      } else {
+                        onNavigate?.('profileCompletion', { ...userProfile, initialSection: 'details-info' });
+                      }
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#3b82f6" />
+                  </TouchableOpacity>
+                )}
+              </View>
               <View style={styles.personalInfoGrid}>
                 {userProfile.about.gender && (
                   <View style={styles.infoTag}>
@@ -927,11 +961,11 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             </View>
           )}
 
-          {/* Certificates & Awards Section */}
+          {/* Certificates Section */}
           <View style={styles.infoCard}>
             <View style={styles.sectionTitleRow}>
-              <Ionicons name="trophy-outline" size={20} color="#000" />
-              <Text style={styles.infoSectionTitle}>Certificates & Awards</Text>
+              <Ionicons name="document-text-outline" size={20} color="#000" />
+              <Text style={styles.infoSectionTitle}>Certificates</Text>
             </View>
             {loadingCertifications ? (
               <View style={styles.loadingContainer}>
@@ -941,7 +975,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               <View style={styles.certificatesGrid}>
                 {certifications.slice(0, 3).map((certification, index) => {
                   // Get icon based on index or certification type
-                  const icons = ['medal-outline', 'star-outline', 'sparkles-outline'];
+                  const icons = ['document-text-outline', 'document-outline', 'checkmark-circle-outline'];
                   const iconName = icons[index % icons.length] as any;
                   
                   // Extract year from issued_at or use a default
@@ -965,16 +999,45 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               </View>
             ) : (
               <View style={styles.emptyState}>
-                <Ionicons name="trophy-outline" size={32} color="#d1d5db" />
-                <Text style={styles.emptyStateText}>No certifications yet</Text>
+                <Ionicons name="document-text-outline" size={32} color="#d1d5db" />
+                <Text style={styles.emptyStateText}>No certificates yet</Text>
               </View>
             )}
+          </View>
+
+          {/* Awards Section */}
+          <View style={styles.infoCard}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="trophy-outline" size={20} color="#000" />
+              <Text style={styles.infoSectionTitle}>Awards</Text>
+            </View>
+            <View style={styles.emptyState}>
+              <Ionicons name="trophy-outline" size={32} color="#d1d5db" />
+              <Text style={styles.emptyStateText}>No awards yet</Text>
+            </View>
           </View>
 
           {/* Gallery/Portfolio Section */}
           {((userProfile.portfolio && userProfile.portfolio.length > 0) || userProfile.category === 'talent') && (
             <View style={styles.infoCard}>
-              <Text style={styles.infoSectionTitle}>Gallery</Text>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.infoSectionTitle}>Gallery</Text>
+                {isCurrentUser && (
+                  <TouchableOpacity
+                    style={styles.editSectionButton}
+                    onPress={() => {
+                      if (isGuest) {
+                        setPromptAction('edit your profile');
+                        setShowSignUpPrompt(true);
+                      } else {
+                        onNavigate?.('profileCompletion', { ...userProfile, initialSection: 'portfolio' });
+                      }
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#3b82f6" />
+                  </TouchableOpacity>
+                )}
+              </View>
               
               {/* Gallery Tabs */}
               <View style={styles.galleryTabs}>
@@ -1134,8 +1197,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                 <Text style={styles.emptySocialLinksText}>Loading social links...</Text>
               </View>
             ) : socialLinks && socialLinks.length > 0 ? (
-              <View style={styles.socialMediaGrid}>
-                {socialLinks.slice(0, 4).map((link: any, index: number) => {
+              <View style={styles.socialMediaTable}>
+                {socialLinks.map((link: any, index: number) => {
                   // Map platform to icon and display name
                   const platformMap: { [key: string]: { icon: string; name: string } } = {
                     'facebook': { icon: 'logo-facebook', name: 'Facebook' },
@@ -1153,7 +1216,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   return (
                     <TouchableOpacity
                       key={link.id || index}
-                      style={styles.socialMediaButton}
+                      style={styles.socialMediaTableRow}
                       onPress={() => {
                         try {
                           Linking.openURL(link.url);
@@ -1162,15 +1225,16 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                         }
                       }}
                     >
-                      <Ionicons name={platformInfo.icon as any} size={24} color="#000" />
-                      <Text style={styles.socialMediaButtonText}>{platformInfo.name}</Text>
+                      <View style={styles.socialMediaTableIcon}>
+                        <Ionicons name={platformInfo.icon as any} size={16} color="#000" />
+                      </View>
+                      <Text style={styles.socialMediaTableText} numberOfLines={1}>
+                        {platformInfo.name}
+                      </Text>
+                      <Ionicons name="chevron-forward" size={14} color="#9ca3af" />
                     </TouchableOpacity>
                   );
                 })}
-                {/* Fill remaining slots if less than 4 links */}
-                {socialLinks.length < 4 && Array.from({ length: 4 - socialLinks.length }).map((_, idx) => (
-                  <View key={`empty-${idx}`} style={[styles.socialMediaButton, styles.socialMediaButtonEmpty]} />
-                ))}
               </View>
             ) : (
               <View style={styles.emptySocialLinksContainer}>
@@ -1260,8 +1324,25 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           {(userProfile.email || userProfile.phone || (userProfile as any).agent_phone) && (
             <View style={styles.infoCard}>
               <View style={styles.sectionTitleRow}>
-                <Ionicons name="call-outline" size={20} color="#000" />
-                <Text style={styles.infoSectionTitle}>Contact</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="call-outline" size={20} color="#000" />
+                  <Text style={styles.infoSectionTitle}>Contact</Text>
+                </View>
+                {isCurrentUser && (
+                  <TouchableOpacity
+                    style={styles.editSectionButton}
+                    onPress={() => {
+                      if (isGuest) {
+                        setPromptAction('edit your profile');
+                        setShowSignUpPrompt(true);
+                      } else {
+                        onNavigate?.('profileCompletion', { ...userProfile, initialSection: 'other' });
+                      }
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#3b82f6" />
+                  </TouchableOpacity>
+                )}
               </View>
               <View style={styles.contactInfo}>
                 {(userProfile as any).agent_phone && (
@@ -2203,7 +2284,35 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.8,
   },
-  // Social Media Grid Styles
+  // Social Media Table Styles
+  socialMediaTable: {
+    marginTop: 8,
+    gap: 0,
+  },
+  socialMediaTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    gap: 12,
+  },
+  socialMediaTableIcon: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+  },
+  socialMediaTableText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#000',
+    fontWeight: '500',
+  },
+  // Legacy Social Media Grid Styles (kept for backward compatibility)
   socialMediaGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

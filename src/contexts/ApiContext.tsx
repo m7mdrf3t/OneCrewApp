@@ -3,6 +3,7 @@ import { Platform, AppState, AppStateStatus, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore - expo-constants types may not be available in all environments
 import Constants from 'expo-constants';
+import * as Device from 'expo-device';
 import OneCrewApi, { User, AuthResponse, LoginRequest, SignupRequest, ApiError } from 'onecrew-api-client';
 import { 
   GuestSessionData, 
@@ -589,6 +590,37 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           setUser(currentUser);
           setIsAuthenticated(true);
           
+          // Set up token refresh callback for automatic re-registration
+          pushNotificationService.setOnTokenRefreshCallback((newToken) => {
+            if (api.auth.isAuthenticated()) {
+              console.log('📱 Token refreshed, re-registering with backend...');
+              registerPushToken(newToken).catch((error) => {
+                console.warn('⚠️ Failed to re-register token after refresh:', error);
+              });
+            }
+          });
+          
+          // Register push token for already-authenticated user
+          setTimeout(async () => {
+            try {
+              console.log('📱 Registering push token for already-authenticated user...');
+              const pushToken = await pushNotificationService.initialize();
+              console.log('📱 [AuthRestore] Push token from initialize():', pushToken ? pushToken.substring(0, 20) + '...' : 'null');
+              console.log('📱 [AuthRestore] Is authenticated:', api.auth.isAuthenticated());
+              if (pushToken && api.auth.isAuthenticated()) {
+                console.log('📱 [AuthRestore] Calling registerPushToken...');
+                await registerPushToken(pushToken);
+              } else {
+                console.warn('⚠️ [AuthRestore] Skipping token registration:', {
+                  hasToken: !!pushToken,
+                  isAuthenticated: api.auth.isAuthenticated()
+                });
+              }
+            } catch (error) {
+              console.error('❌ [AuthRestore] Failed to register push notifications for authenticated user:', error);
+            }
+          }, 1000);
+          
           // Restore profile type and active company from storage
           const savedProfileType = await AsyncStorage.getItem('currentProfileType');
           const savedCompanyId = await AsyncStorage.getItem('activeCompanyId');
@@ -814,9 +846,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Set up token refresh callback for automatic re-registration
       pushNotificationService.setOnTokenRefreshCallback((newToken) => {
-        if (userData.id) {
+        if (api.auth.isAuthenticated()) {
           console.log('📱 Token refreshed, re-registering with backend...');
-          registerPushToken(newToken, userData.id).catch((error) => {
+          registerPushToken(newToken).catch((error) => {
             console.warn('⚠️ Failed to re-register token after refresh:', error);
           });
         }
@@ -827,11 +859,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         try {
           console.log('📱 Registering for push notifications...');
           const pushToken = await pushNotificationService.initialize();
-          if (pushToken && userData.id) {
-            await registerPushToken(pushToken, userData.id);
+          console.log('📱 [Login] Push token from initialize():', pushToken ? pushToken.substring(0, 20) + '...' : 'null');
+          console.log('📱 [Login] Is authenticated:', api.auth.isAuthenticated());
+          if (pushToken && api.auth.isAuthenticated()) {
+            console.log('📱 [Login] Calling registerPushToken...');
+            await registerPushToken(pushToken);
+          } else {
+            console.warn('⚠️ [Login] Skipping token registration:', {
+              hasToken: !!pushToken,
+              isAuthenticated: api.auth.isAuthenticated()
+            });
           }
         } catch (error) {
-          console.warn('⚠️ Failed to register push notifications:', error);
+          console.error('❌ [Login] Failed to register push notifications:', error);
         }
       }, 500);
       
@@ -1228,9 +1268,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Set up token refresh callback for automatic re-registration
       pushNotificationService.setOnTokenRefreshCallback((newToken) => {
-        if (userData.id) {
+        if (api.auth.isAuthenticated()) {
           console.log('📱 Token refreshed, re-registering with backend...');
-          registerPushToken(newToken, userData.id).catch((error) => {
+          registerPushToken(newToken).catch((error) => {
             console.warn('⚠️ Failed to re-register token after refresh:', error);
           });
         }
@@ -1241,11 +1281,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         try {
           console.log('📱 Registering for push notifications...');
           const pushToken = await pushNotificationService.initialize();
-          if (pushToken && userData.id) {
-            await registerPushToken(pushToken, userData.id);
+          console.log('📱 [GoogleLogin] Push token from initialize():', pushToken ? pushToken.substring(0, 20) + '...' : 'null');
+          console.log('📱 [GoogleLogin] Is authenticated:', api.auth.isAuthenticated());
+          if (pushToken && api.auth.isAuthenticated()) {
+            console.log('📱 [GoogleLogin] Calling registerPushToken...');
+            await registerPushToken(pushToken);
+          } else {
+            console.warn('⚠️ [GoogleLogin] Skipping token registration:', {
+              hasToken: !!pushToken,
+              isAuthenticated: api.auth.isAuthenticated()
+            });
           }
         } catch (error) {
-          console.warn('⚠️ Failed to register push notifications:', error);
+          console.error('❌ [GoogleLogin] Failed to register push notifications:', error);
         }
       }, 500);
       
@@ -1296,7 +1344,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         setNotificationChannelId(null);
       }
       
-      // Clear push notification token
+      // Unregister push notification token from backend before clearing
+      try {
+        const currentToken = await pushNotificationService.getStoredToken();
+        if (currentToken) {
+          console.log('📱 Unregistering push token from backend...');
+          await api.pushNotifications.unregisterDeviceToken(currentToken);
+          console.log('✅ Push token unregistered from backend');
+        }
+      } catch (tokenError) {
+        console.warn('⚠️ Failed to unregister push token (non-critical):', tokenError);
+      }
+      
+      // Clear push notification token locally
       await pushNotificationService.clearToken();
       await pushNotificationService.setBadgeCount(0);
       
@@ -1318,6 +1378,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (notificationChannelId) {
         supabaseService.unsubscribe(notificationChannelId);
         setNotificationChannelId(null);
+      }
+      
+      // Try to unregister token even on error
+      try {
+        const currentToken = await pushNotificationService.getStoredToken();
+        if (currentToken) {
+          await api.pushNotifications.unregisterDeviceToken(currentToken);
+        }
+      } catch (tokenError) {
+        // Ignore token unregistration errors during logout
       }
       
       // Clear push notification token even on error
@@ -6196,63 +6266,46 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // Push notification token registration (Firebase FCM)
-  const registerPushToken = async (token: string, userId: string) => {
+  // Uses onecrew-api-client's pushNotifications.registerDeviceToken() method
+  const registerPushToken = async (token: string) => {
     try {
-      console.log('📱 [Backend] Registering FCM token with backend...');
+      console.log('📱 [Backend] Registering FCM token with backend using API client...');
       console.log('📱 [Backend] Token (first 20 chars):', token.substring(0, 20) + '...');
-      console.log('📱 [Backend] User ID:', userId);
       
-      // Get device ID - use a stored UUID or generate one
-      let deviceId = await AsyncStorage.getItem('@onecrew:device_id');
+      // Get platform
+      const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+      
+      // Get device ID - use Device.modelName if available, otherwise generate one
+      let deviceId = Device.modelName || undefined;
       if (!deviceId) {
-        // Generate a simple device identifier (you can use a more robust solution)
-        deviceId = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-        await AsyncStorage.setItem('@onecrew:device_id', deviceId);
-        console.log('📱 [Backend] Generated new device ID:', deviceId);
+        // Fallback: use stored device ID or generate one
+        deviceId = await AsyncStorage.getItem('@onecrew:device_id') || undefined;
+        if (!deviceId) {
+          // Generate a simple device identifier as last resort
+          deviceId = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+          await AsyncStorage.setItem('@onecrew:device_id', deviceId);
+          console.log('📱 [Backend] Generated new device ID:', deviceId);
+        } else {
+          console.log('📱 [Backend] Using stored device ID:', deviceId);
+        }
       } else {
-        console.log('📱 [Backend] Using existing device ID:', deviceId);
+        console.log('📱 [Backend] Using device model name:', deviceId);
       }
       
       // Get app version
       const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '1.0.0';
       console.log('📱 [Backend] App version:', appVersion);
+      console.log('📱 [Backend] Platform:', platform);
       
-      // Register FCM token via API endpoint
-      // Token format: FCM token (long alphanumeric string)
-      // Payload matches backend expectations: token, platform, device_id, app_version
-      const url = `${baseUrl}/api/users/${userId}/push-token`;
-      console.log('📱 [Backend] Registering token at:', url);
+      // Register FCM token using onecrew-api-client
+      await api.pushNotifications.registerDeviceToken(
+        token,
+        platform,
+        deviceId,
+        appVersion
+      );
       
-      const payload = {
-        token: token,  // Changed from push_token to token (backend expects 'token')
-        platform: Platform.OS,
-        device_id: deviceId,
-        app_version: appVersion,
-      };
-      console.log('📱 [Backend] Payload:', { ...payload, token: token.substring(0, 20) + '...' });
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getAccessToken()}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      console.log('📱 [Backend] Response status:', response.status);
-      console.log('📱 [Backend] Response ok:', response.ok);
-
-      if (!response.ok) {
-        // If endpoint doesn't exist, log warning but don't fail
-        const errorText = await response.text().catch(() => 'Unable to read error');
-        console.error('❌ [Backend] Push token registration failed:', response.status, errorText);
-        return;
-      }
-
-      const result = await response.json();
-      console.log('✅ [Backend] Push token registered successfully:', result);
-      return result;
+      console.log('✅ [Backend] Push token registered successfully via API client');
     } catch (error: any) {
       // Don't throw - push token registration is not critical for app functionality
       console.error('❌ [Backend] Failed to register push token with backend:', error?.message || error);
