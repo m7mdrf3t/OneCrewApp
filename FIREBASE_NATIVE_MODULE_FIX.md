@@ -249,3 +249,4 @@ If the issue persists:
 4. Ensure you're using `expo run:ios` (not `expo start`)
 
 
+
