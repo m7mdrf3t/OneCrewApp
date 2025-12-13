@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { Company, CertificationTemplate, CreateCertificationRequest } from '../types';
 import DatePicker from './DatePicker';
+import MediaPickerService from '../services/MediaPickerService';
+import UploadProgressBar from './UploadProgressBar';
 
 interface GrantCertificationModalProps {
   visible: boolean;
@@ -36,6 +38,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     getAuthorizedCertifications,
     grantCertification,
     uploadFile,
+    uploadCertificateImage,
     getAcademyCourses,
     getCourseRegistrations,
   } = useApi();
@@ -48,11 +51,23 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
   const [expirationDate, setExpirationDate] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [certificateUrl, setCertificateUrl] = useState<string>('');
+  const [certificateImageUrl, setCertificateImageUrl] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [granting, setGranting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingCertificateImage, setUploadingCertificateImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    visible: boolean;
+    progress?: number;
+    label: string;
+  }>({
+    visible: false,
+    progress: undefined,
+    label: 'Uploading...',
+  });
+  const mediaPicker = MediaPickerService.getInstance();
   
   // Course selection state
   const [courses, setCourses] = useState<any[]>([]);
@@ -154,6 +169,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     setExpirationDate('');
     setNotes('');
     setCertificateUrl('');
+    setCertificateImageUrl('');
     setFilteredUsers([]);
     setSelectedCourse(null);
     setCourseRegistrations([]);
@@ -277,23 +293,101 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     }
   };
 
-  const handleUploadCertificate = async () => {
-    // Note: This is a placeholder - you'll need to implement file picker
-    // For now, we'll use a text input for the URL
-    Alert.alert(
-      'Upload Certificate',
-      'Please provide the certificate document URL. File upload will be implemented separately.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Enter URL',
-          onPress: () => {
-            // In a real implementation, this would open a file picker
-            // For now, we'll just allow manual URL entry
+  const handleUploadCertificateImage = async () => {
+    try {
+      // Request permissions
+      const hasPermission = await mediaPicker.requestPermissions();
+      if (!hasPermission) {
+        Alert.alert('Permission Required', 'Camera and media library permissions are required to upload a certificate image.');
+        return;
+      }
+
+      // Show action sheet to choose between camera and gallery
+      Alert.alert(
+        'Upload Certificate Image',
+        'Choose an option',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Choose from Gallery',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.pickImage({
+                  allowsEditing: true,
+                  quality: 0.9,
+                  aspect: [8.5, 11], // Standard certificate aspect ratio
+                  maxWidth: 1700,
+                  maxHeight: 2200,
+                });
+
+                if (result) {
+                  await uploadCertificateImageFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error picking image:', error);
+                Alert.alert('Error', error.message || 'Failed to pick image.');
+              }
+            },
           },
-        },
-      ]
-    );
+          {
+            text: 'Take Photo',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.takePhoto({
+                  allowsEditing: true,
+                  quality: 0.9,
+                  aspect: [8.5, 11],
+                });
+
+                if (result) {
+                  await uploadCertificateImageFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error taking photo:', error);
+                Alert.alert('Error', error.message || 'Failed to take photo.');
+              }
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error in handleUploadCertificateImage:', error);
+      Alert.alert('Error', error.message || 'Failed to upload certificate image.');
+    }
+  };
+
+  const uploadCertificateImageFile = async (imageResult: any) => {
+    try {
+      setUploadingCertificateImage(true);
+      setUploadProgress({
+        visible: true,
+        progress: undefined,
+        label: 'Uploading certificate image...',
+      });
+
+      const file = {
+        uri: imageResult.uri,
+        type: 'image/jpeg',
+        name: imageResult.fileName || `certificate_image_${Date.now()}.jpg`,
+      };
+
+      const response = await uploadCertificateImage(file);
+
+      setUploadProgress({ visible: false });
+      if (response.success && response.data?.url) {
+        // Update certificate image URL
+        setCertificateImageUrl(response.data.url);
+        Alert.alert('Success', 'Certificate image uploaded successfully!');
+      } else {
+        throw new Error(response.error || 'Failed to upload certificate image');
+      }
+    } catch (error: any) {
+      console.error('Failed to upload certificate image:', error);
+      setUploadProgress({ visible: false });
+      Alert.alert('Error', error.message || 'Failed to upload certificate image.');
+    } finally {
+      setUploadingCertificateImage(false);
+    }
   };
 
   const handleGrantCertification = async () => {
@@ -315,6 +409,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
         expiration_date: expirationDate || undefined,
         notes: notes || undefined,
         certificate_url: certificateUrl || undefined,
+        certificate_image_url: certificateImageUrl || undefined,
       };
 
       const response = await grantCertification(company.id, certificationData);
@@ -711,6 +806,42 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
             </View>
           )}
 
+          {/* Certificate Image Upload */}
+          {selectedTemplate && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Certificate Image (Optional)</Text>
+              {certificateImageUrl ? (
+                <View style={styles.certificateImageContainer}>
+                  <Image source={{ uri: certificateImageUrl }} style={styles.certificateImagePreview} />
+                  <TouchableOpacity
+                    style={styles.removeImageButton}
+                    onPress={() => setCertificateImageUrl('')}
+                  >
+                    <Ionicons name="close-circle" size={24} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.uploadCertificateButton}
+                  onPress={handleUploadCertificateImage}
+                  disabled={uploadingCertificateImage}
+                >
+                  {uploadingCertificateImage ? (
+                    <ActivityIndicator size="small" color="#3b82f6" />
+                  ) : (
+                    <>
+                      <Ionicons name="image-outline" size={24} color="#3b82f6" />
+                      <Text style={styles.uploadCertificateButtonText}>Upload Certificate Image</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+              <Text style={styles.inputHint}>
+                Upload a custom certificate image/template for this certification
+              </Text>
+            </View>
+          )}
+
           {/* Certificate URL */}
           {selectedTemplate && (
             <View style={styles.section}>
@@ -725,7 +856,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                 autoCapitalize="none"
               />
               <Text style={styles.inputHint}>
-                URL to the certificate document (PDF, image, etc.)
+                URL to the certificate document (PDF, image, etc.) - separate from certificate image above
               </Text>
             </View>
           )}
@@ -768,6 +899,15 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
             )}
           </TouchableOpacity>
         </View>
+
+        {/* Upload Progress Bar */}
+        {uploadProgress.visible && (
+          <UploadProgressBar
+            visible={uploadProgress.visible}
+            progress={uploadProgress.progress}
+            label={uploadProgress.label}
+          />
+        )}
       </View>
     </Modal>
   );
@@ -1146,6 +1286,43 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#10b981',
     fontWeight: '600',
+  },
+  certificateImageContainer: {
+    position: 'relative',
+    marginBottom: 8,
+  },
+  certificateImagePreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    resizeMode: 'contain',
+    backgroundColor: '#f9fafb',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 4,
+  },
+  uploadCertificateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#eff6ff',
+    borderWidth: 2,
+    borderColor: '#3b82f6',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  uploadCertificateButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3b82f6',
   },
 });
 

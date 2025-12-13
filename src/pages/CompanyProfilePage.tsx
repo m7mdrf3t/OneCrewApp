@@ -115,32 +115,26 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   // Reload services, members, and certifications when refresh trigger changes
   useEffect(() => {
-    if (company?.id) {
+    if (refreshTrigger && refreshTrigger > 0) {
       // Clear cache first to ensure fresh data
       const clearCacheAndReload = async () => {
         try {
           const { rateLimiter } = await import('../utils/rateLimiter');
           // Clear all company-related caches
-          await rateLimiter.clearCacheByPattern(`company-members-${company.id}`);
-          await rateLimiter.clearCacheByPattern(`company-services-${company.id}`);
-          await rateLimiter.clearCacheByPattern(`company-${company.id}`);
-          console.log('🔄 Cleared cache and reloading data due to refresh trigger');
+          await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
+          await rateLimiter.clearCacheByPattern(`company-services-${companyId}`);
+          await rateLimiter.clearCacheByPattern(`company-${companyId}`);
+          console.log('🔄 Cleared cache and reloading data due to refresh trigger:', refreshTrigger);
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
         }
-        // Reload data
-        loadServices(company.id);
-        loadMembers(company.id);
-        loadDocuments(company.id);
-        if (company.subcategory === 'academy') {
-          loadCertifications(company.id);
-          loadCourses(company.id);
-        }
+        // Reload company data and related data
+        await loadCompanyData();
       };
       clearCacheAndReload();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshTrigger, company?.id]);
+  }, [refreshTrigger]);
 
   const handleRemoveMember = async (member: CompanyMember) => {
     if (!company?.id) return;
@@ -190,6 +184,16 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       if (!companyResponse.success || !companyResponse.data) {
         throw new Error(companyResponse.error || 'Failed to load company');
       }
+
+      console.log('📥 Loaded company data:', {
+        id: companyResponse.data.id,
+        name: companyResponse.data.name,
+        social_media_links: companyResponse.data.social_media_links,
+        address: companyResponse.data.address,
+        city: companyResponse.data.city,
+        country: companyResponse.data.country,
+        bio: companyResponse.data.bio,
+      });
 
       setCompany(companyResponse.data);
 
@@ -567,6 +571,20 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   };
 
+  const handleSocialMediaPress = async (url: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Error', 'Cannot open this URL');
+      }
+    } catch (error) {
+      console.error('Failed to open social media link:', error);
+      Alert.alert('Error', 'Failed to open link');
+    }
+  };
+
   const handleStartChat = () => {
     if (!company) return;
     
@@ -686,7 +704,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
       const response = await uploadCompanyLogo(company.id, file);
 
-      setUploadProgress({ visible: false });
+      setUploadProgress({ visible: false, label: '' });
       if (response.success && response.data?.url) {
         // Reload company data to show new logo
         await loadCompanyData();
@@ -696,7 +714,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to upload logo:', error);
-      setUploadProgress({ visible: false });
+      setUploadProgress({ visible: false, label: '' });
       const errorMessage = error.message || 'Failed to upload company logo.';
       
       // Provide more helpful error messages
@@ -779,6 +797,14 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           </View>
         )}
         
+        {/* Company/Academy Name at Top */}
+        <View style={styles.companyNameHeader}>
+          <Text style={styles.companyNameHeaderText}>{company.name}</Text>
+          {company.company_type_info && (
+            <Text style={styles.companyTypeHeader}>{company.company_type_info.name}</Text>
+          )}
+        </View>
+        
         {company.subcategory === 'academy' ? (
           /* Academy Layout - Matching Design */
           <>
@@ -831,13 +857,70 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     <Text style={styles.description}>{company.description}</Text>
                   )}
                   {company.bio && (
-                    <Text style={styles.description}>{company.bio}</Text>
+                    <>
+                      {company.description && <View style={styles.bioSeparator} />}
+                      <Text style={styles.bioText}>{company.bio}</Text>
+                    </>
+                  )}
+                </View>
+              )}
+
+              {/* Social Media Icons in Academy Layout */}
+              {company.social_media_links && Object.keys(company.social_media_links).length > 0 && (
+                <View style={styles.socialMediaIcons}>
+                  {company.social_media_links.instagram && (
+                    <TouchableOpacity
+                      onPress={() => handleSocialMediaPress(company.social_media_links!.instagram!)}
+                      style={styles.socialIconButton}
+                    >
+                      <Ionicons name="logo-instagram" size={20} color="#E4405F" />
+                    </TouchableOpacity>
+                  )}
+                  {company.social_media_links.facebook && (
+                    <TouchableOpacity
+                      onPress={() => handleSocialMediaPress(company.social_media_links!.facebook!)}
+                      style={styles.socialIconButton}
+                    >
+                      <Ionicons name="logo-facebook" size={20} color="#1877F2" />
+                    </TouchableOpacity>
+                  )}
+                  {company.social_media_links.twitter && (
+                    <TouchableOpacity
+                      onPress={() => handleSocialMediaPress(company.social_media_links!.twitter!)}
+                      style={styles.socialIconButton}
+                    >
+                      <Ionicons name="logo-twitter" size={20} color="#1DA1F2" />
+                    </TouchableOpacity>
+                  )}
+                  {company.social_media_links.linkedin && (
+                    <TouchableOpacity
+                      onPress={() => handleSocialMediaPress(company.social_media_links!.linkedin!)}
+                      style={styles.socialIconButton}
+                    >
+                      <Ionicons name="logo-linkedin" size={20} color="#0077B5" />
+                    </TouchableOpacity>
+                  )}
+                  {company.social_media_links.youtube && (
+                    <TouchableOpacity
+                      onPress={() => handleSocialMediaPress(company.social_media_links!.youtube!)}
+                      style={styles.socialIconButton}
+                    >
+                      <Ionicons name="logo-youtube" size={20} color="#FF0000" />
+                    </TouchableOpacity>
+                  )}
+                  {company.social_media_links.tiktok && (
+                    <TouchableOpacity
+                      onPress={() => handleSocialMediaPress(company.social_media_links!.tiktok!)}
+                      style={styles.socialIconButton}
+                    >
+                      <Ionicons name="musical-notes" size={20} color="#000000" />
+                    </TouchableOpacity>
                   )}
                 </View>
               )}
 
               {/* Contact Information */}
-              {(company.email || company.phone || company.location_text) && (
+              {(company.email || company.phone || company.location_text || company.address || company.city || company.country) && (
                 <View style={styles.contactSection}>
                   {company.email && (
                     <TouchableOpacity style={styles.contactItem} onPress={handleEmailPress}>
@@ -847,20 +930,37 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   )}
 
                   {company.phone && (
-                    <TouchableOpacity style={styles.contactItem} onPress={handlePhonePress}>
+                    <View style={styles.contactItem}>
                       <Ionicons name="call-outline" size={16} color="#000" />
                       <Text style={styles.contactText}>{company.phone}</Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.callButton}
+                        onPress={handlePhonePress}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="call" size={20} color="#22c55e" />
+                      </TouchableOpacity>
+                    </View>
                   )}
 
-                  {company.location_text && (
+                  {/* Location - prefer structured fields, fallback to location_text */}
+                  {(company.address || company.city || company.country || company.location_text) && (
                     <View style={styles.contactItem}>
                       <Ionicons name="location-outline" size={16} color="#000" />
-                      <Text style={styles.contactText}>{company.location_text}</Text>
+                      <Text style={styles.contactText}>
+                        {(() => {
+                          const parts: string[] = [];
+                          if (company.address) parts.push(company.address);
+                          if (company.city) parts.push(company.city);
+                          if (company.country) parts.push(company.country);
+                          return parts.length > 0 ? parts.join(', ') : company.location_text || '';
+                        })()}
+                      </Text>
                     </View>
                   )}
                 </View>
               )}
+
 
               {/* Metrics Row */}
               <View style={styles.metricsRow}>
@@ -1000,7 +1100,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 <TouchableOpacity
                   style={styles.manageRegistrationsButton}
                   onPress={() => {
-                    setSelectedUserIdForCertification(undefined);
+                    setSelectedUserIdForCertification(null);
                     setShowGrantCertificationModal(true);
                   }}
                 >
@@ -1042,6 +1142,60 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 <Text style={styles.companyName}>{company.name}</Text>
                 {company.company_type_info && (
                   <Text style={styles.companyType}>{company.company_type_info.name}</Text>
+                )}
+
+                {/* Social Media Icons in Header */}
+                {company.social_media_links && Object.keys(company.social_media_links).length > 0 && (
+                  <View style={styles.socialMediaIcons}>
+                    {company.social_media_links.instagram && (
+                      <TouchableOpacity
+                        onPress={() => handleSocialMediaPress(company.social_media_links!.instagram!)}
+                        style={styles.socialIconButton}
+                      >
+                        <Ionicons name="logo-instagram" size={20} color="#E4405F" />
+                      </TouchableOpacity>
+                    )}
+                    {company.social_media_links.facebook && (
+                      <TouchableOpacity
+                        onPress={() => handleSocialMediaPress(company.social_media_links!.facebook!)}
+                        style={styles.socialIconButton}
+                      >
+                        <Ionicons name="logo-facebook" size={20} color="#1877F2" />
+                      </TouchableOpacity>
+                    )}
+                    {company.social_media_links.twitter && (
+                      <TouchableOpacity
+                        onPress={() => handleSocialMediaPress(company.social_media_links!.twitter!)}
+                        style={styles.socialIconButton}
+                      >
+                        <Ionicons name="logo-twitter" size={20} color="#1DA1F2" />
+                      </TouchableOpacity>
+                    )}
+                    {company.social_media_links.linkedin && (
+                      <TouchableOpacity
+                        onPress={() => handleSocialMediaPress(company.social_media_links!.linkedin!)}
+                        style={styles.socialIconButton}
+                      >
+                        <Ionicons name="logo-linkedin" size={20} color="#0077B5" />
+                      </TouchableOpacity>
+                    )}
+                    {company.social_media_links.youtube && (
+                      <TouchableOpacity
+                        onPress={() => handleSocialMediaPress(company.social_media_links!.youtube!)}
+                        style={styles.socialIconButton}
+                      >
+                        <Ionicons name="logo-youtube" size={20} color="#FF0000" />
+                      </TouchableOpacity>
+                    )}
+                    {company.social_media_links.tiktok && (
+                      <TouchableOpacity
+                        onPress={() => handleSocialMediaPress(company.social_media_links!.tiktok!)}
+                        style={styles.socialIconButton}
+                      >
+                        <Ionicons name="musical-notes" size={20} color="#000000" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 )}
 
                 {/* Approval Status Badge */}
@@ -1090,13 +1244,17 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Text style={styles.description}>{company.description}</Text>
                 )}
                 {company.bio && (
-                  <Text style={styles.description}>{company.bio}</Text>
+                  <>
+                    {company.description && <View style={styles.bioSeparator} />}
+                    <Text style={styles.bioText}>{company.bio}</Text>
+                  </>
                 )}
               </View>
             )}
 
+
             {/* Contact Information */}
-            {(company.website_url || company.email || company.phone || company.location_text) && (
+            {(company.website_url || company.email || company.phone || company.location_text || company.address || company.city || company.country) && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Contact Information</Text>
 
@@ -1116,16 +1274,32 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 )}
 
                 {company.phone && (
-                  <TouchableOpacity style={styles.contactItem} onPress={handlePhonePress}>
+                  <View style={styles.contactItem}>
                     <Ionicons name="call-outline" size={20} color="#000" />
                     <Text style={styles.contactText}>{company.phone}</Text>
-                  </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.callButton}
+                      onPress={handlePhonePress}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="call" size={20} color="#22c55e" />
+                    </TouchableOpacity>
+                  </View>
                 )}
 
-                {company.location_text && (
+                {/* Location - prefer structured fields, fallback to location_text */}
+                {(company.address || company.city || company.country || company.location_text) && (
                   <View style={styles.contactItem}>
                     <Ionicons name="location-outline" size={20} color="#000" />
-                    <Text style={styles.contactText}>{company.location_text}</Text>
+                    <Text style={styles.contactText}>
+                      {(() => {
+                        const parts: string[] = [];
+                        if (company.address) parts.push(company.address);
+                        if (company.city) parts.push(company.city);
+                        if (company.country) parts.push(company.country);
+                        return parts.length > 0 ? parts.join(', ') : company.location_text || '';
+                      })()}
+                    </Text>
                   </View>
                 )}
 
@@ -1492,6 +1666,27 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  companyNameHeader: {
+    backgroundColor: '#fff',
+    padding: 16,
+    paddingTop: 20,
+    paddingBottom: 12,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e4e4e7',
+  },
+  companyNameHeaderText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  companyTypeHeader: {
+    fontSize: 14,
+    color: '#71717a',
+    textAlign: 'center',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1734,6 +1929,18 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 8,
   },
+  bioSeparator: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+    marginVertical: 12,
+  },
+  bioText: {
+    fontSize: 12,
+    color: '#374151',
+    lineHeight: 18,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
   contactItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1746,6 +1953,43 @@ const styles = StyleSheet.create({
     color: '#000',
     marginLeft: 10,
     flex: 1,
+  },
+  callButton: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: '#f0fdf4',
+    marginLeft: 8,
+  },
+  socialMediaIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  socialIconButton: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: '#f4f4f5',
+  },
+  socialMediaList: {
+    gap: 8,
+  },
+  socialMediaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#f9fafb',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  socialMediaText: {
+    fontSize: 14,
+    color: '#000',
+    marginLeft: 12,
+    flex: 1,
+    fontWeight: '500',
   },
   servicesGrid: {
     flexDirection: 'row',

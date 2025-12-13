@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { CourseCreationModalProps, CreateCourseRequest, CourseStatus, User } from '../types';
 import { useApi } from '../contexts/ApiContext';
 import DatePicker from './DatePicker';
+import MediaPickerService from '../services/MediaPickerService';
+import UploadProgressBar from './UploadProgressBar';
 
 const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
   visible,
@@ -22,12 +24,24 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
   onClose,
   onSubmit,
 }) => {
-  const { api } = useApi();
+  const { api, getCompany, uploadFile } = useApi();
   const [isLoading, setIsLoading] = useState(false);
   const [lecturerSearchQuery, setLecturerSearchQuery] = useState('');
   const [filteredLecturers, setFilteredLecturers] = useState<User[]>([]);
   const [selectedLecturer, setSelectedLecturer] = useState<User | null>(null);
   const [searchingLecturer, setSearchingLecturer] = useState(false);
+  const [companyDefaultDesign, setCompanyDefaultDesign] = useState<'vertical' | 'horizontal' | 'large' | undefined>(undefined);
+  const [uploadingPoster, setUploadingPoster] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    visible: boolean;
+    progress?: number;
+    label: string;
+  }>({
+    visible: false,
+    progress: undefined,
+    label: 'Uploading...',
+  });
+  const mediaPicker = MediaPickerService.getInstance();
   const [formData, setFormData] = useState<CreateCourseRequest>({
     title: '',
     description: '',
@@ -39,6 +53,8 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     duration: '',
     category: '',
     status: 'draft',
+    number_of_sessions: undefined,
+    design: undefined,
     certification_template: {
       name: '',
       description: '',
@@ -46,6 +62,27 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     },
     auto_grant_certification: false,
   });
+
+  // Load company default design when modal opens
+  useEffect(() => {
+    if (visible && companyId) {
+      const loadCompanyData = async () => {
+        try {
+          const response = await getCompany(companyId);
+          if (response.success && response.data?.default_course_design) {
+            setCompanyDefaultDesign(response.data.default_course_design);
+            setFormData(prev => ({
+              ...prev,
+              design: response.data.default_course_design,
+            }));
+          }
+        } catch (error) {
+          console.error('Failed to load company data:', error);
+        }
+      };
+      loadCompanyData();
+    }
+  }, [visible, companyId, getCompany]);
 
   useEffect(() => {
     if (visible) {
@@ -61,6 +98,8 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
         duration: '',
         category: '',
         status: 'draft',
+        number_of_sessions: undefined,
+        design: companyDefaultDesign,
         certification_template: {
           name: '',
           description: '',
@@ -72,7 +111,7 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
       setFilteredLecturers([]);
       setSelectedLecturer(null);
     }
-  }, [visible]);
+  }, [visible, companyDefaultDesign]);
 
   // Search lecturers when search query changes
   useEffect(() => {
@@ -128,6 +167,103 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     setLecturerSearchQuery('');
     setFilteredLecturers([]);
     handleInputChange('primary_lecturer_id', undefined);
+  };
+
+  const handleUploadPoster = async () => {
+    try {
+      // Request permissions
+      const hasPermission = await mediaPicker.requestPermissions();
+      if (!hasPermission) {
+        Alert.alert('Permission Required', 'Camera and media library permissions are required to upload a poster.');
+        return;
+      }
+
+      // Show action sheet to choose between camera and gallery
+      Alert.alert(
+        'Upload Course Poster',
+        'Choose an option',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Choose from Gallery',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.pickImage({
+                  allowsEditing: true,
+                  quality: 0.8,
+                  aspect: [16, 9],
+                  maxWidth: 1920,
+                  maxHeight: 1080,
+                });
+
+                if (result) {
+                  await uploadPosterFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error picking image:', error);
+                Alert.alert('Error', error.message || 'Failed to pick image.');
+              }
+            },
+          },
+          {
+            text: 'Take Photo',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.takePhoto({
+                  allowsEditing: true,
+                  quality: 0.8,
+                  aspect: [16, 9],
+                });
+
+                if (result) {
+                  await uploadPosterFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error taking photo:', error);
+                Alert.alert('Error', error.message || 'Failed to take photo.');
+              }
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error in handleUploadPoster:', error);
+      Alert.alert('Error', error.message || 'Failed to upload poster.');
+    }
+  };
+
+  const uploadPosterFile = async (imageResult: any) => {
+    try {
+      setUploadingPoster(true);
+      setUploadProgress({
+        visible: true,
+        progress: undefined,
+        label: 'Uploading course poster...',
+      });
+
+      const file = {
+        uri: imageResult.uri,
+        type: 'image/jpeg',
+        name: imageResult.fileName || `course_poster_${Date.now()}.jpg`,
+      };
+
+      const response = await uploadFile(file);
+
+      setUploadProgress({ visible: false });
+      if (response.success && response.url) {
+        // Update form data with uploaded URL
+        handleInputChange('poster_url', response.url);
+        Alert.alert('Success', 'Course poster uploaded successfully!');
+      } else {
+        throw new Error(response.error || 'Failed to upload poster');
+      }
+    } catch (error: any) {
+      console.error('Failed to upload poster:', error);
+      setUploadProgress({ visible: false });
+      Alert.alert('Error', error.message || 'Failed to upload course poster.');
+    } finally {
+      setUploadingPoster(false);
+    }
   };
 
   const validateForm = (): boolean => {
@@ -308,6 +444,53 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
             </View>
           </View>
 
+          {/* Number of Sessions and Design Row */}
+          <View style={styles.row}>
+            <View style={[styles.inputGroup, styles.halfWidth]}>
+              <Text style={styles.label}>Number of Sessions</Text>
+              <TextInput
+                style={styles.textInput}
+                value={formData.number_of_sessions?.toString() || ''}
+                onChangeText={(value) => {
+                  const numValue = value === '' ? undefined : parseInt(value);
+                  handleInputChange('number_of_sessions', isNaN(numValue as number) ? undefined : numValue);
+                }}
+                placeholder="e.g., 10"
+                placeholderTextColor="#9ca3af"
+                keyboardType="number-pad"
+              />
+              <Text style={styles.hint}>Total number of course sessions</Text>
+            </View>
+
+            <View style={[styles.inputGroup, styles.halfWidth]}>
+              <Text style={styles.label}>Course Design</Text>
+              <View style={styles.designContainer}>
+                {(['vertical', 'horizontal', 'large'] as const).map((designOption) => (
+                  <TouchableOpacity
+                    key={designOption}
+                    style={[
+                      styles.designOption,
+                      formData.design === designOption && styles.designOptionSelected,
+                    ]}
+                    onPress={() => handleInputChange('design', designOption)}
+                  >
+                    <Text
+                      style={[
+                        styles.designOptionText,
+                        formData.design === designOption && styles.designOptionTextSelected,
+                      ]}
+                    >
+                      {designOption.charAt(0).toUpperCase() + designOption.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.hint}>
+                {companyDefaultDesign ? `Default: ${companyDefaultDesign}` : 'Card layout style'}
+              </Text>
+            </View>
+          </View>
+
           {/* Primary Lecturer */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Primary Lecturer</Text>
@@ -402,14 +585,27 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
           {/* Poster URL */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Poster URL</Text>
-            <TextInput
-              style={styles.textInput}
-              value={formData.poster_url}
-              onChangeText={(value) => handleInputChange('poster_url', value)}
-              placeholder="https://example.com/poster.jpg"
-              placeholderTextColor="#9ca3af"
-            />
-            <Text style={styles.hint}>Optional image URL for course poster</Text>
+            <View style={styles.posterUrlRow}>
+              <TextInput
+                style={[styles.textInput, styles.posterUrlInput]}
+                value={formData.poster_url}
+                onChangeText={(value) => handleInputChange('poster_url', value)}
+                placeholder="https://example.com/poster.jpg"
+                placeholderTextColor="#9ca3af"
+              />
+              <TouchableOpacity
+                style={styles.uploadPosterButton}
+                onPress={handleUploadPoster}
+                disabled={uploadingPoster}
+              >
+                {uploadingPoster ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="camera" size={20} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.hint}>Optional image URL for course poster, or upload directly</Text>
           </View>
 
           {/* Certification Template Section */}
@@ -569,6 +765,15 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Upload Progress Bar */}
+        {uploadProgress.visible && (
+          <UploadProgressBar
+            visible={uploadProgress.visible}
+            progress={uploadProgress.progress}
+            label={uploadProgress.label}
+          />
+        )}
       </View>
     </Modal>
   );
@@ -831,6 +1036,47 @@ const styles = StyleSheet.create({
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
+  },
+  posterUrlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  posterUrlInput: {
+    flex: 1,
+  },
+  uploadPosterButton: {
+    backgroundColor: '#3b82f6',
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  designContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  designOption: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    alignItems: 'center',
+  },
+  designOptionSelected: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  designOptionText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  designOptionTextSelected: {
+    color: '#fff',
   },
 });
 

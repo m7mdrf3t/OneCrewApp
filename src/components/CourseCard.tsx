@@ -51,8 +51,13 @@ const CourseCard: React.FC<CourseCardProps> = ({
       .padEnd(3, 'X');
   };
 
-  // Extract number of sessions from duration (e.g., "8 Sessions" or "8 weeks" -> 8)
+  // Get number of sessions - use direct field if available, otherwise extract from duration
   const getSessionCount = (): number => {
+    // v2.16.0: Use number_of_sessions field if available
+    if (course.number_of_sessions !== undefined && course.number_of_sessions > 0) {
+      return course.number_of_sessions;
+    }
+    // Fallback: Extract from duration (e.g., "8 Sessions" or "8 weeks" -> 8)
     if (course.duration) {
       const match = course.duration.match(/\d+/);
       if (match) {
@@ -65,27 +70,73 @@ const CourseCard: React.FC<CourseCardProps> = ({
 
   const categoryAcronym = getCategoryAcronym();
   const sessionCount = getSessionCount();
-  const location = course.company?.location_text || course.company?.location || 'Location TBD';
+  const location = course.company?.location_text || course.company?.address || course.company?.city || 'Location TBD';
+  
+  // Determine design: use course design, fallback to company default, or 'vertical'
+  const design = course.design || course.company?.default_course_design || 'vertical';
+  
+  // Get styles based on design
+  const getContainerStyle = () => {
+    switch (design) {
+      case 'horizontal':
+        return [styles.container, styles.containerHorizontal];
+      case 'large':
+        return [styles.container, styles.containerLarge];
+      default: // 'vertical'
+        return [styles.container, styles.containerVertical];
+    }
+  };
+
+  const getContentStyle = () => {
+    switch (design) {
+      case 'horizontal':
+        return [styles.contentOverlay, styles.contentOverlayHorizontal];
+      case 'large':
+        return [styles.contentOverlay, styles.contentOverlayLarge];
+      default:
+        return styles.contentOverlay;
+    }
+  };
+
+  const getTitleStyle = () => {
+    switch (design) {
+      case 'large':
+        return [styles.title, styles.titleLarge];
+      case 'horizontal':
+        return [styles.title, styles.titleHorizontal];
+      default:
+        return styles.title;
+    }
+  };
 
   return (
     <TouchableOpacity
-      style={styles.container}
+      style={getContainerStyle()}
       onPress={onSelect}
       activeOpacity={0.8}
     >
       {/* Background - Image or Category Acronym */}
       {course.poster_url ? (
-        <Image source={{ uri: course.poster_url }} style={styles.backgroundImage} />
+        <Image 
+          source={{ uri: course.poster_url }} 
+          style={[
+            styles.backgroundImage,
+            design === 'horizontal' && styles.backgroundImageHorizontal,
+          ]} 
+        />
       ) : (
-        <View style={styles.backgroundContainer}>
+        <View style={[
+          styles.backgroundContainer,
+          design === 'horizontal' && styles.backgroundImageHorizontal,
+        ]}>
           <Text style={styles.categoryAcronym}>{categoryAcronym}</Text>
         </View>
       )}
 
       {/* Content Overlay */}
-      <View style={styles.contentOverlay}>
+      <View style={getContentStyle()}>
         {/* Course Title */}
-        <Text style={styles.title} numberOfLines={2}>
+        <Text style={getTitleStyle()} numberOfLines={design === 'horizontal' ? 1 : 2}>
           {course.title}
         </Text>
 
@@ -119,7 +170,13 @@ const CourseCard: React.FC<CourseCardProps> = ({
         {/* Bottom Section - Price and Details Button */}
         <View style={styles.bottomSection}>
           {/* Price */}
-          <Text style={styles.price}>{formatPrice(course.price)}</Text>
+          <Text style={[
+            styles.price,
+            design === 'large' && styles.priceLarge,
+            design === 'horizontal' && styles.priceHorizontal,
+          ]}>
+            {formatPrice(course.price)}
+          </Text>
 
           {/* Details Button */}
           <TouchableOpacity
@@ -183,8 +240,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 16,
     overflow: 'hidden',
-    minHeight: 200,
     position: 'relative',
+  },
+  containerVertical: {
+    minHeight: 200,
+  },
+  containerHorizontal: {
+    minHeight: 140,
+    flexDirection: 'row',
+  },
+  containerLarge: {
+    minHeight: 280,
   },
   backgroundImage: {
     width: '100%',
@@ -201,6 +267,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  // Horizontal layout: image on left, content on right
+  backgroundImageHorizontal: {
+    width: '40%',
+    height: '100%',
+  },
   categoryAcronym: {
     fontSize: 120,
     fontWeight: 'bold',
@@ -216,12 +287,30 @@ const styles = StyleSheet.create({
     position: 'relative',
     zIndex: 1,
   },
+  contentOverlayHorizontal: {
+    flex: 1,
+    padding: 16,
+    marginLeft: '40%', // Make room for image on left
+  },
+  contentOverlayLarge: {
+    padding: 24,
+  },
   title: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 16,
     lineHeight: 26,
+  },
+  titleHorizontal: {
+    fontSize: 18,
+    marginBottom: 8,
+    lineHeight: 22,
+  },
+  titleLarge: {
+    fontSize: 26,
+    marginBottom: 20,
+    lineHeight: 32,
   },
   detailsRow: {
     flexDirection: 'row',
@@ -254,6 +343,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     flex: 1,
+  },
+  priceLarge: {
+    fontSize: 28,
+  },
+  priceHorizontal: {
+    fontSize: 20,
   },
   detailsButton: {
     flexDirection: 'row',

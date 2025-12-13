@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, Image, NativeModules } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
+// Firebase Messaging is now used instead of expo-notifications
+// We'll import it dynamically to avoid errors when native modules aren't ready
 
 // Context
 import { ApiProvider, useApi } from './src/contexts/ApiContext';
@@ -113,120 +114,229 @@ const AppContent: React.FC = () => {
     }
   }, []);
 
-  // Push notification handlers
-  const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
-  const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
+  // Helper function to handle notification navigation
+  const handleNotificationNavigation = useCallback((data: any) => {
+    if (data.type === 'company_invitation' && user) {
+      setShowNotificationModal(false);
+      setShowInvitationListModal(true);
+    } else if (data.type === 'project_created' || data.type === 'project_member_added') {
+      if (data.project_id && typeof data.project_id === 'string') {
+        (async () => {
+          try {
+            const project = await getProjectById(data.project_id as string);
+            if (project) {
+              navigateTo('projectDetail', project);
+            }
+          } catch (error) {
+            console.error('Failed to fetch project for navigation:', error);
+          }
+        })();
+      }
+    } else if (data.type === 'task_assigned' || data.type === 'task_completed') {
+      if (data.project_id && typeof data.project_id === 'string') {
+        (async () => {
+          try {
+            const project = await getProjectById(data.project_id as string);
+            if (project) {
+              navigateTo('projectDetail', project);
+            }
+          } catch (error) {
+            console.error('Failed to fetch project for navigation:', error);
+          }
+        })();
+      }
+    } else if (data.type === 'message_received') {
+      if (data.conversation_id && typeof data.conversation_id === 'string') {
+        navigateTo('chat', { conversationId: data.conversation_id as string });
+      }
+    } else if (data.link_url) {
+      // Handle custom link URLs
+      console.log('Navigate to:', data.link_url);
+    }
+  }, [user, getProjectById, navigateTo]);
+
+  // Push notification handlers (Firebase FCM)
+  const notificationUnsubscribe = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    // Set up notification received listener (when app is in foreground)
-    notificationListener.current = pushNotificationService.addNotificationReceivedListener(
-      (notification) => {
-        console.log('📨 Notification received:', notification);
-        // You can show a custom in-app notification here if needed
-        // The notification will be automatically displayed by the system
-      }
-    );
-
-    // Set up notification response listener (when user taps notification)
-    responseListener.current = pushNotificationService.addNotificationResponseReceivedListener(
-      (response) => {
-        console.log('👆 Notification tapped:', response);
-        const data = response.notification.request.content.data;
+    // Delay notification setup to ensure Firebase native modules are ready
+    // Reduced delay since initialization is now more reliable
+    console.log('📱 [App] Setting up push notification listeners...');
+    const setupNotifications = async () => {
+      // Wait for React Native bridge and native modules to initialize
+      // Reduced from 3s to 2s since Firebase initialization is improved
+      console.log('⏳ [App] Waiting 2 seconds for native modules to initialize...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Initialize push notifications first
+      try {
+        console.log('📱 [App] Initializing push notification service...');
+        await pushNotificationService.initialize();
+        console.log('✅ [App] Push notification service initialized');
         
-        // Handle navigation based on notification data
-        if (data) {
-          // Handle different notification types
-          if (data.type === 'company_invitation' && user) {
-            setShowNotificationModal(false);
-            setShowInvitationListModal(true);
-          } else if (data.type === 'project_created' || data.type === 'project_member_added') {
-            if (data.project_id && typeof data.project_id === 'string') {
-              (async () => {
-                try {
-                  const project = await getProjectById(data.project_id as string);
-                  if (project) {
-                    navigateTo('projectDetail', project);
-                  }
-                } catch (error) {
-                  console.error('Failed to fetch project for navigation:', error);
-                }
-              })();
-            }
-          } else if (data.type === 'task_assigned' || data.type === 'task_completed') {
-            if (data.project_id && typeof data.project_id === 'string') {
-              (async () => {
-                try {
-                  const project = await getProjectById(data.project_id as string);
-                  if (project) {
-                    navigateTo('projectDetail', project);
-                  }
-                } catch (error) {
-                  console.error('Failed to fetch project for navigation:', error);
-                }
-              })();
-            }
-          } else if (data.type === 'message_received') {
-            if (data.conversation_id && typeof data.conversation_id === 'string') {
-              navigateTo('chat', { conversationId: data.conversation_id as string });
-            }
-          } else if (data.link_url) {
-            // Handle custom link URLs
-            console.log('Navigate to:', data.link_url);
+        // Set up notification received listener (when app is in foreground)
+        // No delay needed - service is ready
+        console.log('📱 [App] Setting up foreground notification listener...');
+        notificationUnsubscribe.current = pushNotificationService.addNotificationReceivedListener(
+          (notification) => {
+            console.log('📨 [App] Notification received in foreground:', notification);
+            console.log('📨 [App] Notification title:', notification.notification?.title);
+            console.log('📨 [App] Notification body:', notification.notification?.body);
+            console.log('📨 [App] Notification data:', notification.data);
+            // Firebase automatically displays notifications, but we can handle custom logic here
+            // The notification data is available in notification.data
           }
-        }
+        );
+        console.log('✅ [App] Foreground notification listener set up');
+      } catch (error) {
+        console.error('❌ [App] Failed to initialize push notifications:', error);
+        // Retry once after a delay
+        console.log('🔄 [App] Scheduling retry in 3 seconds...');
+        setTimeout(async () => {
+          try {
+            console.log('🔄 [App] Retrying push notification initialization...');
+            await pushNotificationService.initialize();
+            notificationUnsubscribe.current = pushNotificationService.addNotificationReceivedListener(
+              (notification) => {
+                console.log('📨 [App] Notification received in foreground:', notification);
+              }
+            );
+            console.log('✅ [App] Retry successful');
+          } catch (retryError) {
+            console.error('❌ [App] Retry failed to initialize push notifications:', retryError);
+          }
+        }, 3000); // Reduced from 5s to 3s
       }
-    );
+    };
 
-    // Initialize push notifications
-    pushNotificationService.initialize().catch((error) => {
-      console.warn('⚠️ Failed to initialize push notifications:', error);
-    });
+    setupNotifications();
 
     // Handle notification that opened the app (if app was closed)
-    Notifications.getLastNotificationResponseAsync().then((response) => {
+    console.log('📱 [App] Checking for initial notification...');
+    pushNotificationService.getInitialNotification().then((response) => {
       if (response) {
-        console.log('📱 App opened from notification:', response);
+        console.log('📱 [App] App opened from notification:', response);
         const data = response.notification.request.content.data;
+        console.log('📱 [App] Initial notification data:', data);
         
         // Handle navigation based on notification data
         if (data) {
           // Small delay to ensure app is fully loaded
+          console.log('📱 [App] Navigating based on notification data...');
           setTimeout(() => {
-            if (data.type === 'company_invitation' && user) {
-              setShowNotificationModal(false);
-              setShowInvitationListModal(true);
-            } else if (data.type === 'project_created' || data.type === 'project_member_added') {
-              if (data.project_id && typeof data.project_id === 'string') {
-                (async () => {
-                  try {
-                    const project = await getProjectById(data.project_id as string);
-                    if (project) {
-                      navigateTo('projectDetail', project);
-                    }
-                  } catch (error) {
-                    console.error('Failed to fetch project for navigation:', error);
-                  }
-                })();
-              }
-            } else if (data.type === 'message_received') {
-              if (data.conversation_id && typeof data.conversation_id === 'string') {
-                navigateTo('chat', { conversationId: data.conversation_id as string });
-              }
-            }
+            handleNotificationNavigation(data);
           }, 1000);
+        } else {
+          console.warn('⚠️ [App] Initial notification has no data');
         }
+      } else {
+        console.log('📱 [App] No initial notification found');
       }
+    }).catch((error) => {
+      console.error('❌ [App] Error getting initial notification:', error);
     });
 
-    return () => {
-      if (notificationListener.current) {
-        pushNotificationService.removeNotificationSubscription(notificationListener.current);
+    // Set up listener for notification taps when app is in background/foreground
+    // Firebase handles this via messaging().onNotificationOpenedApp
+    // We delay this significantly to ensure native modules are ready
+    let unsubscribeOnNotificationOpened: (() => void) | null = null;
+    
+    // Delay to ensure native modules are fully initialized
+    // Reduced from 5s to 3s since initialization is improved
+    console.log('📱 [App] Scheduling notification opened listener setup in 3 seconds...');
+    const setupNotificationListener = setTimeout(() => {
+      try {
+        console.log('📱 [App] Setting up notification opened listener...');
+        // In Expo dev builds, NativeModules might be empty until bridge is ready
+        // Just try to require the module and handle errors gracefully
+        const messagingModule = require('@react-native-firebase/messaging');
+        if (messagingModule) {
+          console.log('✅ [App] Messaging module loaded');
+          const messaging = messagingModule.default || messagingModule;
+          if (messaging && typeof messaging === 'function') {
+            console.log('📱 [App] Registering onNotificationOpenedApp listener...');
+            unsubscribeOnNotificationOpened = messaging().onNotificationOpenedApp((remoteMessage: any) => {
+              console.log('👆 [App] Notification tapped (app in background):', remoteMessage);
+              console.log('👆 [App] Notification title:', remoteMessage.notification?.title);
+              console.log('👆 [App] Notification body:', remoteMessage.notification?.body);
+              console.log('👆 [App] Notification data:', remoteMessage.data);
+              const data = remoteMessage.data || {};
+              handleNotificationNavigation(data);
+            });
+            console.log('✅ [App] Notification opened listener registered');
+          } else {
+            console.error('❌ [App] Messaging is not a function. Type:', typeof messaging);
+          }
+        } else {
+          console.error('❌ [App] Messaging module is null or undefined');
+        }
+      } catch (error: any) {
+        // If error is about NativeEventEmitter, native modules aren't ready
+        // Log for debugging but don't fail
+        if (error?.message?.includes('NativeEventEmitter') || 
+            error?.message?.includes('non-null') ||
+            error?.message?.includes('requires a non-null') ||
+            error?.message?.includes('Cannot read property')) {
+          console.warn('⚠️ [App] Native modules not ready (NativeEventEmitter error)');
+        } else {
+          console.error('❌ [App] Could not set up Firebase notification opened listener:', error?.message || error);
+          if (error?.stack) {
+            console.error('❌ [App] Stack trace:', error.stack.substring(0, 300));
+          }
+        }
       }
-      if (responseListener.current) {
-        pushNotificationService.removeNotificationSubscription(responseListener.current);
+    }, 3000); // Delay 3 seconds to let native modules fully initialize
+
+    return () => {
+      clearTimeout(setupNotificationListener);
+      if (notificationUnsubscribe.current) {
+        pushNotificationService.removeNotificationSubscription(notificationUnsubscribe.current);
+      }
+      if (unsubscribeOnNotificationOpened) {
+        unsubscribeOnNotificationOpened();
       }
     };
-  }, [user, getProjectById, navigateTo]);
+  }, [user, getProjectById, navigateTo, handleNotificationNavigation]);
+
+  useEffect(() => {
+    const logToken = async () => {
+      try {
+        // First, check if stored token is an Expo token (old)
+        const storedToken = await pushNotificationService.getStoredToken();
+        if (storedToken && storedToken.startsWith('ExponentPushToken')) {
+          console.log('⚠️ Found old Expo token, clearing it...');
+          await pushNotificationService.clearToken();
+        }
+        
+        // Wait a bit for Firebase to be ready
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Use PushNotificationService to get FCM token (it handles all the complexity)
+        console.log('📱 Requesting fresh FCM token...');
+        const fcmToken = await pushNotificationService.registerForPushNotifications();
+        
+        if (fcmToken) {
+          console.log('\n🔑 ==========================================');
+          console.log('🔑 YOUR FCM TOKEN FOR TESTING:');
+          console.log('🔑', fcmToken);
+          console.log('🔑 ==========================================');
+          console.log('📊 Token Details:');
+          console.log('  - Length:', fcmToken.length);
+          console.log('  - Type:', fcmToken.startsWith('ExponentPushToken') ? 'Expo Token (⚠️ Wrong!)' : 'FCM Token (✅ Correct!)');
+          console.log('  - First 20 chars:', fcmToken.substring(0, 20));
+          console.log('==========================================\n');
+        } else {
+          console.error('❌ Failed to get FCM token. Check logs above for details.');
+        }
+      } catch (error: any) {
+        console.error('❌ Error getting FCM token:', error?.message || error);
+        if (error?.stack) {
+          console.error('Stack:', error.stack.substring(0, 500));
+        }
+      }
+    };
+    setTimeout(logToken, 5000);
+  }, []);
 
   // Handle authentication state changes
   useEffect(() => {

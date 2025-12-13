@@ -22,7 +22,8 @@
         "NSCalendarsUsageDescription": "We need access to your calendar to sync your events and manage your schedule.",
         "NSLocationWhenInUseUsageDescription": "We need your location to add map locations to events and help you find nearby studios.",
         "NSLocationAlwaysUsageDescription": "We need your location to provide location-based features for your events."
-      }
+      },
+      "appleTeamId": "9MK2V33M87"
     },
     "android": {
       "adaptiveIcon": {

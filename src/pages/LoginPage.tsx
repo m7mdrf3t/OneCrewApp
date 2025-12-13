@@ -271,7 +271,8 @@ const LoginPage: React.FC<LoginPageProps> = ({
             <Text style={styles.guestButtonText}>Browse as Guest</Text>
           </TouchableOpacity>
 
-          <View style={styles.divider}>
+          {/* Google Sign-In temporarily hidden */}
+          {/* <View style={styles.divider}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>OR</Text>
             <View style={styles.dividerLine} />
@@ -288,7 +289,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
                 {pendingGoogleSignIn ? 'Signing In...' : 'Sign in with Google'}
               </Text>
             </View>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           <View style={styles.signupContainer}>
             <Text style={styles.signupText}>Don't have an account? </Text>

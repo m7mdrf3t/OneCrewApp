@@ -1,0 +1,34 @@
+diff --git a/node_modules/expo-dev-launcher/ios/SwiftUI/NetworkUtilities.swift b/node_modules/expo-dev-launcher/ios/SwiftUI/NetworkUtilities.swift
+index c450dbd..bd7be06 100644
+--- a/node_modules/expo-dev-launcher/ios/SwiftUI/NetworkUtilities.swift
++++ b/node_modules/expo-dev-launcher/ios/SwiftUI/NetworkUtilities.swift
+@@ -3,9 +3,9 @@
+ import Foundation
+ import Network
+ 
+-class NetworkUtilities {
++public class NetworkUtilities {
+   // Same approach as expo-network just without throwing.
+-  static func getLocalIPAddress() -> String? {
++  public static func getLocalIPAddress() -> String? {
+     var address: String?
+ 
+     var ifaddr: UnsafeMutablePointer<ifaddrs>?
+@@ -41,7 +41,7 @@ class NetworkUtilities {
+     return address
+   }
+ 
+-  static func isSimulator() -> Bool {
++  public static func isSimulator() -> Bool {
+     #if targetEnvironment(simulator)
+     return true
+     #else
+@@ -49,7 +49,7 @@ class NetworkUtilities {
+     #endif
+   }
+ 
+-  static func getIPAddressesToScan() -> [String] {
++  public static func getIPAddressesToScan() -> [String] {
+     if isSimulator() {
+       return ["localhost"]
+     }

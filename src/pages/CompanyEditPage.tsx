@@ -21,16 +21,28 @@ interface CompanyEditPageProps {
 }
 
 interface CompanyFormData {
+  name: string;
   description: string;
   bio: string;
   website_url: string;
   location_text: string;
+  address: string;
+  city: string;
+  country: string;
   email: string;
   phone: string;
   establishment_date: string;
   contact_email: string;
   contact_phone: string;
   contact_address: string;
+  social_media_links: {
+    instagram?: string;
+    facebook?: string;
+    twitter?: string;
+    linkedin?: string;
+    youtube?: string;
+    tiktok?: string;
+  };
 }
 
 const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
@@ -38,26 +50,82 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
   onBack,
   onCompanyUpdated,
 }) => {
-  const { updateCompany } = useApi();
+  const { updateCompany, getCompany } = useApi();
   const [saving, setSaving] = useState(false);
+  const [currentCompany, setCurrentCompany] = useState<Company>(company);
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState<CompanyFormData>({
+    name: company.name || '',
     description: company.description || '',
     bio: company.bio || '',
     website_url: company.website_url || '',
     location_text: company.location_text || '',
+    address: company.address || '',
+    city: company.city || '',
+    country: company.country || '',
     email: company.email || '',
     phone: company.phone || '',
     establishment_date: company.establishment_date || '',
     contact_email: company.contact_email || '',
     contact_phone: company.contact_phone || '',
     contact_address: company.contact_address || '',
+    social_media_links: company.social_media_links || {},
   });
 
-  const handleInputChange = (field: keyof CompanyFormData, value: string) => {
+  // Reload company data when component mounts to ensure we have the latest data
+  useEffect(() => {
+    const loadCompany = async () => {
+      try {
+        setLoading(true);
+        const response = await getCompany(company.id);
+        if (response.success && response.data) {
+          const updatedCompany = response.data;
+          setCurrentCompany(updatedCompany);
+          // Update form data with fresh company data
+          setFormData({
+            name: updatedCompany.name || '',
+            description: updatedCompany.description || '',
+            bio: updatedCompany.bio || '',
+            website_url: updatedCompany.website_url || '',
+            location_text: updatedCompany.location_text || '',
+            address: updatedCompany.address || '',
+            city: updatedCompany.city || '',
+            country: updatedCompany.country || '',
+            email: updatedCompany.email || '',
+            phone: updatedCompany.phone || '',
+            establishment_date: updatedCompany.establishment_date || '',
+            contact_email: updatedCompany.contact_email || '',
+            contact_phone: updatedCompany.contact_phone || '',
+            contact_address: updatedCompany.contact_address || '',
+            social_media_links: updatedCompany.social_media_links || {},
+          });
+        }
+      } catch (error) {
+        console.error('Failed to reload company data:', error);
+        // Continue with existing company data if reload fails
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadCompany();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [company.id]);
+
+  const handleInputChange = (field: keyof CompanyFormData, value: string | any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const validateForm = (): boolean => {
+    // Name validation (2-255 characters)
+    if (!formData.name || formData.name.trim().length < 2) {
+      Alert.alert('Error', 'Company name must be at least 2 characters long');
+      return false;
+    }
+    if (formData.name.trim().length > 255) {
+      Alert.alert('Error', 'Company name must be 255 characters or less');
+      return false;
+    }
+    
     // Email validation
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       Alert.alert('Error', 'Please enter a valid email address');
@@ -74,6 +142,17 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
       return false;
     }
 
+    // Social media URL validation
+    const socialLinks = formData.social_media_links;
+    const socialPlatforms = ['instagram', 'facebook', 'twitter', 'linkedin', 'youtube', 'tiktok'] as const;
+    for (const platform of socialPlatforms) {
+      const url = socialLinks[platform];
+      if (url && url.trim() && !/^https?:\/\/.+/.test(url.trim())) {
+        Alert.alert('Error', `Please enter a valid ${platform} URL (must start with http:// or https://)`);
+        return false;
+      }
+    }
+
     return true;
   };
 
@@ -85,26 +164,83 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
     setSaving(true);
     try {
       const updates: any = {
+        name: formData.name.trim(),
         description: formData.description.trim() || undefined,
         bio: formData.bio.trim() || undefined,
         website_url: formData.website_url.trim() || undefined,
         location_text: formData.location_text.trim() || undefined,
+        address: formData.address.trim() || undefined,
+        city: formData.city.trim() || undefined,
+        country: formData.country.trim() || undefined,
         email: formData.email.trim() || undefined,
         phone: formData.phone.trim() || undefined,
         establishment_date: formData.establishment_date || undefined,
         contact_email: formData.contact_email.trim() || undefined,
         contact_phone: formData.contact_phone.trim() || undefined,
         contact_address: formData.contact_address.trim() || undefined,
+        social_media_links: (() => {
+          const filtered = Object.fromEntries(
+            Object.entries(formData.social_media_links).filter(([_, v]) => v && typeof v === 'string' && v.trim() !== '')
+          );
+          // Return the filtered object (may be empty)
+          return filtered;
+        })(),
       };
 
-      // Remove undefined values
-      const cleanedUpdates = Object.fromEntries(
-        Object.entries(updates).filter(([_, v]) => v !== undefined && v !== '')
-      );
+      // Remove undefined values, but keep empty objects for social_media_links
+      // Also ensure bio and description are included if they have content
+      // Name is always included as it's required
+      const cleanedUpdates: any = {};
+      
+      Object.entries(updates).forEach(([key, v]) => {
+        if (key === 'social_media_links') {
+          // Always include social_media_links, even if empty object
+          // Ensure it's a proper object (not stringified) - backend should handle JSONB
+          cleanedUpdates[key] = v;
+        } else if (key === 'name') {
+          // Always include name as it's required (validated to be 2-255 characters)
+          cleanedUpdates[key] = v;
+        } else if (key === 'bio' || key === 'description') {
+          // Include bio and description even if they're empty strings (to clear them)
+          if (v !== undefined) {
+            cleanedUpdates[key] = v;
+          }
+        } else {
+          // Other fields: only include if not undefined and not empty string
+          if (v !== undefined && v !== '') {
+            cleanedUpdates[key] = v;
+          }
+        }
+      });
 
-      const response = await updateCompany(company.id, cleanedUpdates);
+      // Debug: Log what we're sending
+      console.log('📤 Sending company update:', JSON.stringify(cleanedUpdates, null, 2));
+      console.log('📤 Social media links being sent:', cleanedUpdates.social_media_links);
+
+      const response = await updateCompany(currentCompany.id, cleanedUpdates);
+      
+      // Debug: Log what we received
+      console.log('✅ Company update response:', JSON.stringify(response.data, null, 2));
+      console.log('✅ Social media links in response:', response.data?.social_media_links);
+      
       if (response.success) {
-        Alert.alert('Success', 'Company profile updated successfully!');
+        // Check if social media links were saved (backend issue detection)
+        const sentLinks = cleanedUpdates.social_media_links;
+        const receivedLinks = response.data?.social_media_links || {};
+        const sentCount = Object.keys(sentLinks || {}).length;
+        const receivedCount = Object.keys(receivedLinks).length;
+        
+        if (sentCount > 0 && receivedCount === 0) {
+          // Backend didn't save social media links - show warning
+          Alert.alert(
+            'Partial Update',
+            'Company profile updated, but social media links were not saved. This appears to be a backend issue. Please try again or contact support.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert('Success', 'Company profile updated successfully!');
+        }
+        
         if (onCompanyUpdated) {
           onCompanyUpdated();
         }
@@ -132,21 +268,41 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
     }
   };
 
-  const canEdit = company.approval_status === 'approved';
+  // Allow editing for all statuses except 'suspended' (as per API requirements)
+  // Approved companies can update name without re-approval
+  const canEdit = currentCompany.approval_status !== 'suspended';
   const getStatusMessage = () => {
-    switch (company.approval_status) {
-      case 'pending':
-        return 'Your company is pending approval. Once approved, you will be able to edit your profile.';
-      case 'rejected':
-        return 'Your company application was rejected. Please contact an administrator for assistance.';
+    switch (currentCompany.approval_status) {
       case 'suspended':
-        return 'Your company is currently suspended. Please contact an administrator for assistance.';
+        return 'Your company is currently suspended. You cannot edit your profile. Please contact an administrator for assistance.';
+      case 'pending':
+        return 'Your company is pending approval. You can edit your profile, but changes may require re-approval.';
+      case 'rejected':
+        return 'Your company application was rejected. You can edit your profile, but please contact an administrator for assistance.';
       case 'draft':
-        return 'Your company is still in draft status. Please submit it for approval first.';
+        return 'Your company is still in draft status. You can edit your profile before submitting for approval.';
       default:
         return null;
     }
   };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Edit Company Profile</Text>
+          <View style={styles.placeholder} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#000" />
+          <Text style={styles.loadingText}>Loading company data...</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -168,16 +324,35 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
               <View style={styles.warningContent}>
                 <Text style={styles.warningTitle}>Editing Restricted</Text>
                 <Text style={styles.warningText}>{getStatusMessage()}</Text>
-                {company.approval_reason && company.approval_status === 'rejected' && (
+                {currentCompany.approval_reason && currentCompany.approval_status === 'rejected' && (
                   <View style={styles.rejectionReasonBox}>
                     <Text style={styles.rejectionReasonTitle}>Rejection Reason:</Text>
-                    <Text style={styles.rejectionReasonText}>{company.approval_reason}</Text>
+                    <Text style={styles.rejectionReasonText}>{currentCompany.approval_reason}</Text>
                   </View>
                 )}
               </View>
             </View>
           </View>
         )}
+
+        {/* Company Name Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Company Information</Text>
+          
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Company Name *</Text>
+            <TextInput
+              style={[styles.input, !canEdit && styles.inputDisabled]}
+              value={formData.name}
+              onChangeText={(value) => handleInputChange('name', value)}
+              placeholder="Enter company name"
+              placeholderTextColor="#9ca3af"
+              editable={canEdit}
+              maxLength={255}
+            />
+            <Text style={styles.hint}>Company name must be 2-255 characters</Text>
+          </View>
+        </View>
 
         {/* About Section */}
         <View style={styles.section}>
@@ -260,7 +435,7 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Location</Text>
+            <Text style={styles.label}>Location (General)</Text>
             <TextInput
               style={[styles.input, !canEdit && styles.inputDisabled]}
               value={formData.location_text}
@@ -269,6 +444,45 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
               placeholderTextColor="#9ca3af"
               editable={canEdit}
             />
+            <Text style={styles.hint}>General location text (optional if using structured fields below)</Text>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Address</Text>
+            <TextInput
+              style={[styles.input, !canEdit && styles.inputDisabled]}
+              value={formData.address}
+              onChangeText={(value) => handleInputChange('address', value)}
+              placeholder="Street address"
+              placeholderTextColor="#9ca3af"
+              editable={canEdit}
+            />
+          </View>
+
+          <View style={styles.row}>
+            <View style={[styles.inputGroup, styles.halfWidth]}>
+              <Text style={styles.label}>City</Text>
+              <TextInput
+                style={[styles.input, !canEdit && styles.inputDisabled]}
+                value={formData.city}
+                onChangeText={(value) => handleInputChange('city', value)}
+                placeholder="City"
+                placeholderTextColor="#9ca3af"
+                editable={canEdit}
+              />
+            </View>
+
+            <View style={[styles.inputGroup, styles.halfWidth]}>
+              <Text style={styles.label}>Country</Text>
+              <TextInput
+                style={[styles.input, !canEdit && styles.inputDisabled]}
+                value={formData.country}
+                onChangeText={(value) => handleInputChange('country', value)}
+                placeholder="Country"
+                placeholderTextColor="#9ca3af"
+                editable={canEdit}
+              />
+            </View>
           </View>
         </View>
 
@@ -316,6 +530,108 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
               textAlignVertical="top"
               editable={canEdit}
             />
+          </View>
+        </View>
+
+        {/* Social Media Links Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Social Media Links</Text>
+          <Text style={styles.sectionSubtitle}>Add your social media profiles (optional)</Text>
+          
+          <View style={styles.inputGroup}>
+            <View style={styles.socialMediaRow}>
+              <Ionicons name="logo-instagram" size={20} color="#E4405F" style={styles.socialIcon} />
+              <TextInput
+                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
+                value={formData.social_media_links.instagram || ''}
+                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, instagram: value })}
+                placeholder="https://instagram.com/yourprofile"
+                placeholderTextColor="#9ca3af"
+                keyboardType="url"
+                autoCapitalize="none"
+                editable={canEdit}
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <View style={styles.socialMediaRow}>
+              <Ionicons name="logo-facebook" size={20} color="#1877F2" style={styles.socialIcon} />
+              <TextInput
+                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
+                value={formData.social_media_links.facebook || ''}
+                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, facebook: value })}
+                placeholder="https://facebook.com/yourpage"
+                placeholderTextColor="#9ca3af"
+                keyboardType="url"
+                autoCapitalize="none"
+                editable={canEdit}
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <View style={styles.socialMediaRow}>
+              <Ionicons name="logo-twitter" size={20} color="#1DA1F2" style={styles.socialIcon} />
+              <TextInput
+                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
+                value={formData.social_media_links.twitter || ''}
+                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, twitter: value })}
+                placeholder="https://twitter.com/yourhandle"
+                placeholderTextColor="#9ca3af"
+                keyboardType="url"
+                autoCapitalize="none"
+                editable={canEdit}
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <View style={styles.socialMediaRow}>
+              <Ionicons name="logo-linkedin" size={20} color="#0077B5" style={styles.socialIcon} />
+              <TextInput
+                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
+                value={formData.social_media_links.linkedin || ''}
+                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, linkedin: value })}
+                placeholder="https://linkedin.com/company/yourcompany"
+                placeholderTextColor="#9ca3af"
+                keyboardType="url"
+                autoCapitalize="none"
+                editable={canEdit}
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <View style={styles.socialMediaRow}>
+              <Ionicons name="logo-youtube" size={20} color="#FF0000" style={styles.socialIcon} />
+              <TextInput
+                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
+                value={formData.social_media_links.youtube || ''}
+                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, youtube: value })}
+                placeholder="https://youtube.com/@yourchannel"
+                placeholderTextColor="#9ca3af"
+                keyboardType="url"
+                autoCapitalize="none"
+                editable={canEdit}
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <View style={styles.socialMediaRow}>
+              <Ionicons name="musical-notes" size={20} color="#000000" style={styles.socialIcon} />
+              <TextInput
+                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
+                value={formData.social_media_links.tiktok || ''}
+                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, tiktok: value })}
+                placeholder="https://tiktok.com/@yourhandle"
+                placeholderTextColor="#9ca3af"
+                keyboardType="url"
+                autoCapitalize="none"
+                editable={canEdit}
+              />
+            </View>
           </View>
         </View>
 
@@ -490,6 +806,45 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  halfWidth: {
+    flex: 1,
+  },
+  hint: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 16,
+  },
+  socialMediaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  socialIcon: {
+    marginRight: 12,
+    width: 24,
+  },
+  socialInput: {
+    flex: 1,
   },
 });
 

@@ -513,7 +513,8 @@ const SignupPage: React.FC<SignupPageProps> = ({
             )}
           </TouchableOpacity>
 
-          <View style={styles.divider}>
+          {/* Google Sign-Up temporarily hidden */}
+          {/* <View style={styles.divider}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>OR</Text>
             <View style={styles.dividerLine} />
@@ -530,7 +531,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
                 {pendingGoogleSignIn ? 'Signing Up...' : 'Sign up with Google'}
               </Text>
             </View>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           <View style={styles.loginContainer}>
             <Text style={styles.loginText}>Already have an account? </Text>

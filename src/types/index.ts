@@ -450,6 +450,20 @@ export interface Company {
   contact_email?: string;
   contact_phone?: string;
   contact_address?: string;
+  // v2.16.0: Structured location fields
+  address?: string;
+  city?: string;
+  country?: string;
+  // v2.16.0: Social media links
+  social_media_links?: {
+    instagram?: string;
+    facebook?: string;
+    twitter?: string;
+    linkedin?: string;
+    youtube?: string;
+    tiktok?: string;
+  };
+  default_course_design?: 'vertical' | 'horizontal' | 'large'; // v2.16.0: Default course design for academy
   approval_status: CompanyApprovalStatus;
   approval_reason?: string;
   approved_at?: string;
@@ -607,6 +621,7 @@ export interface UserCertification {
   company_id: string;
   certification_template_id: string;
   certificate_url?: string;
+  certificate_image_url?: string; // v2.16.0: Custom certificate image/template upload
   issued_at: string;
   issued_by: string;
   expiration_date?: string;
@@ -657,12 +672,14 @@ export interface CreateCertificationRequest {
   user_id: string;
   certification_template_id: string;
   certificate_url?: string;
+  certificate_image_url?: string; // v2.16.0: Custom certificate image/template upload
   expiration_date?: string;
   notes?: string;
 }
 
 export interface UpdateCertificationRequest {
   certificate_url?: string;
+  certificate_image_url?: string; // v2.16.0: Custom certificate image/template upload
   expiration_date?: string;
   notes?: string;
   verified?: boolean;
@@ -692,6 +709,7 @@ export interface Course {
   status: CourseStatus;
   primary_lecturer_id?: string;
   number_of_sessions?: number;
+  design?: 'vertical' | 'horizontal' | 'large'; // v2.16.0: Course card design layout
   certification_template_id?: string; // v2.8.0: Certification template for this course
   auto_grant_certification?: boolean; // v2.8.0: Auto-grant certification on course completion
   created_at: string;
@@ -736,6 +754,7 @@ export interface CreateCourseRequest {
   instructor_ids?: string[];
   primary_lecturer_id?: string;
   number_of_sessions?: number;
+  design?: 'vertical' | 'horizontal' | 'large'; // v2.16.0: Course card design layout
   // v2.8.0: Certification template (required)
   certification_template: {
     name: string;
@@ -760,6 +779,9 @@ export interface UpdateCourseRequest {
   category?: string;
   status?: CourseStatus;
   instructor_ids?: string[];
+  primary_lecturer_id?: string | null; // v2.16.0: Can be set to null to remove
+  number_of_sessions?: number | null; // v2.16.0: Can be set to null to remove
+  design?: 'vertical' | 'horizontal' | 'large' | null; // v2.16.0: Course card design layout, can be null
 }
 
 // Course UI Component Props

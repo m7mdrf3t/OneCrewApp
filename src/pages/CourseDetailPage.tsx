@@ -12,7 +12,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
-import { CourseDetailPageProps, CourseWithDetails } from '../types';
+import { CourseDetailPageProps, CourseWithDetails, Company } from '../types';
+import MediaPickerService from '../services/MediaPickerService';
+import UploadProgressBar from '../components/UploadProgressBar';
 
 const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
   courseId,
@@ -22,11 +24,34 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
   onUnregister,
   onNavigate,
 }) => {
-  const { getCourseById, registerForCourse, unregisterFromCourse, user, getCompany } = useApi();
+  const { 
+    getCourseById, 
+    registerForCourse, 
+    unregisterFromCourse, 
+    user, 
+    getCompany,
+    uploadCoursePoster,
+    getCompanyMembers,
+    activeCompany,
+    currentProfileType,
+  } = useApi();
   const [course, setCourse] = useState<CourseWithDetails | null>(null);
+  const [company, setCompany] = useState<Company | null>(null);
+  const [companyMembers, setCompanyMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
   const [unregistering, setUnregistering] = useState(false);
+  const [uploadingPoster, setUploadingPoster] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    visible: boolean;
+    progress?: number;
+    label: string;
+  }>({
+    visible: false,
+    progress: undefined,
+    label: 'Uploading...',
+  });
+  const mediaPicker = MediaPickerService.getInstance();
 
   useEffect(() => {
     loadCourse();
@@ -38,6 +63,11 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
       const response = await getCourseById(courseId, companyId);
       if (response.success && response.data) {
         setCourse(response.data);
+        // Load company data if not already loaded
+        const courseCompanyId = response.data.company_id || companyId;
+        if (courseCompanyId && !company) {
+          loadCompanyData(courseCompanyId);
+        }
       } else {
         Alert.alert('Error', response.error || 'Failed to load course');
         onBack();
@@ -48,6 +78,149 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
       onBack();
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadCompanyData = async (id: string) => {
+    try {
+      const companyResponse = await getCompany(id);
+      if (companyResponse.success && companyResponse.data) {
+        setCompany(companyResponse.data);
+        // Load members to check permissions
+        const membersResponse = await getCompanyMembers(id);
+        if (membersResponse.success && membersResponse.data) {
+          const members = Array.isArray(membersResponse.data) 
+            ? membersResponse.data 
+            : (membersResponse.data.data || []);
+          setCompanyMembers(members);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load company data:', error);
+    }
+  };
+
+  // Check if user can edit course (academy owner/admin)
+  const canEditCourse = (): boolean => {
+    if (!user || !company || !course) return false;
+    
+    // Check if user is viewing their active company
+    if (currentProfileType === 'company' && activeCompany?.id === company.id) {
+      return true;
+    }
+    
+    // Check if user is company owner
+    if (company.owner?.id === user.id) {
+      return true;
+    }
+    
+    // Check if user is a member with admin/owner role
+    const userMember = companyMembers.find(m => m.user_id === user.id);
+    if (userMember && (userMember.role === 'owner' || userMember.role === 'admin')) {
+      return true;
+    }
+    
+    return false;
+  };
+
+  const handleUploadPoster = async () => {
+    if (!course?.id) return;
+
+    try {
+      // Request permissions
+      const hasPermission = await mediaPicker.requestPermissions();
+      if (!hasPermission) {
+        Alert.alert('Permission Required', 'Camera and media library permissions are required to upload a poster.');
+        return;
+      }
+
+      // Show action sheet to choose between camera and gallery
+      Alert.alert(
+        'Upload Course Poster',
+        'Choose an option',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Choose from Gallery',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.pickImage({
+                  allowsEditing: true,
+                  quality: 0.8,
+                  aspect: [16, 9],
+                  maxWidth: 1920,
+                  maxHeight: 1080,
+                });
+
+                if (result) {
+                  await uploadPosterFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error picking image:', error);
+                Alert.alert('Error', error.message || 'Failed to pick image.');
+              }
+            },
+          },
+          {
+            text: 'Take Photo',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.takePhoto({
+                  allowsEditing: true,
+                  quality: 0.8,
+                  aspect: [16, 9],
+                });
+
+                if (result) {
+                  await uploadPosterFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error taking photo:', error);
+                Alert.alert('Error', error.message || 'Failed to take photo.');
+              }
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error in handleUploadPoster:', error);
+      Alert.alert('Error', error.message || 'Failed to upload poster.');
+    }
+  };
+
+  const uploadPosterFile = async (imageResult: any) => {
+    if (!course?.id) return;
+
+    try {
+      setUploadingPoster(true);
+      setUploadProgress({
+        visible: true,
+        progress: undefined,
+        label: 'Uploading course poster...',
+      });
+
+      const file = {
+        uri: imageResult.uri,
+        type: 'image/jpeg',
+        name: imageResult.fileName || `course_poster_${Date.now()}.jpg`,
+      };
+
+      const response = await uploadCoursePoster(course.id, file);
+
+      setUploadProgress({ visible: false });
+      if (response.success && response.data?.url) {
+        // Reload course data to show new poster
+        await loadCourse();
+        Alert.alert('Success', 'Course poster uploaded successfully!');
+      } else {
+        throw new Error(response.error || 'Failed to upload poster');
+      }
+    } catch (error: any) {
+      console.error('Failed to upload poster:', error);
+      setUploadProgress({ visible: false });
+      Alert.alert('Error', error.message || 'Failed to upload course poster.');
+    } finally {
+      setUploadingPoster(false);
     }
   };
 
@@ -212,13 +385,29 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Course Poster */}
-        {course.poster_url ? (
-          <Image source={{ uri: course.poster_url }} style={styles.poster} />
-        ) : (
-          <View style={[styles.posterPlaceholder, { backgroundColor: statusColor + '20' }]}>
-            <Ionicons name="school" size={64} color={statusColor} />
-          </View>
-        )}
+        <View style={styles.posterContainer}>
+          {course.poster_url ? (
+            <Image source={{ uri: course.poster_url }} style={styles.poster} />
+          ) : (
+            <View style={[styles.posterPlaceholder, { backgroundColor: statusColor + '20' }]}>
+              <Ionicons name="school" size={64} color={statusColor} />
+            </View>
+          )}
+          {/* Upload Button Overlay (for academy admins) */}
+          {canEditCourse() && (
+            <TouchableOpacity
+              style={styles.uploadPosterButton}
+              onPress={handleUploadPoster}
+              disabled={uploadingPoster}
+            >
+              {uploadingPoster ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="camera" size={20} color="#fff" />
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* Status Badge */}
         <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
@@ -413,6 +602,15 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
           )}
         </View>
       )}
+
+      {/* Upload Progress Bar */}
+      {uploadProgress.visible && (
+        <UploadProgressBar
+          visible={uploadProgress.visible}
+          progress={uploadProgress.progress}
+          label={uploadProgress.label}
+        />
+      )}
     </View>
   );
 };
@@ -480,6 +678,10 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  posterContainer: {
+    position: 'relative',
+    width: '100%',
+  },
   poster: {
     width: '100%',
     height: 250,
@@ -490,6 +692,24 @@ const styles = StyleSheet.create({
     height: 250,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  uploadPosterButton: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: '#000',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   statusBadge: {
     position: 'absolute',

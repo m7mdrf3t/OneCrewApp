@@ -172,6 +172,8 @@ interface ApiContextType {
   getCompany: (companyId: string) => Promise<any>;
   updateCompany: (companyId: string, updates: any) => Promise<any>;
   uploadCompanyLogo: (companyId: string, file: { uri: string; type: string; name: string }) => Promise<any>;
+  uploadCoursePoster: (courseId: string, file: { uri: string; type: string; name: string }) => Promise<any>; // v2.16.0
+  uploadCertificateImage: (file: { uri: string; type: string; name: string }) => Promise<any>; // v2.16.0
   getUserCompanies: (userId: string) => Promise<any>;
   submitCompanyForApproval: (companyId: string) => Promise<any>;
   getCompanies: (params?: { limit?: number; page?: number; search?: string; category?: string; location?: string }) => Promise<any>;
@@ -810,6 +812,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       setUser(userData);
       setIsAuthenticated(true);
       
+      // Set up token refresh callback for automatic re-registration
+      pushNotificationService.setOnTokenRefreshCallback((newToken) => {
+        if (userData.id) {
+          console.log('📱 Token refreshed, re-registering with backend...');
+          registerPushToken(newToken, userData.id).catch((error) => {
+            console.warn('⚠️ Failed to re-register token after refresh:', error);
+          });
+        }
+      });
+
       // Register for push notifications after successful login
       setTimeout(async () => {
         try {
@@ -1214,6 +1226,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       setUser(userData);
       setIsAuthenticated(true);
       
+      // Set up token refresh callback for automatic re-registration
+      pushNotificationService.setOnTokenRefreshCallback((newToken) => {
+        if (userData.id) {
+          console.log('📱 Token refreshed, re-registering with backend...');
+          registerPushToken(newToken, userData.id).catch((error) => {
+            console.warn('⚠️ Failed to re-register token after refresh:', error);
+          });
+        }
+      });
+
       // Register for push notifications after successful login
       setTimeout(async () => {
         try {
@@ -1264,6 +1286,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const logout = async () => {
+    // Clear token refresh callback
+    pushNotificationService.clearTokenRefreshCallback();
     setIsLoading(true);
     try {
       // Unsubscribe from real-time notifications
@@ -4611,6 +4635,108 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // v2.16.0: Upload course poster image
+  const uploadCoursePoster = async (courseId: string, file: { uri: string; type: string; name: string }) => {
+    try {
+      console.log('📤 Uploading course poster:', file.name);
+      
+      const fileName = file.name || `course_poster_${Date.now()}.jpg`;
+      const fileType = file.type || 'image/jpeg';
+      const fileUri = file.uri;
+      
+      const formData = new FormData();
+      formData.append('poster', {
+        uri: fileUri,
+        type: fileType,
+        name: fileName,
+      } as any);
+      formData.append('course_id', courseId);
+
+      const accessToken = getAccessToken();
+      
+      const response = await fetch(`${baseUrl}/api/upload/course-poster`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ Course poster upload failed with status:', response.status);
+        throw new Error(result.error || result.message || `Upload failed with status ${response.status}`);
+      }
+
+      console.log('✅ Course poster uploaded successfully:', result);
+      
+      // Invalidate course cache
+      await rateLimiter.clearCacheByPattern(`academy-courses-`);
+      
+      return {
+        success: true,
+        data: {
+          url: result.data?.url || result.url,
+          filename: result.data?.filename || result.filename || fileName,
+        },
+        message: result.message || 'Course poster uploaded successfully',
+      };
+    } catch (error: any) {
+      console.error('❌ Failed to upload course poster:', error);
+      throw error;
+    }
+  };
+
+  // v2.16.0: Upload certificate image/template
+  const uploadCertificateImage = async (file: { uri: string; type: string; name: string }) => {
+    try {
+      console.log('📤 Uploading certificate image:', file.name);
+      
+      const fileName = file.name || `certificate_image_${Date.now()}.jpg`;
+      const fileType = file.type || 'image/jpeg';
+      const fileUri = file.uri;
+      
+      const formData = new FormData();
+      formData.append('certificate_image', {
+        uri: fileUri,
+        type: fileType,
+        name: fileName,
+      } as any);
+
+      const accessToken = getAccessToken();
+      
+      const response = await fetch(`${baseUrl}/api/upload/certificate-image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ Certificate image upload failed with status:', response.status);
+        throw new Error(result.error || result.message || `Upload failed with status ${response.status}`);
+      }
+
+      console.log('✅ Certificate image uploaded successfully:', result);
+      
+      return {
+        success: true,
+        data: {
+          url: result.data?.url || result.url,
+          filename: result.data?.filename || result.filename || fileName,
+        },
+        message: result.message || 'Certificate image uploaded successfully',
+      };
+    } catch (error: any) {
+      console.error('❌ Failed to upload certificate image:', error);
+      throw error;
+    }
+  };
+
   const getUserCompanies = async (userId: string) => {
     const cacheKey = `user-companies-${userId}`;
     // Use MEDIUM TTL instead of LONG since companies can change frequently when users are creating/managing them
@@ -6069,37 +6195,70 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  // Push notification token registration
+  // Push notification token registration (Firebase FCM)
   const registerPushToken = async (token: string, userId: string) => {
     try {
-      console.log('📱 Registering push token with backend:', token.substring(0, 20) + '...');
+      console.log('📱 [Backend] Registering FCM token with backend...');
+      console.log('📱 [Backend] Token (first 20 chars):', token.substring(0, 20) + '...');
+      console.log('📱 [Backend] User ID:', userId);
       
-      // Try to register via API endpoint
-      // Note: Adjust the endpoint based on your backend API structure
-      const response = await fetch(`${baseUrl}/api/users/${userId}/push-token`, {
+      // Get device ID - use a stored UUID or generate one
+      let deviceId = await AsyncStorage.getItem('@onecrew:device_id');
+      if (!deviceId) {
+        // Generate a simple device identifier (you can use a more robust solution)
+        deviceId = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+        await AsyncStorage.setItem('@onecrew:device_id', deviceId);
+        console.log('📱 [Backend] Generated new device ID:', deviceId);
+      } else {
+        console.log('📱 [Backend] Using existing device ID:', deviceId);
+      }
+      
+      // Get app version
+      const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '1.0.0';
+      console.log('📱 [Backend] App version:', appVersion);
+      
+      // Register FCM token via API endpoint
+      // Token format: FCM token (long alphanumeric string)
+      // Payload matches backend expectations: token, platform, device_id, app_version
+      const url = `${baseUrl}/api/users/${userId}/push-token`;
+      console.log('📱 [Backend] Registering token at:', url);
+      
+      const payload = {
+        token: token,  // Changed from push_token to token (backend expects 'token')
+        platform: Platform.OS,
+        device_id: deviceId,
+        app_version: appVersion,
+      };
+      console.log('📱 [Backend] Payload:', { ...payload, token: token.substring(0, 20) + '...' });
+      
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${getAccessToken()}`,
         },
-        body: JSON.stringify({
-          push_token: token,
-          platform: Platform.OS,
-        }),
+        body: JSON.stringify(payload),
       });
+
+      console.log('📱 [Backend] Response status:', response.status);
+      console.log('📱 [Backend] Response ok:', response.ok);
 
       if (!response.ok) {
         // If endpoint doesn't exist, log warning but don't fail
-        console.warn('⚠️ Push token registration endpoint not available:', response.status);
+        const errorText = await response.text().catch(() => 'Unable to read error');
+        console.error('❌ [Backend] Push token registration failed:', response.status, errorText);
         return;
       }
 
       const result = await response.json();
-      console.log('✅ Push token registered successfully');
+      console.log('✅ [Backend] Push token registered successfully:', result);
       return result;
-    } catch (error) {
+    } catch (error: any) {
       // Don't throw - push token registration is not critical for app functionality
-      console.warn('⚠️ Failed to register push token with backend:', error);
+      console.error('❌ [Backend] Failed to register push token with backend:', error?.message || error);
+      if (error?.stack) {
+        console.error('❌ [Backend] Stack trace:', error.stack.substring(0, 300));
+      }
     }
   };
 
@@ -6723,6 +6882,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getCompany,
     updateCompany,
     uploadCompanyLogo,
+    uploadCoursePoster, // v2.16.0
+    uploadCertificateImage, // v2.16.0
     getUserCompanies,
     submitCompanyForApproval,
     getCompanies,
