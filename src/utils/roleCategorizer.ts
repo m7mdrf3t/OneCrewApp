@@ -51,7 +51,7 @@ export const filterRolesByCategory = (
   category: 'crew' | 'talent'
 ): Array<string | { name: string; [key: string]: any }> => {
   return roles.filter((role) => {
-    const roleName = typeof role === 'string' ? role : (role.name || role);
+    const roleName = getRoleName(role);
     const roleCategory = categorizeRole(roleName);
     return roleCategory === category || roleCategory === 'both';
   });

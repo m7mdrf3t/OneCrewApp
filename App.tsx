@@ -1502,6 +1502,8 @@ const AppContent: React.FC = () => {
             <SettingsPage
               onBack={handleBack}
               onNavigate={navigateTo}
+              theme={theme}
+              onToggleTheme={toggleTheme}
             />
           )}
           {page.name === 'performanceTest' && (
@@ -1554,6 +1556,8 @@ const AppContent: React.FC = () => {
           onHelpSupport={handleHelpSupport}
           onLogout={handleLogout}
           onCreateCompany={isAuthenticated ? handleCreateCompany : undefined}
+          theme={theme}
+          onToggleTheme={toggleTheme}
         />
 
         {/* My Team Modal */}

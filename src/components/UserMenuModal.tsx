@@ -11,6 +11,8 @@ interface UserMenuModalProps {
   onHelpSupport: () => void;
   onLogout: () => void;
   onCreateCompany?: () => void;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: () => void;
 }
 
 const UserMenuModal: React.FC<UserMenuModalProps> = ({
@@ -22,13 +24,23 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
   onHelpSupport,
   onLogout,
   onCreateCompany,
+  theme = 'light',
+  onToggleTheme,
 }) => {
+  const isDark = theme === 'dark';
+  
   const menuItems = [
     { id: 'myTeam', label: 'My Team', icon: 'people', onPress: onMyTeam },
     { id: 'settings', label: 'Settings', icon: 'settings', onPress: onSettings },
     { id: 'profileEdit', label: 'Profile Edit', icon: 'create', onPress: onProfileEdit },
     { id: 'createCompany', label: 'Create Company', icon: 'business', onPress: onCreateCompany || (() => {}) },
     { id: 'helpSupport', label: 'Help & Support', icon: 'help-circle', onPress: onHelpSupport },
+    ...(onToggleTheme ? [{ 
+      id: 'theme', 
+      label: isDark ? 'Light Mode' : 'Dark Mode', 
+      icon: isDark ? 'sunny' : 'moon', 
+      onPress: onToggleTheme 
+    }] : []),
     { id: 'logout', label: 'Logout', icon: 'log-out', onPress: onLogout, isDestructive: true },
   ];
 

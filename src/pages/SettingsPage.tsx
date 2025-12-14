@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
@@ -17,10 +18,13 @@ import { validatePassword, getPasswordRequirements } from '../utils/passwordVali
 interface SettingsPageProps {
   onBack: () => void;
   onNavigate?: (pageName: string) => void;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: () => void;
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
+const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate, theme = 'light', onToggleTheme }) => {
   const { changePassword, isLoading, error, clearError } = useApi();
+  const isDark = theme === 'dark';
   const [formData, setFormData] = useState({
     currentPassword: '',
     newPassword: '',
@@ -105,29 +109,56 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: isDark ? '#000' : '#fff', borderBottomColor: isDark ? '#1f2937' : '#000' }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={onBack}
           disabled={isLoading}
         >
-          <Ionicons name="arrow-back" size={24} color="#000" />
+          <Ionicons name="arrow-back" size={24} color={isDark ? '#fff' : '#000'} />
         </TouchableOpacity>
-        <Text style={styles.title}>Settings</Text>
+        <Text style={[styles.title, { color: isDark ? '#fff' : '#000' }]}>Settings</Text>
         <View style={styles.placeholder} />
       </View>
 
       <ScrollView 
-        style={styles.scrollView}
+        style={[styles.scrollView, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Change Password</Text>
-          <Text style={styles.sectionDescription}>
+        {onToggleTheme && (
+          <View style={[styles.section, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
+            <Text style={[styles.sectionTitle, { color: isDark ? '#fff' : '#000' }]}>Appearance</Text>
+            <View style={styles.themeToggleContainer}>
+              <View style={styles.themeToggleRow}>
+                <View style={styles.themeToggleLeft}>
+                  <Ionicons 
+                    name={isDark ? 'moon' : 'sunny'} 
+                    size={20} 
+                    color={isDark ? '#fff' : '#000'} 
+                    style={styles.themeIcon}
+                  />
+                  <Text style={[styles.themeLabel, { color: isDark ? '#fff' : '#000' }]}>
+                    {isDark ? 'Light Mode' : 'Dark Mode'}
+                  </Text>
+                </View>
+                <Switch
+                  value={isDark}
+                  onValueChange={onToggleTheme}
+                  trackColor={{ false: '#d4d4d8', true: '#000' }}
+                  thumbColor={isDark ? '#fff' : '#f4f4f5'}
+                  ios_backgroundColor="#d4d4d8"
+                />
+              </View>
+            </View>
+          </View>
+        )}
+        <View style={[styles.section, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
+          <Text style={[styles.sectionTitle, { color: isDark ? '#fff' : '#000' }]}>Change Password</Text>
+          <Text style={[styles.sectionDescription, { color: isDark ? '#9ca3af' : '#71717a' }]}>
             Update your password to keep your account secure. After changing your password, you'll need to sign in again.
           </Text>
 
@@ -139,13 +170,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
           )}
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Current Password</Text>
-            <View style={[styles.inputWrapper, formErrors.currentPassword && styles.inputError]}>
-              <Ionicons name="lock-closed" size={20} color="#71717a" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: isDark ? '#fff' : '#000' }]}>Current Password</Text>
+            <View style={[
+              styles.inputWrapper, 
+              { backgroundColor: isDark ? '#0a0a0a' : '#f9fafb', borderColor: isDark ? '#1f2937' : '#d4d4d8' },
+              formErrors.currentPassword && styles.inputError
+            ]}>
+              <Ionicons name="lock-closed" size={20} color={isDark ? '#9ca3af' : '#71717a'} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: isDark ? '#fff' : '#000' }]}
                 placeholder="Enter your current password"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
                 value={formData.currentPassword}
                 onChangeText={(text) => handleInputChange('currentPassword', text)}
                 secureTextEntry={!showCurrentPassword}
@@ -161,7 +196,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
                 <Ionicons
                   name={showCurrentPassword ? 'eye-off' : 'eye'}
                   size={20}
-                  color="#71717a"
+                  color={isDark ? '#9ca3af' : '#71717a'}
                 />
               </TouchableOpacity>
             </View>
@@ -171,13 +206,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>New Password</Text>
-            <View style={[styles.inputWrapper, formErrors.newPassword && styles.inputError]}>
-              <Ionicons name="lock-closed" size={20} color="#71717a" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: isDark ? '#fff' : '#000' }]}>New Password</Text>
+            <View style={[
+              styles.inputWrapper, 
+              { backgroundColor: isDark ? '#0a0a0a' : '#f9fafb', borderColor: isDark ? '#1f2937' : '#d4d4d8' },
+              formErrors.newPassword && styles.inputError
+            ]}>
+              <Ionicons name="lock-closed" size={20} color={isDark ? '#9ca3af' : '#71717a'} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: isDark ? '#fff' : '#000' }]}
                 placeholder="Enter your new password"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
                 value={formData.newPassword}
                 onChangeText={(text) => handleInputChange('newPassword', text)}
                 secureTextEntry={!showNewPassword}
@@ -193,7 +232,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
                 <Ionicons
                   name={showNewPassword ? 'eye-off' : 'eye'}
                   size={20}
-                  color="#71717a"
+                  color={isDark ? '#9ca3af' : '#71717a'}
                 />
               </TouchableOpacity>
             </View>
@@ -203,13 +242,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Confirm New Password</Text>
-            <View style={[styles.inputWrapper, formErrors.confirmPassword && styles.inputError]}>
-              <Ionicons name="lock-closed" size={20} color="#71717a" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: isDark ? '#fff' : '#000' }]}>Confirm New Password</Text>
+            <View style={[
+              styles.inputWrapper, 
+              { backgroundColor: isDark ? '#0a0a0a' : '#f9fafb', borderColor: isDark ? '#1f2937' : '#d4d4d8' },
+              formErrors.confirmPassword && styles.inputError
+            ]}>
+              <Ionicons name="lock-closed" size={20} color={isDark ? '#9ca3af' : '#71717a'} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: isDark ? '#fff' : '#000' }]}
                 placeholder="Confirm your new password"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
                 value={formData.confirmPassword}
                 onChangeText={(text) => handleInputChange('confirmPassword', text)}
                 secureTextEntry={!showConfirmPassword}
@@ -225,7 +268,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
                 <Ionicons
                   name={showConfirmPassword ? 'eye-off' : 'eye'}
                   size={20}
-                  color="#71717a"
+                  color={isDark ? '#9ca3af' : '#71717a'}
                 />
               </TouchableOpacity>
             </View>
@@ -234,8 +277,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
             )}
           </View>
 
-          <View style={styles.passwordRequirements}>
-            <Text style={styles.requirementsTitle}>Password Requirements:</Text>
+          <View style={[styles.passwordRequirements, { backgroundColor: isDark ? '#0a0a0a' : '#f9fafb' }]}>
+            <Text style={[styles.requirementsTitle, { color: isDark ? '#fff' : '#000' }]}>Password Requirements:</Text>
             {(() => {
               const passwordValidation = validatePassword(formData.newPassword);
               const requirements = getPasswordRequirements();
@@ -250,6 +293,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
                     />
                     <Text style={[
                       styles.requirementText,
+                      { color: isDark ? '#9ca3af' : '#9ca3af' },
                       isMet && styles.requirementTextMet
                     ]}>
                       {req.label}
@@ -266,6 +310,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
               />
               <Text style={[
                 styles.requirementText,
+                { color: isDark ? '#9ca3af' : '#9ca3af' },
                 formData.newPassword === formData.confirmPassword && formData.newPassword.length > 0 && styles.requirementTextMet
               ]}>
                 Passwords match
@@ -287,11 +332,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity
-              style={[styles.cancelButton, isLoading && styles.buttonDisabled]}
+              style={[
+                styles.cancelButton, 
+                { 
+                  backgroundColor: isDark ? '#1a1a1a' : '#f4f4f5',
+                  borderColor: isDark ? '#1f2937' : '#d4d4d8'
+                },
+                isLoading && styles.buttonDisabled
+              ]}
               onPress={handleResetForm}
               disabled={isLoading}
             >
-              <Text style={styles.cancelButtonText}>Clear</Text>
+              <Text style={[styles.cancelButtonText, { color: isDark ? '#9ca3af' : '#71717a' }]}>Clear</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.changeButton, isLoading && styles.changeButtonDisabled]}
@@ -308,24 +360,24 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate }) => {
         </View>
 
         <View style={styles.infoSection}>
-          <View style={styles.infoItem}>
+          <View style={[styles.infoItem, { backgroundColor: isDark ? '#1e3a5f' : '#eff6ff' }]}>
             <Ionicons name="information-circle" size={20} color="#3b82f6" />
-            <Text style={styles.infoText}>
+            <Text style={[styles.infoText, { color: isDark ? '#93c5fd' : '#1e40af' }]}>
               After changing your password, all your sessions will be invalidated for security reasons. You'll need to sign in again with your new password.
             </Text>
           </View>
         </View>
 
         {__DEV__ && onNavigate && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Developer Tools</Text>
+          <View style={[styles.section, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
+            <Text style={[styles.sectionTitle, { color: isDark ? '#fff' : '#000' }]}>Developer Tools</Text>
             <TouchableOpacity
-              style={styles.devButton}
+              style={[styles.devButton, { backgroundColor: isDark ? '#0a0a0a' : '#fff', borderColor: isDark ? '#1f2937' : '#e5e7eb' }]}
               onPress={() => onNavigate('performanceTest')}
             >
-              <Ionicons name="speedometer" size={20} color="#000" />
-              <Text style={styles.devButtonText}>Performance Monitor</Text>
-              <Ionicons name="chevron-forward" size={20} color="#71717a" />
+              <Ionicons name="speedometer" size={20} color={isDark ? '#fff' : '#000'} />
+              <Text style={[styles.devButtonText, { color: isDark ? '#fff' : '#000' }]}>Performance Monitor</Text>
+              <Ionicons name="chevron-forward" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
             </TouchableOpacity>
           </View>
         )}
@@ -348,6 +400,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     paddingTop: 16,
+  },
+  themeToggleContainer: {
+    marginTop: 8,
+  },
+  themeToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  themeToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  themeIcon: {
+    marginRight: 12,
+  },
+  themeLabel: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   backButton: {
     padding: 4,
