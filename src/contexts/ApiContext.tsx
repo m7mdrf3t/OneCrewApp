@@ -72,6 +72,10 @@ interface ApiContextType {
   verifySignupOtp: (email: string, token: string) => Promise<AuthResponse>;
   resendVerificationEmail: (email: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  // Account deletion methods
+  requestAccountDeletion: (password: string) => Promise<{ expirationDate: string; daysRemaining: number }>;
+  restoreAccount: () => Promise<void>;
+  getAccountDeletionStatus: () => Promise<{ isPending: boolean; expirationDate?: string; daysRemaining?: number }>;
   // Guest session methods
   createGuestSession: () => Promise<GuestSessionData>;
   browseUsersAsGuest: (params?: FilterParams & { page?: number; limit?: number }) => Promise<any>;
@@ -1871,6 +1875,91 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error('Current password is incorrect. Please try again.');
       }
       
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Account deletion methods (v2.17.0)
+  const requestAccountDeletion = async (password: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      console.log('🗑️ Requesting account deletion with grace period');
+      const response = await api.requestAccountDeletion(password);
+      
+      if (response.success && response.data) {
+        console.log('✅ Account deletion requested successfully');
+        console.log('📅 Expiration date:', response.data.expirationDate);
+        console.log('⏰ Days remaining:', response.data.daysRemaining);
+        
+        return {
+          expirationDate: response.data.expirationDate,
+          daysRemaining: response.data.daysRemaining,
+        };
+      } else {
+        throw new Error('Failed to request account deletion');
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to request account deletion';
+      console.error('❌ Account deletion request failed:', err);
+      setError(errorMessage);
+      
+      // Handle password mismatch
+      if (errorMessage.toLowerCase().includes('password') || errorMessage.toLowerCase().includes('incorrect')) {
+        throw new Error('Password is incorrect. Please try again.');
+      }
+      
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const restoreAccount = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      console.log('♻️ Restoring account from deletion');
+      const response = await api.restoreAccount();
+      
+      if (response.success) {
+        console.log('✅ Account restored successfully');
+      } else {
+        throw new Error('Failed to restore account');
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to restore account';
+      console.error('❌ Account restoration failed:', err);
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getAccountDeletionStatus = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      console.log('📊 Checking account deletion status');
+      const response = await api.getAccountDeletionStatus();
+      
+      if (response.success && response.data) {
+        console.log('✅ Account deletion status retrieved');
+        return {
+          isPending: response.data.isPending,
+          expirationDate: response.data.expirationDate,
+          daysRemaining: response.data.daysRemaining,
+        };
+      } else {
+        throw new Error('Failed to get account deletion status');
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to get account deletion status';
+      console.error('❌ Failed to get account deletion status:', err);
+      setError(errorMessage);
       throw err;
     } finally {
       setIsLoading(false);
@@ -6835,6 +6924,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     verifySignupOtp,
     resendVerificationEmail,
     changePassword,
+    // Account deletion methods
+    requestAccountDeletion,
+    restoreAccount,
+    getAccountDeletionStatus,
     // Guest session methods
     createGuestSession,
     browseUsersAsGuest,

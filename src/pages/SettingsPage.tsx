@@ -1,19 +1,13 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useApi } from '../contexts/ApiContext';
-import { validatePassword, getPasswordRequirements } from '../utils/passwordValidator';
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -22,101 +16,149 @@ interface SettingsPageProps {
   onToggleTheme?: () => void;
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate, theme = 'light', onToggleTheme }) => {
-  const { changePassword, isLoading, error, clearError } = useApi();
+interface SettingsItem {
+  id: string;
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  action: () => void;
+  showArrow?: boolean;
+  rightComponent?: React.ReactNode;
+  danger?: boolean;
+}
+
+const SettingsPage: React.FC<SettingsPageProps> = ({ 
+  onBack, 
+  onNavigate, 
+  theme = 'light', 
+  onToggleTheme 
+}) => {
   const isDark = theme === 'dark';
-  const [formData, setFormData] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-  });
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
 
-  const validateForm = () => {
-    const errors: { [key: string]: string } = {};
+  const settingsSections: { title?: string; items: SettingsItem[] }[] = [
+    {
+      title: 'Account',
+      items: [
+        {
+          id: 'changePassword',
+          title: 'Change Password',
+          icon: 'lock-closed',
+          action: () => onNavigate?.('changePassword'),
+          showArrow: true,
+        },
+        {
+          id: 'deleteAccount',
+          title: 'Delete Account',
+          icon: 'trash',
+          action: () => onNavigate?.('accountDeletion'),
+          showArrow: true,
+          danger: true,
+        },
+      ],
+    },
+    {
+      title: 'Appearance',
+      items: [
+        {
+          id: 'theme',
+          title: isDark ? 'Dark Mode' : 'Light Mode',
+          icon: isDark ? 'moon' : 'sunny',
+          action: () => {},
+          rightComponent: onToggleTheme ? (
+            <Switch
+              value={isDark}
+              onValueChange={onToggleTheme}
+              trackColor={{ false: '#d4d4d8', true: '#000' }}
+              thumbColor={isDark ? '#fff' : '#f4f4f5'}
+              ios_backgroundColor="#d4d4d8"
+            />
+          ) : undefined,
+        },
+      ],
+    },
+    {
+      title: 'Legal & Support',
+      items: [
+        {
+          id: 'privacyPolicy',
+          title: 'Privacy Policy',
+          icon: 'shield',
+          action: () => onNavigate?.('privacyPolicy'),
+          showArrow: true,
+        },
+        {
+          id: 'support',
+          title: 'Support',
+          icon: 'help-circle',
+          action: () => onNavigate?.('support'),
+          showArrow: true,
+        },
+      ],
+    },
+  ];
 
-    if (!formData.currentPassword.trim()) {
-      errors.currentPassword = 'Current password is required';
-    }
-
-    if (!formData.newPassword.trim()) {
-      errors.newPassword = 'New password is required';
-    } else {
-      const passwordValidation = validatePassword(formData.newPassword);
-      if (!passwordValidation.isValid) {
-        errors.newPassword = passwordValidation.errors[0]; // Show first error
-      }
-    }
-
-    if (!formData.confirmPassword.trim()) {
-      errors.confirmPassword = 'Please confirm your new password';
-    } else if (formData.newPassword !== formData.confirmPassword) {
-      errors.confirmPassword = 'Passwords do not match';
-    }
-
-    // Check if new password is same as current password
-    if (formData.currentPassword && formData.newPassword && formData.currentPassword === formData.newPassword) {
-      errors.newPassword = 'New password must be different from current password';
-    }
-
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleChangePassword = async () => {
-    if (!validateForm()) return;
-
-    try {
-      clearError();
-      await changePassword(formData.currentPassword, formData.newPassword);
-      // Note: changePassword will automatically log out the user and show an alert
-      // So we don't need to handle success here
-    } catch (err: any) {
-      const errorMessage = err.message || 'Failed to change password. Please try again.';
-      
-      // Handle specific error cases
-      if (errorMessage.toLowerCase().includes('current password') || 
-          errorMessage.toLowerCase().includes('incorrect password')) {
-        setFormErrors(prev => ({ ...prev, currentPassword: 'Current password is incorrect' }));
-      } else {
-        Alert.alert('Error', errorMessage);
-      }
-    }
-  };
-
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (formErrors[field]) {
-      setFormErrors(prev => ({ ...prev, [field]: '' }));
-    }
-    if (error) {
-      clearError();
-    }
-  };
-
-  const handleResetForm = () => {
-    setFormData({
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: '',
+  // Add developer tools section in dev mode
+  if (__DEV__ && onNavigate) {
+    settingsSections.push({
+      title: 'Developer',
+      items: [
+        {
+          id: 'performanceTest',
+          title: 'Performance Monitor',
+          icon: 'speedometer',
+          action: () => onNavigate('performanceTest'),
+          showArrow: true,
+        },
+      ],
     });
-    setFormErrors({});
-    clearError();
+  }
+
+  const renderSettingsItem = (item: SettingsItem) => {
+    return (
+      <TouchableOpacity
+        key={item.id}
+        style={[
+          styles.settingsItem,
+          { 
+            backgroundColor: isDark ? '#1a1a1a' : '#fff',
+            borderColor: isDark ? '#1f2937' : '#e5e7eb'
+          },
+          item.danger && styles.dangerItem
+        ]}
+        onPress={item.action}
+      >
+        <View style={styles.settingsItemLeft}>
+          <Ionicons 
+            name={item.icon} 
+            size={22} 
+            color={item.danger ? '#ef4444' : (isDark ? '#fff' : '#000')} 
+            style={styles.settingsIcon}
+          />
+          <Text style={[
+            styles.settingsItemText,
+            { color: item.danger ? '#ef4444' : (isDark ? '#fff' : '#000') }
+          ]}>
+            {item.title}
+          </Text>
+        </View>
+        <View style={styles.settingsItemRight}>
+          {item.rightComponent || (item.showArrow && (
+            <Ionicons 
+              name="chevron-forward" 
+              size={20} 
+              color={isDark ? '#9ca3af' : '#71717a'} 
+            />
+          ))}
+        </View>
+      </TouchableOpacity>
+    );
   };
 
   return (
-    <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
+    <View style={[styles.container, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
       <View style={[styles.header, { backgroundColor: isDark ? '#000' : '#fff', borderBottomColor: isDark ? '#1f2937' : '#000' }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={onBack}
-          disabled={isLoading}
         >
           <Ionicons name="arrow-back" size={24} color={isDark ? '#fff' : '#000'} />
         </TouchableOpacity>
@@ -127,262 +169,28 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onNavigate, theme =
       <ScrollView 
         style={[styles.scrollView, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}
         contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
       >
-        {onToggleTheme && (
-          <View style={[styles.section, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
-            <Text style={[styles.sectionTitle, { color: isDark ? '#fff' : '#000' }]}>Appearance</Text>
-            <View style={styles.themeToggleContainer}>
-              <View style={styles.themeToggleRow}>
-                <View style={styles.themeToggleLeft}>
-                  <Ionicons 
-                    name={isDark ? 'moon' : 'sunny'} 
-                    size={20} 
-                    color={isDark ? '#fff' : '#000'} 
-                    style={styles.themeIcon}
-                  />
-                  <Text style={[styles.themeLabel, { color: isDark ? '#fff' : '#000' }]}>
-                    {isDark ? 'Light Mode' : 'Dark Mode'}
-                  </Text>
-                </View>
-                <Switch
-                  value={isDark}
-                  onValueChange={onToggleTheme}
-                  trackColor={{ false: '#d4d4d8', true: '#000' }}
-                  thumbColor={isDark ? '#fff' : '#f4f4f5'}
-                  ios_backgroundColor="#d4d4d8"
-                />
-              </View>
-            </View>
-          </View>
-        )}
-        <View style={[styles.section, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
-          <Text style={[styles.sectionTitle, { color: isDark ? '#fff' : '#000' }]}>Change Password</Text>
-          <Text style={[styles.sectionDescription, { color: isDark ? '#9ca3af' : '#71717a' }]}>
-            Update your password to keep your account secure. After changing your password, you'll need to sign in again.
-          </Text>
-
-          {error && (
-            <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle" size={20} color="#ef4444" />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: isDark ? '#fff' : '#000' }]}>Current Password</Text>
-            <View style={[
-              styles.inputWrapper, 
-              { backgroundColor: isDark ? '#0a0a0a' : '#f9fafb', borderColor: isDark ? '#1f2937' : '#d4d4d8' },
-              formErrors.currentPassword && styles.inputError
-            ]}>
-              <Ionicons name="lock-closed" size={20} color={isDark ? '#9ca3af' : '#71717a'} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: isDark ? '#fff' : '#000' }]}
-                placeholder="Enter your current password"
-                placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
-                value={formData.currentPassword}
-                onChangeText={(text) => handleInputChange('currentPassword', text)}
-                secureTextEntry={!showCurrentPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-              />
-              <TouchableOpacity
-                onPress={() => setShowCurrentPassword(!showCurrentPassword)}
-                style={styles.eyeIcon}
-                disabled={isLoading}
-              >
-                <Ionicons
-                  name={showCurrentPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color={isDark ? '#9ca3af' : '#71717a'}
-                />
-              </TouchableOpacity>
-            </View>
-            {formErrors.currentPassword && (
-              <Text style={styles.fieldError}>{formErrors.currentPassword}</Text>
-            )}
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: isDark ? '#fff' : '#000' }]}>New Password</Text>
-            <View style={[
-              styles.inputWrapper, 
-              { backgroundColor: isDark ? '#0a0a0a' : '#f9fafb', borderColor: isDark ? '#1f2937' : '#d4d4d8' },
-              formErrors.newPassword && styles.inputError
-            ]}>
-              <Ionicons name="lock-closed" size={20} color={isDark ? '#9ca3af' : '#71717a'} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: isDark ? '#fff' : '#000' }]}
-                placeholder="Enter your new password"
-                placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
-                value={formData.newPassword}
-                onChangeText={(text) => handleInputChange('newPassword', text)}
-                secureTextEntry={!showNewPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-              />
-              <TouchableOpacity
-                onPress={() => setShowNewPassword(!showNewPassword)}
-                style={styles.eyeIcon}
-                disabled={isLoading}
-              >
-                <Ionicons
-                  name={showNewPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color={isDark ? '#9ca3af' : '#71717a'}
-                />
-              </TouchableOpacity>
-            </View>
-            {formErrors.newPassword && (
-              <Text style={styles.fieldError}>{formErrors.newPassword}</Text>
-            )}
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: isDark ? '#fff' : '#000' }]}>Confirm New Password</Text>
-            <View style={[
-              styles.inputWrapper, 
-              { backgroundColor: isDark ? '#0a0a0a' : '#f9fafb', borderColor: isDark ? '#1f2937' : '#d4d4d8' },
-              formErrors.confirmPassword && styles.inputError
-            ]}>
-              <Ionicons name="lock-closed" size={20} color={isDark ? '#9ca3af' : '#71717a'} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: isDark ? '#fff' : '#000' }]}
-                placeholder="Confirm your new password"
-                placeholderTextColor={isDark ? '#6b7280' : '#9ca3af'}
-                value={formData.confirmPassword}
-                onChangeText={(text) => handleInputChange('confirmPassword', text)}
-                secureTextEntry={!showConfirmPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-              />
-              <TouchableOpacity
-                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                style={styles.eyeIcon}
-                disabled={isLoading}
-              >
-                <Ionicons
-                  name={showConfirmPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color={isDark ? '#9ca3af' : '#71717a'}
-                />
-              </TouchableOpacity>
-            </View>
-            {formErrors.confirmPassword && (
-              <Text style={styles.fieldError}>{formErrors.confirmPassword}</Text>
-            )}
-          </View>
-
-          <View style={[styles.passwordRequirements, { backgroundColor: isDark ? '#0a0a0a' : '#f9fafb' }]}>
-            <Text style={[styles.requirementsTitle, { color: isDark ? '#fff' : '#000' }]}>Password Requirements:</Text>
-            {(() => {
-              const passwordValidation = validatePassword(formData.newPassword);
-              const requirements = getPasswordRequirements();
-              return requirements.map((req) => {
-                const isMet = req.test(formData.newPassword);
-                return (
-                  <View key={req.key} style={styles.requirementItem}>
-                    <Ionicons
-                      name={isMet ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={16}
-                      color={isMet ? '#10b981' : '#9ca3af'}
-                    />
-                    <Text style={[
-                      styles.requirementText,
-                      { color: isDark ? '#9ca3af' : '#9ca3af' },
-                      isMet && styles.requirementTextMet
-                    ]}>
-                      {req.label}
-                    </Text>
-                  </View>
-                );
-              });
-            })()}
-            <View style={styles.requirementItem}>
-              <Ionicons
-                name={formData.newPassword === formData.confirmPassword && formData.newPassword.length > 0 ? 'checkmark-circle' : 'ellipse-outline'}
-                size={16}
-                color={formData.newPassword === formData.confirmPassword && formData.newPassword.length > 0 ? '#10b981' : '#9ca3af'}
-              />
-              <Text style={[
-                styles.requirementText,
-                { color: isDark ? '#9ca3af' : '#9ca3af' },
-                formData.newPassword === formData.confirmPassword && formData.newPassword.length > 0 && styles.requirementTextMet
-              ]}>
-                Passwords match
+        {settingsSections.map((section, sectionIndex) => (
+          <View key={sectionIndex} style={styles.section}>
+            {section.title && (
+              <Text style={[styles.sectionTitle, { color: isDark ? '#9ca3af' : '#71717a' }]}>
+                {section.title}
               </Text>
-            </View>
-            {formData.currentPassword && formData.newPassword && formData.currentPassword === formData.newPassword && (
-              <View style={styles.requirementItem}>
-                <Ionicons
-                  name="close-circle"
-                  size={16}
-                  color="#ef4444"
-                />
-                <Text style={[styles.requirementText, styles.requirementTextError]}>
-                  New password must be different from current password
-                </Text>
-              </View>
             )}
+            <View style={[styles.sectionContent, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
+              {section.items.map((item, itemIndex) => (
+                <View key={item.id}>
+                  {renderSettingsItem(item)}
+                  {itemIndex < section.items.length - 1 && (
+                    <View style={[styles.separator, { backgroundColor: isDark ? '#1f2937' : '#e5e7eb' }]} />
+                  )}
+                </View>
+              ))}
+            </View>
           </View>
-
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={[
-                styles.cancelButton, 
-                { 
-                  backgroundColor: isDark ? '#1a1a1a' : '#f4f4f5',
-                  borderColor: isDark ? '#1f2937' : '#d4d4d8'
-                },
-                isLoading && styles.buttonDisabled
-              ]}
-              onPress={handleResetForm}
-              disabled={isLoading}
-            >
-              <Text style={[styles.cancelButtonText, { color: isDark ? '#9ca3af' : '#71717a' }]}>Clear</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.changeButton, isLoading && styles.changeButtonDisabled]}
-              onPress={handleChangePassword}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <Text style={styles.changeButtonText}>Changing...</Text>
-              ) : (
-                <Text style={styles.changeButtonText}>Change Password</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.infoSection}>
-          <View style={[styles.infoItem, { backgroundColor: isDark ? '#1e3a5f' : '#eff6ff' }]}>
-            <Ionicons name="information-circle" size={20} color="#3b82f6" />
-            <Text style={[styles.infoText, { color: isDark ? '#93c5fd' : '#1e40af' }]}>
-              After changing your password, all your sessions will be invalidated for security reasons. You'll need to sign in again with your new password.
-            </Text>
-          </View>
-        </View>
-
-        {__DEV__ && onNavigate && (
-          <View style={[styles.section, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
-            <Text style={[styles.sectionTitle, { color: isDark ? '#fff' : '#000' }]}>Developer Tools</Text>
-            <TouchableOpacity
-              style={[styles.devButton, { backgroundColor: isDark ? '#0a0a0a' : '#fff', borderColor: isDark ? '#1f2937' : '#e5e7eb' }]}
-              onPress={() => onNavigate('performanceTest')}
-            >
-              <Ionicons name="speedometer" size={20} color={isDark ? '#fff' : '#000'} />
-              <Text style={[styles.devButtonText, { color: isDark ? '#fff' : '#000' }]}>Performance Monitor</Text>
-              <Ionicons name="chevron-forward" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
-            </TouchableOpacity>
-          </View>
-        )}
+        ))}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
@@ -400,26 +208,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     paddingTop: 16,
-  },
-  themeToggleContainer: {
-    marginTop: 8,
-  },
-  themeToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  themeToggleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  themeIcon: {
-    marginRight: 12,
-  },
-  themeLabel: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   backButton: {
     padding: 4,
@@ -441,175 +229,55 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   section: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 16,
+    marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 8,
-  },
-  sectionDescription: {
-    fontSize: 14,
-    color: '#71717a',
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
-  },
-  errorText: {
-    color: '#ef4444',
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f9fafb',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  inputError: {
-    borderColor: '#ef4444',
-  },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#000',
-  },
-  eyeIcon: {
-    padding: 4,
-  },
-  fieldError: {
-    color: '#ef4444',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  passwordRequirements: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 24,
-  },
-  requirementsTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-  },
-  requirementItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  requirementText: {
-    fontSize: 12,
-    color: '#9ca3af',
-    marginLeft: 8,
-  },
-  requirementTextMet: {
-    color: '#10b981',
-  },
-  requirementTextError: {
-    color: '#ef4444',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: '#f4f4f5',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-  },
-  cancelButtonText: {
-    color: '#71717a',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  changeButton: {
-    flex: 2,
-    backgroundColor: '#000',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  changeButtonDisabled: {
-    backgroundColor: '#9ca3af',
-  },
-  changeButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  infoSection: {
-    marginTop: 8,
-  },
-  infoItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#eff6ff',
-    borderRadius: 8,
-    padding: 16,
-  },
-  infoText: {
-    flex: 1,
     fontSize: 13,
-    color: '#1e40af',
-    lineHeight: 18,
-    marginLeft: 12,
+    fontWeight: '600',
+    color: '#71717a',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    marginLeft: 4,
   },
-  devButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  sectionContent: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    gap: 12,
+    overflow: 'hidden',
   },
-  devButtonText: {
+  settingsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 0,
+  },
+  dangerItem: {
+    // Additional styling for danger items if needed
+  },
+  settingsItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
+  },
+  settingsIcon: {
+    marginRight: 12,
+  },
+  settingsItemText: {
     fontSize: 16,
     fontWeight: '500',
     color: '#000',
+    flex: 1,
+  },
+  settingsItemRight: {
+    marginLeft: 12,
+  },
+  separator: {
+    height: 1,
+    marginLeft: 52, // Align with text after icon
   },
 });
 
 export default SettingsPage;
-

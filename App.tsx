@@ -56,6 +56,10 @@ import CourseEditPage from './src/pages/CourseEditPage';
 import CourseDetailPage from './src/pages/CourseDetailPage';
 import PublicCoursesPage from './src/pages/PublicCoursesPage';
 import SettingsPage from './src/pages/SettingsPage';
+import ChangePasswordPage from './src/pages/ChangePasswordPage';
+import AccountDeletionPage from './src/pages/AccountDeletionPage';
+import PrivacyPolicyPage from './src/pages/PrivacyPolicyPage';
+import SupportPage from './src/pages/SupportPage';
 import ScreenshotHelper from './src/components/ScreenshotHelper';
 import AgendaPage from './src/pages/AgendaPage';
 import AllAgendaPage from './src/pages/AllAgendaPage';
@@ -1504,6 +1508,30 @@ const AppContent: React.FC = () => {
               onNavigate={navigateTo}
               theme={theme}
               onToggleTheme={toggleTheme}
+            />
+          )}
+          {page.name === 'changePassword' && (
+            <ChangePasswordPage
+              onBack={handleBack}
+              theme={theme}
+            />
+          )}
+          {page.name === 'accountDeletion' && (
+            <AccountDeletionPage
+              onBack={handleBack}
+              theme={theme}
+            />
+          )}
+          {page.name === 'privacyPolicy' && (
+            <PrivacyPolicyPage
+              onBack={handleBack}
+              theme={theme}
+            />
+          )}
+          {page.name === 'support' && (
+            <SupportPage
+              onBack={handleBack}
+              theme={theme}
             />
           )}
           {page.name === 'performanceTest' && (

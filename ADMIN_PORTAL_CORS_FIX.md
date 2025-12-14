@@ -92,3 +92,4 @@ The backend checks for these environment variables:
 - `FRONTEND_URL` - URL of the main frontend application (if separate from admin portal)
 - `NODE_ENV` - Should be set to `production` in production environment
 
+
