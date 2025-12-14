@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
 import { Platform, AppState, AppStateStatus, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore - expo-constants types may not be available in all environments
@@ -76,6 +76,7 @@ interface ApiContextType {
   requestAccountDeletion: (password: string) => Promise<{ expirationDate: string; daysRemaining: number }>;
   restoreAccount: () => Promise<void>;
   getAccountDeletionStatus: () => Promise<{ isPending: boolean; expirationDate?: string; daysRemaining?: number }>;
+  // Support methods
   // Guest session methods
   createGuestSession: () => Promise<GuestSessionData>;
   browseUsersAsGuest: (params?: FilterParams & { page?: number; limit?: number }) => Promise<any>;
@@ -706,6 +707,23 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           lockoutError.lockoutDuration = errorData.lockoutDuration || errorData.lockout_duration || 3600; // Default 1 hour in seconds
           lockoutError.remainingTime = errorData.remainingTime || errorData.remaining_time;
           throw lockoutError;
+        }
+        
+        // Check for account deletion errors - during grace period, users should still be able to login
+        if (errorLower.includes('deleted') || errorLower.includes('deletion')) {
+          const deletionError: any = new Error(
+            'Your account is scheduled for deletion. You can still log in during the grace period to restore your account. Please contact support if you need assistance.'
+          );
+          deletionError.code = 'ACCOUNT_DELETION_PENDING';
+          deletionError.isPending = true;
+          // Include deletion info if available from backend
+          if (errorData.expirationDate) {
+            deletionError.expirationDate = errorData.expirationDate;
+          }
+          if (errorData.daysRemaining !== undefined) {
+            deletionError.daysRemaining = errorData.daysRemaining;
+          }
+          throw deletionError;
         }
         
         throw new Error(errorMessage);
@@ -1882,7 +1900,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // Account deletion methods (v2.17.0)
-  const requestAccountDeletion = async (password: string) => {
+  const requestAccountDeletion = useCallback(async (password: string) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -1915,9 +1933,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [api]);
 
-  const restoreAccount = async () => {
+  const restoreAccount = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -1937,11 +1955,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [api]);
 
-  const getAccountDeletionStatus = async () => {
-    setIsLoading(true);
-    setError(null);
+  const getAccountDeletionStatus = useCallback(async () => {
+    // Don't set global loading state for read operations - let the component handle its own loading
     try {
       console.log('📊 Checking account deletion status');
       const response = await api.getAccountDeletionStatus();
@@ -1959,12 +1976,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to get account deletion status';
       console.error('❌ Failed to get account deletion status:', err);
-      setError(errorMessage);
+      // Don't set global error for read operations - let the component handle errors
       throw err;
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, [api]);
 
   const updateProfile = async (profileData: any) => {
     console.log('📝 Updating profile:', profileData);
@@ -6382,7 +6397,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       // Get app version
-      const appVersion = Constants.expoConfig?.version || Constants.manifest?.version || '1.0.0';
+      const appVersion = Constants.expoConfig?.version || Constants.manifest2?.extra?.expoClient?.version || '1.0.0';
       console.log('📱 [Backend] App version:', appVersion);
       console.log('📱 [Backend] Platform:', platform);
       

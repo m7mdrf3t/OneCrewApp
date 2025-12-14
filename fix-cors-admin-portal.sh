@@ -27,3 +27,4 @@ echo "Note: If you also have a frontend URL, you can set it with:"
 echo "  --update-env-vars=\"ADMIN_PORTAL_URL=$ADMIN_PORTAL_URL,FRONTEND_URL=your-frontend-url\""
 
 
+

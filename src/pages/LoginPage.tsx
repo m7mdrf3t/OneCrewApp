@@ -73,6 +73,23 @@ const LoginPage: React.FC<LoginPageProps> = ({
           `Your account has been temporarily locked due to too many failed login attempts. Please try again in ${minutes} minute${minutes !== 1 ? 's' : ''}.`,
           [{ text: 'OK' }]
         );
+      } else if (err.code === 'ACCOUNT_DELETION_PENDING') {
+        // Handle account deletion pending - user should still be able to login during grace period
+        let message = err.message || 'Your account is scheduled for deletion.';
+        if (err.expirationDate) {
+          const expirationDate = new Date(err.expirationDate).toLocaleDateString();
+          message += `\n\nExpiration Date: ${expirationDate}`;
+        }
+        if (err.daysRemaining !== undefined) {
+          message += `\n\nDays Remaining: ${err.daysRemaining}`;
+        }
+        message += '\n\nYou can still log in during the grace period to restore your account.';
+        
+        Alert.alert(
+          'Account Deletion Pending',
+          message,
+          [{ text: 'OK' }]
+        );
       } else {
         Alert.alert('Login Failed', err.message || 'Please check your credentials and try again.');
       }

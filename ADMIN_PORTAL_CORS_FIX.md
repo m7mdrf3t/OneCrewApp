@@ -93,3 +93,4 @@ The backend checks for these environment variables:
 - `NODE_ENV` - Should be set to `production` in production environment
 
 
+

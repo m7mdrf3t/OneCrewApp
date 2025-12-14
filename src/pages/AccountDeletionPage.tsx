@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -29,27 +29,51 @@ const AccountDeletionPage: React.FC<AccountDeletionPageProps> = ({ onBack, theme
     daysRemaining?: number;
   } | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
+  const hasCheckedStatusRef = useRef(false);
 
   const requiredText = 'DELETE';
 
   // Check deletion status on mount
   useEffect(() => {
+    // Prevent multiple calls
+    if (hasCheckedStatusRef.current) {
+      return;
+    }
+
     const checkDeletionStatus = async () => {
+      if (hasCheckedStatusRef.current) {
+        return; // Already checked or checking
+      }
+      
+      hasCheckedStatusRef.current = true;
       try {
         setIsLoadingStatus(true);
         const status = await getAccountDeletionStatus();
         setDeletionStatus(status);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to check deletion status:', error);
-        // If error, assume no pending deletion
-        setDeletionStatus({ isPending: false });
+        
+        // Handle 401 (authentication) errors gracefully
+        const isAuthError = error?.message?.includes('401') || 
+                           error?.message?.includes('Invalid or expired token') ||
+                           error?.message?.includes('Unauthorized');
+        
+        if (isAuthError) {
+          console.warn('⚠️ Authentication error when checking deletion status - user may need to re-login');
+          // Still set default state so page can render
+          setDeletionStatus({ isPending: false });
+        } else {
+          // For other errors, assume no pending deletion
+          setDeletionStatus({ isPending: false });
+        }
       } finally {
         setIsLoadingStatus(false);
       }
     };
 
     checkDeletionStatus();
-  }, [getAccountDeletionStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   const handleDeleteAccount = () => {
     if (confirmationText !== requiredText) {
@@ -126,7 +150,7 @@ const AccountDeletionPage: React.FC<AccountDeletionPageProps> = ({ onBack, theme
                 [
                   {
                     text: 'OK',
-                    onPress: () => {
+                    onPress: async () => {
                       // Refresh deletion status
                       const status = await getAccountDeletionStatus();
                       setDeletionStatus(status);

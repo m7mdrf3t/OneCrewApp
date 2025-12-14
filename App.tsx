@@ -111,8 +111,13 @@ const AppContent: React.FC = () => {
 
   // Navigation function - defined early so it can be used in useEffect
   const navigateTo = useCallback((pageName: string, data: any = null) => {
+    console.log('🧭 Navigating to:', pageName, data);
     const newPage = { name: pageName, data };
-    setHistory(prevHistory => [...prevHistory, newPage]);
+    setHistory(prevHistory => {
+      const newHistory = [...prevHistory, newPage];
+      console.log('📚 History updated. Current page:', newHistory[newHistory.length - 1]?.name);
+      return newHistory;
+    });
     if (pageName !== 'home') {
       setTab('');
     }
@@ -1067,8 +1072,16 @@ const AppContent: React.FC = () => {
       );
     }
 
-    // Show onboarding for new users
-    if (showOnboarding) {
+    // Get current page from history (use latest value)
+    const currentPage = history[history.length - 1];
+
+    // Allow access to important pages even during onboarding
+    // These pages should be accessible regardless of onboarding status
+    const pagesAccessibleDuringOnboarding = ['accountDeletion', 'settings', 'changePassword', 'privacyPolicy', 'support'];
+    const isAccessiblePage = currentPage && pagesAccessibleDuringOnboarding.includes(currentPage.name);
+
+    // Show onboarding for new users (unless accessing an important page)
+    if (showOnboarding && !isAccessiblePage) {
       return (
         <OnboardingPage
           onComplete={handleOnboardingComplete}
