@@ -5,7 +5,6 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   RefreshControl,
   Image,
   TextInput,
@@ -14,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { ConversationsListPageProps, ChatConversation, ChatParticipant } from '../types';
 import supabaseService from '../services/SupabaseService';
+import SkeletonConversationItem from '../components/SkeletonConversationItem';
 
 const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   onBack,
@@ -602,10 +602,12 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
           <Text style={styles.headerTitle}>Messages</Text>
           <View style={styles.headerRight} />
         </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={styles.loadingText}>Loading conversations...</Text>
-        </View>
+        <FlatList
+          data={Array.from({ length: 8 })}
+          renderItem={() => <SkeletonConversationItem isDark={false} />}
+          keyExtractor={(_, index) => `skeleton-conversation-${index}`}
+          contentContainerStyle={styles.skeletonList}
+        />
       </View>
     );
   }
@@ -688,7 +690,9 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
           ListFooterComponent={
             loading && conversations.length > 0 ? (
               <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color="#3b82f6" />
+                {Array.from({ length: 2 }).map((_, index) => (
+                  <SkeletonConversationItem key={`footer-skeleton-${index}`} isDark={false} />
+                ))}
               </View>
             ) : null
           }
@@ -885,8 +889,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   footerLoader: {
-    paddingVertical: 16,
-    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  skeletonList: {
+    paddingVertical: 0,
   },
 });
 

@@ -14,6 +14,7 @@ import { useApi } from '../contexts/ApiContext';
 import { Company } from '../types';
 import DatePicker from '../components/DatePicker';
 import CollapsibleSection from '../components/CollapsibleSection';
+import SkeletonProfilePage from '../components/SkeletonProfilePage';
 
 interface CompanyEditPageProps {
   company: Company;
@@ -461,21 +462,7 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
   };
 
   if (loading) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit Company Profile</Text>
-          <View style={styles.placeholder} />
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#000" />
-          <Text style={styles.loadingText}>Loading company data...</Text>
-        </View>
-      </View>
-    );
+    return <SkeletonProfilePage isDark={false} />;
   }
 
   return (

@@ -71,7 +71,8 @@ class ReferenceDataService {
     try {
       if (this.api) {
         // Use minimal=true to get lightweight project data (only need type field)
-        const response = await this.api.getProjects({ limit: 100, minimal: true });
+        // Add status filter to only get active projects
+        const response = await this.api.getProjects({ limit: 100, minimal: true, status: 'active' });
         if (response.success && response.data?.data) {
           const types = new Set<string>();
           response.data.data.forEach((project: any) => {

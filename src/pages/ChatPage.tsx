@@ -20,6 +20,7 @@ import { ChatPageProps, ChatMessage, ChatConversation } from '../types';
 import supabaseService from '../services/SupabaseService';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import MediaPickerService from '../services/MediaPickerService';
+import SkeletonMessage from '../components/SkeletonMessage';
 
 const ChatPage: React.FC<ChatPageProps> = ({
   conversationId,
@@ -1333,10 +1334,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
           <Text style={styles.headerTitle}>Loading...</Text>
           <View style={styles.headerRight} />
         </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={styles.loadingText}>Loading conversation...</Text>
-        </View>
+        <FlatList
+          data={Array.from({ length: 5 })}
+          renderItem={({ index }) => (
+            <SkeletonMessage key={index} isOwn={index % 2 === 0} isDark={false} />
+          )}
+          keyExtractor={(_, index) => `skeleton-loading-${index}`}
+          contentContainerStyle={styles.skeletonLoadingContainer}
+          inverted={false}
+        />
       </View>
     );
   }
@@ -1439,7 +1445,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
             )}
             {loadingMore && (
               <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color="#3b82f6" />
+                {Array.from({ length: 2 }).map((_, index) => (
+                  <SkeletonMessage key={`skeleton-message-${index}`} isOwn={index % 2 === 0} isDark={false} />
+                ))}
               </View>
             )}
           </>
@@ -1793,6 +1801,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
   },
+  skeletonLoadingContainer: {
+    padding: 16,
+    paddingTop: 20,
+  },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -2007,7 +2019,7 @@ const styles = StyleSheet.create({
   },
   footerLoader: {
     paddingVertical: semanticSpacing.containerPaddingLarge,
-    alignItems: 'center',
+    paddingHorizontal: 16,
   },
   modalOverlay: {
     flex: 1,

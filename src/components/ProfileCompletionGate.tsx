@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import SkeletonScreen from './SkeletonScreen';
 
 interface ProfileCompletionGateProps {
   children: React.ReactNode;
@@ -51,12 +52,7 @@ const ProfileCompletionGate: React.FC<ProfileCompletionGateProps> = ({
   }, [user?.id, minimumCompletion]);
 
   if (checking || isLoading) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#000" />
-        <Text style={styles.checkingText}>Checking profile completion...</Text>
-      </View>
-    );
+    return <SkeletonScreen showHeader={false} contentCount={3} isDark={false} />;
   }
 
   if (error) {

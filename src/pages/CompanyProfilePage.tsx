@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import SkeletonProfilePage from '../components/SkeletonProfilePage';
 import {
   Company,
   CompanyMember,
@@ -730,21 +731,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   if (loading) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Company Profile</Text>
-          <View style={styles.backButton} />
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#000" />
-          <Text style={styles.loadingText}>Loading company profile...</Text>
-        </View>
-      </View>
-    );
+    return <SkeletonProfilePage isDark={false} />;
   }
 
   if (error || !company) {

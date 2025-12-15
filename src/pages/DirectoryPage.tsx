@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator, Image } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import SearchBar from '../components/SearchBar';
 import FilterModal, { FilterParams } from '../components/FilterModal';
+import SkeletonUserCard from '../components/SkeletonUserCard';
 
 interface User {
   id: string;
@@ -757,11 +758,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           <Text style={styles.title}>{section.title}</Text>
           <View style={styles.placeholder} />
         </View>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>
-            {(section.key === 'onehub' || section.key === 'academy') ? 'Loading companies...' : 'Loading users...'}
-          </Text>
-        </View>
+        <ScrollView 
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.skeletonContainer}
+        >
+          {Array.from({ length: 10 }).map((_, index) => (
+            <SkeletonUserCard key={index} isDark={false} />
+          ))}
+        </ScrollView>
       </View>
     );
   }
@@ -1132,6 +1137,9 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     color: '#71717a',
+  },
+  skeletonContainer: {
+    padding: 16,
   },
   errorContainer: {
     backgroundColor: '#fef2f2',

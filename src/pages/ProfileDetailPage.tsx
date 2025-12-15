@@ -10,6 +10,7 @@ import SignUpPromptModal from '../components/SignUpPromptModal';
 import CertificationCard from '../components/CertificationCard';
 import { UserCertification } from '../types';
 import { spacing, semanticSpacing } from '../constants/spacing';
+import SkeletonProfilePage from '../components/SkeletonProfilePage';
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void; onNavigate?: (page: string, data?: any) => void }> = ({
   profile,
@@ -35,7 +36,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     activeCompany,
     getUserCertifications,
     getBaseUrl,
-    getProjects,
+    getMyOwnerProjects,
     getUserProfilePictures,
     socialLinksRefreshTrigger,
   } = useApi();
@@ -66,31 +67,24 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   }>>([]);
   const [loadingProfilePictures, setLoadingProfilePictures] = useState(false);
 
-  // Load projects for selection - only owner projects
+  // Load projects for selection - only owner projects (server-side filtered)
   const loadProjects = async (): Promise<any[]> => {
     if (loadingProjects) {
       console.log('⏳ Projects already loading, skipping...');
       return availableProjects;
     }
     
-    console.log('🔄 Starting to load projects...');
+    console.log('🔄 Starting to load owner projects (server-side filtered)...');
     setLoadingProjects(true);
     try {
-      const allProjects = await getProjects();
-      console.log('✅ All projects loaded:', allProjects?.length || 0);
+      // Use server-side filtering - only owner projects
+      const ownerProjects = await getMyOwnerProjects({ minimal: true });
+      console.log('✅ Owner projects loaded:', ownerProjects?.length || 0);
       
-      // Filter to show only projects where current user is the owner
-      const ownerProjects = (allProjects || []).filter((project: any) => {
-        const isOwner = project.created_by === currentUser?.id;
-        console.log(`Project "${project.title}": created_by=${project.created_by}, currentUser.id=${currentUser?.id}, isOwner=${isOwner}`);
-        return isOwner;
-      });
-      
-      console.log('✅ Owner projects filtered:', ownerProjects.length);
-      setAvailableProjects(ownerProjects);
-      return ownerProjects;
+      setAvailableProjects(ownerProjects || []);
+      return ownerProjects || [];
     } catch (error) {
-      console.error('❌ Failed to load projects:', error);
+      console.error('❌ Failed to load owner projects:', error);
       Alert.alert('Error', 'Failed to load projects. Please try again.');
       return [];
     } finally {
@@ -527,21 +521,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
   // Show loading state
   if (isLoading) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Loading...</Text>
-          <View style={styles.placeholder} />
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={styles.loadingText}>Loading profile...</Text>
-        </View>
-      </View>
-    );
+    return <SkeletonProfilePage isDark={false} />;
   }
 
   // Show error state

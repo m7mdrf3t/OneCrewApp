@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, FlatList, StyleSheet, RefreshControl, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, FlatList, StyleSheet, RefreshControl, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import SearchBar from '../components/SearchBar';
 import FilterModal, { FilterParams } from '../components/FilterModal';
 import SectionCard from '../components/SectionCard';
 import PromoCarousel, { PromoItem } from '../components/PromoCarousel';
+import SkeletonSectionCard from '../components/SkeletonSectionCard';
 import { HomePageProps } from '../types';
 import { SECTIONS } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
@@ -630,12 +631,14 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
       {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={isDark ? '#fff' : '#000'} />
-          <Text style={[styles.loadingText, { color: isDark ? '#fff' : '#000' }]}>
-            Loading...
-          </Text>
-        </View>
+        <FlatList
+          data={Array.from({ length: 6 })}
+          renderItem={() => <SkeletonSectionCard isDark={isDark} />}
+          keyExtractor={(_, index) => `skeleton-${index}`}
+          contentContainerStyle={styles.sectionsContainer}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={renderHeader}
+        />
       ) : (
         <FlatList
           data={sectionsWithUserCounts}

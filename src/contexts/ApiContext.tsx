@@ -121,8 +121,35 @@ interface ApiContextType {
   // Project management methods
   createProject: (projectData: any) => Promise<any>;
   updateProject: (projectId: string, updates: any) => Promise<any>;
-  getProjects: () => Promise<any[]>;
-  getAllProjects: () => Promise<any[]>;
+  getProjects: (filters?: {
+    minimal?: boolean;
+    created_by?: string;
+    member_id?: string;
+    role?: 'owner' | 'member' | 'viewer';
+    status?: 'active' | 'deleted';
+    search?: string;
+    type?: string;
+    page?: number;
+    limit?: number;
+  }) => Promise<any[]>;
+  getAllProjects: (filters?: {
+    minimal?: boolean;
+    role?: 'owner' | 'member' | 'viewer';
+    is_owner?: boolean;
+    status?: 'active' | 'deleted';
+    search?: string;
+    type?: string;
+    page?: number;
+    limit?: number;
+  }) => Promise<any[]>;
+  getMyOwnerProjects: (filters?: {
+    minimal?: boolean;
+    search?: string;
+    type?: string;
+    status?: 'active' | 'deleted';
+    page?: number;
+    limit?: number;
+  }) => Promise<any[]>;
   getDeletedProjects: () => Promise<any[]>;
   getProjectTasks: (projectId: string) => Promise<TaskWithAssignments[]>;
   getProjectById: (projectId: string) => Promise<ProjectWithDetails>;
@@ -4013,23 +4040,43 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const getProjects = async (): Promise<any[]> => {
+  const getProjects = async (filters?: {
+    minimal?: boolean;
+    created_by?: string;
+    member_id?: string;
+    role?: 'owner' | 'member' | 'viewer';
+    status?: 'active' | 'deleted';
+    search?: string;
+    type?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<any[]> => {
     return performanceMonitor.trackApiCall(
       'Get Projects',
       `${baseUrl}/api/projects`,
       'GET',
       async () => {
         try {
-          // Use minimal=true to get lightweight project data (no tasks, minimal member info)
-          // This significantly reduces network payload and improves performance
-          // Note: Type assertion used as API client supports minimal but types may not be updated yet
-          const response = await api.getProjects({ minimal: true } as any);
-      if (response.success && response.data) {
-        // Handle both array and paginated response
-        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
-      } else {
-        throw new Error(response.error || 'Failed to fetch projects');
-      }
+          // Use minimal=true by default for backward compatibility, but allow override
+          const params = {
+            minimal: filters?.minimal !== undefined ? filters.minimal : true,
+            ...(filters?.created_by && { created_by: filters.created_by }),
+            ...(filters?.member_id && { member_id: filters.member_id }),
+            ...(filters?.role && { role: filters.role }),
+            ...(filters?.status && { status: filters.status }),
+            ...(filters?.search && { search: filters.search }),
+            ...(filters?.type && { type: filters.type }),
+            ...(filters?.page && { page: filters.page }),
+            ...(filters?.limit && { limit: filters.limit }),
+          };
+          
+          const response = await api.getProjects(params as any);
+          if (response.success && response.data) {
+            // Handle both array and paginated response
+            return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+          } else {
+            throw new Error(response.error || 'Failed to fetch projects');
+          }
         } catch (error) {
           console.error('Failed to get projects:', error);
           throw error;
@@ -4038,7 +4085,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     );
   };
 
-  const getAllProjects = async (): Promise<any[]> => {
+  const getAllProjects = async (filters?: {
+    minimal?: boolean;
+    role?: 'owner' | 'member' | 'viewer';
+    is_owner?: boolean;
+    status?: 'active' | 'deleted';
+    search?: string;
+    type?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<any[]> => {
     return performanceMonitor.trackApiCall(
       'Get All Projects',
       `${baseUrl}/api/projects/all`,
@@ -4049,11 +4105,22 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           // No need to enrich each project with separate API calls
           let projects: any[] = [];
           try {
+            // Use minimal=true by default for backward compatibility, but allow override
+            // Apply server-side filtering parameters
+            const params: any = {
+              minimal: filters?.minimal !== undefined ? filters.minimal : true,
+              ...(filters?.role && { role: filters.role }),
+              ...(filters?.is_owner !== undefined && { is_owner: filters.is_owner }),
+              ...(filters?.status && { status: filters.status }),
+              ...(filters?.search && { search: filters.search }),
+              ...(filters?.type && { type: filters.type }),
+              ...(filters?.page && { page: filters.page }),
+              ...(filters?.limit && { limit: filters.limit }),
+            };
+            
             // Use minimal=true to get lightweight project data (no tasks, minimal member info)
             // This significantly reduces network payload and improves performance
-            const myProjectsResponse = await api.getMyProjects({
-              minimal: true, // Request minimal data from backend
-            });
+            const myProjectsResponse = await api.getMyProjects(params);
             
             console.log('📥 getMyProjects (minimal) response received:', {
               success: myProjectsResponse.success,
@@ -4153,6 +4220,78 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           return projects;
         } catch (error) {
           console.error('❌ Failed to get all user projects:', error);
+          throw error;
+        }
+      }
+    );
+  };
+
+  /**
+   * Get owner projects for the current user (optimized endpoint).
+   * Uses the onecrew-api-client's getMyOwnerProjects() method for server-side filtering.
+   */
+  const getMyOwnerProjects = async (filters?: {
+    minimal?: boolean;
+    search?: string;
+    type?: string;
+    status?: 'active' | 'deleted';
+    page?: number;
+    limit?: number;
+  }): Promise<any[]> => {
+    return performanceMonitor.trackApiCall(
+      'Get My Owner Projects',
+      `${baseUrl}/api/projects/my/owner`,
+      'GET',
+      async () => {
+        try {
+          // Use minimal=true by default for backward compatibility
+          const params: any = {
+            minimal: filters?.minimal !== undefined ? filters.minimal : true,
+            ...(filters?.search && { search: filters.search }),
+            ...(filters?.type && { type: filters.type }),
+            ...(filters?.status && { status: filters.status }),
+            ...(filters?.page && { page: filters.page }),
+            ...(filters?.limit && { limit: filters.limit }),
+          };
+
+          // Use getMyProjects with is_owner: true for server-side filtering
+          // Note: getMyOwnerProjects may not be available in all API client versions
+          const response = await api.getMyProjects({ ...params, is_owner: true } as any);
+          
+          if (response.success && response.data) {
+            // Handle both array and paginated response
+            let projects: any[] = [];
+            if (Array.isArray(response.data)) {
+              projects = response.data;
+            } else if (response.data.data && Array.isArray(response.data.data)) {
+              projects = response.data.data;
+            } else if ((response.data as any).items && Array.isArray((response.data as any).items)) {
+              projects = (response.data as any).items;
+            }
+            
+            // Normalize members field for backward compatibility
+            projects = projects.map((project: any) => {
+              let members = project.project_members || project.members || [];
+              if (members.length === 0 && project.users && Array.isArray(project.users)) {
+                const firstUser = project.users[0];
+                if (firstUser && (firstUser.role || firstUser.user_id)) {
+                  members = project.users;
+                }
+              }
+              
+              return {
+                ...project,
+                members,
+                tasks: [],
+              };
+            });
+            
+            return projects;
+          } else {
+            throw new Error(response.error || 'Failed to fetch owner projects');
+          }
+        } catch (error) {
+          console.error('Failed to get owner projects:', error);
           throw error;
         }
       }
@@ -7218,6 +7357,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     updateProject,
     getProjects,
     getAllProjects,
+    getMyOwnerProjects,
     getDeletedProjects,
     // Task management methods
     getProjectTasks,

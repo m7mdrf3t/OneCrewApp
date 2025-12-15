@@ -8,12 +8,12 @@ import {
   TextInput,
   StyleSheet,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SearchModalProps } from '../types';
 import { useApi } from '../contexts/ApiContext';
 import { FILTER_OPTIONS, SERVICE_FILTERS } from '../data/mockData';
+import SkeletonUserCard from './SkeletonUserCard';
 
 const SearchModal: React.FC<SearchModalProps> = ({
   visible,
@@ -288,10 +288,11 @@ const SearchModal: React.FC<SearchModalProps> = ({
           </View>
 
           {isLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#3b82f6" />
-              <Text style={styles.loadingText}>Loading talent...</Text>
-            </View>
+            <ScrollView showsVerticalScrollIndicator={false} style={styles.skeletonScroll}>
+              {Array.from({ length: 8 }).map((_, index) => (
+                <SkeletonUserCard key={index} isDark={false} />
+              ))}
+            </ScrollView>
           ) : filteredUsers.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Ionicons name="search" size={48} color="#d1d5db" />
@@ -451,6 +452,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     color: '#6b7280',
+  },
+  skeletonScroll: {
+    flex: 1,
+    paddingHorizontal: 20,
   },
   emptyContainer: {
     flex: 1,

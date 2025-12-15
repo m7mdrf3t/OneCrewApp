@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Image, StyleProp, ViewStyle, TextStyle } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Image, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ProjectsPageProps } from '../types';
 import { useApi } from '../contexts/ApiContext';
@@ -8,6 +8,7 @@ import DeletedProjectsModal from '../components/DeletedProjectsModal';
 import ProjectTypeModal from '../components/ProjectTypeModal';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import MediaPickerService from '../services/MediaPickerService';
+import SkeletonProjectCard from '../components/SkeletonProjectCard';
 
 const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onProjectSelect,
@@ -73,14 +74,19 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     try {
       setIsLoading(true);
       setError(null);
-      console.log('📋 Loading basic project list...');
+      console.log('📋 Loading projects with server-side filtering...');
       console.log('👤 Current user ID:', user?.id);
       
-      const userProjects = await getAllProjects();
-      console.log(`📦 Received ${userProjects.length} projects from API`);
+      // Fetch owner and member projects in parallel using server-side filtering
+      const [ownerProjects, memberProjects] = await Promise.all([
+        getAllProjects({ role: 'owner', status: 'active', minimal: true }),
+        getAllProjects({ role: 'member', status: 'active', minimal: true })
+      ]);
+      
+      console.log(`📦 Received ${ownerProjects.length} owner projects and ${memberProjects.length} member projects from API`);
       
       // Debug: If no projects returned, this might be a backend filtering issue
-      if (userProjects.length === 0) {
+      if (ownerProjects.length === 0 && memberProjects.length === 0) {
         console.warn('⚠️ WARNING: Backend returned 0 projects!');
         console.warn('   This could mean:');
         console.warn('   1. All projects are incorrectly marked as deleted');
@@ -90,76 +96,31 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         console.warn('   Please check backend logs and database to verify project status');
       }
       
-      // Debug: Log project details to understand structure
-      userProjects.forEach((project, index) => {
-        console.log(`📋 Project ${index + 1}:`, {
-          id: project.id,
-          title: project.title,
-          created_by: project.created_by,
-          members_count: project.members?.length || 0,
-          members: project.members?.map((m: any) => ({
-            user_id: m.user_id || m.id,
-            role: m.role,
-          })),
-        });
-      });
-      
-      // Filter to only show projects where user is owner or member (not just viewer)
-      // Note: Backend's getMyProjects() should already exclude soft-deleted projects,
-      // but we add an extra check here as a safety measure
-      const filteredProjects = userProjects.filter(project => {
-        const accessLevel = getUserAccessLevel(project);
-        const isActive = !project.is_deleted && !project.deleted_at;
-        const shouldShow = (accessLevel === 'owner' || accessLevel === 'member') && isActive;
-        
-        // Only log filtered out projects for debugging (reduce noise)
-        // if (!shouldShow) {
-        //   console.log(`🚫 Filtered out project ${project.id} - accessLevel: ${accessLevel}, isActive: ${isActive}`);
-        // }
-        
-        return shouldShow;
-      });
-
-      console.log(`✅ Loaded ${filteredProjects.length} filtered projects (basic info only)`);
-      
-      // Projects already have heavy data stripped in ApiContext.getAllProjects()
-      // Just add a flag to indicate this is basic data
-      const basicProjects = filteredProjects.map(project => ({
+      // Ensure tasks is empty array for UI consistency (minimal endpoint doesn't include tasks)
+      const ownerWithTasks = ownerProjects.map(project => ({
         ...project,
-        // Ensure tasks is empty array for UI consistency (already stripped in ApiContext)
         tasks: project.tasks || [],
-        // Add a flag to indicate this is basic data
         isBasicData: true,
       }));
-
-      // Categorize projects: owner, member/admin, and pending
-      const owner: any[] = [];
-      const member: any[] = [];
       
-      // First, separate owner and member projects
-      // Don't check pending assignments yet - show UI immediately
-      for (const project of basicProjects) {
-        const accessLevel = getUserAccessLevel(project);
-        
-        if (accessLevel === 'owner') {
-          owner.push(project);
-        } else if (accessLevel === 'member') {
-          member.push(project); // Add to member first, check pending in background
-        }
-      }
+      const memberWithTasks = memberProjects.map(project => ({
+        ...project,
+        tasks: project.tasks || [],
+        isBasicData: true,
+      }));
       
       // ✅ Show UI immediately - don't wait for pending checks
-      setOwnerProjects(owner);
-      setMemberProjects(member);
+      setOwnerProjects(ownerWithTasks);
+      setMemberProjects(memberWithTasks);
       setPendingProjects([]); // Will be populated after background check
-      setProjects(basicProjects); // Keep for backward compatibility
+      setProjects([...ownerWithTasks, ...memberWithTasks]); // Keep for backward compatibility
       setIsLoading(false); // UI is ready!
       
-      console.log(`📊 Categorized projects: ${owner.length} owner, ${member.length} member (pending checks in background)`);
+      console.log(`📊 Loaded projects: ${ownerWithTasks.length} owner, ${memberWithTasks.length} member (pending checks in background)`);
       
       // Check pending assignments in background (non-blocking)
-      if (member.length > 0) {
-        checkPendingAssignmentsInBackground(member);
+      if (memberWithTasks.length > 0) {
+        checkPendingAssignmentsInBackground(memberWithTasks);
       }
     } catch (err) {
       console.error('Failed to load projects:', err);
@@ -626,12 +587,15 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
             <Ionicons name="refresh" size={24} color="#000" />
           </TouchableOpacity>
         </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#000" />
-          <Text style={styles.loadingText}>
-            Loading projects...
-          </Text>
-        </View>
+        <ScrollView 
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.skeletonContainer}
+        >
+          {Array.from({ length: 6 }).map((_, index) => (
+            <SkeletonProjectCard key={index} isDark={false} />
+          ))}
+        </ScrollView>
       </View>
     );
   }
@@ -1047,6 +1011,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#71717a',
     marginTop: semanticSpacing.containerPaddingLarge,
+  },
+  skeletonContainer: {
+    padding: 16,
   },
   errorContainer: {
     flex: 1,

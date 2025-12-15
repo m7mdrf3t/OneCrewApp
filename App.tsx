@@ -14,6 +14,7 @@ import pushNotificationService from './src/services/PushNotificationService';
 import TabBar from './src/components/TabBar';
 import SearchBar from './src/components/SearchBar';
 import SplashScreen from './src/components/SplashScreen';
+import SkeletonScreen from './src/components/SkeletonScreen';
 
 // Pages
 import HomePage from './src/pages/HomePage';
@@ -1036,15 +1037,7 @@ const AppContent: React.FC = () => {
 
     // Show loading state while API is initializing
     if (isLoading) {
-      return (
-        <View style={[styles.appContainer, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
-          <View style={styles.loadingContainer}>
-            <Text style={[styles.loadingText, { color: isDark ? '#fff' : '#000' }]}>
-              Loading...
-            </Text>
-          </View>
-        </View>
-      );
+      return <SkeletonScreen showHeader={true} contentCount={5} isDark={isDark} />;
     }
 
     // Get current page from history (use latest value)

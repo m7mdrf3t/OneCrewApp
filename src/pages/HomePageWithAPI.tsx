@@ -1,8 +1,9 @@
 import React, { useMemo, useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet, Text, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, ScrollView, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import SearchBar from '../components/SearchBar';
 import SectionCard from '../components/SectionCard';
+import SkeletonSectionCard from '../components/SkeletonSectionCard';
 import { HomePageProps } from '../types';
 import { useApi } from '../contexts/ApiContext';
 import { SECTIONS } from '../data/mockData';
@@ -164,12 +165,11 @@ const HomePageWithAPI: React.FC<HomePageProps> = ({
                 />
               </View>
             )}
+            {Array.from({ length: 6 }).map((_, index) => (
+              <SkeletonSectionCard key={index} isDark={isDark} />
+            ))}
           </View>
         </ScrollView>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#000" />
-          <Text style={styles.loadingText}>Loading data...</Text>
-        </View>
       </View>
     );
   }
