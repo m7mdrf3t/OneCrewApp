@@ -137,19 +137,46 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
     }
 
     // Website URL validation
-    if (formData.website_url && !/^https?:\/\/.+/.test(formData.website_url)) {
-      Alert.alert('Error', 'Please enter a valid website URL (must start with http:// or https://)');
-      return false;
+    // Helper function to normalize URL (add https:// if missing)
+    const normalizeUrl = (url: string): string => {
+      const trimmed = url.trim();
+      if (!trimmed) return trimmed;
+      
+      // If it already starts with http:// or https://, return as is
+      if (/^https?:\/\//i.test(trimmed)) {
+        return trimmed;
+      }
+      
+      // Otherwise, add https://
+      return `https://${trimmed}`;
+    };
+
+    // Website URL validation and normalization
+    if (formData.website_url && formData.website_url.trim()) {
+      const normalizedUrl = normalizeUrl(formData.website_url);
+      // Validate URL format (now accepts URLs with or without protocol)
+      if (!/^(https?:\/\/)?.+\..+/.test(normalizedUrl)) {
+        Alert.alert('Error', 'Please enter a valid website URL (e.g., example.com)');
+        return false;
+      }
+      // Update the form data with normalized URL
+      formData.website_url = normalizedUrl;
     }
 
-    // Social media URL validation
+    // Social media URL validation and normalization
     const socialLinks = formData.social_media_links;
     const socialPlatforms = ['instagram', 'facebook', 'twitter', 'linkedin', 'youtube', 'tiktok'] as const;
     for (const platform of socialPlatforms) {
       const url = socialLinks[platform];
-      if (url && url.trim() && !/^https?:\/\/.+/.test(url.trim())) {
-        Alert.alert('Error', `Please enter a valid ${platform} URL (must start with http:// or https://)`);
-        return false;
+      if (url && url.trim()) {
+        const normalizedUrl = normalizeUrl(url);
+        // Validate URL format (now accepts URLs with or without protocol)
+        if (!/^(https?:\/\/)?.+\..+/.test(normalizedUrl)) {
+          Alert.alert('Error', `Please enter a valid ${platform} URL (e.g., ${platform}.com/username)`);
+          return false;
+        }
+        // Update the form data with normalized URL
+        formData.social_media_links[platform] = normalizedUrl;
       }
     }
 

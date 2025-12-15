@@ -170,33 +170,23 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     // Delay notification setup to ensure Firebase native modules are ready
     // Reduced delay since initialization is now more reliable
-    console.log('📱 [App] Setting up push notification listeners...');
     const setupNotifications = async () => {
       // Wait for React Native bridge and native modules to initialize
       // Reduced from 3s to 2s since Firebase initialization is improved
-      console.log('⏳ [App] Waiting 2 seconds for native modules to initialize...');
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       // Initialize push notifications first
       try {
-        console.log('📱 [App] Initializing push notification service...');
         await pushNotificationService.initialize();
-        console.log('✅ [App] Push notification service initialized');
         
         // Set up notification received listener (when app is in foreground)
         // No delay needed - service is ready
-        console.log('📱 [App] Setting up foreground notification listener...');
         notificationUnsubscribe.current = pushNotificationService.addNotificationReceivedListener(
           (notification) => {
-            console.log('📨 [App] Notification received in foreground:', notification);
-            console.log('📨 [App] Notification title:', notification.notification?.title);
-            console.log('📨 [App] Notification body:', notification.notification?.body);
-            console.log('📨 [App] Notification data:', notification.data);
             // Firebase automatically displays notifications, but we can handle custom logic here
             // The notification data is available in notification.data
           }
         );
-        console.log('✅ [App] Foreground notification listener set up');
       } catch (error) {
         console.error('❌ [App] Failed to initialize push notifications:', error);
         // Retry once after a delay
@@ -321,22 +311,7 @@ const AppContent: React.FC = () => {
         await new Promise(resolve => setTimeout(resolve, 3000));
         
         // Use PushNotificationService to get FCM token (it handles all the complexity)
-        console.log('📱 Requesting fresh FCM token...');
         const fcmToken = await pushNotificationService.registerForPushNotifications();
-        
-        if (fcmToken) {
-          console.log('\n🔑 ==========================================');
-          console.log('🔑 YOUR FCM TOKEN FOR TESTING:');
-          console.log('🔑', fcmToken);
-          console.log('🔑 ==========================================');
-          console.log('📊 Token Details:');
-          console.log('  - Length:', fcmToken.length);
-          console.log('  - Type:', fcmToken.startsWith('ExponentPushToken') ? 'Expo Token (⚠️ Wrong!)' : 'FCM Token (✅ Correct!)');
-          console.log('  - First 20 chars:', fcmToken.substring(0, 20));
-          console.log('==========================================\n');
-        } else {
-          console.error('❌ Failed to get FCM token. Check logs above for details.');
-        }
       } catch (error: any) {
         console.error('❌ Error getting FCM token:', error?.message || error);
         if (error?.stack) {

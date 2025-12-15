@@ -37,6 +37,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     getBaseUrl,
     getProjects,
     getUserProfilePictures,
+    socialLinksRefreshTrigger,
   } = useApi();
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
@@ -397,7 +398,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
 
     loadSocialLinks();
-  }, [isCurrentUser, currentUser?.id, getUserSocialLinks, isGuest, isAuthenticated, userProfile?.social_links, profile?.id, userProfile?.id]);
+  }, [isCurrentUser, currentUser?.id, getUserSocialLinks, isGuest, isAuthenticated, userProfile?.social_links, profile?.id, userProfile?.id, socialLinksRefreshTrigger]);
 
   // Load profile pictures from API
   useEffect(() => {

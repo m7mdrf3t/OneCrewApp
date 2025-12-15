@@ -21,7 +21,11 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSCalendarsUsageDescription": "We need access to your calendar to sync your events and manage your schedule.",
         "NSLocationWhenInUseUsageDescription": "We need your location to add map locations to events and help you find nearby studios.",
-        "NSLocationAlwaysUsageDescription": "We need your location to provide location-based features for your events."
+        "NSLocationAlwaysUsageDescription": "We need your location to provide location-based features for your events.",
+        "NSCameraUsageDescription": "This app needs access to your camera to take photos and record videos for your profile and portfolio.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to allow you to select and share photos for your profile, portfolio, and certificates.",
+        "NSPhotoLibraryAddUsageDescription": "This app needs permission to save photos to your photo library.",
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record videos with audio for your portfolio."
       },
       "appleTeamId": "9MK2V33M87"
     },
@@ -51,6 +55,13 @@
     "plugins": [
       "expo-secure-store",
       "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "This app needs access to your photo library to allow you to select and share photos for your profile, portfolio, and certificates.",
+          "cameraPermission": "This app needs access to your camera to take photos and record videos for your profile and portfolio."
+        }
+      ],
       [
         "expo-notifications",
         {

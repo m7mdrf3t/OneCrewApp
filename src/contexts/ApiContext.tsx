@@ -214,6 +214,7 @@ interface ApiContextType {
   unreadNotificationCount: number;
   // Chat unread count
   unreadConversationCount: number;
+  socialLinksRefreshTrigger: number;
   // Certification Template Management (Admin)
   getCertificationTemplates: (query?: { active?: boolean; category?: string }) => Promise<any>;
   getCertificationTemplate: (templateId: string) => Promise<any>;
@@ -324,6 +325,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const [notificationChannelId, setNotificationChannelId] = useState<string | null>(null);
   // Chat unread count state
   const [unreadConversationCount, setUnreadConversationCount] = useState(0);
+  // Social links refresh trigger (increments when social links are updated)
+  const [socialLinksRefreshTrigger, setSocialLinksRefreshTrigger] = useState(0);
   // Heartbeat state
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -2016,9 +2019,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const basicProfileData: any = {
         bio: profileData.bio,
         specialty: profileData.specialty,
-        image_url: profileData.imageUrl, // Map imageUrl to image_url for API
         location_text: profileData.location_text || profileData.about?.location || null, // Location stored in users table
       };
+      
+      // Add image_url only if it has a valid value (don't send empty strings)
+      const imageUrl = profileData.imageUrl;
+      if (imageUrl && imageUrl.trim && imageUrl.trim() !== '') {
+        basicProfileData.image_url = imageUrl.trim();
+        console.log('📸 Including image_url in profile update');
+      } else {
+        console.log('📸 No image_url to include in profile update (empty or not provided)');
+      }
       
       // Add cover_images only if they exist (don't send null/undefined)
       const coverImages = profileData.coverImages || profileData.cover_images;
@@ -3689,7 +3700,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('❌ Failed to fetch social links:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.MEDIUM, persistent: true }); // Social links change when user updates profile - 5min TTL with persistence
+    }, { ttl: CacheTTL.SHORT, persistent: false }); // Social links change frequently - 30sec TTL, no persistence for faster updates
   };
 
   const addSocialLink = async (linkData: { platform: string; url: string; is_custom?: boolean }) => {
@@ -3716,8 +3727,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(result.error || 'Failed to add social link');
       }
 
-      // Invalidate social links cache
+      // Invalidate all social links caches (for current user and any specific userId)
       await rateLimiter.clearCache('user-social-links');
+      await rateLimiter.clearCacheByPattern('user-social-links');
+      // Trigger refresh in components that display social links
+      setSocialLinksRefreshTrigger(prev => prev + 1);
       
       console.log('✅ Social link added successfully:', result.data);
       return result;
@@ -3747,8 +3761,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(result.error || 'Failed to update social link');
       }
 
-      // Invalidate social links cache
+      // Invalidate all social links caches (for current user and any specific userId)
       await rateLimiter.clearCache('user-social-links');
+      await rateLimiter.clearCacheByPattern('user-social-links');
+      // Trigger refresh in components that display social links
+      setSocialLinksRefreshTrigger(prev => prev + 1);
       
       console.log('✅ Social link updated successfully:', result.data);
       return result;
@@ -3777,8 +3794,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(result.error || 'Failed to delete social link');
       }
 
-      // Invalidate social links cache
+      // Invalidate all social links caches (for current user and any specific userId)
       await rateLimiter.clearCache('user-social-links');
+      await rateLimiter.clearCacheByPattern('user-social-links');
+      // Trigger refresh in components that display social links
+      setSocialLinksRefreshTrigger(prev => prev + 1);
       
       console.log('✅ Social link deleted successfully');
       return result;
@@ -6398,8 +6418,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Get app version
       const appVersion = Constants.expoConfig?.version || Constants.manifest2?.extra?.expoClient?.version || '1.0.0';
-      console.log('📱 [Backend] App version:', appVersion);
-      console.log('📱 [Backend] Platform:', platform);
+
       
       // Register FCM token using onecrew-api-client
       await api.pushNotifications.registerDeviceToken(
@@ -6412,7 +6431,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('✅ [Backend] Push token registered successfully via API client');
     } catch (error: any) {
       // Don't throw - push token registration is not critical for app functionality
-      console.error('❌ [Backend] Failed to register push token with backend:', error?.message || error);
       if (error?.stack) {
         console.error('❌ [Backend] Stack trace:', error.stack.substring(0, 300));
       }
@@ -7079,6 +7097,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     unreadNotificationCount,
     // Chat unread count
     unreadConversationCount,
+    socialLinksRefreshTrigger,
     // Certification Template Management (Admin)
     getCertificationTemplates,
     getCertificationTemplate,

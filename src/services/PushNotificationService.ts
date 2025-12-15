@@ -31,7 +31,6 @@ const MIN_APP_START_TIME = 2000; // Minimum time before trying to load Firebase 
 function getMessagingModule() {
   // Return cached module if already loaded successfully
   if (isMessagingModuleLoaded && messagingModuleCache) {
-    console.log('📦 [Firebase] Using cached messaging module');
     return messagingModuleCache;
   }
 
@@ -42,7 +41,6 @@ function getMessagingModule() {
   
   // If we've tried and failed recently, don't try again immediately
   if (lastLoadAttempt > 0 && timeSinceLastAttempt < RETRY_DELAY_MS && !messagingModuleCache) {
-    console.log(`⏳ [Firebase] Waiting before retry (${Math.round((RETRY_DELAY_MS - timeSinceLastAttempt) / 1000)}s remaining)`);
     return null;
   }
 
@@ -54,40 +52,23 @@ function getMessagingModule() {
     const timeSinceAppStart = now - appStartTime;
     if (timeSinceAppStart < MIN_APP_START_TIME) {
       // Too early - wait a bit
-      console.log(`⏳ [Firebase] Too early to load module (${Math.round((MIN_APP_START_TIME - timeSinceAppStart) / 1000)}s since app start)`);
       return null;
     }
   }
-  
-  console.log('📦 [Firebase] Attempting to load Firebase messaging module...');
 
   // Note: NativeModules might be empty in Expo dev builds until bridge is fully ready
   // We'll just try to require the module and handle errors gracefully
 
-  try {
-    lastLoadAttempt = now;
-    // Try to require the module - this may throw if native modules aren't ready
-    let messagingModule: any;
-    
     try {
-      // Check if NativeModules is available
-      console.log('📦 [Firebase] Checking NativeModules availability...');
-      console.log('📦 [Firebase] NativeModules keys:', Object.keys(NativeModules || {}).length);
+      lastLoadAttempt = now;
+      // Try to require the module - this may throw if native modules aren't ready
+      let messagingModule: any;
       
-      // Try to require the module
-      console.log('📦 [Firebase] Requiring @react-native-firebase/messaging...');
-      messagingModule = require('@react-native-firebase/messaging');
-      
-      // Log what we got
-      console.log('📦 [Firebase] Require result:', {
-        isNull: messagingModule === null,
-        isUndefined: messagingModule === undefined,
-        type: typeof messagingModule,
-        hasDefault: !!messagingModule?.default,
-        keys: messagingModule ? Object.keys(messagingModule) : []
-      });
-      
-    } catch (requireError: any) {
+      try {
+        // Try to require the module
+        messagingModule = require('@react-native-firebase/messaging');
+        
+      } catch (requireError: any) {
       // Handle errors during require
       const errorMessage = requireError?.message || '';
       const isNativeModuleError = 
@@ -97,17 +78,8 @@ function getMessagingModule() {
       
       if (isNativeModuleError) {
         // Native modules aren't ready - this is expected during startup
-        console.log('⏳ [Firebase] Native modules not ready yet, will retry later');
         lastLoadAttempt = 0;
         return null;
-      }
-      
-      // Other errors should be logged
-      console.error('❌ [Firebase] Error requiring Firebase messaging:', requireError?.message);
-      console.error('❌ [Firebase] Error name:', requireError?.name);
-      console.error('❌ [Firebase] Error code:', requireError?.code);
-      if (requireError?.stack) {
-        console.error('❌ [Firebase] Stack trace:', requireError.stack.substring(0, 500));
       }
       lastLoadAttempt = 0;
       return null;
@@ -126,12 +98,6 @@ function getMessagingModule() {
     }
     
     // Module loaded successfully
-    if (!isMessagingModuleLoaded) {
-      console.log('✅ [Firebase] Successfully loaded Firebase messaging module');
-      console.log('📦 [Firebase] Module type:', typeof messagingModule);
-      console.log('📦 [Firebase] Has default export:', !!messagingModule.default);
-    }
-    
     messagingModuleCache = messagingModule;
     isMessagingModuleLoaded = true;
     return messagingModule;
@@ -163,10 +129,8 @@ function getMessagingModule() {
 }
 
 function getMessaging() {
-  console.log('📦 [Firebase] Getting messaging instance...');
   const messagingModule = getMessagingModule();
   if (!messagingModule) {
-    console.warn('⚠️ [Firebase] Messaging module not available');
     return null;
   }
 
@@ -174,49 +138,39 @@ function getMessaging() {
     // Handle both default export and direct export
     const messaging = messagingModule.default || messagingModule;
     if (!messaging || typeof messaging !== 'function') {
-      console.error('❌ [Firebase] Messaging is not a function. Type:', typeof messaging);
       return null;
     }
     
-    console.log('📦 [Firebase] Calling messaging() to get instance...');
     // Try to get the messaging instance
     // This can throw if native modules aren't ready
     try {
       const instance = messaging();
-      console.log('✅ [Firebase] Messaging instance created successfully');
       return instance;
     } catch (instanceError: any) {
       // If error is about NativeEventEmitter, native modules aren't ready
       if (instanceError?.message?.includes('NativeEventEmitter') || 
           instanceError?.message?.includes('non-null') ||
           instanceError?.message?.includes('requires a non-null')) {
-        console.warn('⚠️ [Firebase] Native modules not ready (NativeEventEmitter error)');
         // Clear cache so we can retry later
         messagingModuleCache = null;
         isMessagingModuleLoaded = false;
         lastLoadAttempt = 0;
         return null;
       }
-      console.error('❌ [Firebase] Error creating messaging instance:', instanceError?.message);
       throw instanceError;
     }
   } catch (error: any) {
-    // If error is about NativeEventEmitter, native modules aren't ready
-    if (error?.message?.includes('NativeEventEmitter') || 
-        error?.message?.includes('non-null') ||
-        error?.message?.includes('requires a non-null')) {
-      console.warn('⚠️ [Firebase] Native modules not ready (NativeEventEmitter error)');
-      // Clear cache so we can retry later
-      messagingModuleCache = null;
-      isMessagingModuleLoaded = false;
-      lastLoadAttempt = 0;
+      // If error is about NativeEventEmitter, native modules aren't ready
+      if (error?.message?.includes('NativeEventEmitter') || 
+          error?.message?.includes('non-null') ||
+          error?.message?.includes('requires a non-null')) {
+        // Clear cache so we can retry later
+        messagingModuleCache = null;
+        isMessagingModuleLoaded = false;
+        lastLoadAttempt = 0;
+        return null;
+      }
       return null;
-    }
-    console.error('❌ [Firebase] Error getting Firebase messaging instance:', error?.message || error);
-    if (error?.stack) {
-      console.error('❌ [Firebase] Stack trace:', error.stack.substring(0, 300));
-    }
-    return null;
   }
 }
 
@@ -239,8 +193,6 @@ class PushNotificationService {
   configure() {
     // Firebase handles notification display automatically
     // No explicit configuration needed like Expo
-    console.log('⚙️ [Firebase] Configuring Firebase Messaging...');
-    console.log('✅ [Firebase] Firebase Messaging configured');
   }
 
   /**
@@ -248,40 +200,31 @@ class PushNotificationService {
    */
   async requestPermissions(): Promise<boolean> {
     try {
-      console.log('📱 [Permissions] Requesting notification permissions...');
       if (!Device.isDevice) {
-        console.warn('⚠️ [Permissions] Push notifications only work on physical devices');
         return false;
       }
 
       if (Platform.OS === 'ios') {
         // iOS: Request permissions via Firebase
-        console.log('📱 [Permissions] iOS: Requesting via Firebase...');
         const messagingInstance = getMessaging();
         if (!messagingInstance) {
-          console.error('❌ [Permissions] Firebase messaging not available');
           return false;
         }
         const messagingModule = getMessagingModule();
         if (!messagingModule) {
-          console.error('❌ [Permissions] Messaging module not available');
           return false;
         }
         const messaging = messagingModule.default || messagingModule;
-        console.log('📱 [Permissions] Calling requestPermission()...');
         const authStatus = await messagingInstance.requestPermission();
-        console.log('📱 [Permissions] Authorization status:', authStatus);
         const enabled =
           authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
           authStatus === messaging.AuthorizationStatus.PROVISIONAL;
 
         if (enabled) {
           await AsyncStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'granted');
-          console.log('✅ [Permissions] iOS notification permissions granted');
           return true;
         } else {
           await AsyncStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'denied');
-          console.warn('⚠️ [Permissions] iOS notification permissions not granted. Status:', authStatus);
           return false;
         }
       } else {
@@ -301,17 +244,14 @@ class PushNotificationService {
 
           if (granted === PermissionsAndroid.RESULTS.GRANTED) {
             await AsyncStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'granted');
-            console.log('✅ Android notification permissions granted');
             return true;
           } else {
             await AsyncStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'denied');
-            console.warn('⚠️ Android notification permissions not granted');
             return false;
           }
         } else {
           // Android < 13: Permissions granted by default
           await AsyncStorage.setItem(NOTIFICATION_PERMISSION_KEY, 'granted');
-          console.log('✅ Android notification permissions (pre-13)');
           return true;
         }
       }
@@ -326,72 +266,52 @@ class PushNotificationService {
    */
   async registerForPushNotifications(): Promise<string | null> {
     try {
-      console.log('📱 [Token] Starting push notification registration...');
       // Check if device is physical
       if (!Device.isDevice) {
-        console.warn('⚠️ [Token] Push notifications only work on physical devices');
         return null;
       }
 
       // Request permissions first
-      console.log('📱 [Token] Requesting permissions...');
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
-        console.error('❌ [Token] Permissions not granted, cannot get token');
         return null;
       }
 
       // Get existing token if available
       const existingToken = await this.getStoredToken();
       if (existingToken) {
-        console.log('📱 [Token] Using existing FCM token:', existingToken.substring(0, 20) + '...');
         this.token = existingToken;
         return existingToken;
       }
 
       // Get FCM token
-      console.log('📱 [Token] Getting FCM token from Firebase...');
       const messagingInstance = getMessaging();
       if (!messagingInstance) {
-        console.error('❌ [Token] Firebase messaging not available');
         return null;
       }
       
       // Register device for remote messages (required for iOS)
       if (Platform.OS === 'ios') {
         try {
-          console.log('📱 [Token] Registering device for remote messages (iOS)...');
           await messagingInstance.registerDeviceForRemoteMessages();
-          console.log('✅ [Token] Device registered for remote messages');
         } catch (registerError: any) {
           // If already registered, this will throw - that's okay
-          if (registerError?.message?.includes('already registered')) {
-            console.log('📱 [Token] Device already registered for remote messages');
-          } else {
-            console.warn('⚠️ [Token] Error registering device (may already be registered):', registerError?.message);
-          }
+          // Silently handle the error
         }
       }
       
-      console.log('📱 [Token] Calling getToken()...');
       const token = await messagingInstance.getToken();
-      console.log('📱 [Token] FCM token received:', token ? token.substring(0, 20) + '...' : 'null');
 
       if (!token) {
-        console.error('❌ [Token] Failed to get FCM token (token is null)');
         return null;
       }
 
       // Store token
-      console.log('📱 [Token] Storing token in AsyncStorage...');
       await AsyncStorage.setItem(NOTIFICATION_TOKEN_KEY, token);
       this.token = token;
-      console.log('✅ [Token] Token stored successfully');
 
       // Set up token refresh listener
-      console.log('📱 [Token] Setting up token refresh listener...');
       this.setupTokenRefreshListener();
-      console.log('✅ [Token] Token refresh listener set up');
 
       return token;
     } catch (error: any) {
@@ -562,22 +482,17 @@ class PushNotificationService {
    * Retries if Firebase is not ready yet
    */
   async initialize(): Promise<string | null> {
-    console.log('🚀 [Init] Initializing PushNotificationService...');
     if (this.isInitialized && this.token) {
-      console.log('✅ [Init] Service already initialized, returning existing token');
       return this.token;
     }
     
     // If service is initialized but token is null, try to get stored token or re-register
     if (this.isInitialized && !this.token) {
-      console.log('⚠️ [Init] Service initialized but token is null, checking stored token...');
       const storedToken = await this.getStoredToken();
       if (storedToken) {
-        console.log('✅ [Init] Found stored token, using it');
         this.token = storedToken;
         return storedToken;
       } else {
-        console.log('⚠️ [Init] No stored token found, will re-register...');
         // Reset initialization flag to allow re-registration
         this.isInitialized = false;
       }
@@ -590,20 +505,13 @@ class PushNotificationService {
     let retries = 2;
     let token: string | null = null;
     
-    console.log(`🔄 [Init] Starting registration with ${retries} retries...`);
     while (retries > 0 && !token) {
-      const attemptNumber = 3 - retries;
-      console.log(`🔄 [Init] Attempt ${attemptNumber + 1}/2: Registering for push notifications...`);
       try {
         token = await this.registerForPushNotifications();
         if (token) {
-          console.log(`✅ [Init] Successfully registered on attempt ${attemptNumber + 1}`);
           break;
-        } else {
-          console.warn(`⚠️ [Init] Registration returned null on attempt ${attemptNumber + 1}`);
         }
       } catch (error: any) {
-        console.error(`❌ [Init] Error on attempt ${attemptNumber + 1}:`, error?.message || error);
         const errorMessage = error?.message || '';
         const isNativeModuleError = 
           errorMessage.includes('NativeEventEmitter') || 
@@ -615,15 +523,11 @@ class PushNotificationService {
           if (retries > 0) {
             // Wait before retrying (shorter delay)
             const delay = 2000; // 2 seconds
-            console.log(`⏳ [Init] Native modules not ready, waiting ${delay}ms before retry...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
-          } else {
-            console.error('❌ [Init] All retries exhausted due to NativeEventEmitter errors');
           }
         } else {
           // Other errors, don't retry
-          console.error('❌ [Init] Non-retryable error:', error?.message || error);
           throw error;
         }
       }
@@ -632,16 +536,12 @@ class PushNotificationService {
       if (!token && retries > 0) {
         retries--;
         const delay = 2000; // 2 seconds
-        console.log(`⏳ [Init] No token received, waiting ${delay}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
     
     if (token) {
-      console.log('✅ [Init] PushNotificationService initialized successfully');
       this.isInitialized = true;
-    } else {
-      console.error('❌ [Init] Failed to initialize PushNotificationService after all retries');
     }
     
     return token;

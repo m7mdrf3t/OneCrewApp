@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Image, StyleSheet, ActivityIndicator } from 'react-native';
 import UploadProgressBar from './UploadProgressBar';
 
@@ -25,21 +25,32 @@ const ImageUploadWithProgress: React.FC<ImageUploadWithProgressProps> = ({
   onPress,
   disabled = false,
 }) => {
+  const [imageError, setImageError] = useState(false);
+
+  // Reset error state when imageUrl changes
+  React.useEffect(() => {
+    setImageError(false);
+  }, [imageUrl]);
+
   return (
     <View style={[styles.container, { width: placeholderSize.width, height: placeholderSize.height, borderRadius }]}>
       {/* White placeholder background */}
       <View style={[styles.placeholder, { width: placeholderSize.width, height: placeholderSize.height, borderRadius }]}>
-        {/* Show image if available */}
-        {imageUrl && (
+        {/* Show image if available and no error */}
+        {imageUrl && !imageError && (
           <Image 
             source={{ uri: imageUrl }} 
             style={[styles.image, { width: placeholderSize.width, height: placeholderSize.height, borderRadius }]}
             resizeMode="cover"
+            onError={() => {
+              console.warn('Failed to load image:', imageUrl);
+              setImageError(true);
+            }}
           />
         )}
         
-        {/* Show placeholder content (children) when no image */}
-        {!imageUrl && (
+        {/* Show placeholder content (children) when no image or image error */}
+        {(!imageUrl || imageError) && (
           <View style={styles.placeholderContent}>
             {children}
           </View>

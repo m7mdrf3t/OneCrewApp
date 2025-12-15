@@ -44,47 +44,81 @@ interface CustomDropdownProps {
 
 const CustomDropdown: React.FC<CustomDropdownProps> = ({ options, value, onValueChange, placeholder, disabled = false }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [buttonLayout, setButtonLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const buttonRef = useRef<View>(null);
 
   const selectedOption = options.find(option => option.id === value);
 
+  const handleButtonPress = () => {
+    if (disabled) return;
+    buttonRef.current?.measureInWindow((x, y, width, height) => {
+      setButtonLayout({ x, y, width, height });
+      setIsOpen(!isOpen);
+    });
+  };
+
   return (
     <View style={styles.dropdownContainer}>
-      <TouchableOpacity
-        style={[styles.dropdownButton, disabled && styles.dropdownButtonDisabled]}
-        onPress={() => !disabled && setIsOpen(!isOpen)}
-      >
-        <Text style={[styles.dropdownButtonText, !selectedOption && styles.placeholderText]}>
-          {selectedOption ? selectedOption.name : placeholder}
-        </Text>
-        <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={20} color="#6b7280" />
-      </TouchableOpacity>
+      <View ref={buttonRef} collapsable={false}>
+        <TouchableOpacity
+          style={[styles.dropdownButton, disabled && styles.dropdownButtonDisabled]}
+          onPress={handleButtonPress}
+        >
+          <Text style={[styles.dropdownButtonText, !selectedOption && styles.placeholderText]}>
+            {selectedOption ? selectedOption.name : placeholder}
+          </Text>
+          <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={20} color="#6b7280" />
+        </TouchableOpacity>
+      </View>
       
-      {isOpen && (
-        <View style={styles.dropdownList}>
-          <ScrollView style={{ maxHeight: 200 }}>
-            {options.map((option) => (
-              <TouchableOpacity
-                key={option.id}
-                style={[
-                  styles.dropdownItem,
-                  value === option.id && styles.dropdownItemSelected
-                ]}
-                onPress={() => {
-                  onValueChange(option.id);
-                  setIsOpen(false);
-                }}
-              >
-                <Text style={[
-                  styles.dropdownItemText,
-                  value === option.id && styles.dropdownItemTextSelected
-                ]}>
-                  {option.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+      <Modal
+        visible={isOpen}
+        transparent={true}
+        animationType="none"
+        onRequestClose={() => setIsOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setIsOpen(false)}
+        >
+          <View
+            style={[
+              styles.dropdownList,
+              {
+                position: 'absolute',
+                top: buttonLayout.y + buttonLayout.height + 4,
+                left: buttonLayout.x,
+                width: buttonLayout.width,
+              }
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
+            <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled={true}>
+              {options.map((option) => (
+                <TouchableOpacity
+                  key={option.id}
+                  style={[
+                    styles.dropdownItem,
+                    value === option.id && styles.dropdownItemSelected
+                  ]}
+                  onPress={() => {
+                    onValueChange(option.id);
+                    setIsOpen(false);
+                  }}
+                >
+                  <Text style={[
+                    styles.dropdownItemText,
+                    value === option.id && styles.dropdownItemTextSelected
+                  ]}>
+                    {option.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -239,14 +273,13 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   const [filteredRoles, setFilteredRoles] = useState<Array<{ id: string; name: string; category?: string }>>([]);
   const [showRoleSuggestions, setShowRoleSuggestions] = useState(false);
   const [loadingRoles, setLoadingRoles] = useState(false);
+  const [specialtyInputLayout, setSpecialtyInputLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const specialtyInputRef = useRef<View>(null);
   
-  // Social media links state
-  const [editingSocialLinkIndex, setEditingSocialLinkIndex] = useState<number | null>(null);
-  const [newSocialLink, setNewSocialLink] = useState({
-    platform: 'instagram' as 'instagram' | 'twitter' | 'facebook' | 'linkedin' | 'youtube' | 'tiktok' | 'website' | 'other',
-    url: '',
-    username: '',
-  });
+  // Social media links state - new card-based approach
+  const [editingPlatform, setEditingPlatform] = useState<string | null>(null);
+  const [platformInputs, setPlatformInputs] = useState<{ [key: string]: string }>({});
+  const [platformLoading, setPlatformLoading] = useState<{ [key: string]: boolean }>({});
   
   // Portfolio state
   const [portfolioType, setPortfolioType] = useState<'image' | 'video' | 'audio'>('image');
@@ -509,6 +542,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   // Handle specialty input change
   const handleSpecialtyChange = (text: string) => {
     handleInputChange('specialty', text);
+    // Measure input position for suggestions positioning
+    specialtyInputRef.current?.measureInWindow((x, y, width, height) => {
+      setSpecialtyInputLayout({ x, y, width, height });
+    });
   };
 
   // Handle role selection from suggestions
@@ -544,13 +581,15 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       errors.location = 'Location is required';
     }
 
-    // Validate image URL if provided
+    // Validate image URL if provided (but don't require it - user can upload via picker)
+    // Only validate format if a URL is manually entered
     if (formData.imageUrl && formData.imageUrl.trim()) {
       const urlPattern = /^https?:\/\/.+\..+/;
       if (!urlPattern.test(formData.imageUrl.trim())) {
         errors.imageUrl = 'Please enter a valid URL (must start with http:// or https://)';
       }
     }
+    // Note: imageUrl is optional - user can upload via image picker instead
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -631,128 +670,326 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     }));
   };
 
-  // Social media links management functions
-  const handleAddSocialLink = async () => {
-    if (!newSocialLink.url.trim()) {
-      Alert.alert('Error', 'Please enter a URL for the social media link');
+  // Helper function to normalize URL (add https:// if missing)
+  const normalizeUrl = (url: string): string => {
+    const trimmed = url.trim();
+    if (!trimmed) return trimmed;
+    
+    // If it already starts with http:// or https://, return as is
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed;
+    }
+    
+    // Otherwise, add https://
+    return `https://${trimmed}`;
+  };
+
+  // Platform configuration
+  const platformConfig = {
+    instagram: { 
+      icon: 'logo-instagram', 
+      name: 'Instagram', 
+      color: '#E4405F',
+      placeholder: 'Enter username (e.g., username or @username)',
+      formatUrl: (input: string) => {
+        const cleaned = input.replace(/^@/, '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/^instagram\.com\//i, '').replace(/\/.*$/, '').trim();
+        return cleaned ? `https://instagram.com/${cleaned}` : '';
+      }
+    },
+    twitter: { 
+      icon: 'logo-twitter', 
+      name: 'Twitter', 
+      color: '#1DA1F2',
+      placeholder: 'Enter username (e.g., username or @username)',
+      formatUrl: (input: string) => {
+        const cleaned = input.replace(/^@/, '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/^(twitter\.com|x\.com)\//i, '').replace(/\/.*$/, '').trim();
+        return cleaned ? `https://twitter.com/${cleaned}` : '';
+      }
+    },
+    facebook: { 
+      icon: 'logo-facebook', 
+      name: 'Facebook', 
+      color: '#1877F2',
+      placeholder: 'Enter username or page name',
+      formatUrl: (input: string) => {
+        const cleaned = input.replace(/^@/, '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/^facebook\.com\//i, '').replace(/\/.*$/, '').trim();
+        return cleaned ? `https://facebook.com/${cleaned}` : '';
+      }
+    },
+    linkedin: { 
+      icon: 'logo-linkedin', 
+      name: 'LinkedIn', 
+      color: '#0077B5',
+      placeholder: 'Enter profile URL or username',
+      formatUrl: (input: string) => {
+        const cleaned = input.replace(/^https?:\/\//i, '').replace(/^www\./i, '').trim();
+        if (cleaned.includes('linkedin.com')) {
+          return `https://${cleaned}`;
+        } else if (cleaned.match(/^[a-zA-Z0-9-]+$/)) {
+          return `https://linkedin.com/in/${cleaned}`;
+        }
+        return cleaned ? `https://${cleaned}` : '';
+      }
+    },
+    youtube: { 
+      icon: 'logo-youtube', 
+      name: 'YouTube', 
+      color: '#FF0000',
+      placeholder: 'Enter channel URL or channel ID',
+      formatUrl: (input: string) => {
+        const cleaned = input.replace(/^https?:\/\//i, '').replace(/^www\./i, '').trim();
+        if (cleaned.includes('youtube.com') || cleaned.includes('youtu.be')) {
+          return `https://${cleaned}`;
+        }
+        return cleaned ? `https://youtube.com/${cleaned}` : '';
+      }
+    },
+    tiktok: { 
+      icon: 'musical-notes', 
+      name: 'TikTok', 
+      color: '#000000',
+      placeholder: 'Enter username (e.g., username or @username)',
+      formatUrl: (input: string) => {
+        const cleaned = input.replace(/^@/, '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/^tiktok\.com\//i, '').replace(/\/.*$/, '').trim();
+        return cleaned ? `https://tiktok.com/@${cleaned}` : '';
+      }
+    },
+    website: { 
+      icon: 'globe-outline', 
+      name: 'Website', 
+      color: '#6366f1',
+      placeholder: 'Enter full website URL',
+      formatUrl: (input: string) => {
+        return normalizeUrl(input);
+      }
+    },
+    other: { 
+      icon: 'link-outline', 
+      name: 'Other', 
+      color: '#6b7280',
+      placeholder: 'Enter full URL',
+      formatUrl: (input: string) => {
+        return normalizeUrl(input);
+      }
+    },
+  };
+
+  // Detect platform from URL and extract username
+  const detectPlatformFromUrl = (url: string): { platform: string; username: string } | null => {
+    if (!url || !url.trim()) return null;
+    
+    const normalized = normalizeUrl(url);
+    const lowerUrl = normalized.toLowerCase();
+    
+    // Instagram
+    if (lowerUrl.includes('instagram.com')) {
+      const match = normalized.match(/instagram\.com\/([^\/\?]+)/i);
+      return match ? { platform: 'instagram', username: match[1] } : null;
+    }
+    
+    // Twitter/X
+    if (lowerUrl.includes('twitter.com') || lowerUrl.includes('x.com')) {
+      const match = normalized.match(/(?:twitter\.com|x\.com)\/([^\/\?]+)/i);
+      return match ? { platform: 'twitter', username: match[1] } : null;
+    }
+    
+    // Facebook
+    if (lowerUrl.includes('facebook.com')) {
+      const match = normalized.match(/facebook\.com\/([^\/\?]+)/i);
+      return match ? { platform: 'facebook', username: match[1] } : null;
+    }
+    
+    // LinkedIn
+    if (lowerUrl.includes('linkedin.com')) {
+      const match = normalized.match(/linkedin\.com\/in\/([^\/\?]+)/i);
+      return match ? { platform: 'linkedin', username: match[1] } : null;
+    }
+    
+    // YouTube
+    if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) {
+      return { platform: 'youtube', username: normalized };
+    }
+    
+    // TikTok
+    if (lowerUrl.includes('tiktok.com')) {
+      const match = normalized.match(/tiktok\.com\/@([^\/\?]+)/i);
+      return match ? { platform: 'tiktok', username: match[1] } : null;
+    }
+    
+    return null;
+  };
+
+  // Format social URL based on platform
+  const formatSocialUrl = (platform: string, input: string): string => {
+    if (!input || !input.trim()) return '';
+    
+    const config = platformConfig[platform as keyof typeof platformConfig];
+    if (!config) return normalizeUrl(input);
+    
+    return config.formatUrl(input);
+  };
+
+  // Get existing link for a platform
+  const getLinkForPlatform = (platform: string) => {
+    return formData.socialLinks.find(link => link.platform === platform);
+  };
+
+  // Handle platform card tap - open input for that platform
+  const handlePlatformCardTap = (platform: string) => {
+    const existingLink = getLinkForPlatform(platform);
+    if (existingLink) {
+      // Extract username from URL for display
+      const detected = detectPlatformFromUrl(existingLink.url);
+      setPlatformInputs(prev => ({
+        ...prev,
+        [platform]: detected?.username || existingLink.url,
+      }));
+    } else {
+      setPlatformInputs(prev => ({
+        ...prev,
+        [platform]: '',
+      }));
+    }
+    setEditingPlatform(platform);
+  };
+
+  // Handle input change for platform
+  const handlePlatformInputChange = (platform: string, value: string) => {
+    setPlatformInputs(prev => ({
+      ...prev,
+      [platform]: value,
+    }));
+  };
+
+  // Handle save for platform
+  const handleSavePlatformLink = async (platform: string) => {
+    const input = platformInputs[platform]?.trim() || '';
+    if (!input) {
+      Alert.alert('Error', 'Please enter a value for this platform');
+      return;
+    }
+
+    // Check if URL was pasted - detect platform
+    const detected = detectPlatformFromUrl(input);
+    const finalPlatform = detected?.platform || platform;
+    const finalInput = detected?.username || input;
+
+    // Format URL
+    const formattedUrl = formatSocialUrl(finalPlatform, finalInput);
+    
+    if (!formattedUrl) {
+      Alert.alert('Error', 'Please enter a valid URL or username');
       return;
     }
 
     // Validate URL format
     const urlPattern = /^https?:\/\/.+\..+/;
-    if (!urlPattern.test(newSocialLink.url.trim())) {
-      Alert.alert('Error', 'Please enter a valid URL (must start with http:// or https://)');
+    if (!urlPattern.test(formattedUrl)) {
+      Alert.alert('Error', 'Please enter a valid URL or username');
       return;
     }
 
+    setPlatformLoading(prev => ({ ...prev, [platform]: true }));
+
     try {
-      if (editingSocialLinkIndex !== null) {
-        // Update existing link via API
-        const linkToUpdate = formData.socialLinks[editingSocialLinkIndex];
-        if (linkToUpdate.id) {
-          await updateSocialLink(linkToUpdate.id, {
-            platform: newSocialLink.platform,
-            url: newSocialLink.url.trim(),
-            is_custom: newSocialLink.platform === 'other',
-          });
-          
-          // Update local state
-          setFormData(prev => ({
-            ...prev,
-            socialLinks: prev.socialLinks.map((link, index) =>
-              index === editingSocialLinkIndex
-                ? { ...link, platform: newSocialLink.platform, url: newSocialLink.url.trim() }
-                : link
-            ),
-          }));
-          setEditingSocialLinkIndex(null);
-          Alert.alert('Success', 'Social link updated successfully!');
-        }
-      } else {
-        // Add new link via API
-        const response = await addSocialLink({
-          platform: newSocialLink.platform,
-          url: newSocialLink.url.trim(),
-          is_custom: newSocialLink.platform === 'other',
+      const existingLink = getLinkForPlatform(finalPlatform);
+      
+      if (existingLink && existingLink.id) {
+        // Update existing link
+        await updateSocialLink(existingLink.id, {
+          platform: finalPlatform,
+          url: formattedUrl,
+          is_custom: finalPlatform === 'other',
         });
         
-        // Add to local state with the ID from response
+        // Update local state
+        setFormData(prev => ({
+          ...prev,
+          socialLinks: prev.socialLinks.map(link =>
+            link.platform === finalPlatform
+              ? { ...link, platform: finalPlatform, url: formattedUrl }
+              : link
+          ),
+        }));
+      } else {
+        // Add new link
+        const response = await addSocialLink({
+          platform: finalPlatform,
+          url: formattedUrl,
+          is_custom: finalPlatform === 'other',
+        });
+        
         if (response.data) {
           setFormData(prev => ({
             ...prev,
-            socialLinks: [...prev.socialLinks, {
+            socialLinks: [...prev.socialLinks.filter(link => link.platform !== finalPlatform), {
               id: response.data.id,
-              platform: newSocialLink.platform,
-              url: newSocialLink.url.trim(),
-              is_custom: newSocialLink.platform === 'other',
+              platform: finalPlatform,
+              url: formattedUrl,
+              is_custom: finalPlatform === 'other',
             }],
           }));
-          Alert.alert('Success', 'Social link added successfully!');
         }
       }
 
-      // Reset form
-      setNewSocialLink({
-        platform: 'instagram',
-        url: '',
-        username: '',
+      // Close input
+      setEditingPlatform(null);
+      setPlatformInputs(prev => {
+        const updated = { ...prev };
+        delete updated[platform];
+        return updated;
       });
     } catch (error: any) {
       console.error('Failed to save social link:', error);
       Alert.alert('Error', error.message || 'Failed to save social link. Please try again.');
+    } finally {
+      setPlatformLoading(prev => ({ ...prev, [platform]: false }));
     }
   };
 
-  const handleEditSocialLink = (index: number) => {
-    const link = formData.socialLinks[index];
-    setNewSocialLink({
-      platform: link.platform as any,
-      url: link.url,
-      username: link.username || '',
-    });
-    setEditingSocialLinkIndex(index);
+  // Handle delete for platform
+  const handleDeletePlatformLink = async (platform: string) => {
+    const link = getLinkForPlatform(platform);
+    if (!link || !link.id) return;
+
+    Alert.alert(
+      'Delete Link',
+      `Are you sure you want to remove your ${platformConfig[platform as keyof typeof platformConfig]?.name || platform} link?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteSocialLink(link.id!);
+              setFormData(prev => ({
+                ...prev,
+                socialLinks: prev.socialLinks.filter(l => l.platform !== platform),
+              }));
+              setEditingPlatform(null);
+              setPlatformInputs(prev => {
+                const updated = { ...prev };
+                delete updated[platform];
+                return updated;
+              });
+            } catch (error: any) {
+              console.error('Failed to delete social link:', error);
+              Alert.alert('Error', error.message || 'Failed to delete social link. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
-  const handleRemoveSocialLink = async (index: number) => {
-    const link = formData.socialLinks[index];
-    
-    if (link.id) {
-      // Delete from API
-      try {
-        await deleteSocialLink(link.id);
-        // Remove from local state
-        setFormData(prev => ({
-          ...prev,
-          socialLinks: prev.socialLinks.filter((_, i) => i !== index),
-        }));
-        if (editingSocialLinkIndex === index) {
-          setEditingSocialLinkIndex(null);
-          setNewSocialLink({
-            platform: 'instagram',
-            url: '',
-            username: '',
-          });
-        }
-        Alert.alert('Success', 'Social link removed successfully!');
-      } catch (error: any) {
-        console.error('Failed to delete social link:', error);
-        Alert.alert('Error', error.message || 'Failed to delete social link. Please try again.');
-      }
-    } else {
-      // If no ID, just remove from local state (newly added but not saved)
-      setFormData(prev => ({
-        ...prev,
-        socialLinks: prev.socialLinks.filter((_, i) => i !== index),
-      }));
-    }
-  };
-
-  const cancelEditSocialLink = () => {
-    setEditingSocialLinkIndex(null);
-    setNewSocialLink({
-      platform: 'instagram',
-      url: '',
-      username: '',
+  // Handle cancel edit
+  const handleCancelPlatformEdit = (platform: string) => {
+    setEditingPlatform(null);
+    setPlatformInputs(prev => {
+      const updated = { ...prev };
+      delete updated[platform];
+      return updated;
     });
   };
 
@@ -1093,6 +1330,12 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
   // Image picker functions
   const pickImage = async () => {
+    // Check if mediaPicker is available
+    if (!mediaPicker) {
+      Alert.alert('Error', 'Image picker is not available. Please try again.');
+      return;
+    }
+
     try {
       const result = await mediaPicker.pickImage({
         allowsEditing: true,
@@ -1102,64 +1345,84 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         maxHeight: 1024,
       });
 
-      if (result) {
-        // Validate file size (max 10MB)
-        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 10)) {
-          Alert.alert('File Too Large', 'Please select an image smaller than 10MB.');
+      if (!result) {
+        // User cancelled - no error needed
+        return;
+      }
+
+      // Validate file size (max 10MB)
+      if (result.fileSize && mediaPicker.validateFileSize && !mediaPicker.validateFileSize(result.fileSize, 10)) {
+        Alert.alert('File Too Large', 'Please select an image smaller than 10MB.');
+        return;
+      }
+
+      // Upload using profile pictures API
+      try {
+        const userId = currentUser?.id || user?.id;
+        if (!userId) {
+          Alert.alert('Error', 'User ID not available. Please log in again.');
           return;
         }
 
-        // Upload using profile pictures API
-        try {
-          const userId = currentUser?.id || user?.id;
-          if (!userId) {
-            Alert.alert('Error', 'User ID not available.');
-            return;
-          }
+        // Check if this should be main (if no main picture exists)
+        const hasMainPicture = profilePictures.some((p: any) => p.is_main);
+        const shouldBeMain = !hasMainPicture;
+        
+        // Create file object for API
+        // Determine MIME type from file extension or default to image/jpeg
+        const fileName = result.fileName || `profile_picture_${Date.now()}.jpg`;
+        const fileExtension = fileName.split('.').pop()?.toLowerCase();
+        const mimeType = fileExtension === 'png' ? 'image/png' : 
+                        fileExtension === 'gif' ? 'image/gif' : 
+                        'image/jpeg';
+        
+        const file = {
+          uri: result.uri,
+          type: mimeType,
+          name: fileName,
+        };
 
-          // Check if this should be main (if no main picture exists)
-          const hasMainPicture = profilePictures.some((p: any) => p.is_main);
-          const shouldBeMain = !hasMainPicture;
-          
-          // Create file object for API
-          const file = {
-            uri: result.uri,
-            type: 'image/jpeg',
-            name: result.fileName || `profile_picture_${Date.now()}.jpg`,
-          };
+        // Show upload progress on image placeholder
+        setUploadingImage({ type: 'profile', progress: undefined });
 
-          // Show upload progress on image placeholder
-          setUploadingImage({ type: 'profile', progress: undefined });
-
-          const uploadResult = await uploadProfilePicture(file, shouldBeMain);
-          
-          // Hide progress
-          setUploadingImage({ type: null });
-          
-          if (uploadResult.success) {
-            // Reload profile pictures
+        const uploadResult = await uploadProfilePicture(file, shouldBeMain);
+        
+        // Hide progress
+        setUploadingImage({ type: null });
+        
+        if (uploadResult.success && uploadResult.data) {
+          // Reload profile pictures
+          try {
             const response = await getUserProfilePictures(userId);
             if (response.success && response.data) {
               const pictures = Array.isArray(response.data) ? response.data : [];
               setProfilePictures(pictures);
               const mainPicture = pictures.find((p: any) => p.is_main);
-              if (mainPicture) {
+              if (mainPicture && mainPicture.image_url) {
                 handleInputChange('imageUrl', mainPicture.image_url);
               }
             }
-            Alert.alert('Success', 'Profile picture uploaded and updated!');
-          } else {
-            throw new Error(uploadResult.error || 'Upload failed');
+          } catch (reloadError) {
+            console.error('Failed to reload profile pictures:', reloadError);
+            // Don't show error - image was uploaded successfully
           }
-        } catch (uploadError: any) {
-          console.error('Upload error:', uploadError);
-          setUploadingImage({ type: null });
-          Alert.alert('Upload Failed', uploadError.message || 'Failed to upload profile picture. Please try again.');
+          Alert.alert('Success', 'Profile picture uploaded and updated!');
+        } else {
+          throw new Error(uploadResult.error || 'Upload failed');
         }
+      } catch (uploadError: any) {
+        console.error('Upload error:', uploadError);
+        setUploadingImage({ type: null });
+        const errorMessage = uploadError.message || uploadError.toString() || 'Failed to upload profile picture. Please try again.';
+        Alert.alert('Upload Failed', errorMessage);
       }
     } catch (error: any) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', error.message || 'Failed to pick image. Please try again.');
+      // Don't show alert if user cancelled
+      if (error.code !== 'E_PICKER_CANCELLED' && error.message !== 'User cancelled image picker') {
+        const errorMessage = error.message || error.toString() || 'Failed to pick image. Please try again.';
+        Alert.alert('Error', errorMessage);
+      }
     }
   };
 
@@ -1238,11 +1501,23 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     try {
       // 1. Prepare basic profile data (bio, specialty, skills, imageUrl, location_text, coverImages)
       // Note: social_links are handled separately via dedicated endpoints
+      // Get imageUrl from formData or from main profile picture
+      let finalImageUrl = formData.imageUrl.trim();
+      if (!finalImageUrl && profilePictures.length > 0) {
+        const mainPicture = profilePictures.find((p: any) => p.is_main);
+        if (mainPicture && mainPicture.image_url) {
+          finalImageUrl = mainPicture.image_url;
+        } else if (profilePictures[0] && profilePictures[0].image_url) {
+          // Use first picture if no main picture is set
+          finalImageUrl = profilePictures[0].image_url;
+        }
+      }
+
       const basicProfileData = {
         bio: formData.bio.trim(),
         specialty: formData.specialty.trim(),
         skills: formData.skills,
-        imageUrl: formData.imageUrl.trim(), // This will be mapped to image_url in ApiContext
+        imageUrl: finalImageUrl, // This will be mapped to image_url in ApiContext
         location_text: formData.about.location.trim(), // Location stored in users table
         // Note: Cover images are managed separately via profile pictures API
       };
@@ -1481,7 +1756,21 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           <View style={styles.profilePictureContainer}>
             <Text style={styles.sectionTitle}>Profile Picture</Text>
             <TouchableOpacity
-              onPress={pickImage}
+              onPress={async () => {
+                try {
+                  if (pickImage) {
+                    await pickImage();
+                  } else {
+                    Alert.alert('Error', 'Image picker is not available.');
+                  }
+                } catch (error: any) {
+                  console.error('Error in pickImage handler:', error);
+                  // Only show alert if it's not a cancellation
+                  if (error.code !== 'E_PICKER_CANCELLED' && error.message !== 'User cancelled image picker') {
+                    Alert.alert('Error', 'Failed to open image picker. Please try again.');
+                  }
+                }
+              }}
               disabled={isSubmitting || uploadingImage.type === 'profile'}
               activeOpacity={0.7}
             >
@@ -1816,7 +2105,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           {/* Specialty */}
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Specialty *</Text>
-            <View style={styles.autocompleteContainer}>
+            <View ref={specialtyInputRef} style={styles.autocompleteContainer} collapsable={false}>
               <TextInput
                 style={[styles.input, formErrors.specialty && styles.inputError]}
                 placeholder="e.g., Character Actor, Voice Actor, etc."
@@ -1824,9 +2113,12 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                 value={formData.specialty}
                 onChangeText={handleSpecialtyChange}
                 onFocus={() => {
-                  if (formData.specialty.trim().length > 0 && filteredRoles.length > 0) {
-                    setShowRoleSuggestions(true);
-                  }
+                  specialtyInputRef.current?.measureInWindow((x, y, width, height) => {
+                    setSpecialtyInputLayout({ x, y, width, height });
+                    if (formData.specialty.trim().length > 0 && filteredRoles.length > 0) {
+                      setShowRoleSuggestions(true);
+                    }
+                  });
                 }}
                 onBlur={() => {
                   // Delay hiding suggestions to allow for selection
@@ -1834,8 +2126,30 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                 }}
                 editable={!isSubmitting}
               />
-              {showRoleSuggestions && filteredRoles.length > 0 && (
-                <View style={styles.suggestionsContainer}>
+            </View>
+            <Modal
+              visible={showRoleSuggestions && filteredRoles.length > 0}
+              transparent={true}
+              animationType="none"
+              onRequestClose={() => setShowRoleSuggestions(false)}
+            >
+              <TouchableOpacity
+                style={styles.modalOverlay}
+                activeOpacity={1}
+                onPress={() => setShowRoleSuggestions(false)}
+              >
+                <View
+                  style={[
+                    styles.suggestionsContainer,
+                    {
+                      position: 'absolute',
+                      top: specialtyInputLayout.y + specialtyInputLayout.height + 4,
+                      left: specialtyInputLayout.x,
+                      width: specialtyInputLayout.width,
+                    }
+                  ]}
+                  onStartShouldSetResponder={() => true}
+                >
                   <ScrollView 
                     style={styles.suggestionsList}
                     keyboardShouldPersistTaps="handled"
@@ -1857,8 +2171,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                     ))}
                   </ScrollView>
                 </View>
-              )}
-            </View>
+              </TouchableOpacity>
+            </Modal>
             {formErrors.specialty && <Text style={styles.fieldError}>{formErrors.specialty}</Text>}
           </View>
 
@@ -1996,134 +2310,107 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           onToggle={() => toggleSection('social-media')}
           sectionRef={sectionRefs['social-media']}
         >
+          <Text style={styles.socialMediaDescription}>
+            Add your social media profiles to showcase your work and connect with others.
+          </Text>
 
-        {/* Platform Selection */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Platform</Text>
-          <CustomDropdown
-            options={[
-              { id: 'instagram', name: '📷 Instagram' },
-              { id: 'twitter', name: '🐦 Twitter' },
-              { id: 'facebook', name: '📘 Facebook' },
-              { id: 'linkedin', name: '💼 LinkedIn' },
-              { id: 'youtube', name: '📺 YouTube' },
-              { id: 'tiktok', name: '🎵 TikTok' },
-              { id: 'website', name: '🌐 Website' },
-              { id: 'other', name: '🔗 Other' },
-            ]}
-            value={newSocialLink.platform}
-            onValueChange={(value: string) => setNewSocialLink(prev => ({ ...prev, platform: value as any }))}
-            placeholder="Select platform"
-            disabled={isSubmitting}
-          />
-        </View>
+          {/* Platform Cards Grid */}
+          <View style={styles.platformCardsGrid}>
+            {(Object.keys(platformConfig) as Array<keyof typeof platformConfig>).map((platformKey) => {
+              const platform = platformKey as string;
+              const config = platformConfig[platformKey];
+              const existingLink = getLinkForPlatform(platform);
+              const isEditing = editingPlatform === platform;
+              const isLoading = platformLoading[platform] || false;
 
-        {/* URL Input */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>URL *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="https://example.com/profile"
-            placeholderTextColor="#9ca3af"
-            value={newSocialLink.url}
-            onChangeText={(text) => setNewSocialLink(prev => ({ ...prev, url: text }))}
-            keyboardType="url"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!isSubmitting}
-          />
-        </View>
+              return (
+                <View key={platform} style={styles.platformCardWrapper}>
+                  <TouchableOpacity
+                    style={[
+                      styles.platformCard,
+                      existingLink && styles.platformCardAdded,
+                      isEditing && styles.platformCardEditing,
+                    ]}
+                    onPress={() => !isEditing && handlePlatformCardTap(platform)}
+                    disabled={isSubmitting || isLoading}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.platformCardContent}>
+                      <View style={[styles.platformIconContainer, { backgroundColor: `${config.color}15` }]}>
+                        <Ionicons name={config.icon as any} size={24} color={config.color} />
+                      </View>
+                      <Text style={styles.platformCardName}>{config.name}</Text>
+                      {existingLink && !isEditing && (
+                        <View style={styles.platformCardBadge}>
+                          <Ionicons name="checkmark-circle" size={16} color="#10b981" />
+                          <Text style={styles.platformCardBadgeText}>Added</Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
 
-        {/* Username Input (Optional) */}
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Username (Optional)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="@username"
-            placeholderTextColor="#9ca3af"
-            value={newSocialLink.username}
-            onChangeText={(text) => setNewSocialLink(prev => ({ ...prev, username: text }))}
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!isSubmitting}
-          />
-        </View>
-
-        {/* Add/Update Button */}
-        <View style={styles.row}>
-          <TouchableOpacity
-            style={[styles.addSocialLinkButton, isSubmitting && styles.addSocialLinkButtonDisabled]}
-            onPress={handleAddSocialLink}
-            disabled={isSubmitting}
-          >
-            <Ionicons 
-              name={editingSocialLinkIndex !== null ? "checkmark" : "add"} 
-              size={20} 
-              color="#fff" 
-            />
-            <Text style={styles.addSocialLinkButtonText}>
-              {editingSocialLinkIndex !== null ? 'Update Link' : 'Add Link'}
-            </Text>
-          </TouchableOpacity>
-          
-          {editingSocialLinkIndex !== null && (
-            <TouchableOpacity
-              style={[styles.cancelSocialLinkButton, isSubmitting && styles.cancelSocialLinkButtonDisabled]}
-              onPress={cancelEditSocialLink}
-              disabled={isSubmitting}
-            >
-              <Text style={styles.cancelSocialLinkButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Social Links List */}
-        {formData.socialLinks.length > 0 && (
-          <View style={styles.socialLinksList}>
-            <Text style={styles.socialLinksListTitle}>
-              Your Social Links ({formData.socialLinks.length})
-            </Text>
-            {formData.socialLinks.map((link, index) => (
-              <View key={index} style={styles.socialLinkItem}>
-                <View style={styles.socialLinkItemInfo}>
-                  <Text style={styles.socialLinkItemPlatform}>
-                    {link.platform === 'instagram' ? '📷 Instagram' :
-                     link.platform === 'twitter' ? '🐦 Twitter' :
-                     link.platform === 'facebook' ? '📘 Facebook' :
-                     link.platform === 'linkedin' ? '💼 LinkedIn' :
-                     link.platform === 'youtube' ? '📺 YouTube' :
-                     link.platform === 'tiktok' ? '🎵 TikTok' :
-                     link.platform === 'website' ? '🌐 Website' : '🔗 Other'}
-                  </Text>
-                  <Text style={styles.socialLinkItemUrl} numberOfLines={1}>
-                    {link.url}
-                  </Text>
-                  {link.username && (
-                    <Text style={styles.socialLinkItemUsername} numberOfLines={1}>
-                      @{link.username}
-                    </Text>
+                  {/* Inline Input for Editing */}
+                  {isEditing && (
+                    <View style={styles.platformCardInputContainer}>
+                      <TextInput
+                        style={styles.platformCardInput}
+                        placeholder={config.placeholder}
+                        placeholderTextColor="#9ca3af"
+                        value={platformInputs[platform] || ''}
+                        onChangeText={(text) => handlePlatformInputChange(platform, text)}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType={platform === 'website' || platform === 'other' ? 'url' : 'default'}
+                        editable={!isLoading && !isSubmitting}
+                        autoFocus={true}
+                      />
+                      <View style={styles.platformCardInputActions}>
+                        <TouchableOpacity
+                          style={[styles.platformCardActionButton, styles.platformCardSaveButton]}
+                          onPress={() => handleSavePlatformLink(platform)}
+                          disabled={isLoading || isSubmitting}
+                        >
+                          {isLoading ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <>
+                              <Ionicons name="checkmark" size={18} color="#fff" />
+                              <Text style={styles.platformCardActionButtonText}>Save</Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                        {existingLink && (
+                          <TouchableOpacity
+                            style={[styles.platformCardActionButton, styles.platformCardDeleteButton]}
+                            onPress={() => handleDeletePlatformLink(platform)}
+                            disabled={isLoading || isSubmitting}
+                          >
+                            <Ionicons name="trash-outline" size={18} color="#fff" />
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                          style={[styles.platformCardActionButton, styles.platformCardCancelButton]}
+                          onPress={() => handleCancelPlatformEdit(platform)}
+                          disabled={isLoading || isSubmitting}
+                        >
+                          <Ionicons name="close" size={18} color="#6b7280" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   )}
                 </View>
-                <View style={styles.socialLinkItemActions}>
-                  <TouchableOpacity
-                    style={styles.editSocialLinkButton}
-                    onPress={() => handleEditSocialLink(index)}
-                    disabled={isSubmitting}
-                  >
-                    <Ionicons name="create-outline" size={18} color="#3b82f6" />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.removeSocialLinkButton}
-                    onPress={() => handleRemoveSocialLink(index)}
-                    disabled={isSubmitting}
-                  >
-                    <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
-        )}
+
+          {/* Summary of Added Links */}
+          {formData.socialLinks.length > 0 && (
+            <View style={styles.socialLinksSummary}>
+              <Text style={styles.socialLinksSummaryTitle}>
+                {formData.socialLinks.length} {formData.socialLinks.length === 1 ? 'link' : 'links'} added
+              </Text>
+            </View>
+          )}
         </CollapsibleSection>
 
         {/* Personal Details Section */}
@@ -2952,18 +3239,16 @@ const styles = StyleSheet.create({
   placeholderText: {
     color: '#9ca3af',
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
   dropdownList: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#d1d5db',
     borderRadius: 8,
-    marginTop: 4,
     maxHeight: 200,
-    zIndex: 1001,
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -3010,17 +3295,11 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   suggestionsContainer: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#d1d5db',
     borderRadius: 8,
-    marginTop: 4,
     maxHeight: 200,
-    zIndex: 1001,
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -3214,100 +3493,129 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  // Social media links styles
-  addSocialLinkButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#3b82f6',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginRight: 8,
-    gap: 8,
-  },
-  addSocialLinkButtonDisabled: {
-    backgroundColor: '#9ca3af',
-  },
-  addSocialLinkButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  cancelSocialLinkButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f3f4f6',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-  },
-  cancelSocialLinkButtonDisabled: {
-    backgroundColor: '#f9fafb',
-    borderColor: '#e5e7eb',
-  },
-  cancelSocialLinkButtonText: {
-    color: '#374151',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  socialLinksList: {
-    marginTop: 16,
-  },
-  socialLinksListTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 12,
-  },
-  socialLinkItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  socialLinkItemInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  socialLinkItemPlatform: {
+  // Social media links styles - New card-based design
+  socialMediaDescription: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
+    color: '#6b7280',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  platformCardsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 16,
+  },
+  platformCardWrapper: {
+    width: '48%',
     marginBottom: 4,
   },
-  socialLinkItemUrl: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 2,
+  platformCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    minHeight: 100,
+    justifyContent: 'center',
   },
-  socialLinkItemUsername: {
-    fontSize: 12,
-    color: '#9ca3af',
-    fontStyle: 'italic',
+  platformCardAdded: {
+    borderColor: '#10b981',
+    backgroundColor: '#f0fdf4',
   },
-  socialLinkItemActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  editSocialLinkButton: {
-    padding: 8,
-    borderRadius: 6,
+  platformCardEditing: {
+    borderColor: '#3b82f6',
     backgroundColor: '#eff6ff',
   },
-  removeSocialLinkButton: {
-    padding: 8,
-    borderRadius: 6,
-    backgroundColor: '#fef2f2',
+  platformCardContent: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  platformIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  platformCardName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  platformCardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#d1fae5',
+    borderRadius: 12,
+  },
+  platformCardBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#065f46',
+  },
+  platformCardInputContainer: {
+    marginTop: 12,
+    gap: 8,
+  },
+  platformCardInput: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#111827',
+  },
+  platformCardInputActions: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  platformCardActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 6,
+  },
+  platformCardSaveButton: {
+    flex: 1,
+    backgroundColor: '#3b82f6',
+  },
+  platformCardDeleteButton: {
+    backgroundColor: '#ef4444',
+    paddingHorizontal: 10,
+  },
+  platformCardCancelButton: {
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 10,
+  },
+  platformCardActionButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  socialLinksSummary: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  socialLinksSummaryTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6b7280',
+    textAlign: 'center',
   },
   // Debug styles
   debugContainer: {
