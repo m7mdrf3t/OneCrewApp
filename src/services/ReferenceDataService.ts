@@ -70,7 +70,8 @@ class ReferenceDataService {
   async getProjectTypesFromProjects(): Promise<string[]> {
     try {
       if (this.api) {
-        const response = await this.api.getProjects({ limit: 100 });
+        // Use minimal=true to get lightweight project data (only need type field)
+        const response = await this.api.getProjects({ limit: 100, minimal: true });
         if (response.success && response.data?.data) {
           const types = new Set<string>();
           response.data.data.forEach((project: any) => {

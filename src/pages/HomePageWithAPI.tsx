@@ -43,7 +43,7 @@ const HomePageWithAPI: React.FC<HomePageProps> = ({
       // Load users, projects, and teams in parallel
       const [usersResponse, projectsResponse, teamsResponse] = await Promise.all([
         api.getUsers({ limit: 1 }), // Just get count
-        api.getProjects({ limit: 1 }), // Just get count
+        api.getProjects({ limit: 1, minimal: true }), // Just get count, use minimal endpoint
         api.getTeams({ limit: 1 }), // Just get count
       ]);
 

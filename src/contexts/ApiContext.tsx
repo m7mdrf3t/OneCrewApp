@@ -4020,7 +4020,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       'GET',
       async () => {
         try {
-          const response = await api.getProjects();
+          // Use minimal=true to get lightweight project data (no tasks, minimal member info)
+          // This significantly reduces network payload and improves performance
+          // Note: Type assertion used as API client supports minimal but types may not be updated yet
+          const response = await api.getProjects({ minimal: true } as any);
       if (response.success && response.data) {
         // Handle both array and paginated response
         return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
