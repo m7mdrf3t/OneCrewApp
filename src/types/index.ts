@@ -798,6 +798,7 @@ export interface CourseManagementPageProps {
   companyId: string;
   onBack: () => void;
   onCourseSelect?: (course: CourseWithDetails) => void;
+  readOnly?: boolean; // When true, renders in read-only mode without edit/create/delete actions
 }
 
 export interface CourseEditPageProps {

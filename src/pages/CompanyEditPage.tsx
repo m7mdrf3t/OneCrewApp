@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { Company } from '../types';
 import DatePicker from '../components/DatePicker';
+import CollapsibleSection from '../components/CollapsibleSection';
 
 interface CompanyEditPageProps {
   company: Company;
@@ -99,6 +100,8 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
             contact_address: updatedCompany.contact_address || '',
             social_media_links: updatedCompany.social_media_links || {},
           });
+          // Clear raw inputs when loading fresh data
+          setSocialMediaRawInputs({});
         }
       } catch (error) {
         console.error('Failed to reload company data:', error);
@@ -113,6 +116,151 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
 
   const handleInputChange = (field: keyof CompanyFormData, value: string | any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // Smart URL formatting for social media platforms
+  const formatSocialMediaUrl = (platform: string, input: string): string => {
+    if (!input || !input.trim()) return '';
+    
+    const cleaned = input.trim();
+    
+    switch (platform) {
+      case 'instagram':
+        // Accept: username, @username, instagram.com/username, or full URL
+        const instagramCleaned = cleaned
+          .replace(/^@/, '')
+          .replace(/^https?:\/\//i, '')
+          .replace(/^www\./i, '')
+          .replace(/^instagram\.com\//i, '')
+          .replace(/\/.*$/, '')
+          .trim();
+        return instagramCleaned ? `https://instagram.com/${instagramCleaned}` : '';
+      
+      case 'twitter':
+        // Accept: username, @username, twitter.com/username, x.com/username, or full URL
+        const twitterCleaned = cleaned
+          .replace(/^@/, '')
+          .replace(/^https?:\/\//i, '')
+          .replace(/^www\./i, '')
+          .replace(/^(twitter\.com|x\.com)\//i, '')
+          .replace(/\/.*$/, '')
+          .trim();
+        return twitterCleaned ? `https://twitter.com/${twitterCleaned}` : '';
+      
+      case 'facebook':
+        // Accept: username, page name, facebook.com/username, or full URL
+        const facebookCleaned = cleaned
+          .replace(/^@/, '')
+          .replace(/^https?:\/\//i, '')
+          .replace(/^www\./i, '')
+          .replace(/^facebook\.com\//i, '')
+          .replace(/\/.*$/, '')
+          .trim();
+        return facebookCleaned ? `https://facebook.com/${facebookCleaned}` : '';
+      
+      case 'linkedin':
+        // Accept: username, linkedin.com/in/username, linkedin.com/company/companyname, or full URL
+        const linkedinCleaned = cleaned.replace(/^https?:\/\//i, '').replace(/^www\./i, '').trim();
+        if (linkedinCleaned.includes('linkedin.com')) {
+          return `https://${linkedinCleaned}`;
+        } else if (linkedinCleaned.match(/^[a-zA-Z0-9-]+$/)) {
+          return `https://linkedin.com/in/${linkedinCleaned}`;
+        }
+        return linkedinCleaned ? `https://${linkedinCleaned}` : '';
+      
+      case 'youtube':
+        // Accept: channel URL, channel ID, youtube.com/channel/ID, or full URL
+        const youtubeCleaned = cleaned.replace(/^https?:\/\//i, '').replace(/^www\./i, '').trim();
+        if (youtubeCleaned.includes('youtube.com') || youtubeCleaned.includes('youtu.be')) {
+          return `https://${youtubeCleaned}`;
+        }
+        return youtubeCleaned ? `https://youtube.com/${youtubeCleaned}` : '';
+      
+      case 'tiktok':
+        // Accept: username, @username, tiktok.com/@username, or full URL
+        const tiktokCleaned = cleaned
+          .replace(/^@/, '')
+          .replace(/^https?:\/\//i, '')
+          .replace(/^www\./i, '')
+          .replace(/^tiktok\.com\/@?/i, '')
+          .replace(/\/.*$/, '')
+          .trim();
+        return tiktokCleaned ? `https://tiktok.com/@${tiktokCleaned}` : '';
+      
+      default:
+        // Default: normalize URL
+        if (/^https?:\/\//i.test(cleaned)) {
+          return cleaned;
+        }
+        return cleaned ? `https://${cleaned}` : '';
+    }
+  };
+
+  // Store raw input values for better UX while typing
+  const [socialMediaRawInputs, setSocialMediaRawInputs] = useState<Record<string, string>>({});
+  
+  // Collapsible section state
+  const [isSocialMediaExpanded, setIsSocialMediaExpanded] = useState(true);
+
+  const handleSocialMediaChange = (platform: keyof CompanyFormData['social_media_links'], value: string) => {
+    // Store raw input for display
+    setSocialMediaRawInputs((prev) => ({ ...prev, [platform]: value }));
+    
+    // Format and save the URL
+    const formattedUrl = formatSocialMediaUrl(platform, value);
+    handleInputChange('social_media_links', {
+      ...formData.social_media_links,
+      [platform]: formattedUrl || undefined,
+    });
+  };
+
+  // Get display value - prefer raw input if user is typing, otherwise extract from URL
+  const getSocialMediaDisplayValue = (platform: string, url: string | undefined): string => {
+    // If user has raw input stored, use that (for better UX while typing)
+    if (socialMediaRawInputs[platform] !== undefined) {
+      return socialMediaRawInputs[platform];
+    }
+    
+    // Otherwise, extract username from stored URL
+    if (!url) return '';
+    
+    try {
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      
+      switch (platform) {
+        case 'instagram':
+          return pathname.replace(/^\//, '') || '';
+        case 'twitter':
+          return pathname.replace(/^\//, '') || '';
+        case 'facebook':
+          return pathname.replace(/^\//, '') || '';
+        case 'linkedin':
+          return pathname.replace(/^\/(in|company)\//, '') || '';
+        case 'youtube':
+          if (pathname.includes('/@')) {
+            return pathname.replace(/^\/@/, '');
+          }
+          return pathname.replace(/^\//, '') || '';
+        case 'tiktok':
+          return pathname.replace(/^\/@/, '') || '';
+        default:
+          return url;
+      }
+    } catch {
+      // If URL parsing fails, return as is
+      return url;
+    }
+  };
+
+  // Clear raw input when field is cleared
+  const handleSocialMediaClear = (platform: keyof CompanyFormData['social_media_links']) => {
+    setSocialMediaRawInputs((prev) => {
+      const updated = { ...prev };
+      delete updated[platform];
+      return updated;
+    });
+    handleSocialMediaChange(platform, '');
   };
 
   const validateForm = (): boolean => {
@@ -163,20 +311,19 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
       formData.website_url = normalizedUrl;
     }
 
-    // Social media URL validation and normalization
+    // Social media URL validation (URLs are already formatted by handleSocialMediaChange)
     const socialLinks = formData.social_media_links;
     const socialPlatforms = ['instagram', 'facebook', 'twitter', 'linkedin', 'youtube', 'tiktok'] as const;
     for (const platform of socialPlatforms) {
       const url = socialLinks[platform];
       if (url && url.trim()) {
-        const normalizedUrl = normalizeUrl(url);
-        // Validate URL format (now accepts URLs with or without protocol)
-        if (!/^(https?:\/\/)?.+\..+/.test(normalizedUrl)) {
-          Alert.alert('Error', `Please enter a valid ${platform} URL (e.g., ${platform}.com/username)`);
+        // URLs are already formatted, just validate they're valid URLs
+        try {
+          new URL(url);
+        } catch {
+          Alert.alert('Error', `Please enter a valid ${platform} URL or username`);
           return false;
         }
-        // Update the form data with normalized URL
-        formData.social_media_links[platform] = normalizedUrl;
       }
     }
 
@@ -561,106 +708,82 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
         </View>
 
         {/* Social Media Links Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Social Media Links</Text>
-          <Text style={styles.sectionSubtitle}>Add your social media profiles (optional)</Text>
-          
-          <View style={styles.inputGroup}>
-            <View style={styles.socialMediaRow}>
-              <Ionicons name="logo-instagram" size={20} color="#E4405F" style={styles.socialIcon} />
-              <TextInput
-                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
-                value={formData.social_media_links.instagram || ''}
-                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, instagram: value })}
-                placeholder="https://instagram.com/yourprofile"
-                placeholderTextColor="#9ca3af"
-                keyboardType="url"
-                autoCapitalize="none"
-                editable={canEdit}
-              />
+        <CollapsibleSection
+          title="Social Media Links"
+          icon="share-social"
+          isExpanded={isSocialMediaExpanded}
+          onToggle={() => setIsSocialMediaExpanded(!isSocialMediaExpanded)}
+        >
+          <View style={styles.socialMediaSectionContent}>
+            <View style={styles.smartInputHint}>
+              <Ionicons name="bulb-outline" size={14} color="#3b82f6" />
+              <Text style={styles.smartInputHintText}>
+                You can enter just a username, @username, or full URL - we'll format it automatically
+              </Text>
             </View>
+            
+            {[
+              { key: 'instagram' as const, icon: 'logo-instagram', color: '#E4405F', label: 'Instagram', placeholder: 'username or @username' },
+              { key: 'facebook' as const, icon: 'logo-facebook', color: '#1877F2', label: 'Facebook', placeholder: 'username or page name' },
+              { key: 'twitter' as const, icon: 'logo-twitter', color: '#1DA1F2', label: 'Twitter', placeholder: 'username or @username' },
+              { key: 'linkedin' as const, icon: 'logo-linkedin', color: '#0077B5', label: 'LinkedIn', placeholder: 'profile URL or username' },
+              { key: 'youtube' as const, icon: 'logo-youtube', color: '#FF0000', label: 'YouTube', placeholder: 'channel URL or @channel' },
+              { key: 'tiktok' as const, icon: 'musical-notes', color: '#000000', label: 'TikTok', placeholder: 'username or @username' },
+            ].map((platform) => {
+              const currentValue = formData.social_media_links[platform.key] || '';
+              const displayValue = getSocialMediaDisplayValue(platform.key, currentValue);
+              const hasValue = !!currentValue;
+              
+              return (
+                <View key={platform.key} style={styles.socialMediaCard}>
+                  <View style={styles.socialMediaHeader}>
+                    <View style={[styles.socialIconContainer, { backgroundColor: `${platform.color}15` }]}>
+                      <Ionicons name={platform.icon as any} size={22} color={platform.color} />
+                    </View>
+                    <View style={styles.socialMediaLabelContainer}>
+                      <Text style={styles.socialMediaLabel}>{platform.label}</Text>
+                      {hasValue && (
+                        <Text style={styles.socialMediaUrl} numberOfLines={1}>
+                          {currentValue}
+                        </Text>
+                      )}
+                    </View>
+                    {hasValue && (
+                      <TouchableOpacity
+                        style={styles.clearButton}
+                        onPress={() => handleSocialMediaClear(platform.key)}
+                        disabled={!canEdit}
+                      >
+                        <Ionicons name="close-circle" size={20} color="#ef4444" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <TextInput
+                    style={[
+                      styles.socialInput,
+                      !canEdit && styles.inputDisabled,
+                      hasValue && styles.socialInputFilled,
+                    ]}
+                    value={displayValue}
+                    onChangeText={(value) => handleSocialMediaChange(platform.key, value)}
+                    placeholder={platform.placeholder}
+                    placeholderTextColor="#9ca3af"
+                    keyboardType="default"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={canEdit}
+                  />
+                  {hasValue && (
+                    <View style={styles.socialMediaHint}>
+                      <Ionicons name="checkmark-circle" size={14} color="#10b981" />
+                      <Text style={styles.socialMediaHintText}>Link saved</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </View>
-
-          <View style={styles.inputGroup}>
-            <View style={styles.socialMediaRow}>
-              <Ionicons name="logo-facebook" size={20} color="#1877F2" style={styles.socialIcon} />
-              <TextInput
-                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
-                value={formData.social_media_links.facebook || ''}
-                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, facebook: value })}
-                placeholder="https://facebook.com/yourpage"
-                placeholderTextColor="#9ca3af"
-                keyboardType="url"
-                autoCapitalize="none"
-                editable={canEdit}
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <View style={styles.socialMediaRow}>
-              <Ionicons name="logo-twitter" size={20} color="#1DA1F2" style={styles.socialIcon} />
-              <TextInput
-                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
-                value={formData.social_media_links.twitter || ''}
-                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, twitter: value })}
-                placeholder="https://twitter.com/yourhandle"
-                placeholderTextColor="#9ca3af"
-                keyboardType="url"
-                autoCapitalize="none"
-                editable={canEdit}
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <View style={styles.socialMediaRow}>
-              <Ionicons name="logo-linkedin" size={20} color="#0077B5" style={styles.socialIcon} />
-              <TextInput
-                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
-                value={formData.social_media_links.linkedin || ''}
-                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, linkedin: value })}
-                placeholder="https://linkedin.com/company/yourcompany"
-                placeholderTextColor="#9ca3af"
-                keyboardType="url"
-                autoCapitalize="none"
-                editable={canEdit}
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <View style={styles.socialMediaRow}>
-              <Ionicons name="logo-youtube" size={20} color="#FF0000" style={styles.socialIcon} />
-              <TextInput
-                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
-                value={formData.social_media_links.youtube || ''}
-                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, youtube: value })}
-                placeholder="https://youtube.com/@yourchannel"
-                placeholderTextColor="#9ca3af"
-                keyboardType="url"
-                autoCapitalize="none"
-                editable={canEdit}
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <View style={styles.socialMediaRow}>
-              <Ionicons name="musical-notes" size={20} color="#000000" style={styles.socialIcon} />
-              <TextInput
-                style={[styles.input, styles.socialInput, !canEdit && styles.inputDisabled]}
-                value={formData.social_media_links.tiktok || ''}
-                onChangeText={(value) => handleInputChange('social_media_links', { ...formData.social_media_links, tiktok: value })}
-                placeholder="https://tiktok.com/@yourhandle"
-                placeholderTextColor="#9ca3af"
-                keyboardType="url"
-                autoCapitalize="none"
-                editable={canEdit}
-              />
-            </View>
-          </View>
-        </View>
+        </CollapsibleSection>
 
         {/* Company Information Section */}
         <View style={styles.section}>
@@ -782,6 +905,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: '#e4e4e7',
   },
+  socialMediaSectionContent: {
+    paddingTop: 4,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -857,21 +983,102 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginTop: 4,
   },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 16,
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 20,
   },
-  socialMediaRow: {
+  sectionIcon: {
+    marginRight: 12,
+    marginTop: 2,
+  },
+  sectionHeaderText: {
+    flex: 1,
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  socialMediaCard: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  socialMediaHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 10,
   },
-  socialIcon: {
+  socialIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
-    width: 24,
+  },
+  socialMediaLabelContainer: {
+    flex: 1,
+  },
+  socialMediaLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  socialMediaUrl: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontFamily: 'monospace',
+  },
+  clearButton: {
+    padding: 4,
+    marginLeft: 8,
   },
   socialInput: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 14,
+    color: '#111827',
+    borderWidth: 1.5,
+    borderColor: '#d1d5db',
+    fontFamily: 'monospace',
+  },
+  socialInputFilled: {
+    borderColor: '#10b981',
+    backgroundColor: '#f0fdf4',
+  },
+  socialMediaHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 6,
+  },
+  socialMediaHintText: {
+    fontSize: 12,
+    color: '#10b981',
+    fontWeight: '500',
+  },
+  smartInputHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    padding: 8,
+    backgroundColor: '#eff6ff',
+    borderRadius: 8,
+    gap: 6,
+  },
+  smartInputHintText: {
+    fontSize: 12,
+    color: '#1e40af',
     flex: 1,
+    lineHeight: 16,
   },
 });
 

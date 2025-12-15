@@ -17,6 +17,7 @@ import { useApi } from '../contexts/ApiContext';
 import DatePicker from './DatePicker';
 import MediaPickerService from '../services/MediaPickerService';
 import UploadProgressBar from './UploadProgressBar';
+import CollapsibleSection from './CollapsibleSection';
 
 const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
   visible,
@@ -62,6 +63,25 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     },
     auto_grant_certification: false,
   });
+
+  // Collapsible sections state
+  const [expandedSections, setExpandedSections] = useState({
+    basicInfo: true,
+    pricing: true,
+    schedule: false,
+    design: false,
+    instructor: false,
+    media: false,
+    certification: false,
+    status: false,
+  });
+
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
 
   // Load company default design when modal opens
   useEffect(() => {
@@ -110,6 +130,17 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
       setLecturerSearchQuery('');
       setFilteredLecturers([]);
       setSelectedLecturer(null);
+      // Reset sections to default expanded state
+      setExpandedSections({
+        basicInfo: true,
+        pricing: true,
+        schedule: false,
+        design: false,
+        instructor: false,
+        media: false,
+        certification: false,
+        status: false,
+      });
     }
   }, [visible, companyDefaultDesign]);
 
@@ -250,9 +281,9 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
       const response = await uploadFile(file);
 
       setUploadProgress({ visible: false });
-      if (response.success && response.url) {
+      if (response.success && response.data?.url) {
         // Update form data with uploaded URL
-        handleInputChange('poster_url', response.url);
+        handleInputChange('poster_url', response.data.url);
         Alert.alert('Success', 'Course poster uploaded successfully!');
       } else {
         throw new Error(response.error || 'Failed to upload poster');
@@ -331,122 +362,138 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
 
         {/* Content */}
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Course Title */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Course Title *</Text>
-            <TextInput
-              style={styles.textInput}
-              value={formData.title}
-              onChangeText={(value) => handleInputChange('title', value)}
-              placeholder="Enter course title"
-              placeholderTextColor="#9ca3af"
-            />
-          </View>
-
-          {/* Description */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Description</Text>
-            <TextInput
-              style={[styles.textInput, styles.textArea]}
-              value={formData.description}
-              onChangeText={(value) => handleInputChange('description', value)}
-              placeholder="Describe the course..."
-              placeholderTextColor="#9ca3af"
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-            />
-          </View>
-
-          {/* Price and Seats Row */}
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Price</Text>
+          {/* Section 1: Basic Information */}
+          <CollapsibleSection
+            title="Basic Information"
+            icon="information-circle"
+            isExpanded={expandedSections.basicInfo}
+            onToggle={() => toggleSection('basicInfo')}
+          >
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Course Title *</Text>
               <TextInput
                 style={styles.textInput}
-                value={formData.price?.toString() || ''}
-                onChangeText={(value) => {
-                  const numValue = value === '' ? undefined : parseFloat(value);
-                  handleInputChange('price', isNaN(numValue as number) ? undefined : numValue);
-                }}
-                placeholder="0.00"
-                placeholderTextColor="#9ca3af"
-                keyboardType="decimal-pad"
-              />
-              <Text style={styles.hint}>Leave empty for free</Text>
-            </View>
-
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Total Seats *</Text>
-              <TextInput
-                style={styles.textInput}
-                value={formData.total_seats?.toString() || '0'}
-                onChangeText={(value) => {
-                  const numValue = parseInt(value) || 0;
-                  handleInputChange('total_seats', numValue);
-                }}
-                placeholder="0"
-                placeholderTextColor="#9ca3af"
-                keyboardType="number-pad"
-              />
-              <Text style={styles.hint}>0 = unlimited</Text>
-            </View>
-          </View>
-
-          {/* Dates */}
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <DatePicker
-                label="Start Date"
-                value={formData.start_date || null}
-                onChange={(date) => handleInputChange('start_date', date || '')}
-                placeholder="Select start date"
-                mode="date"
-                style={styles.datePicker}
-              />
-            </View>
-
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <DatePicker
-                label="End Date"
-                value={formData.end_date || null}
-                onChange={(date) => handleInputChange('end_date', date || '')}
-                placeholder="Select end date"
-                mode="date"
-                minimumDate={formData.start_date ? new Date(formData.start_date) : undefined}
-                style={styles.datePicker}
-              />
-            </View>
-          </View>
-
-          {/* Duration and Category Row */}
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Duration</Text>
-              <TextInput
-                style={styles.textInput}
-                value={formData.duration}
-                onChangeText={(value) => handleInputChange('duration', value)}
-                placeholder="e.g., 2 hours, 5 days"
+                value={formData.title}
+                onChangeText={(value) => handleInputChange('title', value)}
+                placeholder="Enter course title"
                 placeholderTextColor="#9ca3af"
               />
             </View>
 
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Category</Text>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Description</Text>
               <TextInput
-                style={styles.textInput}
-                value={formData.category}
-                onChangeText={(value) => handleInputChange('category', value)}
-                placeholder="e.g., Acting, Directing"
+                style={[styles.textInput, styles.textArea]}
+                value={formData.description}
+                onChangeText={(value) => handleInputChange('description', value)}
+                placeholder="Describe the course..."
                 placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
               />
             </View>
-          </View>
+          </CollapsibleSection>
 
-          {/* Number of Sessions and Design Row */}
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, styles.halfWidth]}>
+          {/* Section 2: Pricing & Capacity */}
+          <CollapsibleSection
+            title="Pricing & Capacity"
+            icon="cash"
+            isExpanded={expandedSections.pricing}
+            onToggle={() => toggleSection('pricing')}
+          >
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.label}>Price</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={formData.price?.toString() || ''}
+                  onChangeText={(value) => {
+                    const numValue = value === '' ? undefined : parseFloat(value);
+                    handleInputChange('price', isNaN(numValue as number) ? undefined : numValue);
+                  }}
+                  placeholder="0.00"
+                  placeholderTextColor="#9ca3af"
+                  keyboardType="decimal-pad"
+                />
+                <Text style={styles.hint}>Leave empty for free</Text>
+              </View>
+
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.label}>Total Seats *</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={formData.total_seats?.toString() || '0'}
+                  onChangeText={(value) => {
+                    const numValue = parseInt(value) || 0;
+                    handleInputChange('total_seats', numValue);
+                  }}
+                  placeholder="0"
+                  placeholderTextColor="#9ca3af"
+                  keyboardType="number-pad"
+                />
+                <Text style={styles.hint}>0 = unlimited</Text>
+              </View>
+            </View>
+          </CollapsibleSection>
+
+          {/* Section 3: Schedule & Duration */}
+          <CollapsibleSection
+            title="Schedule & Duration"
+            icon="calendar"
+            isExpanded={expandedSections.schedule}
+            onToggle={() => toggleSection('schedule')}
+          >
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <DatePicker
+                  label="Start Date"
+                  value={formData.start_date || null}
+                  onChange={(date) => handleInputChange('start_date', date || '')}
+                  placeholder="Select start date"
+                  mode="date"
+                  style={styles.datePicker}
+                />
+              </View>
+
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <DatePicker
+                  label="End Date"
+                  value={formData.end_date || null}
+                  onChange={(date) => handleInputChange('end_date', date || '')}
+                  placeholder="Select end date"
+                  mode="date"
+                  minimumDate={formData.start_date ? new Date(formData.start_date) : undefined}
+                  style={styles.datePicker}
+                />
+              </View>
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.label}>Duration</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={formData.duration}
+                  onChangeText={(value) => handleInputChange('duration', value)}
+                  placeholder="e.g., 2 hours, 5 days"
+                  placeholderTextColor="#9ca3af"
+                />
+              </View>
+
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.label}>Category</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={formData.category}
+                  onChangeText={(value) => handleInputChange('category', value)}
+                  placeholder="e.g., Acting, Directing"
+                  placeholderTextColor="#9ca3af"
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
               <Text style={styles.label}>Number of Sessions</Text>
               <TextInput
                 style={styles.textInput}
@@ -461,8 +508,16 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
               />
               <Text style={styles.hint}>Total number of course sessions</Text>
             </View>
+          </CollapsibleSection>
 
-            <View style={[styles.inputGroup, styles.halfWidth]}>
+          {/* Section 4: Course Design */}
+          <CollapsibleSection
+            title="Course Design"
+            icon="grid"
+            isExpanded={expandedSections.design}
+            onToggle={() => toggleSection('design')}
+          >
+            <View style={styles.inputGroup}>
               <Text style={styles.label}>Course Design</Text>
               <View style={styles.designContainer}>
                 {(['vertical', 'horizontal', 'large'] as const).map((designOption) => (
@@ -489,260 +544,307 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
                 {companyDefaultDesign ? `Default: ${companyDefaultDesign}` : 'Card layout style'}
               </Text>
             </View>
-          </View>
+          </CollapsibleSection>
 
-          {/* Primary Lecturer */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Primary Lecturer</Text>
-            {selectedLecturer ? (
-              <View style={styles.selectedLecturerCard}>
-                <View style={styles.lecturerInfo}>
-                  {selectedLecturer.image_url ? (
-                    <Image
-                      source={{ uri: selectedLecturer.image_url }}
-                      style={styles.lecturerAvatar}
-                    />
-                  ) : (
-                    <View style={styles.lecturerAvatarPlaceholder}>
-                      <Text style={styles.lecturerAvatarText}>
-                        {selectedLecturer.name?.charAt(0).toUpperCase() || '?'}
-                      </Text>
+          {/* Section 5: Instructor */}
+          <CollapsibleSection
+            title="Instructor"
+            icon="person"
+            isExpanded={expandedSections.instructor}
+            onToggle={() => toggleSection('instructor')}
+          >
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Primary Lecturer</Text>
+              {selectedLecturer ? (
+                <View style={styles.selectedLecturerCard}>
+                  <View style={styles.lecturerInfo}>
+                    {selectedLecturer.image_url ? (
+                      <Image
+                        source={{ uri: selectedLecturer.image_url }}
+                        style={styles.lecturerAvatar}
+                      />
+                    ) : (
+                      <View style={styles.lecturerAvatarPlaceholder}>
+                        <Text style={styles.lecturerAvatarText}>
+                          {selectedLecturer.name?.charAt(0).toUpperCase() || '?'}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.lecturerDetails}>
+                      <Text style={styles.lecturerName}>{selectedLecturer.name}</Text>
+                      {selectedLecturer.email && (
+                        <Text style={styles.lecturerEmail}>{selectedLecturer.email}</Text>
+                      )}
+                      {selectedLecturer.primary_role && (
+                        <Text style={styles.lecturerRole}>
+                          {selectedLecturer.primary_role.replace(/_/g, ' ')}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.clearLecturerButton}
+                    onPress={handleClearLecturer}
+                  >
+                    <Ionicons name="close-circle" size={20} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <>
+                  <TextInput
+                    style={styles.textInput}
+                    value={lecturerSearchQuery}
+                    onChangeText={setLecturerSearchQuery}
+                    placeholder="Search for lecturer by name or email..."
+                    placeholderTextColor="#9ca3af"
+                  />
+                  {searchingLecturer && (
+                    <ActivityIndicator size="small" color="#3b82f6" style={styles.loader} />
+                  )}
+                  {filteredLecturers.length > 0 && (
+                    <View style={styles.lecturersList}>
+                      {filteredLecturers.map((lecturer) => (
+                        <TouchableOpacity
+                          key={lecturer.id}
+                          style={styles.lecturerItem}
+                          onPress={() => handleSelectLecturer(lecturer)}
+                        >
+                          <View style={styles.lecturerInfo}>
+                            {lecturer.image_url ? (
+                              <Image
+                                source={{ uri: lecturer.image_url }}
+                                style={styles.lecturerAvatar}
+                              />
+                            ) : (
+                              <View style={styles.lecturerAvatarPlaceholder}>
+                                <Text style={styles.lecturerAvatarText}>
+                                  {lecturer.name?.charAt(0).toUpperCase() || '?'}
+                                </Text>
+                              </View>
+                            )}
+                            <View style={styles.lecturerDetails}>
+                              <Text style={styles.lecturerName}>{lecturer.name}</Text>
+                              {lecturer.email && (
+                                <Text style={styles.lecturerEmail}>{lecturer.email}</Text>
+                              )}
+                              {lecturer.primary_role && (
+                                <Text style={styles.lecturerRole}>
+                                  {lecturer.primary_role.replace(/_/g, ' ')}
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                          <Ionicons name="chevron-forward" size={20} color="#71717a" />
+                        </TouchableOpacity>
+                      ))}
                     </View>
                   )}
-                  <View style={styles.lecturerDetails}>
-                    <Text style={styles.lecturerName}>{selectedLecturer.name}</Text>
-                    {selectedLecturer.email && (
-                      <Text style={styles.lecturerEmail}>{selectedLecturer.email}</Text>
-                    )}
-                    {selectedLecturer.primary_role && (
-                      <Text style={styles.lecturerRole}>
-                        {selectedLecturer.primary_role.replace(/_/g, ' ')}
-                      </Text>
-                    )}
+                </>
+              )}
+            </View>
+          </CollapsibleSection>
+
+          {/* Section 6: Media */}
+          <CollapsibleSection
+            title="Media"
+            icon="image"
+            isExpanded={expandedSections.media}
+            onToggle={() => toggleSection('media')}
+          >
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Course Poster</Text>
+              {formData.poster_url ? (
+                <View style={styles.posterPreviewContainer}>
+                  <Image
+                    source={{ uri: formData.poster_url }}
+                    style={styles.posterPreview}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.posterActions}>
+                    <TouchableOpacity
+                      style={styles.changePosterButton}
+                      onPress={handleUploadPoster}
+                      disabled={uploadingPoster}
+                    >
+                      {uploadingPoster ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <Ionicons name="camera" size={18} color="#fff" />
+                          <Text style={styles.changePosterButtonText}>Change</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.removePosterButton}
+                      onPress={() => handleInputChange('poster_url', '')}
+                      disabled={uploadingPoster}
+                    >
+                      <Ionicons name="trash" size={18} color="#ef4444" />
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <TouchableOpacity
-                  style={styles.clearLecturerButton}
-                  onPress={handleClearLecturer}
-                >
-                  <Ionicons name="close-circle" size={20} color="#ef4444" />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <>
-                <TextInput
-                  style={styles.textInput}
-                  value={lecturerSearchQuery}
-                  onChangeText={setLecturerSearchQuery}
-                  placeholder="Search for lecturer by name or email..."
-                  placeholderTextColor="#9ca3af"
-                />
-                {searchingLecturer && (
-                  <ActivityIndicator size="small" color="#3b82f6" style={styles.loader} />
-                )}
-                {filteredLecturers.length > 0 && (
-                  <View style={styles.lecturersList}>
-                    {filteredLecturers.map((lecturer) => (
-                      <TouchableOpacity
-                        key={lecturer.id}
-                        style={styles.lecturerItem}
-                        onPress={() => handleSelectLecturer(lecturer)}
-                      >
-                        <View style={styles.lecturerInfo}>
-                          {lecturer.image_url ? (
-                            <Image
-                              source={{ uri: lecturer.image_url }}
-                              style={styles.lecturerAvatar}
-                            />
-                          ) : (
-                            <View style={styles.lecturerAvatarPlaceholder}>
-                              <Text style={styles.lecturerAvatarText}>
-                                {lecturer.name?.charAt(0).toUpperCase() || '?'}
-                              </Text>
-                            </View>
-                          )}
-                          <View style={styles.lecturerDetails}>
-                            <Text style={styles.lecturerName}>{lecturer.name}</Text>
-                            {lecturer.email && (
-                              <Text style={styles.lecturerEmail}>{lecturer.email}</Text>
-                            )}
-                            {lecturer.primary_role && (
-                              <Text style={styles.lecturerRole}>
-                                {lecturer.primary_role.replace(/_/g, ' ')}
-                              </Text>
-                            )}
-                          </View>
-                        </View>
-                        <Ionicons name="chevron-forward" size={20} color="#71717a" />
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </>
-            )}
-          </View>
-
-          {/* Poster URL */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Poster URL</Text>
-            <View style={styles.posterUrlRow}>
-              <TextInput
-                style={[styles.textInput, styles.posterUrlInput]}
-                value={formData.poster_url}
-                onChangeText={(value) => handleInputChange('poster_url', value)}
-                placeholder="https://example.com/poster.jpg"
-                placeholderTextColor="#9ca3af"
-              />
-              <TouchableOpacity
-                style={styles.uploadPosterButton}
-                onPress={handleUploadPoster}
-                disabled={uploadingPoster}
-              >
-                {uploadingPoster ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="camera" size={20} color="#fff" />
-                )}
-              </TouchableOpacity>
+              ) : (
+                <View>
+                  <TouchableOpacity
+                    style={styles.uploadPosterButtonLarge}
+                    onPress={handleUploadPoster}
+                    disabled={uploadingPoster}
+                  >
+                    {uploadingPoster ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="camera" size={24} color="#fff" />
+                        <Text style={styles.uploadPosterButtonText}>Upload Poster Image</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <Text style={styles.hint}>Optional: Upload a poster image for your course</Text>
+                </View>
+              )}
             </View>
-            <Text style={styles.hint}>Optional image URL for course poster, or upload directly</Text>
-          </View>
+          </CollapsibleSection>
 
-          {/* Certification Template Section */}
-          <View style={styles.sectionDivider}>
-            <Text style={styles.sectionTitle}>Certification Template *</Text>
-            <Text style={styles.sectionSubtitle}>
-              Create a certification template for this course. Participants will receive this certification upon completion.
-            </Text>
-          </View>
-
-          {/* Certification Template Name */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Certification Name *</Text>
-            <TextInput
-              style={styles.textInput}
-              value={formData.certification_template.name}
-              onChangeText={(value) =>
-                handleInputChange('certification_template', {
-                  ...formData.certification_template,
-                  name: value,
-                })
-              }
-              placeholder="e.g., Acting Fundamentals Certificate"
-              placeholderTextColor="#9ca3af"
-            />
-          </View>
-
-          {/* Certification Template Description */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Certification Description</Text>
-            <TextInput
-              style={[styles.textInput, styles.textArea]}
-              value={formData.certification_template.description || ''}
-              onChangeText={(value) =>
-                handleInputChange('certification_template', {
-                  ...formData.certification_template,
-                  description: value,
-                })
-              }
-              placeholder="Describe what this certification represents..."
-              placeholderTextColor="#9ca3af"
-              multiline
-              numberOfLines={3}
-              textAlignVertical="top"
-            />
-          </View>
-
-          {/* Certification Template Category and Expiration */}
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Certification Category</Text>
+          {/* Section 7: Certification Template */}
+          <CollapsibleSection
+            title="Certification Template"
+            icon="school"
+            isExpanded={expandedSections.certification}
+            onToggle={() => toggleSection('certification')}
+            badge="*"
+          >
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Certification Name *</Text>
               <TextInput
                 style={styles.textInput}
-                value={formData.certification_template.category || ''}
+                value={formData.certification_template.name}
                 onChangeText={(value) =>
                   handleInputChange('certification_template', {
                     ...formData.certification_template,
-                    category: value,
+                    name: value,
                   })
                 }
-                placeholder="e.g., Acting, Directing"
+                placeholder="e.g., Acting Fundamentals Certificate"
                 placeholderTextColor="#9ca3af"
               />
             </View>
 
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Expiration Days</Text>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Certification Description</Text>
               <TextInput
-                style={styles.textInput}
-                value={formData.certification_template.default_expiration_days?.toString() || ''}
-                onChangeText={(value) => {
-                  const numValue = value === '' ? undefined : parseInt(value);
+                style={[styles.textInput, styles.textArea]}
+                value={formData.certification_template.description || ''}
+                onChangeText={(value) =>
                   handleInputChange('certification_template', {
                     ...formData.certification_template,
-                    default_expiration_days: isNaN(numValue as number) ? undefined : numValue,
-                  });
-                }}
-                placeholder="365"
+                    description: value,
+                  })
+                }
+                placeholder="Describe what this certification represents..."
                 placeholderTextColor="#9ca3af"
-                keyboardType="number-pad"
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
               />
-              <Text style={styles.hint}>Leave empty for no expiration</Text>
             </View>
-          </View>
 
-          {/* Auto Grant Certification */}
-          <View style={styles.inputGroup}>
-            <TouchableOpacity
-              style={styles.checkboxContainer}
-              onPress={() =>
-                handleInputChange('auto_grant_certification', !formData.auto_grant_certification)
-              }
-            >
-              <View
-                style={[
-                  styles.checkbox,
-                  formData.auto_grant_certification && styles.checkboxChecked,
-                ]}
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.label}>Certification Category</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={formData.certification_template.category || ''}
+                  onChangeText={(value) =>
+                    handleInputChange('certification_template', {
+                      ...formData.certification_template,
+                      category: value,
+                    })
+                  }
+                  placeholder="e.g., Acting, Directing"
+                  placeholderTextColor="#9ca3af"
+                />
+              </View>
+
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.label}>Expiration Days</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={formData.certification_template.default_expiration_days?.toString() || ''}
+                  onChangeText={(value) => {
+                    const numValue = value === '' ? undefined : parseInt(value);
+                    handleInputChange('certification_template', {
+                      ...formData.certification_template,
+                      default_expiration_days: isNaN(numValue as number) ? undefined : numValue,
+                    });
+                  }}
+                  placeholder="365"
+                  placeholderTextColor="#9ca3af"
+                  keyboardType="number-pad"
+                />
+                <Text style={styles.hint}>Leave empty for no expiration</Text>
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <TouchableOpacity
+                style={styles.checkboxContainer}
+                onPress={() =>
+                  handleInputChange('auto_grant_certification', !formData.auto_grant_certification)
+                }
               >
-                {formData.auto_grant_certification && (
-                  <Ionicons name="checkmark" size={16} color="#fff" />
-                )}
-              </View>
-              <View style={styles.checkboxLabelContainer}>
-                <Text style={styles.checkboxLabel}>Auto-grant certification on course completion</Text>
-                <Text style={styles.checkboxHint}>
-                  Automatically grant this certification to all registered users when the course is completed
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {/* Status */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Status</Text>
-            <View style={styles.statusContainer}>
-              {statusOptions.map((option) => (
-                <TouchableOpacity
-                  key={option.value}
+                <View
                   style={[
-                    styles.statusOption,
-                    formData.status === option.value && styles.statusOptionSelected,
+                    styles.checkbox,
+                    formData.auto_grant_certification && styles.checkboxChecked,
                   ]}
-                  onPress={() => handleInputChange('status', option.value)}
                 >
-                  <Text
-                    style={[
-                      styles.statusOptionText,
-                      formData.status === option.value && styles.statusOptionTextSelected,
-                    ]}
-                  >
-                    {option.label}
+                  {formData.auto_grant_certification && (
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                  )}
+                </View>
+                <View style={styles.checkboxLabelContainer}>
+                  <Text style={styles.checkboxLabel}>Auto-grant certification on course completion</Text>
+                  <Text style={styles.checkboxHint}>
+                    Automatically grant this certification to all registered users when the course is completed
                   </Text>
-                </TouchableOpacity>
-              ))}
+                </View>
+              </TouchableOpacity>
             </View>
-          </View>
+          </CollapsibleSection>
+
+          {/* Section 8: Status */}
+          <CollapsibleSection
+            title="Status"
+            icon="checkmark-circle"
+            isExpanded={expandedSections.status}
+            onToggle={() => toggleSection('status')}
+          >
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Status</Text>
+              <View style={styles.statusContainer}>
+                {statusOptions.map((option) => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.statusOption,
+                      formData.status === option.value && styles.statusOptionSelected,
+                    ]}
+                    onPress={() => handleInputChange('status', option.value)}
+                  >
+                    <Text
+                      style={[
+                        styles.statusOptionText,
+                        formData.status === option.value && styles.statusOptionTextSelected,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </CollapsibleSection>
         </ScrollView>
 
         {/* Footer */}
@@ -789,9 +891,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 18,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   closeButton: {
     width: 40,
@@ -800,9 +911,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
   },
   placeholder: {
     width: 40,
@@ -810,24 +921,25 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 16,
+    backgroundColor: '#f9fafb',
   },
   inputGroup: {
     marginBottom: 16,
   },
   label: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#000',
+    fontWeight: '600',
+    color: '#374151',
     marginBottom: 8,
   },
   textInput: {
     borderWidth: 1,
     borderColor: '#d1d5db',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#000',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#111827',
     backgroundColor: '#fff',
   },
   textArea: {
@@ -837,7 +949,8 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: 12,
     color: '#6b7280',
-    marginTop: 4,
+    marginTop: 6,
+    lineHeight: 16,
   },
   row: {
     flexDirection: 'row',
@@ -855,12 +968,13 @@ const styles = StyleSheet.create({
   },
   statusOption: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: '#d1d5db',
     alignItems: 'center',
+    backgroundColor: '#fff',
   },
   statusOptionSelected: {
     backgroundColor: '#3b82f6',
@@ -880,14 +994,24 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
     gap: 12,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 3,
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: '#d1d5db',
     alignItems: 'center',
+    backgroundColor: '#fff',
   },
   cancelButtonText: {
     fontSize: 16,
@@ -896,10 +1020,18 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 14,
+    borderRadius: 10,
     backgroundColor: '#3b82f6',
     alignItems: 'center',
+    shadowColor: '#3b82f6',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   submitButtonDisabled: {
     opacity: 0.5,
@@ -909,24 +1041,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#fff',
   },
-  sectionDivider: {
-    marginTop: 24,
-    marginBottom: 16,
-    paddingTop: 24,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 8,
-  },
   checkboxContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -935,13 +1049,14 @@ const styles = StyleSheet.create({
   checkbox: {
     width: 24,
     height: 24,
-    borderRadius: 4,
+    borderRadius: 6,
     borderWidth: 2,
     borderColor: '#d1d5db',
     marginRight: 12,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 2,
+    backgroundColor: '#fff',
   },
   checkboxChecked: {
     backgroundColor: '#3b82f6',
@@ -967,10 +1082,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 12,
+    padding: 14,
     backgroundColor: '#eff6ff',
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: '#3b82f6',
     marginTop: 8,
   },
@@ -1026,8 +1141,9 @@ const styles = StyleSheet.create({
     maxHeight: 200,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    borderRadius: 8,
+    borderRadius: 10,
     backgroundColor: '#fff',
+    overflow: 'hidden',
   },
   lecturerItem: {
     flexDirection: 'row',
@@ -1037,21 +1153,74 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
   },
-  posterUrlRow: {
+  posterPreviewContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  posterPreview: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#f3f4f6',
+  },
+  posterActions: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 12,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  changePosterButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  posterUrlInput: {
-    flex: 1,
-  },
-  uploadPosterButton: {
+    justifyContent: 'center',
+    gap: 6,
     backgroundColor: '#3b82f6',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  changePosterButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  removePosterButton: {
     width: 44,
     height: 44,
     borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#ef4444',
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  uploadPosterButtonLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#3b82f6',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#3b82f6',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  uploadPosterButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
   },
   designContainer: {
     flexDirection: 'row',
@@ -1059,12 +1228,13 @@ const styles = StyleSheet.create({
   },
   designOption: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: '#d1d5db',
     alignItems: 'center',
+    backgroundColor: '#fff',
   },
   designOptionSelected: {
     backgroundColor: '#3b82f6',

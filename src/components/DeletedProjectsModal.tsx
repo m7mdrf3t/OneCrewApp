@@ -14,7 +14,7 @@ const DeletedProjectsModal: React.FC<DeletedProjectsModalProps> = ({
   onClose,
   onRestore,
 }) => {
-  const { api, getAllProjects } = useApi();
+  const { api, getDeletedProjects } = useApi();
   const [deletedProjects, setDeletedProjects] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -27,11 +27,12 @@ const DeletedProjectsModal: React.FC<DeletedProjectsModalProps> = ({
   const loadDeletedProjects = async () => {
     try {
       setIsLoading(true);
-      const allProjects = await getAllProjects();
-      // Filter projects that are soft-deleted (assuming a deleted_at or is_deleted field)
-      // For now, we'll use a status or check for deleted projects
-      // This might need to be adjusted based on your backend implementation
-      const deleted = allProjects.filter((project: any) => project.is_deleted || project.deleted_at);
+      console.log('🗑️ Loading deleted projects...');
+      
+      // Use dedicated method to fetch deleted projects
+      const deleted = await getDeletedProjects();
+      console.log(`✅ Loaded ${deleted.length} deleted projects`);
+      
       setDeletedProjects(deleted);
     } catch (error) {
       console.error('Failed to load deleted projects:', error);
@@ -43,20 +44,30 @@ const DeletedProjectsModal: React.FC<DeletedProjectsModalProps> = ({
 
   const handleRestore = async (project: any) => {
     try {
-      // Restore the project by updating is_deleted to false
-      await api.updateProject(project.id, { is_deleted: false, deleted_at: null });
+      console.log('♻️ Restoring project:', project.id);
+      
+      // Use the API client's restoreProject method
+      const response = await api.restoreProject(project.id);
+      
+      if (!response?.success) {
+        throw new Error(response?.error || 'Failed to restore project');
+      }
+      
+      console.log('✅ Project restored successfully');
       
       // Remove from deleted list
       setDeletedProjects(prev => prev.filter(p => p.id !== project.id));
       
+      // Notify parent to reload projects list
       if (onRestore) {
         onRestore(project.id);
       }
       
-      Alert.alert('Success', 'Project restored successfully.');
-    } catch (error) {
-      console.error('Failed to restore project:', error);
-      Alert.alert('Error', 'Failed to restore project. Please try again.');
+      Alert.alert('Success', 'Project restored successfully. It will appear in your projects list.');
+    } catch (error: any) {
+      console.error('❌ Failed to restore project:', error);
+      const errorMessage = error?.message || 'Failed to restore project. Please try again.';
+      Alert.alert('Error', errorMessage);
     }
   };
 

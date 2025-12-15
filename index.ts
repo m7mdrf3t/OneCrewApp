@@ -47,17 +47,35 @@ function setupFirebaseBackgroundHandler() {
       console.log('✅ [BackgroundHandler] Messaging module loaded');
       const messaging = messagingModule.default || messagingModule;
       if (messaging && typeof messaging === 'function') {
-        console.log('📨 [BackgroundHandler] Setting up background message handler...');
-        messaging().setBackgroundMessageHandler(async (remoteMessage: any) => {
-          console.log('📨 [BackgroundHandler] Message handled in background:', remoteMessage);
-          console.log('📨 [BackgroundHandler] Title:', remoteMessage.notification?.title);
-          console.log('📨 [BackgroundHandler] Body:', remoteMessage.notification?.body);
-          console.log('📨 [BackgroundHandler] Data:', remoteMessage.data);
-          // Handle background notification here if needed
-          // The notification will be displayed automatically by the OS
-        });
-        console.log('✅ [BackgroundHandler] Firebase background message handler registered successfully');
-        return true;
+        try {
+          // Try to get messaging instance - this will fail if Firebase isn't initialized
+          const messagingInstance = messaging();
+          
+          // Check if Firebase app is initialized
+          // On simulators, Firebase may initialize but APNs won't work
+          // This is fine - we can still set up the handler
+          console.log('📨 [BackgroundHandler] Setting up background message handler...');
+          messagingInstance.setBackgroundMessageHandler(async (remoteMessage: any) => {
+            console.log('📨 [BackgroundHandler] Message handled in background:', remoteMessage);
+            console.log('📨 [BackgroundHandler] Title:', remoteMessage.notification?.title);
+            console.log('📨 [BackgroundHandler] Body:', remoteMessage.notification?.body);
+            console.log('📨 [BackgroundHandler] Data:', remoteMessage.data);
+            // Handle background notification here if needed
+            // The notification will be displayed automatically by the OS
+          });
+          console.log('✅ [BackgroundHandler] Firebase background message handler registered successfully');
+          return true;
+        } catch (instanceError: any) {
+          // Check if error is about Firebase not being initialized
+          if (instanceError?.message?.includes('No Firebase App') || 
+              instanceError?.message?.includes('has been created') ||
+              instanceError?.message?.includes('initializeApp')) {
+            console.warn('⚠️ [BackgroundHandler] Firebase not initialized yet - will retry');
+            console.warn('⚠️ [BackgroundHandler] This is normal during app startup');
+            return false; // Retry later
+          }
+          throw instanceError; // Re-throw other errors
+        }
       } else {
         console.error('❌ [BackgroundHandler] Messaging is not a function. Type:', typeof messaging);
       }
@@ -71,6 +89,11 @@ function setupFirebaseBackgroundHandler() {
         error?.message?.includes('non-null') ||
         error?.message?.includes('requires a non-null')) {
       console.warn('⚠️ [BackgroundHandler] Native modules not ready (NativeEventEmitter error)');
+    } else if (error?.message?.includes('No Firebase App') || 
+               error?.message?.includes('has been created') ||
+               error?.message?.includes('initializeApp')) {
+      console.warn('⚠️ [BackgroundHandler] Firebase not initialized yet - will retry');
+      console.warn('⚠️ [BackgroundHandler] This is normal during app startup');
     } else {
       console.error('❌ [BackgroundHandler] Could not set up Firebase background message handler:', error?.message || error);
       if (error?.stack) {

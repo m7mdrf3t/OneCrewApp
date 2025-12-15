@@ -24,7 +24,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onNavigateToLogin,
   onProjectCreated,
 }) => {
-  const { getAllProjects, getProjectById, user, api, isGuest, getProjectTasks, uploadFile, updateProject } = useApi();
+  const { getAllProjects, getProjectById, user, api, isGuest, checkPendingAssignments, uploadFile, updateProject } = useApi();
   const [projects, setProjects] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,34 +52,22 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   }, [isGuest]);
 
   // Check if a project has pending task assignments for the current user
+  // Uses lightweight backend endpoint for optimal performance
   const hasPendingAssignments = React.useCallback(async (project: any): Promise<boolean> => {
     if (!user?.id) return false;
     
     try {
-      // Get all tasks for this project
-      const tasks = await getProjectTasks(project.id);
-      
-      // Check if any task has a pending assignment for the current user
-      for (const task of tasks) {
-        const assignments = task.assignments || [];
-        const hasPending = assignments.some((assignment: any) => {
-          const assignmentUserId = assignment.user_id || assignment.user?.id;
-          const assignmentStatus = assignment.status || 'pending';
-          return assignmentUserId === user.id && assignmentStatus === 'pending';
-        });
-        
-        if (hasPending) {
-          console.log(`⏳ Project ${project.id} has pending assignments for user ${user.id}`);
-          return true;
-        }
+      // Use lightweight endpoint - no need to load all tasks
+      const result = await checkPendingAssignments(project.id, user.id);
+      if (result.hasPending) {
+        console.log(`⏳ Project ${project.id} has ${result.count || 0} pending assignments for user ${user.id}`);
       }
-      
-      return false;
+      return result.hasPending || false;
     } catch (error) {
       console.warn(`⚠️ Failed to check pending assignments for project ${project.id}:`, error);
       return false;
     }
-  }, [user, getProjectTasks]);
+  }, [user, checkPendingAssignments]);
 
   const loadProjects = async () => {
     try {
@@ -90,6 +78,17 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
       
       const userProjects = await getAllProjects();
       console.log(`📦 Received ${userProjects.length} projects from API`);
+      
+      // Debug: If no projects returned, this might be a backend filtering issue
+      if (userProjects.length === 0) {
+        console.warn('⚠️ WARNING: Backend returned 0 projects!');
+        console.warn('   This could mean:');
+        console.warn('   1. All projects are incorrectly marked as deleted');
+        console.warn('   2. Backend getMyProjects() filter is too aggressive');
+        console.warn('   3. User actually has no projects');
+        console.warn('   4. Backend bug in soft delete filtering');
+        console.warn('   Please check backend logs and database to verify project status');
+      }
       
       // Debug: Log project details to understand structure
       userProjects.forEach((project, index) => {
@@ -106,28 +105,29 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
       });
       
       // Filter to only show projects where user is owner or member (not just viewer)
-      // Also exclude soft-deleted projects
+      // Note: Backend's getMyProjects() should already exclude soft-deleted projects,
+      // but we add an extra check here as a safety measure
       const filteredProjects = userProjects.filter(project => {
         const accessLevel = getUserAccessLevel(project);
         const isActive = !project.is_deleted && !project.deleted_at;
         const shouldShow = (accessLevel === 'owner' || accessLevel === 'member') && isActive;
         
-        if (!shouldShow) {
-          console.log(`🚫 Filtered out project ${project.id} - accessLevel: ${accessLevel}, isActive: ${isActive}`);
-        } else {
-          console.log(`✅ Including project ${project.id} - accessLevel: ${accessLevel}`);
-        }
+        // Only log filtered out projects for debugging (reduce noise)
+        // if (!shouldShow) {
+        //   console.log(`🚫 Filtered out project ${project.id} - accessLevel: ${accessLevel}, isActive: ${isActive}`);
+        // }
         
         return shouldShow;
       });
 
       console.log(`✅ Loaded ${filteredProjects.length} filtered projects (basic info only)`);
       
-      // Only load basic project information - no tasks or detailed data
+      // Projects already have heavy data stripped in ApiContext.getAllProjects()
+      // Just add a flag to indicate this is basic data
       const basicProjects = filteredProjects.map(project => ({
         ...project,
-        // Add empty tasks array for UI consistency
-        tasks: [],
+        // Ensure tasks is empty array for UI consistency (already stripped in ApiContext)
+        tasks: project.tasks || [],
         // Add a flag to indicate this is basic data
         isBasicData: true,
       }));
@@ -135,30 +135,65 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
       // Categorize projects: owner, member/admin, and pending
       const owner: any[] = [];
       const member: any[] = [];
-      const pending: any[] = [];
       
-      // First, separate owner projects (they can't have pending assignments)
-      const memberProjectsToCheck: any[] = [];
-      
+      // First, separate owner and member projects
+      // Don't check pending assignments yet - show UI immediately
       for (const project of basicProjects) {
         const accessLevel = getUserAccessLevel(project);
         
         if (accessLevel === 'owner') {
           owner.push(project);
         } else if (accessLevel === 'member') {
-          memberProjectsToCheck.push(project);
+          member.push(project); // Add to member first, check pending in background
         }
       }
       
-      // Check pending assignments for member projects in parallel
+      // ✅ Show UI immediately - don't wait for pending checks
+      setOwnerProjects(owner);
+      setMemberProjects(member);
+      setPendingProjects([]); // Will be populated after background check
+      setProjects(basicProjects); // Keep for backward compatibility
+      setIsLoading(false); // UI is ready!
+      
+      console.log(`📊 Categorized projects: ${owner.length} owner, ${member.length} member (pending checks in background)`);
+      
+      // Check pending assignments in background (non-blocking)
+      if (member.length > 0) {
+        checkPendingAssignmentsInBackground(member);
+      }
+    } catch (err) {
+      console.error('Failed to load projects:', err);
+      setError('Failed to load projects');
+      Alert.alert('Error', 'Failed to load projects. Please try again.');
+      setIsLoading(false);
+    }
+  };
+
+  // Check pending assignments in background after initial UI render
+  // This allows the UI to appear immediately while pending checks happen asynchronously
+  const checkPendingAssignmentsInBackground = async (memberProjects: any[]) => {
+    if (!user?.id || memberProjects.length === 0) return;
+    
+    try {
+      console.log(`🔄 Checking pending assignments for ${memberProjects.length} member projects in background...`);
+      
+      // Check pending assignments in parallel using lightweight endpoint
       const pendingChecks = await Promise.all(
-        memberProjectsToCheck.map(async (project) => {
-          const hasPending = await hasPendingAssignments(project);
-          return { project, hasPending };
+        memberProjects.map(async (project) => {
+          try {
+            const hasPending = await hasPendingAssignments(project);
+            return { project, hasPending };
+          } catch (error) {
+            console.warn(`⚠️ Failed to check pending for project ${project.id}:`, error);
+            return { project, hasPending: false };
+          }
         })
       );
       
       // Categorize member projects based on pending status
+      const pending: any[] = [];
+      const member: any[] = [];
+      
       pendingChecks.forEach(({ project, hasPending }) => {
         if (hasPending) {
           pending.push(project);
@@ -167,18 +202,14 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         }
       });
       
-      setOwnerProjects(owner);
+      // Update state after checks complete
       setMemberProjects(member);
       setPendingProjects(pending);
-      setProjects(basicProjects); // Keep for backward compatibility
       
-      console.log(`📊 Categorized projects: ${owner.length} owner, ${member.length} member, ${pending.length} pending`);
-    } catch (err) {
-      console.error('Failed to load projects:', err);
-      setError('Failed to load projects');
-      Alert.alert('Error', 'Failed to load projects. Please try again.');
-    } finally {
-      setIsLoading(false);
+      console.log(`✅ Background pending check complete: ${member.length} member, ${pending.length} pending`);
+    } catch (error) {
+      console.error('❌ Failed to check pending assignments in background:', error);
+      // Don't show error to user - just keep projects in member tab
     }
   };
 
@@ -243,20 +274,43 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
           onPress: async () => {
             try {
               console.log('🗑️ Moving project to recycle bin:', selectedProject.id);
-              // Soft delete - move to recycle bin
-              await api.updateProject(selectedProject.id, {
+              
+              // Soft delete - backend now properly supports is_deleted and deleted_at fields
+              const deletePayload = {
                 is_deleted: true,
                 deleted_at: new Date().toISOString(),
-              } as any);
+              };
+              
+              console.log('📤 Sending delete payload:', deletePayload);
+              const response = await api.updateProject(selectedProject.id, deletePayload as any);
+              
+              // Check if backend returned success
+              if (!response?.success) {
+                throw new Error(response?.error || 'Backend returned unsuccessful response');
+              }
+              
+              // Verify deletion was applied (backend should now return these fields)
+              const updatedProject = response?.data as any;
+              const wasDeleted = updatedProject?.is_deleted === true || updatedProject?.deleted_at !== null;
+              
+              if (!wasDeleted) {
+                // Log warning but proceed - backend may have deleted it but not returned fields
+                console.warn('⚠️ Backend response does not show deleted fields, but deletion may have succeeded');
+                console.log('Response data:', updatedProject);
+              }
               
               // Remove project from all categories
+              // Backend's getMyProjects() will automatically exclude deleted projects on next load
               setProjects(prev => prev.filter(p => p.id !== selectedProject.id));
               setOwnerProjects(prev => prev.filter(p => p.id !== selectedProject.id));
               setMemberProjects(prev => prev.filter(p => p.id !== selectedProject.id));
               setPendingProjects(prev => prev.filter(p => p.id !== selectedProject.id));
               
-              console.log('✅ Project moved to recycle bin');
+              console.log('✅ Project moved to recycle bin successfully');
               setSelectedProject(null);
+              
+              // Show success message
+              Alert.alert('Success', 'Project moved to recycle bin successfully.');
             } catch (error: any) {
               console.error('❌ Failed to move project to recycle bin:', error);
               
@@ -360,7 +414,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
       setPendingProjects(prev => prev.map(updateProjectInArray));
 
       // Update selected project
-      setSelectedProject(prev => prev ? { ...prev, type: projectType } : null);
+      setSelectedProject((prev: any) => prev ? { ...prev, type: projectType } : null);
 
       Alert.alert('Success', 'Project type updated successfully!');
     } catch (error: any) {
@@ -478,13 +532,11 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
 
   const getUserAccessLevel = (project: any) => {
     if (!user) {
-      console.log('🚫 No user found');
       return 'viewer';
     }
     
     // Check if user is the owner (created_by field)
     if (project.created_by === user.id) {
-      console.log(`✅ User ${user.id} is OWNER of project ${project.id}`);
       return 'owner';
     }
     
@@ -492,22 +544,12 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     const members = project.members || project.project_members || [];
     const isMember = members.some((member: any) => {
       const memberUserId = member.user_id || member.user?.id || member.id;
-      const matches = memberUserId === user.id;
-      if (matches) {
-        console.log(`✅ User ${user.id} is MEMBER of project ${project.id} with role: ${member.role || 'member'}`);
-      }
-      return matches;
+      return memberUserId === user.id;
     });
     
     if (isMember) {
       return 'member';
     }
-    
-    console.log(`🚫 User ${user.id} is VIEWER of project ${project.id} (not owner or member)`);
-    console.log(`   Project members:`, members.map((m: any) => ({
-      user_id: m.user_id || m.user?.id || m.id,
-      role: m.role,
-    })));
     
     return 'viewer';
   };
@@ -1427,3 +1469,4 @@ const styles = StyleSheet.create({
 });
 
 export default ProjectsPage;
+

@@ -1379,6 +1379,7 @@ const AppContent: React.FC = () => {
               companyId={page.data?.companyId || page.data || activeCompany?.id || ''}
               onBack={handleBack}
               refreshTrigger={companyProfileRefreshTrigger}
+              readOnly={page.data?.readOnly === true}
               onEdit={(company) => {
                 navigateTo('companyEdit', { company });
               }}
@@ -1395,7 +1396,9 @@ const AppContent: React.FC = () => {
                 setShowInvitationModal(true);
               }}
               onManageCourses={(company) => {
-                navigateTo('coursesManagement', { companyId: company.id });
+                // Pass readOnly flag from company profile page
+                const isReadOnly = page.data?.readOnly === true;
+                navigateTo('coursesManagement', { companyId: company.id, readOnly: isReadOnly });
               }}
               onCourseSelect={(course) => {
                 navigateTo('courseDetail', {
@@ -1427,11 +1430,20 @@ const AppContent: React.FC = () => {
             <CoursesManagementPage
               companyId={page.data?.companyId || page.data || ''}
               onBack={handleBack}
+              readOnly={page.data?.readOnly === true}
               onCourseSelect={(course) => {
-                navigateTo('courseEdit', {
-                  courseId: course.id,
-                  companyId: page.data?.companyId || page.data || '',
-                });
+                // In read-only mode, navigate to course detail instead of edit
+                if (page.data?.readOnly === true) {
+                  navigateTo('courseDetail', {
+                    courseId: course.id,
+                    companyId: course.company_id || page.data?.companyId || page.data || '',
+                  });
+                } else {
+                  navigateTo('courseEdit', {
+                    courseId: course.id,
+                    companyId: page.data?.companyId || page.data || '',
+                  });
+                }
               }}
             />
           )}

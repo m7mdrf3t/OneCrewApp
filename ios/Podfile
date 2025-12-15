@@ -57,22 +57,5 @@ target 'Steps' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
-    
-    # Fix for Firebase Swift pods requiring modular headers when building as static libraries
-    # This ensures GoogleUtilities and Firebase dependencies have module maps
-    installer.pods_project.targets.each do |target|
-      # Enable modular headers for Firebase and Google dependencies
-      if target.name.start_with?('GoogleUtilities') || 
-         target.name.start_with?('Firebase') ||
-         target.name.start_with?('GTM') ||
-         target.name.start_with?('PromisesObjC') ||
-         target.name.start_with?('nanopb') ||
-         target.name.start_with?('GoogleDataTransport')
-        target.build_configurations.each do |config|
-          config.build_settings['DEFINES_MODULE'] = 'YES'
-          config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-        end
-      end
-    end
   end
 end

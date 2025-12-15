@@ -123,9 +123,11 @@ interface ApiContextType {
   updateProject: (projectId: string, updates: any) => Promise<any>;
   getProjects: () => Promise<any[]>;
   getAllProjects: () => Promise<any[]>;
+  getDeletedProjects: () => Promise<any[]>;
   getProjectTasks: (projectId: string) => Promise<TaskWithAssignments[]>;
   getProjectById: (projectId: string) => Promise<ProjectWithDetails>;
   getProjectMembers: (projectId: string) => Promise<ProjectMember[]>;
+  checkPendingAssignments: (projectId: string, userId: string) => Promise<{ hasPending: boolean; count?: number }>;
   // Task management methods
   createTask: (projectId: string, taskData: CreateTaskRequest) => Promise<any>;
   updateTask: (taskId: string, updates: UpdateTaskRequest) => Promise<any>;
@@ -4040,50 +4042,167 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       'GET',
       async () => {
         try {
-          // Try getMyProjects first (returns projects where user is owner or member)
+          // Backend now includes project_members in the response, eliminating N+1 queries
+          // No need to enrich each project with separate API calls
           let projects: any[] = [];
-      try {
-        const myProjectsResponse = await api.getMyProjects();
-        if (myProjectsResponse.success && myProjectsResponse.data) {
-          // Handle paginated response structure: response.data.data is the array
-          if (Array.isArray(myProjectsResponse.data)) {
-            projects = myProjectsResponse.data;
-          } else if (myProjectsResponse.data.data && Array.isArray(myProjectsResponse.data.data)) {
-            projects = myProjectsResponse.data.data;
-          } else if ((myProjectsResponse.data as any).items && Array.isArray((myProjectsResponse.data as any).items)) {
-            projects = (myProjectsResponse.data as any).items;
-          }
-        }
-      } catch (err) {
-        // Silently fail - will try fallback
-      }
-      
-      // Fetch full project details to get members array
-      const enrichedProjects = await Promise.all(
-        projects.map(async (project) => {
           try {
-            const projectDetailsResponse = await api.getProjectById(project.id);
-            if (projectDetailsResponse.success && projectDetailsResponse.data) {
-              const fullProject = projectDetailsResponse.data;
-              return {
-                ...project,
-                members: fullProject.members || [],
-                description: fullProject.description || project.description,
-                status: fullProject.status || project.status,
-                type: fullProject.type || project.type,
-              };
+            // Use minimal=true to get lightweight project data (no tasks, minimal member info)
+            // This significantly reduces network payload and improves performance
+            const myProjectsResponse = await api.getMyProjects({
+              minimal: true, // Request minimal data from backend
+            });
+            
+            console.log('📥 getMyProjects (minimal) response received:', {
+              success: myProjectsResponse.success,
+              hasData: !!myProjectsResponse.data,
+              dataType: Array.isArray(myProjectsResponse.data) ? 'array' : typeof myProjectsResponse.data,
+            });
+            
+            if (myProjectsResponse.success && myProjectsResponse.data) {
+              // Handle paginated response structure: response.data.data is the array
+              if (Array.isArray(myProjectsResponse.data)) {
+                projects = myProjectsResponse.data;
+                console.log(`📦 Found ${projects.length} projects in array response`);
+              } else if (myProjectsResponse.data.data && Array.isArray(myProjectsResponse.data.data)) {
+                projects = myProjectsResponse.data.data;
+                console.log(`📦 Found ${projects.length} projects in paginated response (data.data)`);
+              } else if ((myProjectsResponse.data as any).items && Array.isArray((myProjectsResponse.data as any).items)) {
+                projects = (myProjectsResponse.data as any).items;
+                console.log(`📦 Found ${projects.length} projects in items response`);
+              } else {
+                console.warn('⚠️ Unexpected response structure:', Object.keys(myProjectsResponse.data));
+              }
+              
+              // Backend now returns minimal data (no tasks, lightweight members)
+              // Map project_members/users to members for backward compatibility
+              projects = projects.map((project: any) => {
+                // Log raw project structure to understand what minimal endpoint returns
+                if (projects.indexOf(project) === 0) {
+                  console.log('🔍 Raw project from minimal endpoint:', {
+                    id: project.id,
+                    title: project.title,
+                    has_project_members: !!project.project_members,
+                    has_members: !!project.members,
+                    has_users: !!project.users,
+                    users_type: Array.isArray(project.users) ? 'array' : typeof project.users,
+                    users_length: Array.isArray(project.users) ? project.users.length : 'N/A',
+                    project_keys: Object.keys(project),
+                  });
+                }
+                
+                // Minimal endpoint may return members in different field names
+                // Check: project_members, members, or users (for minimal endpoint)
+                let members = project.project_members || project.members || [];
+                
+                // If members is empty but users exists, check if it's the members array
+                // (minimal endpoint might use 'users' field for members)
+                if (members.length === 0 && project.users && Array.isArray(project.users)) {
+                  // Check if users array contains member objects (with role, user_id)
+                  const firstUser = project.users[0];
+                  if (firstUser && (firstUser.role || firstUser.user_id)) {
+                    members = project.users;
+                    console.log(`✅ Found members in 'users' field for project ${project.id}:`, members.length);
+                  }
+                }
+                
+                return {
+                  ...project,
+                  members,
+                  // Ensure tasks is empty array for UI consistency (minimal endpoint doesn't include tasks)
+                  tasks: [],
+                };
+              });
+              
+              console.log(`✅ Loaded ${projects.length} projects (minimal data from backend)`);
+              
+              // Debug: Log first project structure (should be lightweight)
+              if (projects.length > 0) {
+                console.log('📋 Sample project structure (minimal):', {
+                  id: projects[0].id,
+                  title: projects[0].title,
+                  is_deleted: projects[0].is_deleted,
+                  deleted_at: projects[0].deleted_at,
+                  created_by: projects[0].created_by,
+                  members_count: projects[0].members?.length || 0,
+                  has_tasks: projects[0].tasks?.length > 0,
+                  member_keys: projects[0].members?.[0] ? Object.keys(projects[0].members[0]) : [],
+                });
+              } else {
+                console.warn('⚠️ No projects returned from backend - this might indicate:');
+                console.warn('   1. All projects are soft-deleted');
+                console.warn('   2. Backend filtering is too aggressive');
+                console.warn('   3. User has no projects');
+                console.warn('   4. Backend bug in getMyProjects()');
+              }
+            } else {
+              console.warn('⚠️ Backend returned unsuccessful response or no data');
+              console.log('Response summary:', {
+                success: myProjectsResponse.success,
+                hasData: !!myProjectsResponse.data,
+                error: (myProjectsResponse as any).error,
+              });
             }
           } catch (err) {
-            // Silently fail - return project as-is
+            console.error('❌ Failed to get my projects:', err);
+            throw err;
           }
-          return project;
-        })
-      );
-      
-      return enrichedProjects;
+          
+          return projects;
         } catch (error) {
           console.error('❌ Failed to get all user projects:', error);
           throw error;
+        }
+      }
+    );
+  };
+
+  /**
+   * Get deleted (soft-deleted) projects for the current user.
+   * Uses the onecrew-api-client's getDeletedProjects() method.
+   */
+  const getDeletedProjects = async (): Promise<any[]> => {
+    return performanceMonitor.trackApiCall(
+      'Get Deleted Projects',
+      `${baseUrl}/api/projects/deleted`,
+      'GET',
+      async () => {
+        try {
+          // Use the API client's getDeletedProjects method
+          const response = await api.getDeletedProjects();
+          
+          if (response.success && response.data) {
+            let projects: any[] = [];
+            
+            // Handle paginated response structure
+            if (Array.isArray(response.data)) {
+              projects = response.data;
+            } else if (response.data.data && Array.isArray(response.data.data)) {
+              projects = response.data.data;
+            } else if ((response.data as any).items && Array.isArray((response.data as any).items)) {
+              projects = (response.data as any).items;
+            } else {
+              console.warn('⚠️ Unexpected response structure from getDeletedProjects:', Object.keys(response.data));
+              return [];
+            }
+            
+            console.log(`✅ Loaded ${projects.length} deleted projects using API client`);
+            
+            // Map project_members to members for consistency
+            projects = projects.map((project: any) => ({
+              ...project,
+              members: project.project_members || project.members || [],
+            }));
+            
+            return projects;
+          } else {
+            console.warn('⚠️ Backend returned unsuccessful response or no data');
+            console.log('Response:', response);
+            return [];
+          }
+        } catch (error) {
+          console.error('❌ Failed to get deleted projects:', error);
+          // Return empty array instead of throwing - recycle bin can show empty state
+          return [];
         }
       }
     );
@@ -4113,14 +4232,24 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         try {
           const response = await api.getProjectById(projectId);
       
-      if (response.success && response.data) {
-        // getProjectById should return a single project object, not an array
-        return response.data;
-      } else {
-        throw new Error(response.error || 'Failed to get project details');
-      }
-        } catch (error) {
-          console.error('Failed to get project details:', error);
+          if (response.success && response.data) {
+            // getProjectById should return a single project object, not an array
+            return response.data;
+          } else {
+            const errorMessage = response.error || 'Failed to get project details';
+            // Provide more context for access denied errors
+            if (errorMessage.includes('Access denied') || errorMessage.includes('not a member')) {
+              throw new Error(`Access denied: You do not have permission to view project ${projectId}. You must be the project owner or a member.`);
+            }
+            throw new Error(errorMessage);
+          }
+        } catch (error: any) {
+          // Log error with more context
+          if (error?.message?.includes('Access denied') || error?.message?.includes('403')) {
+            console.error(`❌ Access denied for project ${projectId}:`, error.message);
+          } else {
+            console.error(`❌ Failed to get project details for ${projectId}:`, error);
+          }
           throw error;
         }
       }
@@ -4140,6 +4269,85 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.error('Failed to get project members:', error);
       throw error;
     }
+  };
+
+  /**
+   * Check if a project has pending task assignments for a specific user.
+   * This is optimized to use a lightweight endpoint if available, otherwise falls back
+   * to checking tasks (less efficient but works with current backend).
+   * 
+   * @param projectId - The project ID to check
+   * @param userId - The user ID to check pending assignments for
+   * @returns Object with hasPending boolean and optional count
+   */
+  const checkPendingAssignments = async (
+    projectId: string, 
+    userId: string
+  ): Promise<{ hasPending: boolean; count?: number }> => {
+    return performanceMonitor.trackApiCall(
+      'Check Pending Assignments',
+      `${baseUrl}/api/projects/${projectId}/pending-assignments`,
+      'GET',
+      async () => {
+        try {
+          // Try lightweight endpoint first (if backend supports it)
+          try {
+            const token = await AsyncStorage.getItem('accessToken');
+            const response = await fetch(
+              `${baseUrl}/api/projects/${projectId}/pending-assignments?userId=${userId}`,
+              {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
+              }
+            );
+
+            if (response.ok) {
+              const data = await response.json();
+              if (data.hasPending !== undefined) {
+                console.log(`✅ Using lightweight endpoint for pending check: ${projectId}`);
+                return {
+                  hasPending: data.hasPending || false,
+                  count: data.count,
+                };
+              }
+            }
+          } catch (lightweightError) {
+            // Endpoint doesn't exist yet, fall back to checking tasks
+            console.log(`⚠️ Lightweight endpoint not available, using fallback for project ${projectId}`);
+          }
+
+          // Fallback: Check tasks (less efficient but works with current backend)
+          // This will be replaced once backend implements the lightweight endpoint
+          const tasks = await getProjectTasks(projectId);
+          let pendingCount = 0;
+
+          for (const task of tasks) {
+            const assignments = task.assignments || [];
+            const hasPending = assignments.some((assignment: any) => {
+              const assignmentUserId = assignment.user_id || assignment.user?.id;
+              const assignmentStatus = assignment.status || 'pending';
+              return assignmentUserId === userId && assignmentStatus === 'pending';
+            });
+            
+            if (hasPending) {
+              pendingCount++;
+            }
+          }
+
+          return {
+            hasPending: pendingCount > 0,
+            count: pendingCount,
+          };
+        } catch (error) {
+          console.error(`Failed to check pending assignments for project ${projectId}:`, error);
+          // Return false on error to prevent blocking UI
+          return { hasPending: false, count: 0 };
+        }
+      }
+    );
   };
 
   const createTask = async (projectId: string, taskData: CreateTaskRequest) => {
@@ -7007,10 +7215,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     updateProject,
     getProjects,
     getAllProjects,
+    getDeletedProjects,
     // Task management methods
     getProjectTasks,
     getProjectById,
     getProjectMembers,
+    checkPendingAssignments,
     createTask,
     updateTask,
     deleteTask,

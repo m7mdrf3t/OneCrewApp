@@ -2314,8 +2314,12 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             Add your social media profiles to showcase your work and connect with others.
           </Text>
 
-          {/* Platform Cards Grid */}
-          <View style={styles.platformCardsGrid}>
+          {/* Platform Icons Row */}
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.platformIconsRow}
+          >
             {(Object.keys(platformConfig) as Array<keyof typeof platformConfig>).map((platformKey) => {
               const platform = platformKey as string;
               const config = platformConfig[platformKey];
@@ -2324,90 +2328,85 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
               const isLoading = platformLoading[platform] || false;
 
               return (
-                <View key={platform} style={styles.platformCardWrapper}>
-                  <TouchableOpacity
-                    style={[
-                      styles.platformCard,
-                      existingLink && styles.platformCardAdded,
-                      isEditing && styles.platformCardEditing,
-                    ]}
-                    onPress={() => !isEditing && handlePlatformCardTap(platform)}
-                    disabled={isSubmitting || isLoading}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.platformCardContent}>
-                      <View style={[styles.platformIconContainer, { backgroundColor: `${config.color}15` }]}>
-                        <Ionicons name={config.icon as any} size={24} color={config.color} />
-                      </View>
-                      <Text style={styles.platformCardName}>{config.name}</Text>
-                      {existingLink && !isEditing && (
-                        <View style={styles.platformCardBadge}>
-                          <Ionicons name="checkmark-circle" size={16} color="#10b981" />
-                          <Text style={styles.platformCardBadgeText}>Added</Text>
+                <View key={platform} style={styles.platformIconWrapper}>
+                  {!isEditing ? (
+                    <TouchableOpacity
+                      style={[
+                        styles.platformIconButton,
+                        existingLink && styles.platformIconButtonAdded,
+                      ]}
+                      onPress={() => handlePlatformCardTap(platform)}
+                      disabled={isSubmitting || isLoading}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name={config.icon as any} size={24} color={config.color} />
+                      {existingLink && (
+                        <View style={styles.platformIconBadge}>
+                          <Ionicons name="checkmark-circle" size={12} color="#10b981" />
                         </View>
                       )}
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* Inline Input for Editing */}
-                  {isEditing && (
-                    <View style={styles.platformCardInputContainer}>
-                      <TextInput
-                        style={styles.platformCardInput}
-                        placeholder={config.placeholder}
-                        placeholderTextColor="#9ca3af"
-                        value={platformInputs[platform] || ''}
-                        onChangeText={(text) => handlePlatformInputChange(platform, text)}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        keyboardType={platform === 'website' || platform === 'other' ? 'url' : 'default'}
-                        editable={!isLoading && !isSubmitting}
-                        autoFocus={true}
-                      />
-                      <View style={styles.platformCardInputActions}>
-                        <TouchableOpacity
-                          style={[styles.platformCardActionButton, styles.platformCardSaveButton]}
-                          onPress={() => handleSavePlatformLink(platform)}
-                          disabled={isLoading || isSubmitting}
-                        >
-                          {isLoading ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <>
-                              <Ionicons name="checkmark" size={18} color="#fff" />
-                              <Text style={styles.platformCardActionButtonText}>Save</Text>
-                            </>
-                          )}
-                        </TouchableOpacity>
-                        {existingLink && (
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.platformIconEditingContainer}>
+                      <View style={[styles.platformIconButton, styles.platformIconButtonEditing]}>
+                        <Ionicons name={config.icon as any} size={24} color={config.color} />
+                      </View>
+                      <View style={styles.platformIconInputContainer}>
+                        <TextInput
+                          style={styles.platformIconInput}
+                          placeholder={config.placeholder}
+                          placeholderTextColor="#9ca3af"
+                          value={platformInputs[platform] || ''}
+                          onChangeText={(text) => handlePlatformInputChange(platform, text)}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          keyboardType={platform === 'website' || platform === 'other' ? 'url' : 'default'}
+                          editable={!isLoading && !isSubmitting}
+                          autoFocus={true}
+                        />
+                        <View style={styles.platformIconInputActions}>
                           <TouchableOpacity
-                            style={[styles.platformCardActionButton, styles.platformCardDeleteButton]}
-                            onPress={() => handleDeletePlatformLink(platform)}
+                            style={[styles.platformIconActionButton, styles.platformIconSaveButton]}
+                            onPress={() => handleSavePlatformLink(platform)}
+                            disabled={isLoading || isSubmitting || !platformInputs[platform]?.trim()}
+                          >
+                            {isLoading ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <Ionicons name="checkmark" size={18} color="#fff" />
+                            )}
+                          </TouchableOpacity>
+                          {existingLink && (
+                            <TouchableOpacity
+                              style={[styles.platformIconActionButton, styles.platformIconDeleteButton]}
+                              onPress={() => handleDeletePlatformLink(platform)}
+                              disabled={isLoading || isSubmitting}
+                            >
+                              <Ionicons name="trash-outline" size={16} color="#fff" />
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            style={[styles.platformIconActionButton, styles.platformIconCancelButton]}
+                            onPress={() => handleCancelPlatformEdit(platform)}
                             disabled={isLoading || isSubmitting}
                           >
-                            <Ionicons name="trash-outline" size={18} color="#fff" />
+                            <Ionicons name="close" size={16} color="#6b7280" />
                           </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                          style={[styles.platformCardActionButton, styles.platformCardCancelButton]}
-                          onPress={() => handleCancelPlatformEdit(platform)}
-                          disabled={isLoading || isSubmitting}
-                        >
-                          <Ionicons name="close" size={18} color="#6b7280" />
-                        </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
                   )}
                 </View>
               );
             })}
-          </View>
+          </ScrollView>
 
           {/* Summary of Added Links */}
           {formData.socialLinks.length > 0 && (
             <View style={styles.socialLinksSummary}>
+              <Ionicons name="checkmark-circle" size={16} color="#10b981" />
               <Text style={styles.socialLinksSummaryTitle}>
-                {formData.socialLinks.length} {formData.socialLinks.length === 1 ? 'link' : 'links'} added
+                {formData.socialLinks.length} {formData.socialLinks.length === 1 ? 'profile' : 'profiles'} connected
               </Text>
             </View>
           )}
@@ -3493,129 +3492,134 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  // Social media links styles - New card-based design
+  // Social media links styles - Icon-only horizontal design
   socialMediaDescription: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#6b7280',
-    marginBottom: 16,
-    lineHeight: 20,
+    marginBottom: 12,
+    lineHeight: 18,
   },
-  platformCardsGrid: {
+  platformIconsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 16,
-  },
-  platformCardWrapper: {
-    width: '48%',
-    marginBottom: 4,
-  },
-  platformCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 2,
-    borderColor: '#e5e7eb',
-    minHeight: 100,
-    justifyContent: 'center',
-  },
-  platformCardAdded: {
-    borderColor: '#10b981',
-    backgroundColor: '#f0fdf4',
-  },
-  platformCardEditing: {
-    borderColor: '#3b82f6',
-    backgroundColor: '#eff6ff',
-  },
-  platformCardContent: {
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    paddingVertical: 4,
+    marginBottom: 12,
   },
-  platformIconContainer: {
+  platformIconWrapper: {
+    position: 'relative',
+  },
+  platformIconButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
+    backgroundColor: '#f9fafb',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  platformCardName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    textAlign: 'center',
+  platformIconButtonAdded: {
+    borderColor: '#10b981',
+    backgroundColor: '#f0fdf4',
   },
-  platformCardBadge: {
+  platformIconButtonEditing: {
+    borderColor: '#3b82f6',
+    backgroundColor: '#eff6ff',
+  },
+  platformIconBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    padding: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  platformIconEditingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: '#d1fae5',
-    borderRadius: 12,
-  },
-  platformCardBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#065f46',
-  },
-  platformCardInputContainer: {
-    marginTop: 12,
     gap: 8,
-  },
-  platformCardInput: {
     backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 8,
+    borderWidth: 2,
+    borderColor: '#3b82f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    minWidth: 280,
+  },
+  platformIconInputContainer: {
+    flex: 1,
+    gap: 6,
+  },
+  platformIconInput: {
+    backgroundColor: '#f9fafb',
     borderWidth: 1,
     borderColor: '#d1d5db',
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
     color: '#111827',
   },
-  platformCardInputActions: {
+  platformIconInputActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     alignItems: 'center',
   },
-  platformCardActionButton: {
+  platformIconActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  platformIconSaveButton: {
+    backgroundColor: '#3b82f6',
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  platformIconDeleteButton: {
+    backgroundColor: '#ef4444',
+    shadowColor: '#ef4444',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  platformIconCancelButton: {
+    backgroundColor: '#f3f4f6',
+  },
+  socialLinksSummary: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
     gap: 6,
   },
-  platformCardSaveButton: {
-    flex: 1,
-    backgroundColor: '#3b82f6',
-  },
-  platformCardDeleteButton: {
-    backgroundColor: '#ef4444',
-    paddingHorizontal: 10,
-  },
-  platformCardCancelButton: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 10,
-  },
-  platformCardActionButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  socialLinksSummary: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-  },
   socialLinksSummaryTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#6b7280',
-    textAlign: 'center',
+    color: '#10b981',
   },
   // Debug styles
   debugContainer: {

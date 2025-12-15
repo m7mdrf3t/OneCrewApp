@@ -43,6 +43,7 @@ interface CompanyProfilePageProps {
   onCourseSelect?: (course: CourseWithDetails) => void;
   refreshTrigger?: number;
   onNavigate?: (page: string, data?: any) => void;
+  readOnly?: boolean; // When true, always renders in public, read-only mode regardless of ownership
 }
 
 const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
@@ -56,6 +57,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   onCourseSelect,
   refreshTrigger,
   onNavigate,
+  readOnly = false,
 }) => {
   const {
     getCompany,
@@ -124,7 +126,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
           await rateLimiter.clearCacheByPattern(`company-services-${companyId}`);
           await rateLimiter.clearCacheByPattern(`company-${companyId}`);
-          console.log('🔄 Cleared cache and reloading data due to refresh trigger:', refreshTrigger);
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
         }
@@ -185,15 +186,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         throw new Error(companyResponse.error || 'Failed to load company');
       }
 
-      console.log('📥 Loaded company data:', {
-        id: companyResponse.data.id,
-        name: companyResponse.data.name,
-        social_media_links: companyResponse.data.social_media_links,
-        address: companyResponse.data.address,
-        city: companyResponse.data.city,
-        country: companyResponse.data.country,
-        bio: companyResponse.data.bio,
-      });
+      // Company data loaded successfully
 
       setCompany(companyResponse.data);
 
@@ -426,7 +419,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const loadServices = async (id: string) => {
     try {
       setLoadingServices(true);
-      console.log('🔄 Loading company services for:', id);
       const response = await getCompanyServices(id);
       
       if (response.success && response.data) {
@@ -440,7 +432,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           servicesArray = response.data.services;
         }
         
-        console.log('✅ Company services loaded:', servicesArray.length, servicesArray);
         setServices(servicesArray);
       } else {
         console.warn('⚠️ No services found or failed to load:', response.error);
@@ -455,6 +446,9 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   const isOwner = () => {
+    // In read-only mode, never detect ownership - always return false
+    if (readOnly) return false;
+    
     if (!company || !user) return false;
     // Check multiple ways: owner.id or activeCompany match
     const isOwnerById = company.owner?.id === user.id;
@@ -465,6 +459,9 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   const canEdit = () => {
+    // In read-only mode, never allow editing - always return false
+    if (readOnly) return false;
+    
     if (!company || !user) return false;
     // Owner, or user viewing their own active company, or user is a member with edit permissions
     const isOwnerCheck = isOwner();
@@ -1039,6 +1036,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     style={styles.viewAllButton}
                     onPress={() => {
                       if (onManageCourses) {
+                        // Pass readOnly flag when navigating from public view
                         onManageCourses(company);
                       }
                     }}

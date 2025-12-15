@@ -154,19 +154,42 @@ const PerformanceTestPage: React.FC<PerformanceTestPageProps> = ({ onBack }) => 
       }
 
       // Test 9: Get Specific Project (if projects exist)
+      // Use getAllProjects() to ensure we only test projects the user has access to
       try {
-        const projects = await getProjects();
+        const projects = await getAllProjects();
         if (projects && projects.length > 0) {
-          const firstProjectId = projects[0].id;
-          await performanceMonitor.trackApiCall(
-            'Get Project By ID',
-            `/api/projects/${firstProjectId}`,
-            'GET',
-            () => getProjectById(firstProjectId)
-          );
+          // Filter to only projects where user is owner or member (has access)
+          const accessibleProjects = projects.filter((project: any) => {
+            if (!user?.id) return false;
+            // User is owner
+            if (project.created_by === user.id) return true;
+            // User is a member
+            const members = project.members || project.project_members || [];
+            return members.some((member: any) => {
+              const memberUserId = member.user_id || member.user?.id || member.id;
+              return memberUserId === user.id;
+            });
+          });
+          
+          if (accessibleProjects.length > 0) {
+            const firstProjectId = accessibleProjects[0].id;
+            await performanceMonitor.trackApiCall(
+              'Get Project By ID',
+              `/api/projects/${firstProjectId}`,
+              'GET',
+              () => getProjectById(firstProjectId)
+            );
+          } else {
+            console.warn('Get Project By ID test skipped: No accessible projects found');
+          }
         }
-      } catch (err) {
-        console.warn('Get Project By ID test failed:', err);
+      } catch (err: any) {
+        // Handle 403 errors gracefully (user doesn't have access)
+        if (err?.message?.includes('Access denied') || err?.message?.includes('403')) {
+          console.warn('Get Project By ID test skipped: Access denied (user may not have access to test project)');
+        } else {
+          console.warn('Get Project By ID test failed:', err);
+        }
       }
 
       // Test 10: Fetch Complete User Profile (if user exists)

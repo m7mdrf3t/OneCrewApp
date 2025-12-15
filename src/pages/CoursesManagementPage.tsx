@@ -19,6 +19,7 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
   companyId,
   onBack,
   onCourseSelect,
+  readOnly = false,
 }) => {
   const { getAcademyCourses, createCourse, deleteCourse, completeCourse } = useApi();
   const [courses, setCourses] = useState<CourseWithDetails[]>([]);
@@ -166,13 +167,16 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Manage Courses</Text>
-        <TouchableOpacity
-          style={styles.createButton}
-          onPress={() => setShowCreateModal(true)}
-        >
-          <Ionicons name="add" size={24} color="#fff" />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{readOnly ? 'Courses' : 'Manage Courses'}</Text>
+        {!readOnly && (
+          <TouchableOpacity
+            style={styles.createButton}
+            onPress={() => setShowCreateModal(true)}
+          >
+            <Ionicons name="add" size={24} color="#fff" />
+          </TouchableOpacity>
+        )}
+        {readOnly && <View style={styles.backButton} />}
       </View>
 
       {/* Status Filters */}
@@ -216,13 +220,15 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
               ? 'Create your first course to get started!'
               : `No ${statusFilter} courses found.`}
           </Text>
-          <TouchableOpacity
-            style={styles.emptyButton}
-            onPress={() => setShowCreateModal(true)}
-          >
-            <Ionicons name="add" size={20} color="#fff" />
-            <Text style={styles.emptyButtonText}>Create Course</Text>
-          </TouchableOpacity>
+          {!readOnly && (
+            <TouchableOpacity
+              style={styles.emptyButton}
+              onPress={() => setShowCreateModal(true)}
+            >
+              <Ionicons name="add" size={20} color="#fff" />
+              <Text style={styles.emptyButtonText}>Create Course</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : (
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -231,22 +237,24 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
               key={course.id}
               course={course}
               onSelect={() => handleViewCourse(course)}
-              onEdit={() => handleEditCourse(course)}
-              onDelete={() => handleDeleteCourse(course.id)}
-              onComplete={() => handleCompleteCourse(course)}
-              showActions={true}
+              onEdit={readOnly ? undefined : () => handleEditCourse(course)}
+              onDelete={readOnly ? undefined : () => handleDeleteCourse(course.id)}
+              onComplete={readOnly ? undefined : () => handleCompleteCourse(course)}
+              showActions={!readOnly}
             />
           ))}
         </ScrollView>
       )}
 
-      {/* Create Course Modal */}
-      <CourseCreationModal
-        visible={showCreateModal}
-        companyId={companyId}
-        onClose={() => setShowCreateModal(false)}
-        onSubmit={handleCreateCourse}
-      />
+      {/* Create Course Modal - Only show if not read-only */}
+      {!readOnly && (
+        <CourseCreationModal
+          visible={showCreateModal}
+          companyId={companyId}
+          onClose={() => setShowCreateModal(false)}
+          onSubmit={handleCreateCourse}
+        />
+      )}
     </View>
   );
 };

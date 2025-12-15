@@ -259,14 +259,12 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     try {
       setIsLoading(true);
       setError(null);
-      console.log('🏢 Fetching companies for directory...');
       const response = await getCompanies({ limit: 100 });
       
       if (response.success && response.data) {
         const companiesArray = Array.isArray(response.data) 
           ? response.data 
           : (Array.isArray(response.data?.data) ? response.data.data : []);
-        console.log('✅ Companies fetched successfully:', companiesArray.length);
         setCompanies(companiesArray);
       } else {
         console.error('❌ Failed to fetch companies:', response.error);
@@ -868,7 +866,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                           style={styles.companyCardTwoTone}
                           onPress={() => {
                             if (onNavigate) {
-                              onNavigate('companyProfile', { companyId: company.id });
+                              onNavigate('companyProfile', { companyId: company.id, readOnly: true });
                             }
                           }}
                           activeOpacity={0.8}
@@ -895,7 +893,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                               style={styles.companyNavButton}
                               onPress={() => {
                                 if (onNavigate) {
-                                  onNavigate('companyProfile', { companyId: company.id });
+                                  onNavigate('companyProfile', { companyId: company.id, readOnly: true });
                                 }
                               }}
                               activeOpacity={0.7}
