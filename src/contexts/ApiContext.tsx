@@ -2210,13 +2210,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               const normalizedInput = skillInput.trim().toLowerCase();
               
               // First check if it's already an ID
-              const skillById = availableSkills.find(s => s.id === skillInput || s.id === normalizedInput);
+              const skillById = availableSkills.find((s: { id: string; name?: string }) => s.id === skillInput || s.id === normalizedInput);
               if (skillById) {
                 return skillById.id;
               }
               
               // Then check if it's a name (with flexible matching)
-              const skillByName = availableSkills.find(s => {
+              const skillByName = availableSkills.find((s: { id: string; name?: string }) => {
                 if (!s.name) return false;
                 const normalizedSkillName = s.name.trim().toLowerCase();
                 // Exact match
@@ -2246,7 +2246,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         // Remove skills that are no longer selected
         const removePromises = skillIdsToRemove.map(skillId => 
-          api.removeUserSkill(skillId).catch(err => {
+          api.removeUserSkill(skillId).catch((err: unknown) => {
             console.warn(`⚠️ Failed to remove skill ${skillId}:`, err);
             return null;
           })
@@ -2258,7 +2258,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         );
         
         const addPromises = skillsToActuallyAdd.map((skillId: string) => 
-          api.addUserSkill(skillId as string).catch(err => {
+          api.addUserSkill(skillId as string).catch((err: unknown) => {
             console.warn(`⚠️ Failed to add skill ${skillId}:`, err);
             return null;
           })
@@ -2282,7 +2282,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (skillIdsToAdd.length === 0 && skillsData.skills.length > 0) {
           console.warn('⚠️ Warning: No skill IDs were found for the provided skill names. Available skills might not match.');
           console.warn('⚠️ Provided skills:', skillsData.skills);
-          console.warn('⚠️ Available skill names (first 10):', availableSkills.slice(0, 10).map(s => s.name));
+          console.warn('⚠️ Available skill names (first 10):', availableSkills.slice(0, 10).map((s: { id: string; name?: string }) => s.name));
         }
       } catch (skillsError: any) {
         console.error('❌ Skills update failed:', skillsError);
@@ -2355,7 +2355,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Find skill IDs for the provided skill names
         const skillIdsToAdd = skills
           .map(skillName => {
-            const skill = availableSkills.find(s => s.name.toLowerCase() === skillName.toLowerCase());
+            const skill = availableSkills.find((s: { id: string; name?: string }) => s.name?.toLowerCase() === skillName.toLowerCase());
             return skill?.id;
           })
           .filter(Boolean);
@@ -2364,7 +2364,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         // Add each skill individually
         const addPromises = skillIdsToAdd.map(skillId => 
-          api.addUserSkill(skillId as string).catch(err => {
+          api.addUserSkill(skillId as string).catch((err: unknown) => {
             console.warn(`⚠️ Failed to add skill ${skillId}:`, err);
             return null;
           })
