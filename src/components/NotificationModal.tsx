@@ -98,9 +98,21 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
     }
   };
 
-  const filteredNotifications = filter === 'unread'
+  // Filter out message notifications - they should only appear in the message modal
+  const filteredNotifications = (filter === 'unread'
     ? notifications.filter(n => !n.is_read)
-    : notifications;
+    : notifications).filter(n => {
+      // Filter out message notifications by type
+      if (n.type === 'message_received') {
+        return false;
+      }
+      // Also filter out notifications with "New message from" in the title as a fallback
+      const titleLower = n.title?.toLowerCase() || '';
+      if (titleLower.includes('new message from') || titleLower.includes('message from')) {
+        return false;
+      }
+      return true;
+    });
 
   const displayNotifications = filteredNotifications.sort((a, b) => 
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()

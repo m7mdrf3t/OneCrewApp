@@ -6787,6 +6787,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Helper function to check if a notification is a message notification
+  const isMessageNotification = (notification: Notification): boolean => {
+    if (notification.type === 'message_received') {
+      return true;
+    }
+    // Also check title pattern as fallback
+    const titleLower = notification.title?.toLowerCase() || '';
+    if (titleLower.includes('new message from') || titleLower.includes('message from')) {
+      return true;
+    }
+    return false;
+  };
+
   // Notification methods
   const getNotifications = async (params?: NotificationParams) => {
     try {
@@ -6815,13 +6828,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getUnreadNotificationCount = async (): Promise<number> => {
     try {
-      const response = await api.getUnreadNotificationCount();
-      if (response.success && response.data) {
-        const count = response.data.count || 0;
-        setUnreadNotificationCount(count);
-        return count;
-      }
-      return 0;
+      // Get all notifications first to calculate the count excluding messages
+      const notificationsList = await getNotifications({ limit: 100, page: 1 });
+      // Calculate count excluding message notifications
+      const count = notificationsList.filter(n => !n.is_read && !isMessageNotification(n)).length;
+      setUnreadNotificationCount(count);
+      return count;
     } catch (error: any) {
       console.error('Failed to get unread notification count:', error);
       // Handle 401 errors
@@ -6835,11 +6847,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.markNotificationAsRead(notificationId);
       if (response.success && response.data) {
         // Update local state
-        setNotifications(prev => 
-          prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
-        );
-        // Update unread count
-        setUnreadNotificationCount(prev => Math.max(0, prev - 1));
+        setNotifications(prev => {
+          const updated = prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n);
+          // Recalculate unread count excluding message notifications
+          const unreadCount = updated.filter(n => !n.is_read && !isMessageNotification(n)).length;
+          setUnreadNotificationCount(unreadCount);
+          return updated;
+        });
         return response.data;
       }
       throw new Error(response.error || 'Failed to mark notification as read');
@@ -6854,8 +6868,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.markAllNotificationsAsRead();
       if (response.success) {
         // Update local state
-        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-        setUnreadNotificationCount(0);
+        setNotifications(prev => {
+          const updated = prev.map(n => ({ ...n, is_read: true }));
+          // Recalculate unread count (should be 0, but exclude messages just in case)
+          const unreadCount = updated.filter(n => !n.is_read && !isMessageNotification(n)).length;
+          setUnreadNotificationCount(unreadCount);
+          return updated;
+        });
         return response;
       }
       throw new Error(response.error || 'Failed to mark all notifications as read');
@@ -6870,11 +6889,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.deleteNotification(notificationId);
       if (response.success) {
         // Update local state
-        const deletedNotification = notifications.find(n => n.id === notificationId);
-        if (deletedNotification && !deletedNotification.is_read) {
-          setUnreadNotificationCount(prev => Math.max(0, prev - 1));
-        }
-        setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        setNotifications(prev => {
+          const updated = prev.filter(n => n.id !== notificationId);
+          // Recalculate unread count excluding message notifications
+          const unreadCount = updated.filter(n => !n.is_read && !isMessageNotification(n)).length;
+          setUnreadNotificationCount(unreadCount);
+          return updated;
+        });
         return response;
       }
       throw new Error(response.error || 'Failed to delete notification');
@@ -7040,8 +7061,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 return [newNotification, ...prev];
               });
 
-              // Update unread count if notification is unread
-              if (!newNotification.is_read) {
+              // Update unread count if notification is unread and not a message notification
+              if (!newNotification.is_read && !isMessageNotification(newNotification)) {
                 setUnreadNotificationCount(prev => prev + 1);
               }
 
