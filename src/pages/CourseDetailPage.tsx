@@ -83,16 +83,29 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
 
   const loadCompanyData = async (id: string) => {
     try {
-      const companyResponse = await getCompany(id);
+      // Use include parameter to load company and members in single request (v2.24.0 optimization)
+      const companyResponse = await getCompany(id, {
+        include: ['members'],
+        membersLimit: 50,
+        membersPage: 1
+      });
       if (companyResponse.success && companyResponse.data) {
         setCompany(companyResponse.data);
-        // Load members to check permissions
-        const membersResponse = await getCompanyMembers(id);
-        if (membersResponse.success && membersResponse.data) {
-          const members = Array.isArray(membersResponse.data) 
-            ? membersResponse.data 
-            : (membersResponse.data.data || []);
+        // Extract members from included data
+        if (companyResponse.data.members) {
+          const members = Array.isArray(companyResponse.data.members) 
+            ? companyResponse.data.members 
+            : (companyResponse.data.members.data || []);
           setCompanyMembers(members);
+        } else {
+          // Fallback: load members separately if not included
+          const membersResponse = await getCompanyMembers(id);
+          if (membersResponse.success && membersResponse.data) {
+            const members = Array.isArray(membersResponse.data) 
+              ? membersResponse.data 
+              : (membersResponse.data.data || []);
+            setCompanyMembers(members);
+          }
         }
       }
     } catch (error) {
@@ -207,7 +220,7 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
 
       const response = await uploadCoursePoster(course.id, file);
 
-      setUploadProgress({ visible: false });
+      setUploadProgress({ visible: false, label: '' });
       if (response.success && response.data?.url) {
         // Reload course data to show new poster
         await loadCourse();
@@ -217,7 +230,7 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to upload poster:', error);
-      setUploadProgress({ visible: false });
+      setUploadProgress({ visible: false, label: '' });
       Alert.alert('Error', error.message || 'Failed to upload course poster.');
     } finally {
       setUploadingPoster(false);
@@ -234,7 +247,10 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
     let companyData = course?.company;
     if (!companyData && (course?.company_id || companyId)) {
       try {
-        const companyResponse = await getCompany(course?.company_id || companyId || '');
+        // Only fetch minimal fields needed for navigation (v2.24.0 optimization)
+        const companyResponse = await getCompany(course?.company_id || companyId || '', {
+          fields: ['id', 'name', 'logo_url']
+        });
         if (companyResponse.success && companyResponse.data) {
           companyData = companyResponse.data;
         }

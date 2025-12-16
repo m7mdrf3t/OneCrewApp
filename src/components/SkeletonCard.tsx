@@ -1,9 +1,9 @@
 import React from 'react';
-import { View, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { View, StyleSheet, StyleProp, ViewStyle, DimensionValue } from 'react-native';
 import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 
 interface SkeletonCardProps {
-  width?: number | string;
+  width?: DimensionValue;
   height?: number;
   borderRadius?: number;
   style?: StyleProp<ViewStyle>;
@@ -11,7 +11,7 @@ interface SkeletonCardProps {
 }
 
 const SkeletonCard: React.FC<SkeletonCardProps> = ({
-  width = '100%',
+  width = '100%' as const,
   height = 100,
   borderRadius = 12,
   style,
@@ -35,6 +35,7 @@ const styles = StyleSheet.create({
 });
 
 export default SkeletonCard;
+
 
 
 

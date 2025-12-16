@@ -29,7 +29,7 @@ const ITEM_ICONS: { [key: string]: keyof typeof Ionicons.glyphMap } = {
   "Colorist": 'color-palette',
   "VFX Artist": 'diamond',
   "Sound Designer": 'musical-notes',
-  "Ai Technical": 'brain',
+  "Ai Technical": 'bulb',
   "Sound Studio": 'business',
   "Sound Engineer": 'mic',
   "Boom Operator": 'mic',

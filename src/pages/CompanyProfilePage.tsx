@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -113,16 +113,13 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     label: 'Uploading...',
   });
   const mediaPicker = MediaPickerService.getInstance();
+  const activeLoadRequestIdRef = useRef(0);
 
   useEffect(() => {
-    loadCompanyData();
-  }, [companyId, refreshTrigger]);
-
-  // Reload services, members, and certifications when refresh trigger changes
-  useEffect(() => {
-    if (refreshTrigger && refreshTrigger > 0) {
-      // Clear cache first to ensure fresh data
-      const clearCacheAndReload = async () => {
+    // Clear cache if refreshTrigger is provided, then load data
+    const loadData = async () => {
+      if (refreshTrigger && refreshTrigger > 0) {
+        // Clear cache first to ensure fresh data
         try {
           const { rateLimiter } = await import('../utils/rateLimiter');
           // Clear all company-related caches
@@ -132,13 +129,14 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
         }
-        // Reload company data and related data
-        await loadCompanyData();
-      };
-      clearCacheAndReload();
-    }
+      }
+      // Load company data (will use fresh data if cache was cleared)
+      await loadCompanyData();
+    };
+    
+    loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshTrigger]);
+  }, [companyId, refreshTrigger]);
 
   const handleRemoveMember = async (member: CompanyMember) => {
     // STRICT READ-ONLY: This function should never execute in read-only mode
@@ -184,28 +182,156 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   const loadCompanyData = async () => {
+    const requestId = ++activeLoadRequestIdRef.current;
     try {
-      setLoading(true);
+      // Phase 1: Load core company data first (fast), unblock UI ASAP.
+      // Only show full-page loading if we don't already have a company rendered.
+      if (!company) setLoading(true);
       setError(null);
 
-      // Load company details
-      const companyResponse = await getCompany(companyId);
-      if (!companyResponse.success || !companyResponse.data) {
-        throw new Error(companyResponse.error || 'Failed to load company');
+      const coreCompanyResponse = await getCompany(companyId);
+
+      if (requestId !== activeLoadRequestIdRef.current) return;
+
+      if (!coreCompanyResponse.success || !coreCompanyResponse.data) {
+        throw new Error(coreCompanyResponse.error || 'Failed to load company');
       }
 
-      // Company data loaded successfully
+      const coreCompanyData = coreCompanyResponse.data;
+      
+      // Set company data and loading state immediately to unblock UI rendering
+      setCompany(coreCompanyData);
+      setLoading(false); // Set loading to false immediately so UI can render
 
-      setCompany(companyResponse.data);
+      // Phase 2 (background): Load relationship data via include.
+      // This keeps perceived performance high even if the include endpoint is slow.
+      // Also: only request academy-specific relationships when the company is an academy.
+      const include: ('members' | 'services' | 'documents' | 'certifications' | 'courses')[] = ['members', 'services', 'documents'];
+      const isAcademy = coreCompanyData?.subcategory === 'academy';
+      if (isAcademy) include.push('certifications', 'courses');
 
-      // Load members, services, documents, certifications, and courses in parallel
-      const loadPromises = [loadMembers(companyId), loadServices(companyId), loadDocuments(companyId)];
-      // Only load certifications and courses if company is an academy
-      if (companyResponse.data.subcategory === 'academy') {
-        loadPromises.push(loadCertifications(companyId));
-        loadPromises.push(loadCourses(companyId));
+      setLoadingMembers(true);
+      setLoadingServices(true);
+      setLoadingDocuments(true);
+      if (isAcademy) {
+        setLoadingCertifications(true);
+        setLoadingCourses(true);
       }
-      await Promise.all(loadPromises);
+
+      // Fire and await: if it fails, we keep the core UI and just show empty/previous section data.
+      const includedResponse = await getCompany(companyId, {
+        include,
+        membersLimit: 50,
+        membersPage: 1,
+      });
+
+      if (requestId !== activeLoadRequestIdRef.current) return;
+
+      if (includedResponse?.success && includedResponse?.data) {
+        const companyData = includedResponse.data;
+        // Prefer the freshest company object (may contain updated fields/relationships)
+        setCompany(companyData);
+
+        // Extract included data (already in memory)
+        try {
+          // Members
+          try {
+            if (companyData.members) {
+              let membersArray: CompanyMember[] = [];
+              if (Array.isArray(companyData.members)) {
+                membersArray = companyData.members;
+              } else if (companyData.members?.data && Array.isArray(companyData.members.data)) {
+                membersArray = companyData.members.data;
+              }
+              const acceptedMembers = membersArray.filter((m) => m?.invitation_status === 'accepted');
+              const pendingMembers = membersArray.filter((m) => m?.invitation_status === 'pending');
+              setMembers([...acceptedMembers, ...pendingMembers]);
+            }
+          } catch (err) {
+            console.error('Error extracting members:', err);
+          } finally {
+            setLoadingMembers(false);
+          }
+
+          // Services
+          try {
+            if (companyData.services) {
+              let servicesArray: CompanyService[] = [];
+              if (Array.isArray(companyData.services)) {
+                servicesArray = companyData.services;
+              } else if (companyData.services?.data && Array.isArray(companyData.services.data)) {
+                servicesArray = companyData.services.data;
+              }
+              setServices(servicesArray);
+            }
+          } catch (err) {
+            console.error('Error extracting services:', err);
+          } finally {
+            setLoadingServices(false);
+          }
+
+          // Documents
+          try {
+            if (companyData.documents) {
+              let docsArray: CompanyDocument[] = [];
+              if (Array.isArray(companyData.documents)) {
+                docsArray = companyData.documents;
+              } else if (companyData.documents?.data && Array.isArray(companyData.documents.data)) {
+                docsArray = companyData.documents.data;
+              }
+              setDocuments(docsArray.filter((doc: CompanyDocument) => !doc?.deleted_at));
+            }
+          } catch (err) {
+            console.error('Error extracting documents:', err);
+          } finally {
+            setLoadingDocuments(false);
+          }
+
+          // Certifications (academy only)
+          if (isAcademy) {
+            try {
+              const certsArray = Array.isArray(companyData.certifications)
+                ? companyData.certifications
+                : (companyData.certifications?.data || []);
+              setCertifications(certsArray);
+            } catch (err) {
+              console.error('Error extracting certifications:', err);
+              setCertifications([]);
+            } finally {
+              setLoadingCertifications(false);
+            }
+          }
+
+          // Courses (academy only)
+          if (isAcademy) {
+            try {
+              const coursesArray = Array.isArray(companyData.courses)
+                ? companyData.courses
+                : (companyData.courses?.data || []);
+              setCourses(coursesArray);
+            } catch (err) {
+              console.error('Error extracting courses:', err);
+              setCourses([]);
+            } finally {
+              setLoadingCourses(false);
+            }
+          }
+        } catch (err) {
+          console.error('Error extracting included data:', err);
+          setLoadingMembers(false);
+          setLoadingServices(false);
+          setLoadingDocuments(false);
+          setLoadingCertifications(false);
+          setLoadingCourses(false);
+        }
+      } else {
+        // Include request failed - keep UI responsive and just stop section loaders.
+        setLoadingMembers(false);
+        setLoadingServices(false);
+        setLoadingDocuments(false);
+        setLoadingCertifications(false);
+        setLoadingCourses(false);
+      }
     } catch (err: any) {
       console.error('Failed to load company data:', err);
       setError(err.message || 'Failed to load company profile');

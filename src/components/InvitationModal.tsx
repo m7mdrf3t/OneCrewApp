@@ -62,7 +62,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
         setSearching(true);
         // Use the API's q parameter for full-text search
         const response = await api.getUsers({
-          q: searchQuery,
+          search: searchQuery,
           limit: 20,
         });
 

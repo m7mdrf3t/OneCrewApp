@@ -76,7 +76,7 @@ const CourseRegistrationModal: React.FC<CourseRegistrationModalProps> = ({
       try {
         setSearching(true);
         const response = await api.getUsers({
-          q: searchQuery,
+          search: searchQuery,
           limit: 20,
         });
 
@@ -148,10 +148,10 @@ const CourseRegistrationModal: React.FC<CourseRegistrationModalProps> = ({
           }
         }
         return acc;
-      }, []);
+      }, [] as CourseRegistration[]);
       
       // Sort by registration date (most recent first)
-      uniqueRegistrations.sort((a, b) => {
+      uniqueRegistrations.sort((a: CourseRegistration, b: CourseRegistration) => {
         const dateA = new Date(a.registered_at || a.created_at).getTime();
         const dateB = new Date(b.registered_at || b.created_at).getTime();
         return dateB - dateA;

@@ -88,7 +88,10 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     if (visible && companyId) {
       const loadCompanyData = async () => {
         try {
-          const response = await getCompany(companyId);
+          // Only fetch the default_course_design field (v2.24.0 optimization)
+          const response = await getCompany(companyId, {
+            fields: ['id', 'default_course_design']
+          });
           if (response.success && response.data?.default_course_design) {
             setCompanyDefaultDesign(response.data.default_course_design);
             setFormData(prev => ({
@@ -155,7 +158,7 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
       try {
         setSearchingLecturer(true);
         const response = await api.getUsers({
-          q: lecturerSearchQuery,
+          search: lecturerSearchQuery,
           limit: 20,
         });
 
@@ -280,7 +283,7 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
 
       const response = await uploadFile(file);
 
-      setUploadProgress({ visible: false });
+      setUploadProgress({ visible: false, label: '' });
       if (response.success && response.data?.url) {
         // Update form data with uploaded URL
         handleInputChange('poster_url', response.data.url);
@@ -290,7 +293,7 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to upload poster:', error);
-      setUploadProgress({ visible: false });
+      setUploadProgress({ visible: false, label: '' });
       Alert.alert('Error', error.message || 'Failed to upload course poster.');
     } finally {
       setUploadingPoster(false);

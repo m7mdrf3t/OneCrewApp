@@ -109,6 +109,10 @@ interface ApiContextType {
   addToMyTeam: (userId: string, role?: string) => Promise<any>;
   removeFromMyTeam: (userId: string) => Promise<any>;
   getMyTeamMembers: () => Promise<any>;
+  // Teams (shared teams, not the personal "my team" list)
+  getTeams: (params?: { page?: number; limit?: number; search?: string }) => Promise<any>;
+  createTeam: (teamData: any) => Promise<any>;
+  addTeamMember: (teamId: string, memberData: { user_id: string; role?: string }) => Promise<any>;
   // New skill management methods
   getAvailableSkillsNew: () => Promise<any>;
   getUserSkills: () => Promise<any>;
@@ -204,14 +208,14 @@ interface ApiContextType {
   getCompanyType: (code: string) => Promise<any>;
   getCompanyTypeServices: (code: string) => Promise<any>;
   createCompany: (companyData: any) => Promise<any>;
-  getCompany: (companyId: string) => Promise<any>;
+  getCompany: (companyId: string, params?: { include?: ('members' | 'services' | 'documents' | 'certifications' | 'courses')[]; membersLimit?: number; membersPage?: number; fields?: string[] }) => Promise<any>;
   updateCompany: (companyId: string, updates: any) => Promise<any>;
   uploadCompanyLogo: (companyId: string, file: { uri: string; type: string; name: string }) => Promise<any>;
   uploadCoursePoster: (courseId: string, file: { uri: string; type: string; name: string }) => Promise<any>; // v2.16.0
   uploadCertificateImage: (file: { uri: string; type: string; name: string }) => Promise<any>; // v2.16.0
   getUserCompanies: (userId: string) => Promise<any>;
   submitCompanyForApproval: (companyId: string) => Promise<any>;
-  getCompanies: (params?: { limit?: number; page?: number; search?: string; category?: string; location?: string }) => Promise<any>;
+  getCompanies: (params?: { limit?: number; page?: number; /** Alias for `q` */ search?: string; /** onecrew-api-client uses `q` */ q?: string; category?: string; location?: string; subcategory?: string; fields?: string[]; sort?: string; order?: 'asc' | 'desc' }) => Promise<any>;
   // Company services
   getAvailableServicesForCompany: (companyId: string) => Promise<any>;
   getCompanyServices: (companyId: string) => Promise<any>;
@@ -274,6 +278,8 @@ interface ApiContextType {
   unregisterFromCourse: (courseId: string) => Promise<any>;
   registerUserForCourse: (courseId: string, userId: string) => Promise<any>;
   unregisterUserFromCourse: (courseId: string, userId: string) => Promise<any>;
+  // Legacy alias for older UI naming
+  unregisterUserForCourse: (courseId: string, userId: string) => Promise<any>;
   getCourseRegistrations: (courseId: string) => Promise<any>;
   getMyRegisteredCourses: () => Promise<any>;
   // v2.8.0: Course completion methods
@@ -322,7 +328,8 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-  baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
+  baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app' // Staging server
+ //baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
  //baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
@@ -3171,6 +3178,37 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }, { ttl: CacheTTL.MEDIUM, persistent: true }); // Team members change when users join/leave - 5min TTL with persistence
   };
 
+  // Teams (shared teams list)
+  const getTeams = async (params?: { page?: number; limit?: number; search?: string }) => {
+    try {
+      const response = await api.getTeams(params);
+      return response;
+    } catch (error) {
+      console.error('Failed to get teams:', error);
+      throw error;
+    }
+  };
+
+  const createTeam = async (teamData: any) => {
+    try {
+      const response = await api.createTeam(teamData);
+      return response;
+    } catch (error) {
+      console.error('Failed to create team:', error);
+      throw error;
+    }
+  };
+
+  const addTeamMember = async (teamId: string, memberData: { user_id: string; role?: string }) => {
+    try {
+      const response = await api.addTeamMember(teamId, memberData);
+      return response;
+    } catch (error) {
+      console.error('Failed to add team member:', error);
+      throw error;
+    }
+  };
+
   // New skill management methods using the correct API client
   const getAvailableSkillsNew = async () => {
     try {
@@ -3839,15 +3877,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Profile picture management methods
   const getUserProfilePictures = async (userId: string) => {
-    try {
-      console.log('🖼️ Fetching profile pictures for user:', userId);
-      const response = await api.getUserProfilePictures(userId);
-      console.log('✅ Profile pictures fetched successfully:', response.data?.length || 0, 'pictures');
-      return response;
-    } catch (error: any) {
-      console.error('❌ Failed to fetch profile pictures:', error);
-      throw error;
-    }
+    const cacheKey = `user-profile-pictures-${userId}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('🖼️ Fetching profile pictures for user:', userId);
+        const response = await api.getUserProfilePictures(userId);
+        console.log('✅ Profile pictures fetched successfully:', response.data?.length || 0, 'pictures');
+        return response;
+      } catch (error: any) {
+        console.error('❌ Failed to fetch profile pictures:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.MEDIUM, persistent: false }); // Pictures change occasionally; cache briefly to speed profile loads
   };
 
   const uploadProfilePicture = async (file: any, isMain: boolean = false) => {
@@ -3855,6 +3896,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('📤 Uploading profile picture, isMain:', isMain);
       const response = await api.uploadProfilePicture(file, isMain);
       console.log('✅ Profile picture uploaded successfully');
+      // Invalidate profile pictures cache (current user)
+      const targetUserId = (response as any)?.data?.user_id || user?.id;
+      if (targetUserId) {
+        await rateLimiter.clearCache(`user-profile-pictures-${targetUserId}`);
+      } else {
+        await rateLimiter.clearCacheByPattern('user-profile-pictures-');
+      }
       return response;
     } catch (error: any) {
       console.error('❌ Failed to upload profile picture:', error);
@@ -3867,6 +3915,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('⭐ Setting main profile picture:', pictureId, 'for user:', userId);
       const response = await api.setMainProfilePicture(userId, pictureId);
       console.log('✅ Main profile picture set successfully');
+      await rateLimiter.clearCache(`user-profile-pictures-${userId}`);
       return response;
     } catch (error: any) {
       console.error('❌ Failed to set main profile picture:', error);
@@ -3879,6 +3928,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('🗑️ Deleting profile picture:', pictureId, 'for user:', userId);
       const response = await api.deleteProfilePicture(userId, pictureId);
       console.log('✅ Profile picture deleted successfully');
+      await rateLimiter.clearCache(`user-profile-pictures-${userId}`);
       return response;
     } catch (error: any) {
       console.error('❌ Failed to delete profile picture:', error);
@@ -4909,8 +4959,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
       }
       
-      // Load and switch to company
-      const companyResponse = await api.getCompany(companyId);
+      // Load and switch to company - only fetch minimal fields needed for profile switching (v2.24.0 optimization)
+      const companyResponse = await getCompany(companyId, {
+        fields: ['id', 'name', 'logo_url', 'subcategory', 'approval_status']
+      });
       if (companyResponse.success && companyResponse.data) {
         setActiveCompany(companyResponse.data);
         setCurrentProfileType('company');
@@ -5057,14 +5109,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const getCompany = async (companyId: string) => {
-    const cacheKey = `company-${companyId}`;
+  const getCompany = async (companyId: string, params?: { include?: ('members' | 'services' | 'documents' | 'certifications' | 'courses')[]; membersLimit?: number; membersPage?: number; fields?: string[] }) => {
+    const cacheKey = `company-${companyId}-${JSON.stringify(params || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        const response = await api.getCompany(companyId);
+        // Pass arrays directly to the API client - it handles conversion to query parameters
+        // The API client library (v2.24.2+) safely handles undefined/null include/fields with Array.isArray() checks
+        const response = await api.getCompany(companyId, params);
         return response;
-      } catch (error) {
-        console.error('Failed to get company:', error);
+      } catch (error: any) {
+        console.error('❌ Failed to get company:', error);
         throw error;
       }
     }, { ttl: CacheTTL.LONG, persistent: true }); // Company data changes rarely - 30min TTL with persistence
@@ -5400,9 +5454,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getCompanies = async (params?: {
     limit?: number;
     page?: number;
+    /** Alias for `q` (kept for backwards compatibility across the app) */
     search?: string;
+    /** onecrew-api-client uses `q` for search queries */
+    q?: string;
     category?: string;
     location?: string;
+    subcategory?: string;
+    fields?: string[];
+    sort?: string;
+    order?: 'asc' | 'desc';
   }) => {
     const cacheKey = `companies-${JSON.stringify(params || {})}`;
     return performanceMonitor.trackApiCall(
@@ -5415,9 +5476,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           const queryParams: any = {};
           if (params?.limit) queryParams.limit = params.limit;
           if (params?.page) queryParams.page = params.page;
-          if (params?.search) queryParams.q = params.search;
+          // onecrew-api-client expects `q` for search; keep `search` as a friendly alias
+          if (params?.q) queryParams.q = params.q;
+          else if (params?.search) queryParams.q = params.search;
           if (params?.category) queryParams.category = params.category;
           if (params?.location) queryParams.location = params.location;
+          if (params?.subcategory) queryParams.subcategory = params.subcategory;
+          if (params?.fields) queryParams.fields = params.fields.join(',');
+          if (params?.sort) queryParams.sort = params.sort;
+          if (params?.order) queryParams.order = params.order;
           
           const response = await api.getCompanies(Object.keys(queryParams).length > 0 ? queryParams : undefined);
           return response;
@@ -6348,6 +6415,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         error: error.message || 'Failed to unregister user from course',
       };
     }
+  };
+
+  // Legacy alias for UI components that still use the old naming
+  const unregisterUserForCourse = async (courseId: string, userId: string) => {
+    return unregisterUserFromCourse(courseId, userId);
   };
 
   const getCourseRegistrations = async (courseId: string) => {
@@ -7364,6 +7436,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     addToMyTeam,
     removeFromMyTeam,
     getMyTeamMembers,
+    // Teams (shared teams list)
+    getTeams,
+    createTeam,
+    addTeamMember,
     // New skill management methods
     getAvailableSkillsNew,
     getUserSkills,
@@ -7502,6 +7578,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     unregisterFromCourse,
     registerUserForCourse,
     unregisterUserFromCourse,
+    unregisterUserForCourse,
     getCourseRegistrations,
     getMyRegisteredCourses,
     completeCourseRegistration,

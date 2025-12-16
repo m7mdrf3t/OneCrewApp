@@ -14,7 +14,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({
   onPress,
   onDelete,
 }) => {
-  const getNotificationIcon = (type: NotificationType): string => {
+  const getNotificationIcon = (type: NotificationType): keyof typeof Ionicons.glyphMap => {
     switch (type) {
       case 'company_invitation':
       case 'company_invitation_accepted':

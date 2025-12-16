@@ -79,7 +79,10 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
     const loadCompany = async () => {
       try {
         setLoading(true);
-        const response = await getCompany(company.id);
+        // Only fetch fields needed for editing form (v2.24.0 optimization)
+        const response = await getCompany(company.id, {
+          fields: ['id', 'name', 'description', 'bio', 'website_url', 'location_text', 'address', 'city', 'country', 'email', 'phone', 'establishment_date', 'contact_email', 'contact_phone', 'contact_address', 'social_media_links']
+        });
         if (response.success && response.data) {
           const updatedCompany = response.data;
           setCurrentCompany(updatedCompany);

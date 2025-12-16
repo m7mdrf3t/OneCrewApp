@@ -148,7 +148,7 @@ const CommunicationComponent: React.FC<CommunicationComponentProps> = ({
     // Extract unique members from assignments
     const members = new Set<string>();
     project.assignments.forEach(assignment => {
-      members.add(assignment.userName);
+      if (assignment.userName) members.add(assignment.userName);
     });
     return Array.from(members);
   };

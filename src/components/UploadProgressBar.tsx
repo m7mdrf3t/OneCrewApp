@@ -52,7 +52,7 @@ const UploadProgressBar: React.FC<UploadProgressBarProps> = ({
   if (!visible) return null;
 
   const progressWidth = progress !== undefined 
-    ? `${Math.min(100, Math.max(0, progress))}%`
+    ? (`${Math.min(100, Math.max(0, progress))}%` as `${number}%`)
     : animatedValue.interpolate({
         inputRange: [0, 1],
         outputRange: ['20%', '80%'],
@@ -63,13 +63,13 @@ const UploadProgressBar: React.FC<UploadProgressBarProps> = ({
       <Text style={styles.label}>{label}</Text>
       <View style={styles.progressBarContainer}>
         {progress !== undefined ? (
-          <View style={[styles.progressBar, { width: progressWidth }]} />
+          <View style={[styles.progressBar, { width: progressWidth as any }]} />
         ) : (
           <Animated.View
             style={[
               styles.progressBar,
               {
-                width: progressWidth,
+                width: progressWidth as any,
               },
             ]}
           />

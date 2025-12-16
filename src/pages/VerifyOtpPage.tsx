@@ -152,6 +152,11 @@ const VerifyOtpPage: React.FC<VerifyOtpPageProps> = ({
   };
 
   const handleOtpChange = (index: number, value: string) => {
+    // Handle paste of the full OTP into a single cell (some keyboards / OSes do this)
+    if (value && value.length > 1) {
+      handlePaste(value);
+      return;
+    }
     // Only allow digits
     if (value && !/^\d$/.test(value)) {
       return;
@@ -321,10 +326,6 @@ const VerifyOtpPage: React.FC<VerifyOtpPageProps> = ({
                 selectTextOnFocus
                 editable={!isLoading && !showSuccess && !isExpired}
                 autoFocus={index === 0}
-                onPaste={(e) => {
-                  const pastedText = e.nativeEvent.text || '';
-                  handlePaste(pastedText);
-                }}
                 contextMenuHidden={false}
               />
             </Animated.View>

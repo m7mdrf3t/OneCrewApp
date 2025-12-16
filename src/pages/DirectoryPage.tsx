@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, Image } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, Image, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
@@ -22,6 +22,7 @@ interface User {
   about?: {
     gender?: string;
     age?: number;
+    birthday?: string;
     nationality?: string;
     location?: string;
     height_cm?: number;
@@ -260,7 +261,26 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     try {
       setIsLoading(true);
       setError(null);
-      const response = await getCompanies({ limit: 100 });
+      
+      // Determine subcategory filter based on section (v2.24.0 optimization - server-side filtering)
+      let subcategoryFilter: string | undefined;
+      if (section.key === 'onehub') {
+        // Studios & Agencies: production_house, agency, studio, casting_agency, management_company
+        subcategoryFilter = 'production_house,agency,casting_agency,studio,management_company';
+      } else if (section.key === 'academy') {
+        // Academy: academy subcategory
+        subcategoryFilter = 'academy';
+      }
+      
+      // Optimize payload size by selecting only essential fields for list view (v2.24.0)
+      // Use server-side subcategory filtering to reduce payload and improve performance
+      const response = await getCompanies({ 
+        limit: 100,
+        fields: ['id', 'name', 'logo_url', 'location_text', 'subcategory', 'company_type_info'],
+        subcategory: subcategoryFilter,
+        sort: 'name',
+        order: 'asc'
+      });
       
       if (response.success && response.data) {
         const companiesArray = Array.isArray(response.data) 
@@ -278,7 +298,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       setIsLoading(false);
       setRefreshing(false);
     }
-  }, [getCompanies]);
+  }, [getCompanies, section.key]);
 
 
   useEffect(() => {
@@ -362,7 +382,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     return null;
   };
 
-  // Filter companies by type for Studios & Agencies and Academy
+  // Group companies by type for Studios & Agencies and Academy
+  // Note: Companies are already filtered server-side by subcategory (v2.24.0 optimization)
   const filteredCompaniesByType = useMemo(() => {
     if (!companies.length || (section.key !== 'onehub' && section.key !== 'academy')) {
       return {};
@@ -374,7 +395,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       const subcategory = company.subcategory || company.company_type_info?.code || '';
       
       if (section.key === 'onehub') {
-        // Studios & Agencies: production_house, agency, studio, casting_agency, management_company
+        // Studios & Agencies: Group by subcategory type
+        // Companies are already filtered server-side to only include: production_house, agency, studio, casting_agency, management_company
         if (subcategory === 'production_house') {
           if (!companiesByType['Production Houses']) companiesByType['Production Houses'] = [];
           companiesByType['Production Houses'].push(company);
@@ -389,13 +411,11 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           companiesByType['Management Company'].push(company);
         }
       } else if (section.key === 'academy') {
-        // Academy: academy subcategory
-        if (subcategory === 'academy') {
-          // Group by company type name if available, otherwise just "Academy"
-          const typeName = company.company_type_info?.name || 'Academy';
-          if (!companiesByType[typeName]) companiesByType[typeName] = [];
-          companiesByType[typeName].push(company);
-        }
+        // Academy: Group by company type name
+        // Companies are already filtered server-side to only include academy subcategory
+        const typeName = company.company_type_info?.name || 'Academy';
+        if (!companiesByType[typeName]) companiesByType[typeName] = [];
+        companiesByType[typeName].push(company);
       }
     });
 

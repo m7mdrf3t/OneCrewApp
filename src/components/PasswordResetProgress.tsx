@@ -150,11 +150,11 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#10b981',
     borderRadius: 2,
-    transition: 'width 0.3s ease',
   },
 });
 
 export default PasswordResetProgress;
+
 
 
 

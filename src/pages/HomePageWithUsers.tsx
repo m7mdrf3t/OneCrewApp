@@ -262,6 +262,10 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
         search: searchQuery,
         category: filters.category,
         location: filters.location,
+        // Optimize payload size by selecting only essential fields for list view (v2.24.0)
+        fields: ['id', 'name', 'logo_url', 'location_text', 'subcategory'],
+        sort: 'name',
+        order: 'asc' as const,
       };
       
       const response = await getCompanies(params);

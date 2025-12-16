@@ -217,7 +217,7 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate }) => {
         </Text>
         <TouchableOpacity 
           style={[styles.retryButton, { backgroundColor: isDark ? '#1f2937' : '#e5e7eb' }]}
-          onPress={loadNews}
+          onPress={() => loadNews()}
         >
           <Text style={[styles.retryButtonText, { color: isDark ? '#fff' : '#000' }]}>
             Retry

@@ -871,7 +871,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
     // Check if URL was pasted - detect platform
     const detected = detectPlatformFromUrl(input);
-    const finalPlatform = detected?.platform || platform;
+    const finalPlatform = (detected?.platform || platform) as ProfileFormData['socialLinks'][number]['platform'];
     const finalInput = detected?.username || input;
 
     // Format URL

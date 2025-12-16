@@ -1214,7 +1214,7 @@ const AppContent: React.FC = () => {
               onToggleTheme={toggleTheme}
               theme={theme}
               onNavigate={navigateTo}
-              user={user || { name: 'Guest' }}
+              user={user}
               onOpenMainMenu={() => {}}
             />
           )}

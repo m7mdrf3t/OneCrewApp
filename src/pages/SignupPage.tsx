@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import type { UserRole } from 'onecrew-api-client';
 import { useApi } from '../contexts/ApiContext';
 import CategorySelectionModal from '../components/CategorySelectionModal';
 import { validatePassword, getPasswordRequirements } from '../utils/passwordValidator';
@@ -184,7 +185,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
         email: userEmail,
         password: formData.password,
         category: formData.category,
-        primary_role: formData.primaryRole,
+        primary_role: formData.primaryRole as UserRole,
       });
       
       // MANDATORY: Always navigate to OTP verification page after signup

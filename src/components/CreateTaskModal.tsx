@@ -1,322 +1,157 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   Modal,
-  ScrollView,
+  StyleSheet,
   TouchableOpacity,
   TextInput,
-  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useApi } from '../contexts/ApiContext';
+import type { CreateTaskModalProps, CreateTaskRequest, TaskStatus } from '../types';
 
-interface CreateTaskModalProps {
-  visible: boolean;
-  onClose: () => void;
-  taskType: string;
-  onTaskCreated: (task: any) => void;
-}
+const DEFAULT_STATUS: TaskStatus = 'pending';
 
 const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   visible,
   onClose,
-  taskType,
-  onTaskCreated,
+  onSubmit,
+  projectMembers, // currently unused in this lightweight modal (kept for compatibility)
+  editingTask,
+  projectId, // currently unused in this lightweight modal (kept for compatibility)
 }) => {
-  const { getUsersDirect } = useApi();
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-  });
-  const [availableUsers, setAvailableUsers] = useState<any[]>([]);
-  const [selectedRoles, setSelectedRoles] = useState<{[role: string]: any[]}>({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+  const isEditing = Boolean(editingTask);
 
-  // Mock roles for each task type
-  const getRolesForTaskType = (type: string) => {
-    const roleMap: {[key: string]: string[]} = {
-      development: ['Writer', 'Director', 'Producer', 'Script Consultant'],
-      pre_production: ['Casting Director', 'Actor', 'Location Scout', 'Production Designer', 'Costume Designer'],
-      production: ['Director', 'Cinematographer', 'Actor', 'Sound Engineer', 'Gaffer', 'Grip'],
-      post_production: ['Editor', 'Sound Designer', 'Colorist', 'VFX Artist', 'Composer'],
-      distribution: ['Marketing Manager', 'Publicist', 'Distributor', 'Film Festival Coordinator'],
+  const initialFormData = useMemo<CreateTaskRequest>(() => {
+    if (editingTask) {
+      return {
+        title: editingTask.title || '',
+        service: (editingTask as any).service || '',
+        timeline_text: (editingTask as any).timeline_text || '',
+        status: ((editingTask as any).status || DEFAULT_STATUS) as TaskStatus,
+        sort_order: (editingTask as any).sort_order,
+      };
+    }
+    return {
+      title: '',
+      service: '',
+      timeline_text: '',
+      status: DEFAULT_STATUS,
     };
-    return roleMap[type] || [];
-  };
+  }, [editingTask]);
 
-  const availableRoles = getRolesForTaskType(taskType);
+  const [formData, setFormData] = useState<CreateTaskRequest>(initialFormData);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      loadUsers();
-      // Reset form
-      setFormData({ title: '', description: '' });
-      setSelectedRoles({});
+      setFormData(initialFormData);
+      setSubmitting(false);
     }
-  }, [visible]);
+  }, [visible, initialFormData]);
 
-  const loadUsers = async () => {
-    setIsLoadingUsers(true);
-    try {
-      const users = await getUsersDirect();
-      console.log('📋 Loaded users:', users);
-      
-      if (Array.isArray(users) && users.length > 0) {
-        setAvailableUsers(users);
-      } else {
-        // Use mock users as fallback
-        console.log('📋 Using mock users as fallback');
-        setAvailableUsers([
-          { id: '1', name: 'John Smith', specialty: 'Actor', category: 'Actor', skills: ['Acting', 'Dancing'] },
-          { id: '2', name: 'Sarah Johnson', specialty: 'Director', category: 'Director', skills: ['Directing', 'Cinematography'] },
-          { id: '3', name: 'Mike Wilson', specialty: 'Producer', category: 'Producer', skills: ['Producing', 'Management'] },
-          { id: '4', name: 'Emma Davis', specialty: 'Editor', category: 'Editor', skills: ['Editing', 'Post-production'] },
-          { id: '5', name: 'Alex Brown', specialty: 'Cinematographer', category: 'Cinematographer', skills: ['Cinematography', 'Lighting'] },
-          { id: '6', name: 'Lisa Garcia', specialty: 'Writer', category: 'Writer', skills: ['Screenwriting', 'Script Writing'] },
-          { id: '7', name: 'Tom Lee', specialty: 'Sound Engineer', category: 'Sound Engineer', skills: ['Sound Design', 'Audio Engineering'] },
-          { id: '8', name: 'Anna White', specialty: 'Costume Designer', category: 'Costume Designer', skills: ['Costume Design', 'Fashion'] },
-        ]);
-      }
-    } catch (error) {
-      console.error('Failed to load users:', error);
-      // Use mock users as fallback
-      setAvailableUsers([
-        { id: '1', name: 'John Smith', specialty: 'Actor', category: 'Actor', skills: ['Acting', 'Dancing'] },
-        { id: '2', name: 'Sarah Johnson', specialty: 'Director', category: 'Director', skills: ['Directing', 'Cinematography'] },
-        { id: '3', name: 'Mike Wilson', specialty: 'Producer', category: 'Producer', skills: ['Producing', 'Management'] },
-        { id: '4', name: 'Emma Davis', specialty: 'Editor', category: 'Editor', skills: ['Editing', 'Post-production'] },
-        { id: '5', name: 'Alex Brown', specialty: 'Cinematographer', category: 'Cinematographer', skills: ['Cinematography', 'Lighting'] },
-        { id: '6', name: 'Lisa Garcia', specialty: 'Writer', category: 'Writer', skills: ['Screenwriting', 'Script Writing'] },
-        { id: '7', name: 'Tom Lee', specialty: 'Sound Engineer', category: 'Sound Engineer', skills: ['Sound Design', 'Audio Engineering'] },
-        { id: '8', name: 'Anna White', specialty: 'Costume Designer', category: 'Costume Designer', skills: ['Costume Design', 'Fashion'] },
-      ]);
-    } finally {
-      setIsLoadingUsers(false);
-    }
+  const setField = (field: keyof CreateTaskRequest, value: any) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleRoleSelect = (role: string) => {
-    setSelectedRoles(prev => ({
-      ...prev,
-      [role]: prev[role] || []
-    }));
-  };
-
-  const handleUserSelect = (role: string, user: any) => {
-    setSelectedRoles(prev => ({
-      ...prev,
-      [role]: [...(prev[role] || []), user]
-    }));
-  };
-
-  const handleRemoveUser = (role: string, userId: string) => {
-    setSelectedRoles(prev => ({
-      ...prev,
-      [role]: (prev[role] || []).filter(user => user.id !== userId)
-    }));
-  };
-
-  const getUsersForRole = (role: string) => {
-    // Ensure availableUsers is an array before filtering
-    if (!Array.isArray(availableUsers)) {
-      console.warn('availableUsers is not an array:', availableUsers);
-      return [];
-    }
-    
-    // Filter users based on their specialty/category matching the role
-    return availableUsers.filter(user => 
-      user?.specialty?.toLowerCase().includes(role.toLowerCase()) ||
-      user?.category?.toLowerCase().includes(role.toLowerCase()) ||
-      user?.skills?.some((skill: string) => skill.toLowerCase().includes(role.toLowerCase()))
-    );
-  };
-
-  const handleSubmit = async () => {
-    if (!formData.title.trim()) {
+  const handleSave = async () => {
+    if (!formData.title?.trim()) {
       Alert.alert('Error', 'Task title is required');
       return;
     }
 
-    const hasAssignments = Object.values(selectedRoles).some(users => users.length > 0);
-    if (!hasAssignments) {
-      Alert.alert('Error', 'Please assign at least one role and user');
-      return;
-    }
-
-    setIsLoading(true);
     try {
-      const task = {
-        id: Date.now().toString(),
-        type: taskType,
+      setSubmitting(true);
+      await onSubmit({
+        ...formData,
         title: formData.title.trim(),
-        description: formData.description.trim(),
-        roles: selectedRoles,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-      };
-
-      onTaskCreated(task);
+        service: formData.service?.trim() || undefined,
+        timeline_text: formData.timeline_text?.trim() || undefined,
+        status: formData.status || DEFAULT_STATUS,
+      });
       onClose();
-    } catch (error) {
-      console.error('Failed to create task:', error);
-      Alert.alert('Error', 'Failed to create task');
+    } catch (e: any) {
+      console.error('Failed to submit task:', e);
+      Alert.alert('Error', e?.message || 'Failed to save task');
     } finally {
-      setIsLoading(false);
+      setSubmitting(false);
     }
-  };
-
-  const getTaskTypeName = (type: string) => {
-    const typeMap: {[key: string]: string} = {
-      development: 'Development',
-      pre_production: 'Pre-production',
-      production: 'Production',
-      post_production: 'Post-production',
-      distribution: 'Distribution',
-    };
-    return typeMap[type] || type;
   };
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.container}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.cancelButton}>
-            <Text style={styles.cancelText}>Cancel</Text>
+          <TouchableOpacity onPress={onClose} style={styles.headerButton} disabled={submitting}>
+            <Ionicons name="close" size={22} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.title}>Create {getTaskTypeName(taskType)} Task</Text>
-          <TouchableOpacity
-            onPress={handleSubmit}
-            style={styles.saveButton}
-            disabled={isLoading}
-          >
-            <Text style={styles.saveText}>
-              {isLoading ? 'Creating...' : 'Create'}
-            </Text>
-          </TouchableOpacity>
+          <Text style={styles.title}>{isEditing ? 'Edit Task' : 'New Task'}</Text>
+          <View style={styles.headerButton} />
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.form}>
-            {/* Task Title */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Task Title *</Text>
-              <TextInput
-                style={styles.textInput}
-                value={formData.title}
-                onChangeText={(text) => handleInputChange('title', text)}
-                placeholder="Enter task title"
-                placeholderTextColor="#9ca3af"
-              />
-            </View>
+        <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
+          <Text style={styles.label}>Title *</Text>
+          <TextInput
+            value={formData.title}
+            onChangeText={(v) => setField('title', v)}
+            placeholder="Task title"
+            style={styles.input}
+            editable={!submitting}
+          />
 
-            {/* Task Description */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Description</Text>
-              <TextInput
-                style={[styles.textInput, styles.textArea]}
-                value={formData.description}
-                onChangeText={(text) => handleInputChange('description', text)}
-                placeholder="Enter task description"
-                placeholderTextColor="#9ca3af"
-                multiline
-                numberOfLines={4}
-              />
-            </View>
+          <Text style={styles.label}>Service (optional)</Text>
+          <TextInput
+            value={formData.service || ''}
+            onChangeText={(v) => setField('service', v)}
+            placeholder="e.g. Director, Editor, Sound"
+            style={styles.input}
+            editable={!submitting}
+          />
 
-            {/* Role Assignments */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Role Assignments *</Text>
-              <Text style={styles.helperText}>Select roles and assign users to this task</Text>
-              
-              {availableRoles.map((role) => (
-                <View key={role} style={styles.roleSection}>
-                  <TouchableOpacity
-                    style={styles.roleHeader}
-                    onPress={() => handleRoleSelect(role)}
-                  >
-                    <Text style={styles.roleTitle}>{role}</Text>
-                    <Ionicons 
-                      name={selectedRoles[role] ? "chevron-down" : "chevron-forward"} 
-                      size={16} 
-                      color="#6b7280" 
-                    />
-                  </TouchableOpacity>
+          <Text style={styles.label}>Timeline / Notes (optional)</Text>
+          <TextInput
+            value={formData.timeline_text || ''}
+            onChangeText={(v) => setField('timeline_text', v)}
+            placeholder="Add any notes or timeline details"
+            style={[styles.input, styles.multiline]}
+            editable={!submitting}
+            multiline
+          />
 
-                  {selectedRoles[role] && (
-                    <View style={styles.roleContent}>
-                      {/* Selected Users */}
-                      {selectedRoles[role].map((user) => (
-                        <View key={user.id} style={styles.selectedUser}>
-                          <View style={styles.userInfo}>
-                            <View style={styles.userAvatar}>
-                              <Text style={styles.userInitials}>
-                                {user.name?.charAt(0)?.toUpperCase() || 'U'}
-                              </Text>
-                            </View>
-                            <View>
-                              <Text style={styles.userName}>{user.name}</Text>
-                              <Text style={styles.userSpecialty}>{user.specialty || user.category}</Text>
-                            </View>
-                          </View>
-                          <TouchableOpacity
-                            onPress={() => handleRemoveUser(role, user.id)}
-                            style={styles.removeButton}
-                          >
-                            <Ionicons name="close" size={16} color="#ef4444" />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-
-                      {/* Available Users */}
-                      <View style={styles.availableUsers}>
-                        <Text style={styles.availableUsersTitle}>Available Users:</Text>
-                        {isLoadingUsers ? (
-                          <View style={styles.loadingContainer}>
-                            <ActivityIndicator size="small" color="#3b82f6" />
-                            <Text style={styles.loadingText}>Loading users...</Text>
-                          </View>
-                        ) : getUsersForRole(role).length > 0 ? (
-                          getUsersForRole(role).map((user) => (
-                          <TouchableOpacity
-                            key={user.id}
-                            style={styles.availableUser}
-                            onPress={() => handleUserSelect(role, user)}
-                            disabled={selectedRoles[role]?.some(u => u.id === user.id)}
-                          >
-                            <View style={styles.userAvatar}>
-                              <Text style={styles.userInitials}>
-                                {user.name?.charAt(0)?.toUpperCase() || 'U'}
-                              </Text>
-                            </View>
-                            <View style={styles.userDetails}>
-                              <Text style={styles.userName}>{user.name}</Text>
-                              <Text style={styles.userSpecialty}>{user.specialty || user.category}</Text>
-                            </View>
-                            {selectedRoles[role]?.some(u => u.id === user.id) && (
-                              <Ionicons name="checkmark" size={16} color="#10b981" />
-                            )}
-                          </TouchableOpacity>
-                        ))
-                        ) : (
-                          <Text style={styles.noUsersText}>No users available for this role</Text>
-                        )}
-                      </View>
-                    </View>
-                  )}
-                </View>
-              ))}
-            </View>
+          <Text style={styles.label}>Status</Text>
+          <View style={styles.statusRow}>
+            {(['pending', 'in_progress', 'completed', 'on_hold', 'cancelled'] as TaskStatus[]).map((s) => {
+              const selected = (formData.status || DEFAULT_STATUS) === s;
+              return (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.statusPill, selected && styles.statusPillSelected]}
+                  onPress={() => setField('status', s)}
+                  disabled={submitting}
+                >
+                  <Text style={[styles.statusPillText, selected && styles.statusPillTextSelected]}>
+                    {s.replace('_', ' ')}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </ScrollView>
-      </View>
+
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[styles.saveButton, submitting && styles.saveButtonDisabled]}
+            onPress={handleSave}
+            disabled={submitting}
+          >
+            <Text style={styles.saveButtonText}>{submitting ? 'Saving...' : 'Save Task'}</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -324,174 +159,101 @@ const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#ffffff',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    padding: 16,
-    paddingTop: 20,
+    borderBottomColor: '#e5e7eb',
   },
-  cancelButton: {
-    padding: 8,
-  },
-  cancelText: {
-    fontSize: 16,
-    color: '#ef4444',
+  headerButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  saveButton: {
-    padding: 8,
-  },
-  saveText: {
     fontSize: 16,
-    color: '#3b82f6',
-    fontWeight: '600',
+    fontWeight: '700',
+    color: '#111827',
   },
   content: {
     flex: 1,
-  },
-  form: {
     padding: 16,
-  },
-  inputGroup: {
-    marginBottom: 24,
   },
   label: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
+    color: '#374151',
+    marginTop: 12,
+    marginBottom: 6,
   },
-  helperText: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 12,
-  },
-  textInput: {
-    backgroundColor: '#fff',
+  input: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#000',
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#111827',
+    backgroundColor: '#ffffff',
   },
-  textArea: {
-    height: 100,
+  multiline: {
+    minHeight: 90,
     textAlignVertical: 'top',
   },
-  roleSection: {
-    marginBottom: 16,
-    backgroundColor: '#fff',
-    borderRadius: 8,
+  statusRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  roleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  roleTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-  },
-  roleContent: {
-    padding: 16,
-  },
-  selectedUser: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  userAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#3b82f6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  userInitials: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  userName: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#000',
-  },
-  userSpecialty: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  removeButton: {
-    padding: 4,
-  },
-  availableUsers: {
-    marginTop: 12,
-  },
-  availableUsersTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-  },
-  availableUser: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    borderColor: '#e5e7eb',
     backgroundColor: '#f9fafb',
-    borderRadius: 6,
-    marginBottom: 4,
   },
-  userDetails: {
-    flex: 1,
-    marginLeft: 12,
+  statusPillSelected: {
+    borderColor: '#111827',
+    backgroundColor: '#111827',
   },
-  loadingContainer: {
-    flexDirection: 'row',
+  statusPillText: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  statusPillTextSelected: {
+    color: '#ffffff',
+  },
+  footer: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  saveButton: {
+    backgroundColor: '#111827',
+    paddingVertical: 12,
+    borderRadius: 12,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
   },
-  loadingText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#6b7280',
+  saveButtonDisabled: {
+    opacity: 0.6,
   },
-  noUsersText: {
-    fontSize: 14,
-    color: '#6b7280',
-    textAlign: 'center',
-    paddingVertical: 20,
-    fontStyle: 'italic',
+  saveButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 
 export default CreateTaskModal;
+
+

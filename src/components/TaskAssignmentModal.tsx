@@ -101,7 +101,7 @@ const TaskAssignmentModal: React.FC<TaskAssignmentModalProps> = ({
 
   const getRoleAssignments = (role: string) => {
     return currentAssignments.filter(assignment => 
-      assignment.userRole.toLowerCase().includes(role.toLowerCase())
+      (assignment.userRole || '').toLowerCase().includes(role.toLowerCase())
     );
   };
 
@@ -132,15 +132,15 @@ const TaskAssignmentModal: React.FC<TaskAssignmentModalProps> = ({
                   <Text style={styles.assignmentTitle}>{assignment.taskTitle}</Text>
                   <Text style={styles.assignmentUser}>{assignment.userName}</Text>
                   <Text style={styles.assignmentTime}>
-                    {new Date(assignment.inTime).toLocaleTimeString('en-US', {
+                    {(assignment.inTime ? new Date(assignment.inTime).toLocaleTimeString('en-US', {
                       hour: '2-digit',
                       minute: '2-digit',
                       hour12: true,
-                    })} - {new Date(assignment.outTime).toLocaleTimeString('en-US', {
+                    }) : '--')} - {(assignment.outTime ? new Date(assignment.outTime).toLocaleTimeString('en-US', {
                       hour: '2-digit',
                       minute: '2-digit',
                       hour12: true,
-                    })}
+                    }) : '--')}
                   </Text>
                   <Text style={styles.assignmentLocation}>{assignment.location}</Text>
                 </View>

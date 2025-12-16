@@ -816,7 +816,7 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
                 )}
               </View>
               <Ionicons
-                name={selectedServices.includes(service.id) ? 'checkmark-circle' : 'circle-outline'}
+                name={selectedServices.includes(service.id) ? 'checkmark-circle' : 'ellipse-outline'}
                 size={24}
                 color={selectedServices.includes(service.id) ? '#000' : '#71717a'}
               />

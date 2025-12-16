@@ -66,6 +66,10 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     sort_order: number;
   }>>([]);
   const [loadingProfilePictures, setLoadingProfilePictures] = useState(false);
+  const debugLog = (...args: any[]) => {
+    // Avoid expensive logging in production builds (it can noticeably slow down profile load on devices)
+    if (__DEV__) console.log(...args);
+  };
 
   // Load projects for selection - only owner projects (server-side filtered)
   const loadProjects = async (): Promise<any[]> => {
@@ -96,8 +100,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   useEffect(() => {
     const fetchUserProfile = async () => {
       if (!profile?.id || profile.id === '' || profile.id === 'undefined') {
-        console.log('⚠️ No valid profile ID provided, skipping fetch');
-        console.log('⚠️ Profile ID value:', profile?.id);
+        debugLog('⚠️ No valid profile ID provided, skipping fetch', profile?.id);
         return;
       }
       
@@ -107,7 +110,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       const hasTalentData = profile.category !== 'talent' || (profile.about && profile.about.height_cm);
       
       if (hasBasicData && hasTalentData) {
-        console.log('✅ Profile data already complete, skipping fetch');
+        debugLog('✅ Profile data already complete, skipping fetch');
         setUserProfile(profile);
         return;
       }
@@ -116,159 +119,95 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       setError(null);
       
       try {
-        console.log('👤 Fetching user profile directly for ID:', profile.id);
-        console.log('👤 Profile object:', profile);
-        
-        let response;
-        try {
-          // Fetch from both UserDetails and Talent Profile endpoints
-          console.log('🔍 Fetching user profile, user details, and talent profile...');
-          
-          // Get basic user profile
-          const userResponse = await api.getUserByIdDirect(profile.id);
-          console.log('✅ User profile fetched:', userResponse);
-          
-          // Get UserDetails (age, nationality, gender only)
-          let userDetailsResponse = null;
+        debugLog('👤 Fetching user profile for ID:', profile.id);
+
+        // Check if viewing own profile - only fetch authenticated data for own profile
+        const isViewingOwnProfile = isAuthenticated && !isGuest && currentUser && profile.id === currentUser.id;
+        const accessToken = isViewingOwnProfile
+          ? ((api as any).auth?.authToken || (api as any).auth?.getAuthToken?.())
+          : null;
+
+        // Fetch basic user profile (with fallback) + other profile data in parallel where possible
+        const userPromise = (async () => {
           try {
-            userDetailsResponse = await api.getUserDetails(profile.id);
-            console.log('✅ User details (age, nationality, gender) fetched:', userDetailsResponse);
-          } catch (detailsError: any) {
-            // 404 is expected if user details don't exist yet
-            if (detailsError.message?.includes('404') || detailsError.message?.includes('not found')) {
-              console.log('ℹ️ User details not created yet, continuing without details');
-            } else {
-              console.log('⚠️ Error fetching user details:', detailsError.message);
-            }
+            return await api.getUserByIdDirect(profile.id);
+          } catch (e) {
+            debugLog('⚠️ getUserByIdDirect failed, falling back to getUserById:', (e as any)?.message);
+            return await api.getUserById(profile.id);
           }
+        })();
 
-          // Check if viewing own profile - only fetch authenticated data for own profile
-          const isViewingOwnProfile = isAuthenticated && !isGuest && currentUser && profile.id === currentUser.id;
+        const userDetailsPromise = api.getUserDetails(profile.id).catch((detailsError: any) => {
+          // 404 is expected if user details don't exist yet
+          if (detailsError?.message?.includes('404') || detailsError?.message?.toLowerCase?.().includes('not found')) {
+            debugLog('ℹ️ User details not created yet, continuing without details');
+            return null;
+          }
+          debugLog('⚠️ Error fetching user details:', detailsError?.message);
+          return null;
+        });
 
-          // Get talent profile data (all other physical and professional details)
-          let talentProfileResponse = null;
-          // Only fetch talent profile if authenticated, not guest, and viewing own profile
-          if (isViewingOwnProfile) {
-            try {
-              const accessToken = (api as any).auth?.authToken || (api as any).auth?.getAuthToken?.();
-              if (accessToken) {
-                const talentResponse = await fetch(`${getBaseUrl()}/api/talent/profile`, {
-                  method: 'GET',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${accessToken}`,
-                  },
-                });
-                
-                if (talentResponse.ok) {
-                  talentProfileResponse = await talentResponse.json();
-                  console.log('✅ Talent profile data fetched:', talentProfileResponse);
-                } else {
-                  console.log('⚠️ Talent profile not found, continuing without details');
-                }
-              }
-            } catch (talentError: any) {
-              console.log('⚠️ Talent profile fetch failed, continuing without details:', talentError.message);
-            }
-          } else {
-            console.log('ℹ️ Skipping talent profile fetch (guest mode or viewing other user profile)');
-          }
+        const talentProfilePromise = (isViewingOwnProfile && accessToken)
+          ? fetch(`${getBaseUrl()}/api/talent/profile`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            })
+              .then(async (res) => (res.ok ? res.json() : null))
+              .catch((talentError: any) => {
+                debugLog('⚠️ Talent profile fetch failed, continuing without details:', talentError?.message);
+                return null;
+              })
+          : Promise.resolve(null);
 
-          // Get user skills - only if authenticated and viewing own profile
-          let userSkillsResponse = null;
-          
-          if (isViewingOwnProfile) {
-            try {
-              userSkillsResponse = await api.getUserSkills();
-              console.log('✅ User skills fetched:', userSkillsResponse);
-              console.log('🔍 User skills data structure:', JSON.stringify(userSkillsResponse, null, 2));
-              console.log('🔍 User skills data array:', userSkillsResponse?.data);
-              console.log('🔍 User skills data length:', userSkillsResponse?.data?.length);
-            } catch (skillsError: any) {
-              console.log('ℹ️ User skills not accessible:', skillsError.message);
-              console.log('🔍 Skills error details:', skillsError);
-            }
-          } else {
-            console.log('ℹ️ Skipping user skills fetch (guest mode or viewing other user profile)');
-          }
-          
-          // Combine the data: UserDetails + Talent Profile + Skills
-          response = {
-            success: true,
-            data: {
-              ...userResponse.data,
-              skills: (userSkillsResponse?.data || []).map((skillObj: any) => {
-                // Transform skill objects to skill names
-                if (typeof skillObj === 'string') return skillObj;
-                return skillObj?.skill_name || skillObj?.name || skillObj?.skills?.name || skillObj?.skills?.skill_name || String(skillObj?.skill_id || skillObj?.id || '');
-              }), // Add skills data (transformed to names)
-              about: {
-                ...userDetailsResponse?.data,  // age, nationality, gender
-                ...talentProfileResponse?.data // height, weight, skin_tone, etc.
-              }
-            }
-          };
-          console.log('✅ Combined profile data:', response);
-        } catch (error: any) {
-          console.log('❌ API methods failed, trying fallback...', error.message);
-          // Fallback to regular API methods
-          try {
-            response = await api.getUserByIdDirect(profile.id);
-            console.log('✅ Fallback API method succeeded');
-            
-            // Try to get skills for fallback case too - only if viewing own profile
-            const isViewingOwnProfileFallback = isAuthenticated && !isGuest && currentUser && profile.id === currentUser.id;
-            if (isViewingOwnProfileFallback) {
-              try {
-                const userSkillsResponse = await api.getUserSkills();
-                console.log('🔍 Fallback skills response:', userSkillsResponse);
-                if (userSkillsResponse?.data && response.data) {
-                  (response.data as any).skills = userSkillsResponse.data;
-                  console.log('✅ Skills added to fallback response:', userSkillsResponse.data);
-                }
-              } catch (skillsError: any) {
-                console.log('ℹ️ Skills not available in fallback:', skillsError.message);
-                console.log('🔍 Fallback skills error:', skillsError);
-              }
-            } else {
-              console.log('ℹ️ Skipping skills fetch in fallback (guest mode or viewing other user profile)');
-            }
-          } catch (fallbackError: any) {
-            console.log('❌ Fallback API method failed, trying regular method...', fallbackError.message);
-            response = await api.getUserById(profile.id);
-            console.log('✅ Regular API method succeeded');
-            
-            // Try to get skills for regular method too - only if viewing own profile
-            const isViewingOwnProfileRegular = isAuthenticated && !isGuest && currentUser && profile.id === currentUser.id;
-            if (isViewingOwnProfileRegular) {
-              try {
-                const userSkillsResponse = await api.getUserSkills();
-                console.log('🔍 Regular method skills response:', userSkillsResponse);
-                if (userSkillsResponse?.data && response.data) {
-                  (response.data as any).skills = userSkillsResponse.data;
-                  console.log('✅ Skills added to regular response:', userSkillsResponse.data);
-                }
-              } catch (skillsError: any) {
-                console.log('ℹ️ Skills not available in regular method:', skillsError.message);
-                console.log('🔍 Regular method skills error:', skillsError);
-              }
-            } else {
-              console.log('ℹ️ Skipping skills fetch in regular method (guest mode or viewing other user profile)');
-            }
-          }
-        }
+        const userSkillsPromise = (isViewingOwnProfile)
+          ? api.getUserSkills().catch((skillsError: any) => {
+              debugLog('ℹ️ User skills not accessible:', skillsError?.message);
+              return null;
+            })
+          : Promise.resolve(null);
+
+        const [userResponse, userDetailsResponse, talentProfileResponse, userSkillsResponse] = await Promise.all([
+          userPromise,
+          userDetailsPromise,
+          talentProfilePromise,
+          userSkillsPromise,
+        ]);
+
+        const skillsFromApi = (userSkillsResponse as any)?.data || [];
+        const normalizedSkillNames = Array.isArray(skillsFromApi)
+          ? skillsFromApi.map((skillObj: any) => {
+              if (typeof skillObj === 'string') return skillObj;
+              return (
+                skillObj?.skill_name ||
+                skillObj?.name ||
+                skillObj?.skills?.name ||
+                skillObj?.skills?.skill_name ||
+                String(skillObj?.skill_id || skillObj?.id || '')
+              );
+            })
+          : [];
+
+        const response = {
+          success: true,
+          data: {
+            ...(userResponse as any)?.data,
+            skills: normalizedSkillNames,
+            about: {
+              ...(userDetailsResponse as any)?.data,
+              ...(talentProfileResponse as any)?.data,
+            },
+          },
+        };
         
         if (response.success && response.data) {
-          console.log('User profile fetched successfully');
           // Transform the data to match expected format
           const rawSkills = (response.data as any).skills || [];
-          console.log('🔍 Raw skills from response:', rawSkills);
-          console.log('🔍 Raw skills type:', typeof rawSkills);
-          console.log('🔍 Raw skills is array:', Array.isArray(rawSkills));
           
           const transformedSkills = Array.isArray(rawSkills) 
             ? rawSkills.map((skill: any) => {
-                console.log('🔍 Processing skill in ProfileDetailPage:', skill);
                 // Handle different skill formats
                 if (typeof skill === 'string') {
                   return skill;
@@ -286,8 +225,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                 }
               })
             : [];
-          
-          console.log('🔍 Transformed skills:', transformedSkills);
           
           const transformedProfile = {
             ...response.data,
@@ -309,13 +246,10 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             abilities: (response.data as any).abilities || (response.data as any).user_abilities?.map((ability: any) => ability.ability_name || ability.name || ability) || [],
             // Note: Cover images are now loaded separately via getUserProfilePictures API
           };
-          
-          console.log('🔍 Final transformed profile skills:', transformedProfile.skills);
-          console.log('🔍 Portfolio data from API:', (response.data as any).user_portfolios);
-          console.log('🔍 Mapped portfolio data:', transformedProfile.portfolio);
+
           setUserProfile(transformedProfile);
         } else {
-          console.error('Failed to fetch user profile:', response.error);
+          console.error('Failed to fetch user profile:', (response as any).error);
           setError('Failed to load profile');
         }
       } catch (err: any) {
@@ -392,7 +326,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
 
     loadSocialLinks();
-  }, [isCurrentUser, currentUser?.id, getUserSocialLinks, isGuest, isAuthenticated, userProfile?.social_links, profile?.id, userProfile?.id, socialLinksRefreshTrigger]);
+  }, [isCurrentUser, currentUser?.id, getUserSocialLinks, isGuest, profile?.id, userProfile?.id, socialLinksRefreshTrigger]);
 
   // Load profile pictures from API
   useEffect(() => {
@@ -965,9 +899,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                     : new Date().getFullYear().toString();
                   
                   // Get certification name
-                  const certName = certification.certification_template?.name || 
-                                   certification.name || 
-                                   'Certification';
+                  const certName = certification.certification_template?.name || 'Certification';
                   
                   return (
                     <View key={certification.id} style={styles.certificateCard}>
@@ -2478,12 +2410,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
   },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#6b7280',
-    textAlign: 'center',
-  },
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
@@ -2535,12 +2461,6 @@ const styles = StyleSheet.create({
   certificationsList: {
     gap: 12,
     marginTop: 8,
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
   },
   emptyState: {
     alignItems: 'center',

@@ -103,16 +103,13 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
 
   const loadPreselectedUser = async (userId: string) => {
     try {
-      // Try to get user by ID using the API
-      const response = await api.getUsers({ id: userId, limit: 1 });
+      // Get user by ID (onecrew-api-client exposes getUserById)
+      const response = await api.getUserById(userId);
       if (response?.success && response.data) {
-        const usersArray = Array.isArray(response.data) ? response.data : (response.data.data || []);
-        const userData = usersArray.find((u: any) => u.id === userId) || usersArray[0];
-        if (userData) {
-          setSelectedUser(userData);
-          setSearchQuery(userData.name || userData.email || '');
-          setFilteredUsers([]); // Clear search results since we have a preselected user
-        }
+        const userData = response.data;
+        setSelectedUser(userData);
+        setSearchQuery(userData.name || userData.email || '');
+        setFilteredUsers([]); // Clear search results since we have a preselected user
       }
     } catch (error) {
       console.error('Failed to load preselected user:', error);
@@ -131,9 +128,9 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
 
       try {
         setSearching(true);
-        // Use the API's q parameter for full-text search
+        // onecrew-api-client uses `search` for user search
         const response = await api.getUsers({
-          q: searchQuery,
+          search: searchQuery,
           limit: 20,
         });
 
@@ -225,10 +222,11 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
   };
 
   // Map invalid icon names to valid Ionicons names
-  const getValidIconName = (iconName: string | undefined | null): string => {
-    if (!iconName) return 'trophy-outline'; // Default icon
+  const getValidIconName = (iconName: string | undefined | null): keyof typeof Ionicons.glyphMap => {
+    const fallback: keyof typeof Ionicons.glyphMap = 'trophy-outline';
+    if (!iconName) return fallback; // Default icon
     
-    const iconMap: Record<string, string> = {
+    const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
       'pen': 'pencil-outline',
       'pencil': 'pencil-outline',
       'create': 'create-outline',
@@ -237,8 +235,9 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     };
     
     const lowerIconName = iconName.toLowerCase();
-    // Return mapped icon if exists, otherwise return the original with fallback
-    return iconMap[lowerIconName] || iconName || 'trophy-outline';
+    const mapped = iconMap[lowerIconName] || (iconName as keyof typeof Ionicons.glyphMap);
+    // Only return names that exist in the glyph map
+    return (mapped in Ionicons.glyphMap ? mapped : fallback);
   };
 
   const loadAuthorizedCertifications = async () => {
@@ -373,7 +372,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
 
       const response = await uploadCertificateImage(file);
 
-      setUploadProgress({ visible: false });
+      setUploadProgress({ visible: false, label: '' });
       if (response.success && response.data?.url) {
         // Update certificate image URL
         setCertificateImageUrl(response.data.url);
@@ -383,7 +382,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
       }
     } catch (error: any) {
       console.error('Failed to upload certificate image:', error);
-      setUploadProgress({ visible: false });
+      setUploadProgress({ visible: false, label: '' });
       Alert.alert('Error', error.message || 'Failed to upload certificate image.');
     } finally {
       setUploadingCertificateImage(false);
@@ -994,6 +993,11 @@ const styles = StyleSheet.create({
     borderColor: '#3b82f6',
   },
   selectedUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,

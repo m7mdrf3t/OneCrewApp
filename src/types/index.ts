@@ -1,8 +1,8 @@
 // Type definitions for One Crew app
+// Keep app-level types aligned with the canonical API client types.
+import type { User as ApiUser } from 'onecrew-api-client';
 
-export interface User {
-  name: string;
-}
+export type User = ApiUser;
 
 export interface NavigationState {
   name: string;
@@ -62,7 +62,7 @@ export interface HomePageProps {
   onToggleTheme: () => void;
   theme: string;
   onNavigate: (pageName: string, data?: any) => void;
-  user: User;
+  user: User | null;
   onOpenMainMenu: () => void;
 }
 
@@ -297,7 +297,10 @@ export interface UITaskAssignment extends TaskAssignment {
   outTime?: string;
   location?: string;
   description?: string;
-  status?: TaskStatus;
+  // Keep `status` aligned with the underlying TaskAssignment status type
+  status?: TaskAssignmentStatus;
+  // If the UI needs to track the parent task's status (e.g., on_hold), use this field instead
+  taskStatus?: TaskStatus;
   attendees?: string[];
   createdAt?: string;
 }

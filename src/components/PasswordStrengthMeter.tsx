@@ -9,6 +9,13 @@ interface PasswordStrengthMeterProps {
 
 type StrengthLevel = 'weak' | 'medium' | 'strong' | 'very-strong';
 
+type StrengthConfig = {
+  color: string;
+  backgroundColor: string;
+  label: string;
+  width: `${number}%`;
+};
+
 const PasswordStrengthMeter: React.FC<PasswordStrengthMeterProps> = ({
   password,
   showLabel = true,
@@ -31,7 +38,7 @@ const PasswordStrengthMeter: React.FC<PasswordStrengthMeterProps> = ({
     return 'weak';
   };
 
-  const getStrengthConfig = (level: StrengthLevel) => {
+  const getStrengthConfig = (level: StrengthLevel): StrengthConfig => {
     switch (level) {
       case 'very-strong':
         return {
@@ -111,7 +118,6 @@ const styles = StyleSheet.create({
   meterFill: {
     height: '100%',
     borderRadius: 3,
-    transition: 'width 0.3s ease, background-color 0.3s ease',
   },
   label: {
     fontSize: 12,
@@ -120,6 +126,7 @@ const styles = StyleSheet.create({
 });
 
 export default PasswordStrengthMeter;
+
 
 
 
