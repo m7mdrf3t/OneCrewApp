@@ -102,10 +102,10 @@ const AppContent: React.FC = () => {
   const [showInvitationListModal, setShowInvitationListModal] = useState(false);
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
   const systemColorScheme = useColorScheme();
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   useEffect(() => {
-    if (systemColorScheme) {
+    if (systemColorScheme === 'light' || systemColorScheme === 'dark') {
       setTheme(systemColorScheme);
     }
   }, [systemColorScheme]);
@@ -1254,6 +1254,26 @@ const AppContent: React.FC = () => {
               onAssignToProject={handleAssignToProject}
               onStartChat={handleStartChat}
               myTeam={myTeam}
+            />
+          )}
+          {page.name === 'academyDetail' && (
+            <CompanyProfilePage
+              companyId={page.data?.id || page.data?.companyId || page.data || ''}
+              onBack={handleBack}
+              readOnly={true}
+              onCourseSelect={(course) => {
+                navigateTo('courseDetail', {
+                  courseId: course.id,
+                  companyId: course.company_id,
+                });
+              }}
+              onNavigate={(pageName: string, data?: any) => {
+                if (pageName === 'auth') {
+                  setAuthPage(data?.page || 'login');
+                } else {
+                  navigateTo(pageName, data);
+                }
+              }}
             />
           )}
           {page.name === 'projects' && (

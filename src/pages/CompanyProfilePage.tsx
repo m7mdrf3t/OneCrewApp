@@ -69,6 +69,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     currentProfileType,
     getCompanyCertifications,
     getAuthorizedCertifications,
+    // Mutation hooks - will be conditionally used (checked before use)
     removeCompanyMember,
     grantCertification,
     getAcademyCourses,
@@ -91,6 +92,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const [expandedSection, setExpandedSection] = useState<'services' | 'members' | 'certifications' | null>(null);
   const [certifications, setCertifications] = useState<UserCertification[]>([]);
   const [loadingCertifications, setLoadingCertifications] = useState(false);
+  // Edit-related state - only initialized when NOT in read-only mode
   const [showGrantCertificationModal, setShowGrantCertificationModal] = useState(false);
   const [showCourseRegistrationModal, setShowCourseRegistrationModal] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
@@ -139,7 +141,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   }, [refreshTrigger]);
 
   const handleRemoveMember = async (member: CompanyMember) => {
-    if (!company?.id) return;
+    // STRICT READ-ONLY: This function should never execute in read-only mode
+    if (readOnly) {
+      console.warn('⚠️ Attempted to remove member in read-only mode - operation blocked');
+      return;
+    }
+    if (!company?.id || !removeCompanyMember) return;
 
     Alert.alert(
       'Remove Member',
@@ -321,7 +328,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   const handleUploadDocument = async (documentType: CompanyDocumentType) => {
-    if (!company?.id) return;
+    // STRICT READ-ONLY: This function should never execute in read-only mode
+    if (readOnly) {
+      console.warn('⚠️ Attempted to upload document in read-only mode - operation blocked');
+      return;
+    }
+    if (!company?.id || !addCompanyDocument || !uploadFile) return;
 
     try {
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -351,6 +363,13 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   const uploadDocumentFile = async (companyId: string, doc: { document_type: CompanyDocumentType; file_uri: string; file_name: string }) => {
+    // STRICT READ-ONLY: This function should never execute in read-only mode
+    if (readOnly) {
+      console.warn('⚠️ Attempted to upload document file in read-only mode - operation blocked');
+      return;
+    }
+    if (!addCompanyDocument || !uploadFile) return;
+
     try {
       setUploadingDocument(true);
 
@@ -388,7 +407,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   const handleDeleteDocument = async (documentId: string) => {
-    if (!company?.id) return;
+    // STRICT READ-ONLY: This function should never execute in read-only mode
+    if (readOnly) {
+      console.warn('⚠️ Attempted to delete document in read-only mode - operation blocked');
+      return;
+    }
+    if (!company?.id || !deleteCompanyDocument) return;
 
     Alert.alert(
       'Delete Document',
@@ -619,7 +643,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   const handleUploadLogo = async () => {
-    if (!company?.id) return;
+    // STRICT READ-ONLY: This function should never execute in read-only mode
+    if (readOnly) {
+      console.warn('⚠️ Attempted to upload logo in read-only mode - operation blocked');
+      return;
+    }
+    if (!company?.id || !uploadCompanyLogo) return;
 
     try {
       // Request permissions
@@ -684,7 +713,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   const uploadLogoFile = async (imageResult: any) => {
-    if (!company?.id) return;
+    // STRICT READ-ONLY: This function should never execute in read-only mode
+    if (readOnly) {
+      console.warn('⚠️ Attempted to upload logo file in read-only mode - operation blocked');
+      return;
+    }
+    if (!company?.id || !uploadCompanyLogo) return;
 
     try {
       setUploadingLogo(true);
@@ -762,7 +796,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Company Profile</Text>
-        {canEdit() && onEdit && (
+        {/* STRICT READ-ONLY: Edit button completely removed when readOnly is true */}
+        {!readOnly && canEdit() && onEdit && (
           <TouchableOpacity onPress={() => onEdit(company)} style={styles.editButton}>
             <Ionicons name="create-outline" size={24} color="#000" />
           </TouchableOpacity>
@@ -815,8 +850,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 </TouchableOpacity>
               )}
               
-              {/* Upload Logo Button - Bottom Right (only for editors) */}
-              {canEdit() && (
+              {/* STRICT READ-ONLY: Upload Logo Button completely removed when readOnly is true */}
+              {!readOnly && canEdit() && (
                 <TouchableOpacity
                   style={styles.uploadLogoButton}
                   onPress={handleUploadLogo}
@@ -984,7 +1019,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Team & Metrics</Text>
-                {canEdit() && onManageCourses && (
+                {/* STRICT READ-ONLY: Manage button completely removed when readOnly is true */}
+                {!readOnly && canEdit() && onManageCourses && (
                   <TouchableOpacity
                     style={styles.manageButton}
                     onPress={() => onManageCourses(company)}
@@ -1010,32 +1046,48 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                         key={course.id}
                         course={course}
                         onSelect={() => {
-                          if (onCourseSelect) {
+                          // STRICT READ-ONLY: In read-only mode, only allow viewing course details
+                          if (readOnly && onCourseSelect) {
                             onCourseSelect(course);
-                          } else if (onManageCourses) {
+                          } else if (!readOnly && onCourseSelect) {
+                            onCourseSelect(course);
+                          } else if (!readOnly && onManageCourses) {
                             onManageCourses(company);
                           }
                         }}
                       />
                     ))}
                   </ScrollView>
-                  <TouchableOpacity
-                    style={styles.viewAllButton}
-                    onPress={() => {
-                      if (onManageCourses) {
-                        // Pass readOnly flag when navigating from public view
+                  {/* STRICT READ-ONLY: In read-only mode, only allow viewing courses, not managing */}
+                  {readOnly && onCourseSelect ? (
+                    <TouchableOpacity
+                      style={styles.viewAllButton}
+                      onPress={() => {
+                        // In read-only mode, navigate to courses management page in read-only mode
+                        if (onNavigate) {
+                          onNavigate('coursesManagement', { companyId: company.id, readOnly: true });
+                        }
+                      }}
+                    >
+                      <Text style={styles.viewAllButtonText}>View All Courses</Text>
+                    </TouchableOpacity>
+                  ) : !readOnly && onManageCourses ? (
+                    <TouchableOpacity
+                      style={styles.viewAllButton}
+                      onPress={() => {
                         onManageCourses(company);
-                      }
-                    }}
-                  >
-                    <Text style={styles.viewAllButtonText}>View All Courses</Text>
-                  </TouchableOpacity>
+                      }}
+                    >
+                      <Text style={styles.viewAllButtonText}>View All Courses</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </>
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="school-outline" size={48} color="#e4e4e7" />
                   <Text style={styles.emptyStateText}>No courses available yet</Text>
-                  {canEdit() && onManageCourses && (
+                  {/* STRICT READ-ONLY: Create Course button completely removed when readOnly is true */}
+                  {!readOnly && canEdit() && onManageCourses && (
                     <TouchableOpacity
                       style={styles.addButton}
                       onPress={() => onManageCourses(company)}
@@ -1047,8 +1099,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               )}
             </View>
 
-            {/* Course Registrations Section */}
-            {canEdit() && (
+            {/* STRICT READ-ONLY: Course Registrations Section completely removed when readOnly is true */}
+            {!readOnly && canEdit() && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Course Registrations</Text>
@@ -1073,8 +1125,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               </View>
             )}
 
-            {/* Grant Certification Section */}
-            {canEdit() && company.subcategory === 'academy' && (
+            {/* STRICT READ-ONLY: Grant Certification Section completely removed when readOnly is true */}
+            {!readOnly && canEdit() && company.subcategory === 'academy' && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Grant Certifications</Text>
@@ -1108,7 +1160,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     <Ionicons name="business" size={48} color="#71717a" />
                   </View>
                 )}
-                {canEdit() && (
+                {/* STRICT READ-ONLY: Upload Logo Button completely removed when readOnly is true */}
+                {!readOnly && canEdit() && (
                   <TouchableOpacity
                     style={styles.uploadLogoButton}
                     onPress={handleUploadLogo}
@@ -1305,7 +1358,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 <Text style={styles.sectionTitle}>
                   Services We Provide {services.length > 0 && `(${services.length})`}
                 </Text>
-                {canEdit() && onManageServices && (
+                {/* STRICT READ-ONLY: Manage Services button completely removed when readOnly is true */}
+                {!readOnly && canEdit() && onManageServices && (
                   <TouchableOpacity
                     style={styles.manageButton}
                     onPress={() => onManageServices(company)}
@@ -1347,7 +1401,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 <View style={styles.emptyState}>
                   <Ionicons name="briefcase-outline" size={48} color="#e4e4e7" />
                   <Text style={styles.emptyStateText}>No services added yet</Text>
-                  {canEdit() && onManageServices && (
+                  {/* STRICT READ-ONLY: Add Services button completely removed when readOnly is true */}
+                  {!readOnly && canEdit() && onManageServices && (
                     <TouchableOpacity
                       style={styles.addButton}
                       onPress={() => onManageServices(company)}
@@ -1365,7 +1420,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 <Text style={styles.sectionTitle}>
                   Team Members {members.length > 0 ? `(${members.length})` : ''}
                 </Text>
-                {canEdit() && onInviteMember && (
+                {/* STRICT READ-ONLY: Invite Member button completely removed when readOnly is true */}
+                {!readOnly && canEdit() && onInviteMember && (
                   <TouchableOpacity
                     style={styles.manageButton}
                     onPress={() => onInviteMember(company)}
@@ -1423,7 +1479,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                         </View>
 
                         <View style={styles.memberActions}>
-                          {canEdit() && member.role !== 'owner' && (
+                          {/* STRICT READ-ONLY: Member action buttons completely removed when readOnly is true */}
+                          {!readOnly && canEdit() && member.role !== 'owner' && (
                             <>
                               {company.subcategory === 'academy' && (
                                 <TouchableOpacity
@@ -1459,7 +1516,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 <View style={styles.emptyState}>
                   <Ionicons name="people-outline" size={48} color="#e4e4e7" />
                   <Text style={styles.emptyStateText}>No members yet</Text>
-                  {canEdit() && onInviteMember && (
+                  {/* STRICT READ-ONLY: Invite Members button completely removed when readOnly is true */}
+                  {!readOnly && canEdit() && onInviteMember && (
                     <TouchableOpacity
                       style={styles.addButton}
                       onPress={() => onInviteMember(company)}
@@ -1472,7 +1530,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             </View>
 
             {/* Documents Section - Only show if company is not approved */}
-            {company.approval_status !== 'approved' && (isOwner() || canEdit()) && (
+            {/* STRICT READ-ONLY: Documents section completely removed when readOnly is true */}
+            {!readOnly && company.approval_status !== 'approved' && (isOwner() || canEdit()) && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Documents</Text>
@@ -1574,8 +1633,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         )}
       </ScrollView>
 
-      {/* Grant Certification Modal */}
-      {company && (
+      {/* STRICT READ-ONLY: Grant Certification Modal completely removed when readOnly is true */}
+      {!readOnly && company && (
         <GrantCertificationModal
           visible={showGrantCertificationModal}
           onClose={() => {
@@ -1592,8 +1651,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         />
       )}
 
-      {/* Course Registration Modal */}
-      {company && company.subcategory === 'academy' && canEdit() && (
+      {/* STRICT READ-ONLY: Course Registration Modal completely removed when readOnly is true */}
+      {!readOnly && company && company.subcategory === 'academy' && canEdit() && (
         <CourseRegistrationModal
           visible={showCourseRegistrationModal}
           onClose={() => setShowCourseRegistrationModal(false)}
