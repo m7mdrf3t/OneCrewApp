@@ -864,21 +864,24 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                     {itemCompanies.map((company: Company) => {
                       const location = company.location_text || company.location || '';
                       const companyType = company.company_type_info?.name || '';
+                      const isAcademy = section.key === 'academy';
                       
                       return (
                         <TouchableOpacity
                           key={company.id}
-                          style={styles.companyCardTwoTone}
+                          style={[
+                            styles.companyCardTwoTone,
+                            isAcademy && styles.academyCard
+                          ]}
                           onPress={() => {
                             if (onNavigate) {
                               onNavigate('companyProfile', { companyId: company.id, readOnly: true });
                             }
                           }}
-                          activeOpacity={0.8}
+                          activeOpacity={0.85}
                         >
-                          {/* Top Section - Dark Grey */}
-                          <View style={styles.companyCardTop}>
-                            {/* Company Logo */}
+                          {/* Image Section with Gradient Overlay */}
+                          <View style={styles.companyCardImageContainer}>
                             {company.logo_url ? (
                               <Image
                                 source={{ uri: company.logo_url }}
@@ -887,39 +890,46 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                               />
                             ) : (
                               <View style={styles.companyCardLogoPlaceholder}>
-                                <Ionicons name="business" size={48} color="#71717a" />
+                                <Ionicons 
+                                  name={isAcademy ? "school" : "business"} 
+                                  size={56} 
+                                  color="#a1a1aa" 
+                                />
                               </View>
                             )}
-                            <Text style={styles.companyCardTopName} numberOfLines={2}>
-                              {company.name}
-                            </Text>
-                            {/* Navigation Button */}
+                            
+                            {/* Navigation Arrow */}
                             <TouchableOpacity
                               style={styles.companyNavButton}
-                              onPress={() => {
+                              onPress={(e) => {
+                                e.stopPropagation();
                                 if (onNavigate) {
                                   onNavigate('companyProfile', { companyId: company.id, readOnly: true });
                                 }
                               }}
-                              activeOpacity={0.7}
+                              activeOpacity={0.8}
                             >
-                              <Ionicons name="arrow-back" size={16} color="#fff" />
+                              <Ionicons name="chevron-forward" size={18} color="#fff" />
                             </TouchableOpacity>
                           </View>
                           
-                          {/* Bottom Section - Light Grey */}
+                          {/* Bottom Info Section */}
                           <View style={styles.companyCardBottom}>
-                            <Text style={styles.companyCardBottomName} numberOfLines={1}>
-                              {company.name}
-                            </Text>
-                            {companyType ? (
-                              <Text style={styles.companyCardType} numberOfLines={1}>
-                                {companyType}
+                            <View style={styles.companyCardBottomHeader}>
+                              <Text style={styles.companyCardBottomName} numberOfLines={1}>
+                                {company.name}
                               </Text>
-                            ) : null}
+                              {companyType ? (
+                                <View style={styles.companyCardTypeBadge}>
+                                  <Text style={styles.companyCardTypeText} numberOfLines={1}>
+                                    {companyType}
+                                  </Text>
+                                </View>
+                              ) : null}
+                            </View>
                             {location ? (
                               <View style={styles.companyCardLocation}>
-                                <Ionicons name="location" size={14} color="#000" />
+                                <Ionicons name="location" size={16} color="#71717a" />
                                 <Text style={styles.companyCardLocationText} numberOfLines={1}>
                                   {location}
                                 </Text>
@@ -1326,94 +1336,108 @@ const styles = StyleSheet.create({
   },
   // Two-tone company card styles
   companiesListContainer: {
-    padding: spacing.xs,
-    gap: semanticSpacing.containerPadding,
+    padding: spacing.md,
+    gap: spacing.lg,
   },
   companyCardTwoTone: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-    borderWidth: 1,
-    borderColor: '#000',
+    borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 4,
+    marginBottom: spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#e4e4e7',
   },
-  companyCardTop: {
-    backgroundColor: '#262626',
-    padding: 0,
-    height: 200,
-    justifyContent: 'flex-start',
-    alignItems: 'center',
+  academyCard: {
+    shadowColor: '#3b82f6',
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+    borderColor: '#e4e4e7',
+  },
+  companyCardImageContainer: {
+    height: 220,
     position: 'relative',
     overflow: 'hidden',
+    backgroundColor: '#18181b',
   },
   companyCardLogo: {
     width: '100%',
-    height: 140,
-    backgroundColor: '#1a1a1a',
+    height: '100%',
+    backgroundColor: '#18181b',
   },
   companyCardLogoPlaceholder: {
     width: '100%',
-    height: 140,
-    backgroundColor: '#1a1a1a',
+    height: '100%',
+    backgroundColor: '#27272a',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  companyCardTopName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 4,
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   companyNavButton: {
     position: 'absolute',
-    bottom: 12,
-    left: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#000',
+    top: 16,
+    right: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   companyCardBottom: {
-    backgroundColor: '#f5f5f5',
-    padding: semanticSpacing.modalPadding,
-    paddingTop: semanticSpacing.containerPadding,
-    gap: semanticSpacing.tightGap,
+    backgroundColor: '#ffffff',
+    padding: 18,
+    paddingTop: 16,
+  },
+  companyCardBottomHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 12,
   },
   companyCardBottomName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#000',
-    marginBottom: 2,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#18181b',
+    flex: 1,
+    letterSpacing: 0.2,
   },
-  companyCardType: {
-    fontSize: 14,
-    color: '#000',
-    opacity: 0.7,
+  companyCardTypeBadge: {
+    backgroundColor: '#f4f4f5',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e4e4e7',
+  },
+  companyCardTypeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#52525b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   companyCardLocation: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: semanticSpacing.tightGap,
-    marginTop: semanticSpacing.iconPaddingSmall,
+    gap: 8,
+    marginTop: 4,
   },
   companyCardLocationText: {
     fontSize: 14,
-    color: '#000',
-    opacity: 0.7,
+    color: '#71717a',
     flex: 1,
+    fontWeight: '500',
   },
 });
 
