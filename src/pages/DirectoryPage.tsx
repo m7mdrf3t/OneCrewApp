@@ -78,6 +78,9 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   onUserSelect,
   onNavigate,
 }) => {
+  // Hide subcategory counts for now (they can be inaccurate due to role/label normalization differences)
+  const SHOW_SUBCATEGORY_COUNTS = false;
+
   const { api, getUsersDirect, getMyTeam, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -93,18 +96,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [filters, setFilters] = useState<FilterParams>({});
   const [debouncedFilters, setDebouncedFilters] = useState<FilterParams>({});
-  const [subcategoryCounts, setSubcategoryCounts] = useState<Record<string, number>>({});
-  const [loadingSubcategoryCounts, setLoadingSubcategoryCounts] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const subcategoryCountsRequestIdRef = useRef(0);
-
-  const normalizeRoleParam = useCallback((value: string) => {
-    return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '_').trim();
-  }, []);
-
-  const inferredCategory = useMemo(() => {
-    return section.key === 'talent' ? 'talent' : section.key === 'individuals' ? 'crew' : undefined;
-  }, [section.key]);
 
   // Pagination state (users list)
   const [usersPage, setUsersPage] = useState(1);
@@ -161,8 +153,9 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
       const limit = 50;
 
-      const effectiveCategory = inferredCategory ?? debouncedFilters.category;
-      const selectedRoleParam = selectedSubcategory ? normalizeRoleParam(selectedSubcategory) : undefined;
+      const inferredCategory =
+        section.key === 'talent' ? 'talent' : section.key === 'individuals' ? 'crew' : undefined;
+      const effectiveCategory = debouncedFilters.category ?? inferredCategory;
 
       // Build params with debounced search and filters
       const params: any = {
@@ -170,8 +163,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         page,
         search: debouncedSearchQuery,
         category: effectiveCategory,
-        // When a subcategory is selected, filter server-side by role so pagination + counts are correct.
-        role: selectedRoleParam ?? debouncedFilters.role,
+        role: debouncedFilters.role,
         location: debouncedFilters.location,
         // Physical Attributes
         height: debouncedFilters.height,
@@ -327,119 +319,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         setLoadingMoreUsers(false);
       }
     }
-  }, [isGuest, debouncedSearchQuery, debouncedFilters, browseUsersAsGuest, getUsersDirect, api, inferredCategory, selectedSubcategory, normalizeRoleParam]);
-
-  const fetchSubcategoryCounts = useCallback(async () => {
-    if (section.key === 'onehub' || section.key === 'academy') return;
-    if (!inferredCategory) return; // only compute counts for users sections (crew/talent) for now
-    if (!sectionItems?.length) return;
-
-    // Only meaningful when viewing the list of subcategories
-    if (selectedSubcategory) return;
-
-    const requestId = ++subcategoryCountsRequestIdRef.current;
-    setLoadingSubcategoryCounts(true);
-
-    try {
-      // Build shared params (excluding role - we set it per item)
-      const sharedParams: any = {
-        limit: 1,
-        page: 1,
-        search: debouncedSearchQuery,
-        category: inferredCategory,
-        // Apply all active filters except role (role is per-subcategory)
-        location: debouncedFilters.location,
-        height: debouncedFilters.height,
-        height_min: debouncedFilters.height_min,
-        height_max: debouncedFilters.height_max,
-        weight: debouncedFilters.weight,
-        weight_min: debouncedFilters.weight_min,
-        weight_max: debouncedFilters.weight_max,
-        age: debouncedFilters.age,
-        age_min: debouncedFilters.age_min,
-        age_max: debouncedFilters.age_max,
-        chest_min: debouncedFilters.chest_min,
-        chest_max: debouncedFilters.chest_max,
-        waist_min: debouncedFilters.waist_min,
-        waist_max: debouncedFilters.waist_max,
-        hips_min: debouncedFilters.hips_min,
-        hips_max: debouncedFilters.hips_max,
-        shoe_size_min: debouncedFilters.shoe_size_min,
-        shoe_size_max: debouncedFilters.shoe_size_max,
-        skin_tone: debouncedFilters.skin_tone,
-        hair_color: debouncedFilters.hair_color,
-        eye_color: debouncedFilters.eye_color,
-        gender: debouncedFilters.gender,
-        nationality: debouncedFilters.nationality,
-        union_member: debouncedFilters.union_member,
-        willing_to_travel: debouncedFilters.willing_to_travel,
-        travel_ready: debouncedFilters.travel_ready,
-        accent: debouncedFilters.accent,
-        skills: debouncedFilters.skills,
-        languages: debouncedFilters.languages,
-      };
-
-      Object.keys(sharedParams).forEach((key) => {
-        if (sharedParams[key] === undefined || sharedParams[key] === null || sharedParams[key] === '') {
-          delete sharedParams[key];
-        }
-      });
-
-      const labels = sectionItems.map((i) => i.label).filter(Boolean);
-      const results: Record<string, number> = {};
-
-      // Simple concurrency limiter to avoid rate limits
-      const CONCURRENCY = 6;
-      let idx = 0;
-
-      const worker = async () => {
-        while (idx < labels.length) {
-          const current = labels[idx++];
-          const roleParam = normalizeRoleParam(current);
-          if (!roleParam) continue;
-
-          try {
-            const params = { ...sharedParams, role: roleParam };
-            const response = isGuest
-              ? await browseUsersAsGuest(params)
-              : await getUsersDirect(params);
-
-            const total =
-              response?.data?.pagination?.total ??
-              response?.data?.pagination?.totalCount ??
-              response?.data?.pagination?.count ??
-              0;
-
-            results[current] = typeof total === 'number' ? total : Number(total) || 0;
-          } catch (e) {
-            // If anything fails, keep previous count (or 0) for that label
-            results[current] = results[current] ?? 0;
-          }
-        }
-      };
-
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, labels.length) }).map(() => worker()));
-
-      if (subcategoryCountsRequestIdRef.current === requestId) {
-        setSubcategoryCounts(results);
-      }
-    } finally {
-      if (subcategoryCountsRequestIdRef.current === requestId) {
-        setLoadingSubcategoryCounts(false);
-      }
-    }
-  }, [
-    section.key,
-    inferredCategory,
-    sectionItems,
-    selectedSubcategory,
-    debouncedSearchQuery,
-    debouncedFilters,
-    isGuest,
-    browseUsersAsGuest,
-    getUsersDirect,
-    normalizeRoleParam,
-  ]);
+  }, [isGuest, debouncedSearchQuery, debouncedFilters, browseUsersAsGuest, getUsersDirect, api, section.key]);
 
   const fetchCompanies = useCallback(async () => {
     try {
@@ -491,13 +371,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
     // Only fetch users if not viewing companies section
     if (section.key !== 'onehub' && section.key !== 'academy') {
-      if (selectedSubcategory) {
-        // Selected role: fetch users server-side for accurate pagination
-        fetchUsers(1, false);
-      } else {
-        // Subcategory list: fetch accurate counts (not page-limited)
-        fetchSubcategoryCounts();
-      }
+      fetchUsers(1, false);
     }
     
     // Fetch companies for Studios & Agencies and Academy sections
@@ -509,7 +383,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     if (!isGuest) {
       loadTeamMembers();
     }
-  }, [isGuest, section.key, selectedSubcategory, debouncedSearchQuery, debouncedFilters, fetchUsers, fetchCompanies, fetchSubcategoryCounts]);
+  }, [isGuest, section.key, debouncedSearchQuery, debouncedFilters, fetchUsers, fetchCompanies]);
 
   const loadTeamMembers = async () => {
     // Skip loading team members if guest
@@ -1127,7 +1001,11 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                     </View>
                     <View style={styles.subcategoryInfo}>
                       <Text style={styles.subcategoryTitle}>{item.label}</Text>
-                      <Text style={styles.subcategoryCount}>{count} {(section.key === 'onehub' || section.key === 'academy') ? 'companies' : 'profiles'}</Text>
+                      {SHOW_SUBCATEGORY_COUNTS && (
+                        <Text style={styles.subcategoryCount}>
+                          {count} {(section.key === 'onehub' || section.key === 'academy') ? 'companies' : 'profiles'}
+                        </Text>
+                      )}
                     </View>
                     <Ionicons name="chevron-forward" size={20} color="#71717a" />
                   </View>
