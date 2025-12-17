@@ -75,7 +75,7 @@ import { spacing, semanticSpacing } from './src/constants/spacing';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -908,6 +908,8 @@ const AppContent: React.FC = () => {
 
   const handleSplashFinished = () => {
     setShowSplash(false);
+    // Defer non-critical API work until after the JS splash finishes
+    setAppBootCompleted(true);
   };
 
 

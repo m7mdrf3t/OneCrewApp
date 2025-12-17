@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
-import { Platform, AppState, AppStateStatus, Alert } from 'react-native';
+import { Platform, AppState, AppStateStatus, Alert, InteractionManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore - expo-constants types may not be available in all environments
 import Constants from 'expo-constants';
@@ -57,6 +57,9 @@ interface ApiContextType {
   user: User | null;
   isLoading: boolean;
   error: string | null;
+  // App boot coordination (used to defer non-critical work until after the JS splash finishes)
+  isAppBootCompleted: boolean;
+  setAppBootCompleted: (completed: boolean) => void;
   // Guest session state
   isGuest: boolean;
   guestSessionId: string | null;
@@ -309,7 +312,7 @@ interface ApiContextType {
       /**
        * v2.24.3+ filter messages by sender type
        */
-      sender_type?: 'user' | 'company';
+      sender_type?: 'user' | 'company' | Array<'user' | 'company'>;
       /**
        * v2.24.3+ safe field selection (server-enforced whitelist)
        */
@@ -370,6 +373,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAppBootCompleted, setIsAppBootCompleted] = useState(false);
   // Guest session state
   const [isGuest, setIsGuest] = useState(false);
   const [guestSessionId, setGuestSessionId] = useState<string | null>(null);
@@ -6628,7 +6632,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Chat/Messaging methods (v2.5.0)
   // Real-time data - caching disabled for immediate updates
-  const getConversations = async (params?: { page?: number; limit?: number }) => {
+  const getConversations = async (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    /**
+     * onecrew-api-client v2.24.4+: server-side profile scoping for conversation lists
+     */
+    profile_type?: 'user' | 'company';
+    company_id?: string;
+  }) => {
     // Include profile context in cache key to separate conversations by profile
     const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
     const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
@@ -6638,38 +6651,26 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (!api.chat) {
           throw new Error('Chat service is not available. Please ensure the API client is initialized.');
         }
-        console.log('💬 Fetching conversations...', params);
-        const response = await api.chat.getConversations(params);
+        // Prefer server-side scoping to avoid mixing personal + company conversations.
+        const scopedParams = {
+          ...params,
+          profile_type: params?.profile_type ?? (currentProfileType === 'company' ? 'company' : 'user'),
+          ...(currentProfileType === 'company' && activeCompany?.id
+            ? { company_id: params?.company_id ?? activeCompany.id }
+            : {}),
+        };
+        console.log('💬 Fetching conversations...', scopedParams);
+        const response = await api.chat.getConversations(scopedParams);
         if (response.success && response.data) {
           // Calculate unread count
           const rawConversations = response.data.data || response.data;
           if (Array.isArray(rawConversations)) {
             const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
             const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
-            
-            // Client-side safety filter: only keep conversations that belong to the currently active profile.
-            // This prevents UI/unread logic from touching conversations tied to other identities on the same JWT.
-            const conversations = rawConversations.filter((conv: any) => {
-              if (!conv?.participants || !Array.isArray(conv.participants)) return false;
-              return conv.participants.some(
-                (p: any) => p?.participant_id === currentUserId && p?.participant_type === currentUserType
-              );
-            });
-
-            // Return filtered conversations to downstream UI (pagination might no longer match; server-side filtering is preferred).
-            try {
-              if (Array.isArray(response.data)) {
-                (response as any).data = conversations;
-              } else if (response.data && typeof response.data === 'object' && Array.isArray((response.data as any).data)) {
-                (response as any).data = { ...(response as any).data, data: conversations };
-              }
-            } catch {
-              // ignore mutation failures; unread count below still uses filtered list
-            }
 
             let unreadCount = 0;
             let skippedNotParticipant = 0;
-            conversations.forEach((conv: any) => {
+            rawConversations.forEach((conv: any) => {
               if (conv.participants && Array.isArray(conv.participants)) {
                 const participant = conv.participants.find((p: any) => 
                   p.participant_id === currentUserId && p.participant_type === currentUserType
@@ -6997,12 +6998,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const getUnreadNotificationCount = async (): Promise<number> => {
     try {
-      // Get all notifications first to calculate the count excluding messages
-      const notificationsList = await getNotifications({ limit: 100, page: 1 });
-      // Calculate count excluding message notifications
-      const count = notificationsList.filter(n => !n.is_read && !isMessageNotification(n)).length;
-      setUnreadNotificationCount(count);
-      return count;
+      // Use backend lightweight count endpoint (avoids fetching full notifications list on app startup)
+      const response = await api.getUnreadNotificationCount();
+      if (response.success && response.data) {
+        const rawCount = (response.data as any).count ?? 0;
+        // We historically excluded message notifications from this badge; without a server-side filter,
+        // we can only subtract message notifications that are currently loaded in memory.
+        const loadedUnreadMessageNotifs = notifications.filter(n => !n.is_read && isMessageNotification(n)).length;
+        const adjusted = Math.max(0, rawCount - loadedUnreadMessageNotifs);
+        setUnreadNotificationCount(adjusted);
+        return adjusted;
+      }
+      throw new Error(response.error || 'Failed to get unread notification count');
     } catch (error: any) {
       console.error('Failed to get unread notification count:', error);
       // Handle 401 errors
@@ -7125,18 +7132,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  // Load notifications and unread count on user login
+  // Load non-critical data after app boot (avoid blocking the JS splash/first render)
   useEffect(() => {
-    if (isAuthenticated && user) {
+    if (!isAuthenticated || !user || !isAppBootCompleted) return;
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      // Unread badges (lightweight endpoints)
       getUnreadNotificationCount();
-      getNotifications({ limit: 20, page: 1 });
-      // Load conversations to calculate unread count
+      // Chat unread conversations count
       getConversations({ page: 1, limit: 50 });
-      
-      // Cache warming: Pre-fetch frequently accessed data
-      const warmCache = async () => {
+
+      // Cache warming: pre-fetch frequently accessed data (non-blocking)
+      setTimeout(() => {
         try {
-          // Pre-fetch user's companies (with caching)
           if (user.id) {
             getUserCompanies(user.id);
             getUserCertifications(user.id);
@@ -7145,15 +7153,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         } catch (error) {
           console.warn('Cache warming failed:', error);
         }
-      };
-      
-      warmCache();
-    }
-  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id]);
+      }, 250);
+    });
+
+    return () => task.cancel();
+  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, isAppBootCompleted]);
 
   // Manage heartbeat based on authentication state and app state
   useEffect(() => {
-    if (!isAuthenticated || !user || !api.chat) {
+    if (!isAuthenticated || !user || !api.chat || !isAppBootCompleted) {
       // Stop heartbeat if user is not authenticated
       stopHeartbeat();
       return;
@@ -7482,6 +7490,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     user,
     isLoading,
     error,
+    isAppBootCompleted,
+    setAppBootCompleted: setIsAppBootCompleted,
     // Guest session state
     isGuest,
     guestSessionId,

@@ -1,0 +1,37 @@
+diff --git a/node_modules/onecrew-api-client/dist/core/ApiClient.js b/node_modules/onecrew-api-client/dist/core/ApiClient.js
+index 2421c8e..b919c5f 100644
+--- a/node_modules/onecrew-api-client/dist/core/ApiClient.js
++++ b/node_modules/onecrew-api-client/dist/core/ApiClient.js
+@@ -29,9 +29,18 @@ class ApiClient {
+         const { method = 'GET', body, headers = {}, timeout = this.timeout, retries = this.retries, } = options;
+         const url = `${this.baseUrl}${endpoint}`;
+         const requestHeaders = { ...this.defaultHeaders, ...headers };
+-        console.log('🌐 Making request to:', url);
+-        console.log('📤 Request body:', body);
+-        console.log('📤 Request headers:', requestHeaders);
++        // Debug logging (disabled by default to avoid leaking auth tokens and slowing down app startup).
++        // To enable: set `globalThis.ONECREW_API_DEBUG = true` in the app runtime.
++        const debug = typeof globalThis !== 'undefined' && globalThis.ONECREW_API_DEBUG === true;
++        if (debug) {
++            const safeHeaders = { ...requestHeaders };
++            if (safeHeaders.Authorization) {
++                safeHeaders.Authorization = 'Bearer ***';
++            }
++            console.log('🌐 Making request to:', url);
++            console.log('📤 Request body:', body);
++            console.log('📤 Request headers:', safeHeaders);
++        }
+         // Handle FormData - don't stringify or set Content-Type header
+         const isFormData = body instanceof FormData;
+         if (isFormData) {
+@@ -58,7 +67,9 @@ class ApiClient {
+                     throw new ApiError(errorData.error || errorData.message || `HTTP ${response.status}`, response.status, errorData.code);
+                 }
+                 const data = await response.json();
+-                console.log('✅ Response received:', data);
++                if (debug) {
++                    console.log('✅ Response received:', data);
++                }
+                 return data;
+             }
+             catch (error) {

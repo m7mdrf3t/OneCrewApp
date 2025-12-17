@@ -126,7 +126,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
       const maxPages = 3; // avoid excessive network calls; enough for most users
 
       for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-        const resp = await getConversationsRef.current({ page: pageNum, limit });
+        const resp = await getConversationsRef.current({
+          page: pageNum,
+          limit,
+          profile_type: currentProfileTypeValue,
+          ...(currentProfileTypeValue === 'company' && activeCompany?.id ? { company_id: activeCompany.id } : {}),
+        });
         if (!resp?.success || !resp.data) break;
 
         const data = resp.data.data || resp.data;
