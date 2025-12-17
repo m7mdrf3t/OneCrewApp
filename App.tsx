@@ -392,6 +392,13 @@ const AppContent: React.FC = () => {
           // Ensure companyId is properly set in the page data
           // Handle both object format { companyId: '...' } and string format '...'
           let companyId = null;
+          // Preserve any existing page data (e.g., readOnly) when normalizing.
+          // This is critical for "public/read-only" company/academy previews that must stay view-only
+          // when navigating deeper (e.g., to All Courses) and then coming back.
+          const existingData =
+            newCurrentPage.data && typeof newCurrentPage.data === 'object'
+              ? { ...newCurrentPage.data }
+              : {};
           
           if (!newCurrentPage.data) {
             // If no data, use activeCompany as fallback
@@ -409,7 +416,7 @@ const AppContent: React.FC = () => {
           
           // Normalize the data format to always be an object
           if (companyId) {
-            newCurrentPage.data = { companyId };
+            newCurrentPage.data = { ...existingData, companyId };
           } else {
             // If we still don't have a companyId, this is a problem
             // Try to find companyProfile in earlier history entries
@@ -419,7 +426,8 @@ const AppContent: React.FC = () => {
                   ? newHistory[i].data 
                   : newHistory[i].data?.companyId;
                 if (prevCompanyId) {
-                  newCurrentPage.data = { companyId: prevCompanyId };
+                  // Preserve any existing flags (e.g. readOnly) while restoring companyId.
+                  newCurrentPage.data = { ...existingData, companyId: prevCompanyId };
                   break;
                 }
               }
