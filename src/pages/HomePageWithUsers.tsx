@@ -16,7 +16,7 @@ interface User {
   id: string;
   name: string;
   email?: string;
-  category: 'crew' | 'talent' | 'company';
+  category: 'crew' | 'talent' | 'company' | 'custom';
   primary_role?: string;
   profile_completeness: number;
   online_last_seen?: string;
@@ -413,14 +413,33 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
 
   // Users are already filtered by API, just categorize them
   const usersByCategory = useMemo(() => {
+    const normalize = (value: string) =>
+      value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+    const knownRoleSet = new Set<string>([
+      ...crewRoles.map((r: any) => normalize(getRoleName(r))),
+      ...talentRoles.map((r: any) => normalize(getRoleName(r))),
+    ].filter(Boolean));
+
     const categorized = {
       talent: users.filter(u => u.category === 'talent'),
       crew: users.filter(u => u.category === 'crew'),
       company: users.filter(u => u.category === 'company'),
+      // "Custom users" definition (client-side):
+      // - explicit category 'custom' (future backend support), OR
+      // - crew/talent users whose primary_role isn't in the known crew/talent roles lists
+      custom: users.filter(u => {
+        if ((u as any).category === 'custom') return true;
+        if (u.category === 'company') return false;
+        if (!u.primary_role) return false;
+        if (knownRoleSet.size === 0) return false; // avoid misclassifying if roles haven't loaded
+        const role = normalize(u.primary_role);
+        return role ? !knownRoleSet.has(role) : false;
+      }),
     };
     
     return categorized;
-  }, [users]);
+  }, [users, crewRoles, talentRoles]);
 
   // Count users by role for crew section (normalize role names for matching)
   const roleCounts = useMemo(() => {
@@ -437,8 +456,8 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     return counts;
   }, [usersByCategory?.crew]);
 
-  // Filter sections to only show: talent, individuals (Crew), onehub (Studios & Agencies), academy
-  const allowedSectionKeys = ['talent', 'individuals', 'onehub', 'academy'];
+  // Filter sections to only show: talent, individuals (Crew), onehub (Studios & Agencies), academy, custom
+  const allowedSectionKeys = ['talent', 'individuals', 'onehub', 'academy', 'custom'];
   
   const filteredSections = useMemo(() => {
     const allowedSections = SECTIONS.filter(section => allowedSectionKeys.includes(section.key));
@@ -514,6 +533,39 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
         // Fallback to original section items if roles haven't loaded
         return section;
       }
+      if (section.key === 'custom') {
+        // Build dynamic custom roles from actual "custom" users
+        const customUsers = usersByCategory.custom || [];
+        const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const prettify = (value: string) =>
+          value
+            .replace(/_/g, ' ')
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+
+        const countsByRole: Record<string, number> = {};
+        customUsers.forEach((u) => {
+          const role = u.primary_role ? normalize(u.primary_role) : '';
+          if (!role) return;
+          countsByRole[role] = (countsByRole[role] || 0) + 1;
+        });
+
+        const roleItems = Object.keys(countsByRole)
+          .sort((a, b) => countsByRole[b] - countsByRole[a] || a.localeCompare(b))
+          .map((role) => ({
+            label: prettify(role),
+            users: countsByRole[role],
+          }));
+
+        const items = [
+          { label: 'All Custom Users', users: customUsers.length },
+          ...roleItems,
+        ];
+
+        return {
+          ...section,
+          items: items.length > 0 ? items : section.items,
+        };
+      }
       // For other sections (onehub, academy), keep original items
       return section;
     });
@@ -562,6 +614,8 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       } else if (section.key === 'academy') {
         // Academy: companies matching academy type
         userCount = companiesByType.academy.length;
+      } else if (section.key === 'custom') {
+        userCount = usersByCategory.custom.length;
       }
       
       return {

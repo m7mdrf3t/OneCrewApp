@@ -168,6 +168,13 @@ export const SECTIONS: Section[] = [
     ]
   },
   {
+    key: "custom",
+    title: "Custom Users",
+    items: [
+      { label: "All Custom Users" }
+    ]
+  },
+  {
     key: "legal",
     title: "Legal",
     items: [

@@ -3,6 +3,7 @@ import {
   View,
   Text,
   Modal,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
@@ -30,11 +31,15 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [crewRoles, setCrewRoles] = useState<string[]>([]);
   const [talentRoles, setTalentRoles] = useState<string[]>([]);
+  const [customRoles, setCustomRoles] = useState<string[]>([]);
+  const [customRoleInput, setCustomRoleInput] = useState('');
+  const [isCustomRoleMode, setIsCustomRoleMode] = useState(false);
   const [rolesLoading, setRolesLoading] = useState(true);
 
   const categories = [
     { key: 'crew', label: 'Crew Member', icon: 'people' },
     { key: 'talent', label: 'Talent', icon: 'star' },
+    { key: 'other', label: 'Other', icon: 'create' },
   ];
 
   // Fallback roles in case API fails
@@ -73,13 +78,21 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
         };
 
         // Prefer server-driven categories (dynamic)
-        const [crewRes, talentRes] = await Promise.all([
+        // Use allSettled so a missing `custom` endpoint doesn't break crew/talent loads.
+        const [crewResResult, talentResResult, customResResult] = await Promise.allSettled([
           getRoles({ category: 'crew' }),
           getRoles({ category: 'talent' }),
+          getRoles({ category: 'custom' }),
         ]);
+
+        const crewRes = crewResResult.status === 'fulfilled' ? crewResResult.value : null;
+        const talentRes = talentResResult.status === 'fulfilled' ? talentResResult.value : null;
+        const customRes = customResResult.status === 'fulfilled' ? customResResult.value : null;
 
         const crewFromApi = crewRes?.success ? normalizeRoles(crewRes.data) : [];
         const talentFromApi = talentRes?.success ? normalizeRoles(talentRes.data) : [];
+        const customFromApi = customRes?.success ? normalizeRoles(customRes.data) : [];
+        setCustomRoles(customFromApi);
 
         // If backend returns anything for the category calls, trust it (this is what makes roles truly dynamic)
         if (crewFromApi.length > 0 || talentFromApi.length > 0) {
@@ -110,6 +123,7 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
         // Use fallback on error
         setCrewRoles(fallbackCrewRoles);
         setTalentRoles(fallbackTalentRoles);
+        setCustomRoles([]);
       } finally {
         setRolesLoading(false);
       }
@@ -129,17 +143,42 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
   const handleCategoryChange = (category: 'crew' | 'talent') => {
     setSelectedCategory(category);
     setSelectedRole(''); // Reset role when category changes
+    setCustomRoleInput('');
+    setIsCustomRoleMode(false);
   };
 
+  const handleOtherRoleMode = () => {
+    setIsCustomRoleMode(true);
+    setSelectedRole('');
+    setCustomRoleInput('');
+  };
+
+  const normalizeRoleInput = (value: string) => {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  };
+
+  const canContinue = isCustomRoleMode
+    ? Boolean(normalizeRoleInput(customRoleInput))
+    : Boolean(selectedRole);
+
   const handleContinue = () => {
-    if (!selectedRole) {
+    const roleToSubmit = isCustomRoleMode
+      ? (normalizeRoleInput(customRoleInput) || selectedRole)
+      : selectedRole;
+
+    if (!roleToSubmit) {
       Alert.alert('Role Required', 'Please select your primary role to continue.');
       return;
     }
-    onSelect(selectedCategory, selectedRole);
+    onSelect(selectedCategory, roleToSubmit);
   };
 
   const roles = getRolesForCategory(selectedCategory);
+  const customRolesForPicker = customRoles.filter((r) => !new Set(roles).has(r));
 
   return (
     <Modal
@@ -165,20 +204,29 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
                   key={category.key}
                   style={[
                     styles.categoryButton,
-                    selectedCategory === category.key && styles.categoryButtonActive,
+                    (category.key === 'other'
+                      ? isCustomRoleMode
+                      : (!isCustomRoleMode && selectedCategory === category.key)) && styles.categoryButtonActive,
                   ]}
-                  onPress={() => handleCategoryChange(category.key as any)}
+                  onPress={() => {
+                    if (category.key === 'other') return handleOtherRoleMode();
+                    return handleCategoryChange(category.key as any);
+                  }}
                   disabled={isLoading}
                 >
                   <Ionicons
                     name={category.icon as any}
                     size={20}
-                    color={selectedCategory === category.key ? '#fff' : '#71717a'}
+                    color={(category.key === 'other'
+                      ? isCustomRoleMode
+                      : (!isCustomRoleMode && selectedCategory === category.key)) ? '#fff' : '#71717a'}
                   />
                   <Text
                     style={[
                       styles.categoryButtonText,
-                      selectedCategory === category.key && styles.categoryButtonTextActive,
+                      (category.key === 'other'
+                        ? isCustomRoleMode
+                        : (!isCustomRoleMode && selectedCategory === category.key)) && styles.categoryButtonTextActive,
                     ]}
                   >
                     {category.label}
@@ -195,36 +243,98 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
                 <Text style={styles.roleLoadingText}>Loading roles...</Text>
               </View>
             ) : (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.roleScrollView}
-                contentContainerStyle={styles.roleScrollContent}
-              >
-                {roles.map((role) => (
-                  <TouchableOpacity
-                    key={role}
-                    style={[
-                      styles.roleButton,
-                      selectedRole === role && styles.roleButtonActive,
-                    ]}
-                    onPress={() => setSelectedRole(role)}
-                    disabled={isLoading}
+              <>
+                {isCustomRoleMode ? (
+                  <View style={styles.customRoleInputRow}>
+                    <TextInput
+                      style={styles.customRoleInput}
+                      placeholder="Type your role (e.g., production_assistant)"
+                      placeholderTextColor="#9ca3af"
+                      value={customRoleInput}
+                      onChangeText={setCustomRoleInput}
+                      editable={!isLoading}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                      onSubmitEditing={() => {
+                        if (!isLoading) handleContinue();
+                      }}
+                    />
+                  </View>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.roleScrollView}
+                    contentContainerStyle={styles.roleScrollContent}
                   >
-                    <Text
-                      style={[
-                        styles.roleButtonText,
-                        selectedRole === role && styles.roleButtonTextActive,
-                      ]}
+                    {roles.map((role) => (
+                      <TouchableOpacity
+                        key={role}
+                        style={[
+                          styles.roleButton,
+                          selectedRole === role && styles.roleButtonActive,
+                        ]}
+                        onPress={() => setSelectedRole(role)}
+                        disabled={isLoading}
+                      >
+                        <Text
+                          style={[
+                            styles.roleButtonText,
+                            selectedRole === role && styles.roleButtonTextActive,
+                          ]}
+                        >
+                          {role.replace(/_/g, ' ').toUpperCase()}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+
+                {isCustomRoleMode && (
+                  <Text style={styles.customRoleHint}>
+                    We’ll format it as lowercase with underscores.
+                  </Text>
+                )}
+
+                {!isCustomRoleMode && customRolesForPicker.length > 0 && (
+                  <View style={styles.customRolesSection}>
+                    <Text style={styles.customRolesTitle}>Custom roles</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.roleScrollView}
+                      contentContainerStyle={styles.roleScrollContent}
                     >
-                      {role.replace(/_/g, ' ').toUpperCase()}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+                      {customRolesForPicker.map((role) => (
+                        <TouchableOpacity
+                          key={role}
+                          style={[
+                            styles.roleButton,
+                            selectedRole === role && styles.roleButtonActive,
+                          ]}
+                          onPress={() => setSelectedRole(role)}
+                          disabled={isLoading}
+                        >
+                          <Text
+                            style={[
+                              styles.roleButtonText,
+                              selectedRole === role && styles.roleButtonTextActive,
+                            ]}
+                          >
+                            {role.replace(/_/g, ' ').toUpperCase()}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </>
             )}
-            {!selectedRole && !rolesLoading && (
-              <Text style={styles.roleHint}>Please select your primary role</Text>
+            {!rolesLoading && !canContinue && (
+              <Text style={styles.roleHint}>
+                {isCustomRoleMode ? 'Please enter your primary role' : 'Please select your primary role'}
+              </Text>
             )}
           </View>
 
@@ -239,10 +349,10 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
             <TouchableOpacity
               style={[
                 styles.continueButton,
-                (!selectedRole || isLoading) && styles.buttonDisabled,
+                (!canContinue || isLoading) && styles.buttonDisabled,
               ]}
               onPress={handleContinue}
-              disabled={!selectedRole || isLoading}
+              disabled={!canContinue || isLoading}
             >
               {isLoading ? (
                 <Text style={styles.continueButtonText}>Processing...</Text>
@@ -323,6 +433,36 @@ const styles = StyleSheet.create({
   },
   roleScrollView: {
     flexGrow: 0,
+  },
+  customRolesSection: {
+    marginTop: 10,
+  },
+  customRoleInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  customRoleInput: {
+    flex: 1,
+    height: 44,
+    borderWidth: 1,
+    borderColor: '#d4d4d8',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: '#000',
+    backgroundColor: '#fff',
+  },
+  customRoleHint: {
+    marginTop: 6,
+    fontSize: 11,
+    color: '#71717a',
+  },
+  customRolesTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#71717a',
+    marginBottom: 6,
   },
   roleScrollContent: {
     paddingRight: 16,

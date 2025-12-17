@@ -103,6 +103,7 @@ const AppContent: React.FC = () => {
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
   const systemColorScheme = useColorScheme();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const lastBackPressAtRef = useRef<number>(0);
 
   useEffect(() => {
     if (systemColorScheme === 'light' || systemColorScheme === 'dark') {
@@ -355,6 +356,14 @@ const AppContent: React.FC = () => {
   };
 
   const handleBack = useCallback(() => {
+    // Guard against "touch-through" / accidental double-trigger which can pop 2 screens at once
+    // (e.g., when the back button stays in the same position after the first pop).
+    const now = Date.now();
+    if (now - lastBackPressAtRef.current < 400) {
+      return;
+    }
+    lastBackPressAtRef.current = now;
+
     setHistory(prevHistory => {
       if (prevHistory.length > 1) {
         const currentPage = prevHistory[prevHistory.length - 1];

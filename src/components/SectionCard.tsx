@@ -9,6 +9,7 @@ const SECTION_ICONS: { [key: string]: keyof typeof Ionicons.glyphMap } = {
   individuals: 'people',
   specialized: 'sparkles',
   academy: 'school',
+  custom: 'person-add',
   legal: 'hammer',
   technicians: 'people',
 };

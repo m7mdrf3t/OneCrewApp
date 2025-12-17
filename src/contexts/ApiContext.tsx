@@ -99,9 +99,9 @@ interface ApiContextType {
   getLanguages: () => Promise<any>;
   getServices: () => Promise<any>;
   // Roles and Categories methods
-  getRoles: (options?: { category?: 'crew' | 'talent' | 'company' | 'guest'; active?: boolean }) => Promise<any>;
+  getRoles: (options?: { category?: 'crew' | 'talent' | 'company' | 'guest' | 'custom'; active?: boolean }) => Promise<any>;
   getCategories: () => Promise<any>;
-  getRolesWithDescriptions: (options?: { category?: 'crew' | 'talent' | 'company' | 'guest'; active?: boolean }) => Promise<any>;
+  getRolesWithDescriptions: (options?: { category?: 'crew' | 'talent' | 'company' | 'guest' | 'custom'; active?: boolean }) => Promise<any>;
   getCategoriesWithDescriptions: () => Promise<any>;
   // User filtering methods
   getUsersByRole: (role: string) => Promise<any>;
@@ -294,7 +294,16 @@ interface ApiContextType {
   getNewsCategories: () => Promise<any>;
   getNewsTags: () => Promise<any>;
   // Chat/Messaging methods (v2.5.0)
-  getConversations: (params?: { page?: number; limit?: number }) => Promise<any>;
+  getConversations: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    /**
+     * onecrew-api-client v2.24.4+: server-side profile scoping for conversation lists
+     */
+    profile_type?: 'user' | 'company';
+    company_id?: string;
+  }) => Promise<any>;
   getConversationById: (conversationId: string) => Promise<any>;
   createConversation: (request: { conversation_type: 'user_user' | 'user_company' | 'company_company'; participant_ids: string[]; name?: string }) => Promise<any>;
   getMessages: (
@@ -2799,7 +2808,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // Roles and Categories methods
-  const getRoles = async (options?: { category?: 'crew' | 'talent' | 'company' | 'guest'; active?: boolean }) => {
+  const getRoles = async (options?: { category?: 'crew' | 'talent' | 'company' | 'guest' | 'custom'; active?: boolean }) => {
+    // Backend `user_category` enum does not include "custom" (yet). Treat custom roles as client-managed to avoid 500s.
+    if (options?.category === 'custom') {
+      return { success: true, data: [] };
+    }
+
     return performanceMonitor.trackApiCall(
       'Get Roles',
       `${baseUrl}/api/roles${options?.category ? `?category=${options.category}` : ''}`,
@@ -2815,6 +2829,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             if (lower === 'crew') return 'crew';
             if (lower === 'company') return 'company';
             if (lower === 'guest') return 'guest';
+            if (lower === 'custom') return 'custom';
             return cat;
           };
 
@@ -2896,6 +2911,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
         } catch (err: any) {
           console.error('❌ Failed to fetch roles:', err);
+          // Custom roles should fail "quietly" (backend may not support it yet) and should not fall back to mock roles.
+          if (options?.category === 'custom') {
+            return { success: true, data: [] };
+          }
           // Return mock roles as fallback
           return {
             success: true,
@@ -2989,7 +3008,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const getRolesWithDescriptions = async (options?: { category?: 'crew' | 'talent' | 'company' | 'guest'; active?: boolean }) => {
+  const getRolesWithDescriptions = async (options?: { category?: 'crew' | 'talent' | 'company' | 'guest' | 'custom'; active?: boolean }) => {
+    // Same rationale as `getRoles`: skip server call for unsupported "custom" category.
+    if (options?.category === 'custom') {
+      return { success: true, data: [] };
+    }
+
     try {
       console.log('🔍 Fetching roles with descriptions using API client...', options ? `with options: ${JSON.stringify(options)}` : '');
       const response = await api.getRolesWithDescriptions(options);
@@ -6787,7 +6811,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       limit?: number;
       before?: string;
       include?: 'none' | Array<'sender_user' | 'sender_company' | 'sent_by_user' | 'reads'>;
-      sender_type?: 'user' | 'company';
+      sender_type?: 'user' | 'company' | Array<'user' | 'company'>;
       sender_user_fields?: string[];
       sender_company_fields?: string[];
     }
