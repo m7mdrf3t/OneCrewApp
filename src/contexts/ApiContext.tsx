@@ -294,7 +294,29 @@ interface ApiContextType {
   getConversations: (params?: { page?: number; limit?: number }) => Promise<any>;
   getConversationById: (conversationId: string) => Promise<any>;
   createConversation: (request: { conversation_type: 'user_user' | 'user_company' | 'company_company'; participant_ids: string[]; name?: string }) => Promise<any>;
-  getMessages: (conversationId: string, params?: { page?: number; limit?: number; before?: string }) => Promise<any>;
+  getMessages: (
+    conversationId: string,
+    params?: {
+      page?: number;
+      limit?: number;
+      before?: string;
+      /**
+       * v2.24.3+ (backend-controlled hydration + payload reduction)
+       * - 'none' disables hydration entirely
+       * - array enables specific hydrations
+       */
+      include?: 'none' | Array<'sender_user' | 'sender_company' | 'sent_by_user' | 'reads'>;
+      /**
+       * v2.24.3+ filter messages by sender type
+       */
+      sender_type?: 'user' | 'company';
+      /**
+       * v2.24.3+ safe field selection (server-enforced whitelist)
+       */
+      sender_user_fields?: string[];
+      sender_company_fields?: string[];
+    }
+  ) => Promise<any>;
   sendMessage: (conversationId: string, messageData: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; file_url?: string; file_name?: string; file_size?: number; reply_to_message_id?: string }) => Promise<any>;
   editMessage: (messageId: string, content: string) => Promise<any>;
   deleteMessage: (messageId: string) => Promise<any>;
@@ -2781,6 +2803,47 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       async () => {
         try {
           console.log('🔍 Fetching roles using API client...', options ? `with options: ${JSON.stringify(options)}` : '');
+          const normalizeCategory = (cat: any): string | undefined => {
+            if (typeof cat !== 'string') return undefined;
+            const lower = cat.toLowerCase();
+            // Common mappings (backend might return Title Case or different taxonomy)
+            if (lower === 'talent') return 'talent';
+            if (lower === 'crew') return 'crew';
+            if (lower === 'company') return 'company';
+            if (lower === 'guest') return 'guest';
+            return cat;
+          };
+
+          const extractRoleName = (role: any): string => {
+            if (typeof role === 'string') return role;
+            if (!role || typeof role !== 'object') return '';
+            // Try common fields
+            if (typeof role.name === 'string') return role.name;
+            if (typeof role.role === 'string') return role.role;
+            if (typeof role.title === 'string') return role.title;
+            if (typeof role.role_name === 'string') return role.role_name;
+            return '';
+          };
+
+          const toRoleObjects = (raw: any): Array<{ id: string; name: string; category?: string }> => {
+            const arr = Array.isArray(raw) ? raw : [];
+            const out: Array<{ id: string; name: string; category?: string }> = [];
+
+            arr.forEach((item: any, index: number) => {
+              const name = extractRoleName(item).trim();
+              if (!name) return;
+              const id =
+                (item && typeof item === 'object' && (typeof item.id === 'string' || typeof item.id === 'number'))
+                  ? String(item.id)
+                  : String(index + 1);
+              const itemCategory =
+                item && typeof item === 'object' ? normalizeCategory(item.category) : undefined;
+              const category = options?.category || itemCategory || getRoleCategory(name);
+              out.push({ id, name, category });
+            });
+
+            return out;
+          };
           
           // Ensure API is initialized
           if (!api) {
@@ -2806,19 +2869,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             const url = `/api/roles${queryString ? `?${queryString}` : ''}`;
             const response = await (api as any).apiClient.get(url);
             console.log('✅ Direct API call successful:', response);
+            // Normalize into consistent shape for the app
+            if (response?.success && response?.data) {
+              return { success: true, data: toRoleObjects(response.data) };
+            }
             return response;
           }
           
           const response = await api.getRoles(options);
       
       if (response.success && response.data) {
-        // Convert string array to object array format
-        // If category filter was used, the roles are already filtered by the API
-        const rolesData = response.data.map((role: string, index: number) => ({
-          id: (index + 1).toString(),
-          name: role,
-          category: options?.category || getRoleCategory(role)
-        }));
+        // Normalize API response into object array format (supports string[] OR object[])
+        const rolesData = toRoleObjects(response.data);
         
         console.log('✅ Roles fetched:', rolesData);
         return {
@@ -6580,12 +6642,33 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const response = await api.chat.getConversations(params);
         if (response.success && response.data) {
           // Calculate unread count
-          const conversations = response.data.data || response.data;
-          if (Array.isArray(conversations)) {
+          const rawConversations = response.data.data || response.data;
+          if (Array.isArray(rawConversations)) {
             const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
             const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
             
+            // Client-side safety filter: only keep conversations that belong to the currently active profile.
+            // This prevents UI/unread logic from touching conversations tied to other identities on the same JWT.
+            const conversations = rawConversations.filter((conv: any) => {
+              if (!conv?.participants || !Array.isArray(conv.participants)) return false;
+              return conv.participants.some(
+                (p: any) => p?.participant_id === currentUserId && p?.participant_type === currentUserType
+              );
+            });
+
+            // Return filtered conversations to downstream UI (pagination might no longer match; server-side filtering is preferred).
+            try {
+              if (Array.isArray(response.data)) {
+                (response as any).data = conversations;
+              } else if (response.data && typeof response.data === 'object' && Array.isArray((response.data as any).data)) {
+                (response as any).data = { ...(response as any).data, data: conversations };
+              }
+            } catch {
+              // ignore mutation failures; unread count below still uses filtered list
+            }
+
             let unreadCount = 0;
+            let skippedNotParticipant = 0;
             conversations.forEach((conv: any) => {
               if (conv.participants && Array.isArray(conv.participants)) {
                 const participant = conv.participants.find((p: any) => 
@@ -6607,17 +6690,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 } else if (conv.last_message_at && !participant) {
                   // If there's a last message but current profile is not a participant, skip it
                   // This ensures we only count unread for conversations belonging to current profile
-                  console.log('⚠️ Skipping unread count for conversation - current profile is not a participant:', {
-                    conversationId: conv.id,
-                    currentProfileType: currentUserType,
-                    currentProfileId: currentUserId,
-                  });
+                  skippedNotParticipant++;
                 }
               }
             });
             
             setUnreadConversationCount(unreadCount);
             console.log('💬 Unread conversations count:', unreadCount);
+            if (__DEV__ && skippedNotParticipant > 0) {
+              console.log('⚠️ Skipped unread-count for conversations not belonging to current profile:', {
+                skipped: skippedNotParticipant,
+                currentProfileType: currentUserType,
+                currentProfileId: currentUserId,
+              });
+            }
           }
         }
         console.log('✅ Conversations fetched successfully');
@@ -6693,7 +6779,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // Real-time data - caching disabled for immediate updates
-  const getMessages = async (conversationId: string, params?: { page?: number; limit?: number; before?: string }) => {
+  const getMessages = async (
+    conversationId: string,
+    params?: {
+      page?: number;
+      limit?: number;
+      before?: string;
+      include?: 'none' | Array<'sender_user' | 'sender_company' | 'sent_by_user' | 'reads'>;
+      sender_type?: 'user' | 'company';
+      sender_user_fields?: string[];
+      sender_company_fields?: string[];
+    }
+  ) => {
     // Include profile context in cache key to separate messages by profile
     const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
     const currentUserType = currentProfileType === 'company' ? 'company' : 'user';

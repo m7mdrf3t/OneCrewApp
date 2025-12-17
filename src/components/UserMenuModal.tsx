@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, Share, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface UserMenuModalProps {
@@ -15,6 +15,8 @@ interface UserMenuModalProps {
   onToggleTheme?: () => void;
 }
 
+const APP_STORE_URL = 'https://apps.apple.com/app/cool-steps/id6756064436';
+
 const UserMenuModal: React.FC<UserMenuModalProps> = ({
   visible,
   onClose,
@@ -28,10 +30,25 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
   onToggleTheme,
 }) => {
   const isDark = theme === 'dark';
+
+  const handleInviteFriend = async () => {
+    try {
+      // iOS will combine `message` + `url` when copying/sharing; avoid duplicating the link.
+      const content =
+        Platform.OS === 'ios'
+          ? { message: 'Join me on Cool Steps!', url: APP_STORE_URL }
+          : { message: `Join me on Cool Steps! Download it here: ${APP_STORE_URL}` };
+
+      await Share.share(content);
+    } catch (error) {
+      Alert.alert('Unable to share', 'Please try again.');
+    }
+  };
   
   const menuItems = [
     { id: 'myTeam', label: 'My Team', icon: 'people', onPress: onMyTeam },
     { id: 'settings', label: 'Settings', icon: 'settings', onPress: onSettings },
+    { id: 'inviteFriend', label: 'Invite a friend', icon: 'share-social', onPress: handleInviteFriend },
     { id: 'profileEdit', label: 'Profile Edit', icon: 'create', onPress: onProfileEdit },
     { id: 'createCompany', label: 'Create Company', icon: 'business', onPress: onCreateCompany || (() => {}) },
     { id: 'helpSupport', label: 'Help & Support', icon: 'help-circle', onPress: onHelpSupport },

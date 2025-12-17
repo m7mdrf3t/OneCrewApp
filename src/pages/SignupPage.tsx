@@ -15,7 +15,7 @@ import type { UserRole } from 'onecrew-api-client';
 import { useApi } from '../contexts/ApiContext';
 import CategorySelectionModal from '../components/CategorySelectionModal';
 import { validatePassword, getPasswordRequirements } from '../utils/passwordValidator';
-import { categorizeRole, filterRolesByCategory } from '../utils/roleCategorizer';
+import { filterRolesByCategory } from '../utils/roleCategorizer';
 
 interface SignupPageProps {
   onNavigateToLogin: () => void;
@@ -58,7 +58,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
   ];
 
   const fallbackTalentRoles = [
-    'actor', 'voice_actor', 'singer', 'dancer', 'model'
+    'actor', 'voice_actor', 'singer', 'dancer', 'model', 'engineer'
   ];
 
   // Use the shared categorizeRole function from utils
@@ -68,42 +68,51 @@ const SignupPage: React.FC<SignupPageProps> = ({
     const loadRoles = async () => {
       setRolesLoading(true);
       try {
+        const normalizeRoles = (data: any): string[] => {
+          const rolesData = Array.isArray(data) ? data : [];
+          const normalized = rolesData
+            .map((role: any) => {
+              const roleName =
+                typeof role === 'string'
+                  ? role
+                  : (typeof role?.name === 'string' ? role.name : '');
+              if (!roleName) return '';
+              return roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            })
+            .filter(Boolean);
+          return Array.from(new Set(normalized)).sort();
+        };
+
+        // Prefer server-driven categories (dynamic)
+        const [crewRes, talentRes] = await Promise.all([
+          getRoles({ category: 'crew' }),
+          getRoles({ category: 'talent' }),
+        ]);
+
+        const crewFromApi = crewRes?.success ? normalizeRoles(crewRes.data) : [];
+        const talentFromApi = talentRes?.success ? normalizeRoles(talentRes.data) : [];
+
+        // If backend returns anything for the category calls, trust it (this is what makes roles truly dynamic)
+        if (crewFromApi.length > 0 || talentFromApi.length > 0) {
+          setCrewRoles(crewFromApi.length > 0 ? crewFromApi : fallbackCrewRoles);
+          setTalentRoles(talentFromApi.length > 0 ? talentFromApi : fallbackTalentRoles);
+          return;
+        }
+
+        // Fallback: load all roles then split via local categorizer
         const response = await getRoles();
         if (response.success && response.data) {
           const rolesData = Array.isArray(response.data) ? response.data : [];
-          
-          // Extract role names and categorize them
-          const crew: string[] = [];
-          const talent: string[] = [];
-          
-          // Use the shared filterRolesByCategory function
+
           const crewRolesFiltered = filterRolesByCategory(rolesData, 'crew');
           const talentRolesFiltered = filterRolesByCategory(rolesData, 'talent');
-          
-          crewRolesFiltered.forEach((role: any) => {
-            const roleName = typeof role === 'string' ? role : (role.name || role);
-            const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
-            if (!crew.includes(normalized)) {
-              crew.push(normalized);
-            }
-          });
-          
-          talentRolesFiltered.forEach((role: any) => {
-            const roleName = typeof role === 'string' ? role : (role.name || role);
-            const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
-            if (!talent.includes(normalized)) {
-              talent.push(normalized);
-            }
-          });
-          
-          // Sort roles for consistent display
-          crew.sort();
-          talent.sort();
-          
+
+          const crew = normalizeRoles(crewRolesFiltered);
+          const talent = normalizeRoles(talentRolesFiltered);
+
           setCrewRoles(crew.length > 0 ? crew : fallbackCrewRoles);
           setTalentRoles(talent.length > 0 ? talent : fallbackTalentRoles);
         } else {
-          // Use fallback if API fails
           setCrewRoles(fallbackCrewRoles);
           setTalentRoles(fallbackTalentRoles);
         }

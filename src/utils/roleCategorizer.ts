@@ -12,6 +12,12 @@ export type RoleCategory = 'crew' | 'talent' | 'both';
 export const categorizeRole = (roleName: string): RoleCategory => {
   const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
   
+  // Explicit support for "Engineer" roles that should be treated as talent
+  // (avoid misclassifying crew roles like "sound_engineer")
+  if (normalized === 'engineer' || normalized === 'main_engineer') {
+    return 'talent';
+  }
+
   // Roles that are only for talent
   const talentOnly = ['singer', 'dancer', 'model'];
   if (talentOnly.some(t => normalized.includes(t))) {

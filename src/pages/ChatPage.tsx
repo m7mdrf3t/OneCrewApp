@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
-import { ChatPageProps, ChatMessage, ChatConversation } from '../types';
+import { ChatPageProps, ChatMessage, ChatConversation, ChatConversationType, ChatParticipantType } from '../types';
 import supabaseService from '../services/SupabaseService';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import MediaPickerService from '../services/MediaPickerService';
@@ -36,6 +36,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     readMessage,
     getConversationById,
     createConversation,
+    getConversations,
     uploadFile,
     getCompanyMembers,
     user,
@@ -60,6 +61,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const createConversationRef = useRef(createConversation);
   const sendMessageRef = useRef(sendMessage);
   const getMessagesRef = useRef(getMessages);
+  const getConversationsRef = useRef(getConversations);
   
   // Keep refs updated
   useEffect(() => {
@@ -67,7 +69,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
     createConversationRef.current = createConversation;
     sendMessageRef.current = sendMessage;
     getMessagesRef.current = getMessages;
-  }, [getConversationById, createConversation, sendMessage, getMessages]);
+    getConversationsRef.current = getConversations;
+  }, [getConversationById, createConversation, sendMessage, getMessages, getConversations]);
   
   const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -94,6 +97,106 @@ const ChatPage: React.FC<ChatPageProps> = ({
   // Determine current user/company ID
   const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
   const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
+
+  const getParticipantTypeFromParticipant = useCallback((p: any): ChatParticipantType => {
+    if (!p) return 'user';
+    // common shapes across the app
+    if (p.category === 'company' || p.profile_type === 'company' || p.type === 'company') return 'company';
+    return 'user';
+  }, []);
+
+  const getDirectConversationType = useCallback(
+    (a: ChatParticipantType, b: ChatParticipantType): ChatConversationType => {
+      if (a === 'user' && b === 'user') return 'user_user';
+      if (a === 'company' && b === 'company') return 'company_company';
+      return 'user_company';
+    },
+    []
+  );
+
+  const findExistingDirectConversation = useCallback(
+    async (desiredType: ChatConversationType, otherId: string, otherType: ChatParticipantType) => {
+      const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+      const currentProfileTypeValue: ChatParticipantType = currentProfileType === 'company' ? 'company' : 'user';
+
+      if (!currentProfileId) return null;
+      if (!getConversationsRef.current) return null;
+
+      const limit = 50;
+      const maxPages = 3; // avoid excessive network calls; enough for most users
+
+      for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+        const resp = await getConversationsRef.current({ page: pageNum, limit });
+        if (!resp?.success || !resp.data) break;
+
+        const data = resp.data.data || resp.data;
+        const conversations = Array.isArray(data) ? data : [];
+
+        const match = conversations.find((conv: any) => {
+          if (!conv || conv.conversation_type !== desiredType) return false;
+          if (!Array.isArray(conv.participants)) return false;
+
+          const hasCurrent = conv.participants.some(
+            (p: any) =>
+              p?.participant_id === currentProfileId &&
+              p?.participant_type === currentProfileTypeValue &&
+              !p?.left_at
+          );
+          const hasOther = conv.participants.some(
+            (p: any) => p?.participant_id === otherId && p?.participant_type === otherType && !p?.left_at
+          );
+          return hasCurrent && hasOther;
+        });
+
+        if (match) return match as ChatConversation;
+
+        // stop early if pagination indicates no more pages
+        const pagination = resp.data.pagination;
+        if (pagination?.totalPages && pageNum >= pagination.totalPages) break;
+        if (conversations.length < limit) break;
+      }
+
+      return null;
+    },
+    [currentProfileType, activeCompany?.id, user?.id]
+  );
+
+  const hydrateMessageFromLocalContext = useCallback(
+    (message: ChatMessage): ChatMessage => {
+      const hydrated: ChatMessage = { ...message };
+
+      // Hydrate sender_user/sender_company from local context (realtime payloads are often not hydrated)
+      if (hydrated.sender_type === 'user') {
+        if (!hydrated.sender_user && user?.id && hydrated.sender_id === user.id) {
+          hydrated.sender_user = user as any;
+        }
+        if (!hydrated.sender_user && conversation?.participants) {
+          const p = conversation.participants.find(
+            (pp: any) => pp?.participant_type === 'user' && pp?.participant_id === hydrated.sender_id
+          );
+          if (p?.user) hydrated.sender_user = p.user as any;
+        }
+      } else if (hydrated.sender_type === 'company') {
+        if (!hydrated.sender_company && activeCompany?.id && hydrated.sender_id === activeCompany.id) {
+          hydrated.sender_company = activeCompany as any;
+        }
+        if (!hydrated.sender_company && conversation?.participants) {
+          const p = conversation.participants.find(
+            (pp: any) => pp?.participant_type === 'company' && pp?.participant_id === hydrated.sender_id
+          );
+          if (p?.company) hydrated.sender_company = p.company as any;
+        }
+      }
+
+      // Hydrate sent_by_user for "sent on behalf of company" when possible
+      if (hydrated.sent_by_user_id && !hydrated.sent_by_user && user?.id && hydrated.sent_by_user_id === user.id) {
+        hydrated.sent_by_user = user as any;
+      }
+
+      return hydrated;
+    },
+    [user, activeCompany, conversation?.id, conversation?.participants]
+  );
 
   // Helper function to validate conversation belongs to current profile
   const validateConversationForProfile = useCallback((conv: ChatConversation): boolean => {
@@ -192,24 +295,23 @@ const ChatPage: React.FC<ChatPageProps> = ({
           // So we default to user_company to avoid backend errors
           // Users can still send messages as company later if they have permissions (via sendAsCompany toggle)
           
-          let conversationType: 'user_user' | 'user_company' | 'company_company';
-          
-          if (participant.category === 'company') {
-            // User chatting with a company/academy
-            // Always use user_company for safety - the backend will reject company_company if user is not a company member
-            // This matches the course registration flow where users interact with academies as regular users
+          const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+          const currentProfileTypeValue: ChatParticipantType = currentProfileType === 'company' ? 'company' : 'user';
+          const otherParticipantType = getParticipantTypeFromParticipant(participant);
+
+          // Determine conversation type based on BOTH sides (fixes company→user incorrectly creating user_user)
+          let conversationType: ChatConversationType = getDirectConversationType(currentProfileTypeValue, otherParticipantType);
+
+          // When initiating chat with a company/academy from a user profile, default to user_company
+          // (backend may reject company_company unless properly authorized)
+          if (otherParticipantType === 'company' && currentProfileTypeValue === 'user') {
             conversationType = 'user_company';
-            console.log('💬 Creating user_company conversation (user chatting with academy)');
-          } else {
-            // User chatting with another user
-            conversationType = 'user_user';
+            console.log('💬 Using user_company for user → company/academy chat');
           }
 
           const participantIds = [participant.id];
           
           // Log profile context for verification
-          const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
-          const currentProfileTypeValue = currentProfileType === 'company' ? 'company' : 'user';
           console.log('💬 Creating conversation with profile context:', {
             conversationType,
             participantIds,
@@ -219,6 +321,20 @@ const ChatPage: React.FC<ChatPageProps> = ({
             hasUser: !!user,
             note: 'Using user_company for academy chats (users can send as company later if authorized)',
           });
+
+          // Prevent duplicate direct conversations: look up existing conversation before creating a new one
+          try {
+            const existing = await findExistingDirectConversation(conversationType, participant.id, otherParticipantType);
+            if (existing?.id) {
+              console.log('✅ Found existing conversation, reusing:', existing.id);
+              setConversation(existing);
+              hasInitializedRef.current = conversationKey;
+              await loadMessages(existing.id, 1, false);
+              return;
+            }
+          } catch (lookupErr) {
+            console.warn('⚠️ Failed to lookup existing conversation, falling back to create:', lookupErr);
+          }
 
           const createResponse = await createConversationRef.current({
             conversation_type: conversationType,
@@ -491,16 +607,19 @@ const ChatPage: React.FC<ChatPageProps> = ({
       conversation.id,
       (newMessage: ChatMessage) => {
         console.log('💬 New message received via real-time:', newMessage);
+
+        // Realtime payloads are often not hydrated (no sender_user/sender_company/reads)
+        const hydratedNewMessage = hydrateMessageFromLocalContext(newMessage);
         
         // Check if message already exists (avoid duplicates)
         setMessages(prev => {
-          const exists = prev.find(m => m.id === newMessage.id);
+          const exists = prev.find(m => m.id === hydratedNewMessage.id);
           if (exists) {
             return prev;
           }
           
           // Add new message to the end
-          const updated = [...prev, newMessage];
+          const updated = [...prev, hydratedNewMessage];
           
           // Auto-scroll to bottom
           setTimeout(() => {
@@ -520,8 +639,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
           return;
         }
         
-        // Mark the message as read if it's from another user and we're viewing the conversation
-        if (newMessage.sender_id !== currentProfileId && newMessage.sender_type !== currentProfileTypeValue) {
+        // Mark as read if the message is NOT from the current active profile
+        if (!(newMessage.sender_id === currentProfileId && newMessage.sender_type === currentProfileTypeValue)) {
           // Mark conversation as read when receiving a new message
           readMessage(conversation.id).catch((err: any) => {
             // Handle 403 errors gracefully
@@ -535,10 +654,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
       },
       (updatedMessage: ChatMessage) => {
         console.log('💬 Message updated via real-time:', updatedMessage);
+
+        const hydratedUpdatedMessage = hydrateMessageFromLocalContext(updatedMessage);
         
         // Update the message in the list
         setMessages(prev =>
-          prev.map(msg => msg.id === updatedMessage.id ? updatedMessage : msg)
+          prev.map(msg => msg.id === hydratedUpdatedMessage.id ? hydratedUpdatedMessage : msg)
         );
       },
       (deletedMessage: any) => {
@@ -675,7 +796,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
         setLoadingMore(true);
       }
 
-      const response = await getMessages(convId, { page: pageNum, limit: 50 });
+      // v2.24.3+: reduce payload size by limiting hydrated sender fields (server-enforced whitelist)
+      // NOTE: reads can be expensive; we fetch them in a second lightweight call for recent messages only.
+      const response = await getMessages(convId, {
+        page: pageNum,
+        limit: 50,
+        include: ['sender_user', 'sender_company', 'sent_by_user'],
+        sender_user_fields: ['id', 'name', 'image_url'],
+        sender_company_fields: ['id', 'name', 'logo_url', 'subcategory'],
+      });
       
       if (response.success && response.data) {
         const data = response.data.data || response.data;
@@ -696,6 +825,30 @@ const ChatPage: React.FC<ChatPageProps> = ({
           }
           
           setHasMore(pagination ? pageNum < pagination.totalPages : false);
+
+          // Fetch read receipts for the most recent messages only (improves initial load speed)
+          if (!append && pageNum === 1) {
+            getMessages(convId, {
+              page: 1,
+              limit: 20,
+              include: ['reads'],
+            })
+              .then((readsResp: any) => {
+                if (!readsResp?.success || !readsResp.data) return;
+                const readsData = readsResp.data.data || readsResp.data;
+                if (!Array.isArray(readsData)) return;
+                const readsMap = new Map<string, any>();
+                readsData.forEach((m: any) => {
+                  if (m?.id) readsMap.set(m.id, m.reads);
+                });
+                setMessages(prev =>
+                  prev.map(m => (readsMap.has(m.id) ? { ...m, reads: readsMap.get(m.id) } : m))
+                );
+              })
+              .catch(() => {
+                // ignore read-receipt hydration errors; not critical for chat UX
+              });
+          }
         }
       } else {
         throw new Error(response.error || 'Failed to load messages');
@@ -1223,7 +1376,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
         <View style={[
           styles.messageBubble,
           isCurrentUser ? styles.currentUserBubble : styles.otherUserBubble,
-          item.sender_type === 'company' && styles.companyMessageBubble,
+          !isCurrentUser && item.sender_type === 'company' && styles.companyMessageBubble,
+          isCurrentUser && item.sender_type === 'company' && styles.companyMessageBubbleOwn,
         ]}>
           {!isCurrentUser && (
             <View>
@@ -1911,6 +2065,11 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: '#6366f1',
     backgroundColor: '#f0f4ff',
+  },
+  companyMessageBubbleOwn: {
+    // When sending "as company", keep currentUserBubble background so white text remains readable
+    borderRightWidth: 3,
+    borderRightColor: '#6366f1',
   },
   messageText: {
     fontSize: 15,
