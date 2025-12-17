@@ -1,26 +1,31 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  FlatList,
   TextInput,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Image,
   Alert,
   Modal,
   ImageStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { FlashList } from '@shopify/flash-list';
+import { Image } from 'expo-image';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../contexts/ApiContext';
 import { ChatPageProps, ChatMessage, ChatConversation, ChatConversationType, ChatParticipantType } from '../types';
 import supabaseService from '../services/SupabaseService';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import MediaPickerService from '../services/MediaPickerService';
 import SkeletonMessage from '../components/SkeletonMessage';
+
+// NOTE: FlashList runtime supports `estimatedItemSize`, but our current TS setup may not expose it.
+// We cast to keep the perf optimization without blocking typecheck; revisit after dependency upgrades.
+const FlashListUnsafe: React.ComponentType<any> = FlashList as any;
 
 const ChatPage: React.FC<ChatPageProps> = ({
   conversationId,
@@ -44,16 +49,13 @@ const ChatPage: React.FC<ChatPageProps> = ({
     activeCompany,
   } = useApi();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const queryClient = useQueryClient();
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<any>(null);
   const messageChannelIdRef = useRef<string | null>(null);
   const hasInitializedRef = useRef<string | null>(null);
   const hasSentCourseMessageRef = useRef<{ conversationId: string; courseId: string } | null>(null);
@@ -97,6 +99,103 @@ const ChatPage: React.FC<ChatPageProps> = ({
   // Determine current user/company ID
   const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
   const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
+
+  type MessagesPage = {
+    items: ChatMessage[];
+    page: number;
+    totalPages?: number;
+    limit: number;
+  };
+
+  const messagesQueryKey = useMemo(
+    () => ['chatMessages', conversation?.id, currentUserType, currentUserId],
+    [conversation?.id, currentUserType, currentUserId]
+  );
+
+  const messagesQuery = useInfiniteQuery<MessagesPage>({
+    queryKey: messagesQueryKey,
+    enabled: !!conversation?.id && !!currentUserId,
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const convId = conversation?.id;
+      if (!convId) throw new Error('Conversation is not ready');
+      const pageNum = typeof pageParam === 'number' ? pageParam : 1;
+      const limit = 50;
+
+      const response = await getMessages(convId, {
+        page: pageNum,
+        limit,
+        include: ['sender_user', 'sender_company', 'sent_by_user'],
+        sender_user_fields: ['id', 'name', 'image_url'],
+        sender_company_fields: ['id', 'name', 'logo_url', 'subcategory'],
+      });
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to load messages');
+      }
+
+      const data = response.data.data || response.data;
+      const pagination = response.data.pagination;
+      const list = Array.isArray(data) ? data : [];
+
+      // Reverse messages so oldest are first (newest at bottom)
+      let items: ChatMessage[] = [...list].reverse();
+
+      // Fetch read receipts for recent messages only (page 1 only)
+      if (pageNum === 1) {
+        try {
+          const readsResp: any = await getMessages(convId, {
+            page: 1,
+            limit: 20,
+            include: ['reads'],
+          });
+          if (readsResp?.success && readsResp.data) {
+            const readsData = readsResp.data.data || readsResp.data;
+            if (Array.isArray(readsData)) {
+              const readsMap = new Map<string, any>();
+              readsData.forEach((m: any) => {
+                if (m?.id) readsMap.set(m.id, m.reads);
+              });
+              items = items.map((m) => (readsMap.has(m.id) ? { ...m, reads: readsMap.get(m.id) } : m));
+            }
+          }
+        } catch {
+          // ignore read-receipt hydration errors; not critical for chat UX
+        }
+      }
+
+      return {
+        items,
+        page: pageNum,
+        totalPages: pagination?.totalPages,
+        limit,
+      };
+    },
+    getNextPageParam: (lastPage) => {
+      if (typeof lastPage.totalPages === 'number') {
+        return lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined;
+      }
+      return undefined;
+    },
+  });
+
+  const messages: ChatMessage[] = useMemo(() => {
+    const pages = messagesQuery.data?.pages ?? [];
+    // Page 1 contains newest set; older pages must appear before it.
+    const orderedPages = [...pages].reverse();
+    const merged: ChatMessage[] = [];
+    const seen = new Set<string>();
+    orderedPages.forEach((p) => {
+      (p.items || []).forEach((m) => {
+        if (!m?.id) return;
+        if (!seen.has(m.id)) {
+          seen.add(m.id);
+          merged.push(m);
+        }
+      });
+    });
+    return merged;
+  }, [messagesQuery.data]);
 
   const getParticipantTypeFromParticipant = useCallback((p: any): ChatParticipantType => {
     if (!p) return 'user';
@@ -265,7 +364,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
             
             setConversation(conv);
             hasInitializedRef.current = conversationKey;
-            await loadMessages(conversationId, 1, false);
+            // Messages are loaded via TanStack Query once conversation is set.
             
             // Auto-send course message if courseData is provided (even for existing conversations)
             const messageKey = courseData ? { conversationId, courseId: courseData.id } : null;
@@ -334,7 +433,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
               console.log('✅ Found existing conversation, reusing:', existing.id);
               setConversation(existing);
               hasInitializedRef.current = conversationKey;
-              await loadMessages(existing.id, 1, false);
+              // Messages are loaded via TanStack Query once conversation is set.
               return;
             }
           } catch (lookupErr) {
@@ -351,7 +450,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
             setConversation(newConversation);
             hasInitializedRef.current = conversationKey;
             
-            await loadMessages(newConversation.id, 1, false);
+            // Messages are loaded via TanStack Query once conversation is set.
             
             // Auto-send course registration message if courseData is provided (always send, even if conversation exists)
             const messageKey = courseData ? { conversationId: newConversation.id, courseId: courseData.id } : null;
@@ -515,8 +614,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
     if (!isValid) {
       console.log('🔄 Profile changed - conversation no longer valid, navigating away');
       // Clear conversation state and navigate back
+      const prevConversationId = conversation.id;
       setConversation(null);
-      setMessages([]);
+      queryClient.removeQueries({ queryKey: ['chatMessages', prevConversationId], exact: false });
       hasInitializedRef.current = null;
       Alert.alert(
         'Profile Changed',
@@ -531,16 +631,16 @@ const ChatPage: React.FC<ChatPageProps> = ({
     const shouldReload = hasInitializedRef.current === (conversationId || (participant ? `participant-${participant.id}` : null));
     if (shouldReload && conversation.id) {
       console.log('🔄 Profile changed - reloading messages for current profile');
-      loadMessages(conversation.id, 1, false).catch((err) => {
+      messagesQuery.refetch().catch((err) => {
         console.error('Failed to reload messages after profile change:', err);
       });
     }
-  }, [currentProfileType, activeCompany?.id, user?.id, conversation?.id, validateConversationForProfile, conversationId, participant?.id, onBack]);
+  }, [currentProfileType, activeCompany?.id, user?.id, conversation?.id, validateConversationForProfile, conversationId, participant?.id, onBack, queryClient, messagesQuery]);
 
   // Mark messages as read when conversation is viewed
   const hasMarkedAsReadRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!conversation?.id || loading) {
+    if (!conversation?.id || loading || (messagesQuery.isLoading && messages.length === 0)) {
       return;
     }
 
@@ -582,7 +682,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return () => {
       clearTimeout(timer);
     };
-  }, [conversation?.id, loading]);
+  }, [conversation?.id, loading, messagesQuery.isLoading, messages.length]);
 
   // Subscribe to real-time messages when conversation is loaded
   useEffect(() => {
@@ -616,23 +716,38 @@ const ChatPage: React.FC<ChatPageProps> = ({
         // Realtime payloads are often not hydrated (no sender_user/sender_company/reads)
         const hydratedNewMessage = hydrateMessageFromLocalContext(newMessage);
         
-        // Check if message already exists (avoid duplicates)
-        setMessages(prev => {
-          const exists = prev.find(m => m.id === hydratedNewMessage.id);
-          if (exists) {
-            return prev;
+        // Update TanStack Query cache (avoid duplicates)
+        queryClient.setQueryData(messagesQueryKey, (old: any) => {
+          const base = old ?? { pages: [], pageParams: [1] };
+          const pages = Array.isArray(base.pages) ? base.pages : [];
+          if (pages.length === 0) {
+            return {
+              ...base,
+              pages: [{ items: [hydratedNewMessage], page: 1, totalPages: 1, limit: 50 }],
+              pageParams: [1],
+            };
           }
-          
-          // Add new message to the end
-          const updated = [...prev, hydratedNewMessage];
-          
-          // Auto-scroll to bottom
-          setTimeout(() => {
-            flatListRef.current?.scrollToEnd({ animated: true });
-          }, 100);
-          
-          return updated;
+
+          // If message already exists anywhere, skip
+          const exists = pages.some((p: any) =>
+            Array.isArray(p.items) ? p.items.some((m: any) => m?.id === hydratedNewMessage.id) : false
+          );
+          if (exists) return base;
+
+          // Append to page 1 (newest page)
+          const updatedPages = pages.map((p: any, idx: number) => {
+            if (idx !== 0) return p;
+            const items = Array.isArray(p.items) ? p.items : [];
+            return { ...p, items: [...items, hydratedNewMessage] };
+          });
+
+          return { ...base, pages: updatedPages };
         });
+
+        // Auto-scroll to bottom
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd?.({ animated: true });
+        }, 100);
         
         // Validate message belongs to current profile's conversation before processing
         const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
@@ -662,10 +777,18 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
         const hydratedUpdatedMessage = hydrateMessageFromLocalContext(updatedMessage);
         
-        // Update the message in the list
-        setMessages(prev =>
-          prev.map(msg => msg.id === hydratedUpdatedMessage.id ? hydratedUpdatedMessage : msg)
-        );
+        queryClient.setQueryData(messagesQueryKey, (old: any) => {
+          if (!old?.pages?.length) return old;
+          return {
+            ...old,
+            pages: old.pages.map((p: any) => ({
+              ...p,
+              items: Array.isArray(p.items)
+                ? p.items.map((m: any) => (m?.id === hydratedUpdatedMessage.id ? hydratedUpdatedMessage : m))
+                : p.items,
+            })),
+          };
+        });
       },
       (deletedMessage: any) => {
         console.log('💬 Message deleted via real-time:', deletedMessage);
@@ -673,8 +796,16 @@ const ChatPage: React.FC<ChatPageProps> = ({
         // Handle both old (deleted message object) and new (just ID) formats
         const messageId = deletedMessage.id || deletedMessage;
         
-        // Remove the message from the list
-        setMessages(prev => prev.filter(msg => msg.id !== messageId));
+        queryClient.setQueryData(messagesQueryKey, (old: any) => {
+          if (!old?.pages?.length) return old;
+          return {
+            ...old,
+            pages: old.pages.map((p: any) => ({
+              ...p,
+              items: Array.isArray(p.items) ? p.items.filter((m: any) => m?.id !== messageId) : p.items,
+            })),
+          };
+        });
       }
     );
 
@@ -795,80 +926,36 @@ const ChatPage: React.FC<ChatPageProps> = ({
     };
   }, [conversation?.id, currentProfileType, activeCompany?.id, user?.id, validateConversationForProfile]);
 
-  const loadMessages = useCallback(async (convId: string, pageNum: number = 1, append: boolean = false) => {
+  const loadMessages = useCallback(async (_convId: string, _pageNum: number = 1, append: boolean = false) => {
     try {
       if (append) {
-        setLoadingMore(true);
-      }
-
-      // v2.24.3+: reduce payload size by limiting hydrated sender fields (server-enforced whitelist)
-      // NOTE: reads can be expensive; we fetch them in a second lightweight call for recent messages only.
-      const response = await getMessages(convId, {
-        page: pageNum,
-        limit: 50,
-        include: ['sender_user', 'sender_company', 'sent_by_user'],
-        sender_user_fields: ['id', 'name', 'image_url'],
-        sender_company_fields: ['id', 'name', 'logo_url', 'subcategory'],
-      });
-      
-      if (response.success && response.data) {
-        const data = response.data.data || response.data;
-        const pagination = response.data.pagination;
-        
-        if (Array.isArray(data)) {
-          // Reverse messages so newest are at bottom
-          const sortedMessages = [...data].reverse();
-          
-          if (append) {
-            setMessages(prev => [...sortedMessages, ...prev]);
-          } else {
-            setMessages(sortedMessages);
-            // Scroll to bottom after initial load
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: false });
-            }, 100);
-          }
-          
-          setHasMore(pagination ? pageNum < pagination.totalPages : false);
-
-          // Fetch read receipts for the most recent messages only (improves initial load speed)
-          if (!append && pageNum === 1) {
-            getMessages(convId, {
-              page: 1,
-              limit: 20,
-              include: ['reads'],
-            })
-              .then((readsResp: any) => {
-                if (!readsResp?.success || !readsResp.data) return;
-                const readsData = readsResp.data.data || readsResp.data;
-                if (!Array.isArray(readsData)) return;
-                const readsMap = new Map<string, any>();
-                readsData.forEach((m: any) => {
-                  if (m?.id) readsMap.set(m.id, m.reads);
-                });
-                setMessages(prev =>
-                  prev.map(m => (readsMap.has(m.id) ? { ...m, reads: readsMap.get(m.id) } : m))
-                );
-              })
-              .catch(() => {
-                // ignore read-receipt hydration errors; not critical for chat UX
-              });
-          }
+        if (messagesQuery.hasNextPage && !messagesQuery.isFetchingNextPage) {
+          await messagesQuery.fetchNextPage();
         }
-      } else {
-        throw new Error(response.error || 'Failed to load messages');
+        return;
       }
+
+      // Keep refresh light: drop to page 1 then refetch.
+      queryClient.setQueryData(messagesQueryKey, (old: any) => {
+        if (!old?.pages?.length) return old;
+        return {
+          ...old,
+          pages: old.pages.slice(0, 1),
+          pageParams: old.pageParams?.slice?.(0, 1) ?? old.pageParams,
+        };
+      });
+
+      await messagesQuery.refetch();
+
+      // Scroll to bottom after refresh/initial load
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd?.({ animated: false });
+      }, 100);
     } catch (err: any) {
       console.error('Failed to load messages:', err);
-      if (!append) {
-        setError(err.message || 'Failed to load messages');
-      }
-    } finally {
-      if (append) {
-        setLoadingMore(false);
-      }
+      setError(err.message || 'Failed to load messages');
     }
-  }, [getMessages]);
+  }, [messagesQuery, queryClient, messagesQueryKey]);
 
   const handlePickImage = async () => {
     try {
@@ -1003,12 +1090,11 @@ const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   const handleLoadMore = useCallback(() => {
-    if (!loadingMore && hasMore && conversation) {
-      const nextPage = page + 1;
-      setPage(nextPage);
-      loadMessages(conversation.id, nextPage, true);
+    if (!conversation?.id) return;
+    if (messagesQuery.hasNextPage && !messagesQuery.isFetchingNextPage) {
+      loadMessages(conversation.id, 0, true);
     }
-  }, [loadingMore, hasMore, conversation, page, loadMessages]);
+  }, [conversation?.id, loadMessages, messagesQuery.hasNextPage, messagesQuery.isFetchingNextPage]);
 
   const handleLongPressMessage = (message: ChatMessage) => {
     // Only allow edit/delete for own messages and non-system messages
@@ -1140,7 +1226,16 @@ const ChatPage: React.FC<ChatPageProps> = ({
               const response = await deleteMessage(message.id);
               if (response.success) {
                 // Immediately remove from UI (don't wait for real-time)
-                setMessages(prev => prev.filter(msg => msg.id !== message.id));
+                queryClient.setQueryData(messagesQueryKey, (old: any) => {
+                  if (!old?.pages?.length) return old;
+                  return {
+                    ...old,
+                    pages: old.pages.map((p: any) => ({
+                      ...p,
+                      items: Array.isArray(p.items) ? p.items.filter((m: any) => m?.id !== message.id) : p.items,
+                    })),
+                  };
+                });
                 setSelectedMessage(null);
                 // Real-time subscription will also handle it, but we update immediately
               } else {
@@ -1357,16 +1452,22 @@ const ChatPage: React.FC<ChatPageProps> = ({
               <Image
                 source={{ uri: item.sender_company.logo_url }}
                 style={styles.messageAvatar as ImageStyle}
+                contentFit="cover"
+                transition={150}
               />
             ) : item.sender_type === 'user' && item.sender_user?.image_url ? (
               <Image
                 source={{ uri: item.sender_user.image_url }}
                 style={styles.messageAvatar as ImageStyle}
+                contentFit="cover"
+                transition={150}
               />
             ) : getParticipantAvatar() ? (
               <Image
                 source={{ uri: getParticipantAvatar() || '' }}
                 style={styles.messageAvatar as ImageStyle}
+                contentFit="cover"
+                transition={150}
               />
             ) : (
               <View style={styles.messageAvatarPlaceholder}>
@@ -1414,7 +1515,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
             <Image
               source={{ uri: item.file_url }}
               style={styles.messageImage as ImageStyle}
-              resizeMode="cover"
+              contentFit="cover"
+              transition={150}
             />
           )}
           
@@ -1483,7 +1585,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
     );
   };
 
-  if (loading) {
+  const shouldShowLoading = loading || (messagesQuery.isLoading && messages.length === 0);
+
+  if (shouldShowLoading) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -1493,7 +1597,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           <Text style={styles.headerTitle}>Loading...</Text>
           <View style={styles.headerRight} />
         </View>
-        <FlatList
+        <FlashListUnsafe
           data={Array.from({ length: 5 })}
           renderItem={({ index }) => (
             <SkeletonMessage key={index} isOwn={index % 2 === 0} isDark={false} />
@@ -1501,6 +1605,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           keyExtractor={(_, index) => `skeleton-loading-${index}`}
           contentContainerStyle={styles.skeletonLoadingContainer}
           inverted={false}
+          estimatedItemSize={88}
         />
       </View>
     );
@@ -1528,7 +1633,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 getConversationById(conversationId).then(response => {
                   if (response.success && response.data) {
                     setConversation(response.data);
-                    loadMessages(response.data.id, 1, false);
+                  messagesQuery.refetch().catch(() => {});
                   }
                 });
               }
@@ -1558,7 +1663,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
         
         <View style={styles.headerInfo}>
           {participantAvatar ? (
-            <Image source={{ uri: participantAvatar }} style={styles.headerAvatar as ImageStyle} />
+            <Image
+              source={{ uri: participantAvatar }}
+              style={styles.headerAvatar as ImageStyle}
+              contentFit="cover"
+              transition={150}
+            />
           ) : (
             <View style={styles.headerAvatarPlaceholder}>
               <Text style={styles.headerAvatarText}>{initials}</Text>
@@ -1572,7 +1682,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         <View style={styles.headerRight} />
       </View>
 
-      <FlatList
+      <FlashListUnsafe
         ref={flatListRef}
         data={messages}
         renderItem={renderMessage}
@@ -1581,8 +1691,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
         inverted={false}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
+        estimatedItemSize={110}
         ListEmptyComponent={
-          !loading && messages.length === 0 ? (
+          !shouldShowLoading && messages.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="chatbubble-outline" size={64} color="#d1d5db" />
               <Text style={styles.emptyStateText}>No messages yet</Text>
@@ -1602,7 +1713,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 <Text style={styles.typingText}>{otherUserTyping.userName} is typing...</Text>
               </View>
             )}
-            {loadingMore && (
+            {messagesQuery.isFetchingNextPage && (
               <View style={styles.footerLoader}>
                 {Array.from({ length: 2 }).map((_, index) => (
                   <SkeletonMessage key={`skeleton-message-${index}`} isOwn={index % 2 === 0} isDark={false} />
@@ -1641,7 +1752,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
         {selectedAttachment && (
           <View style={styles.attachmentPreview}>
             {selectedAttachment.type === 'image' ? (
-              <Image source={{ uri: selectedAttachment.uri }} style={styles.attachmentPreviewImage as ImageStyle} />
+              <Image
+                source={{ uri: selectedAttachment.uri }}
+                style={styles.attachmentPreviewImage as ImageStyle}
+                contentFit="cover"
+                transition={150}
+              />
             ) : (
               <View style={styles.attachmentPreviewFile}>
                 <Ionicons name="document" size={24} color="#3b82f6" />
@@ -1672,7 +1788,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
               </View>
               <View style={styles.sendAsCompanyLabel}>
                 {sendAsCompany && activeCompany?.logo_url ? (
-                  <Image source={{ uri: activeCompany.logo_url }} style={styles.companyToggleLogo} />
+                  <Image
+                    source={{ uri: activeCompany.logo_url }}
+                    style={styles.companyToggleLogo}
+                    contentFit="cover"
+                    transition={150}
+                  />
                 ) : (
                   <Ionicons name="business" size={16} color={sendAsCompany ? "#3b82f6" : "#6b7280"} />
                 )}

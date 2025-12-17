@@ -1,17 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   ScrollView,
-  Image,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   Alert,
   Linking,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { FlashList } from '@shopify/flash-list';
+import { Image } from 'expo-image';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../contexts/ApiContext';
 import SkeletonProfilePage from '../components/SkeletonProfilePage';
 import {
@@ -32,6 +35,10 @@ import CourseCard from '../components/CourseCard';
 import CourseRegistrationModal from '../components/CourseRegistrationModal';
 import MediaPickerService from '../services/MediaPickerService';
 import UploadProgressBar from '../components/UploadProgressBar';
+
+// NOTE: FlashList runtime supports `estimatedItemSize`, but our current TS setup may not expose it.
+// We cast to keep the perf optimization without blocking typecheck; revisit after dependency upgrades.
+const FlashListUnsafe: React.ComponentType<any> = FlashList as any;
 
 interface CompanyProfilePageProps {
   companyId: string;
@@ -85,23 +92,16 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const [company, setCompany] = useState<Company | null>(null);
   const [members, setMembers] = useState<CompanyMember[]>([]);
   const [services, setServices] = useState<CompanyService[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMembers, setLoadingMembers] = useState(false);
-  const [loadingServices, setLoadingServices] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [expandedSection, setExpandedSection] = useState<'services' | 'members' | 'certifications' | null>(null);
   const [certifications, setCertifications] = useState<UserCertification[]>([]);
-  const [loadingCertifications, setLoadingCertifications] = useState(false);
   // Edit-related state - only initialized when NOT in read-only mode
   const [showGrantCertificationModal, setShowGrantCertificationModal] = useState(false);
   const [showCourseRegistrationModal, setShowCourseRegistrationModal] = useState(false);
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [selectedUserIdForCertification, setSelectedUserIdForCertification] = useState<string | null>(null);
   const [courses, setCourses] = useState<CourseWithDetails[]>([]);
-  const [loadingCourses, setLoadingCourses] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [documents, setDocuments] = useState<CompanyDocument[]>([]);
-  const [loadingDocuments, setLoadingDocuments] = useState(false);
   const [uploadingDocument, setUploadingDocument] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
     visible: boolean;
@@ -113,30 +113,195 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     label: 'Uploading...',
   });
   const mediaPicker = MediaPickerService.getInstance();
-  const activeLoadRequestIdRef = useRef(0);
+  const { width: screenWidth } = useWindowDimensions();
+  const courseCardWidth = Math.min(360, Math.max(260, Math.round(screenWidth * 0.8)));
+
+  const queryClient = useQueryClient();
+  const refreshKey = refreshTrigger ?? 0;
+
+  // In read-only mode (public browsing), avoid heavy relationship fetches unless the user asks for them.
+  const [servicesRequested, setServicesRequested] = useState(!readOnly);
+  const [membersRequested, setMembersRequested] = useState(!readOnly);
+  const [documentsRequested, setDocumentsRequested] = useState(!readOnly);
+  const [certificationsRequested, setCertificationsRequested] = useState(!readOnly);
 
   useEffect(() => {
-    // Clear cache if refreshTrigger is provided, then load data
-    const loadData = async () => {
-      if (refreshTrigger && refreshTrigger > 0) {
-        // Clear cache first to ensure fresh data
+    // Reset lazy-load toggles when switching companies or mode.
+    setServicesRequested(!readOnly);
+    setMembersRequested(!readOnly);
+    setDocumentsRequested(!readOnly);
+    setCertificationsRequested(!readOnly);
+  }, [companyId, readOnly]);
+
+  const companyCoreQuery = useQuery({
+    queryKey: ['company', companyId, 'core', refreshKey],
+    enabled: !!companyId,
+    queryFn: async () => {
+      if (refreshKey > 0) {
+        // Clear legacy rate-limiter cache first to ensure fresh data
         try {
           const { rateLimiter } = await import('../utils/rateLimiter');
-          // Clear all company-related caches
-          await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
-          await rateLimiter.clearCacheByPattern(`company-services-${companyId}`);
           await rateLimiter.clearCacheByPattern(`company-${companyId}`);
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
         }
       }
-      // Load company data (will use fresh data if cache was cleared)
-      await loadCompanyData();
-    };
-    
-    loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, refreshTrigger]);
+
+      const coreCompanyResponse = await getCompany(companyId);
+      if (!coreCompanyResponse.success || !coreCompanyResponse.data) {
+        throw new Error(coreCompanyResponse.error || 'Failed to load company');
+      }
+      return coreCompanyResponse.data as Company;
+    },
+  });
+
+  // Sync query results into existing local UI state to minimize invasive refactors.
+  // This keeps the "phase 1 (core)" behavior, but avoids loading heavy relationships by default in read-only mode.
+  useEffect(() => {
+    if (companyCoreQuery.data) {
+      setCompany(companyCoreQuery.data);
+    }
+  }, [companyCoreQuery.data]);
+
+  const isAcademy = (companyCoreQuery.data?.subcategory || company?.subcategory) === 'academy';
+
+  const servicesQuery = useQuery<CompanyService[]>({
+    queryKey: ['companyServices', companyId, refreshKey],
+    enabled: !!companyId && (!readOnly || servicesRequested),
+    queryFn: async () => {
+      const response = await getCompanyServices(companyId);
+      if (!response?.success) {
+        throw new Error(response?.error || 'Failed to load services');
+      }
+      const payload = response.data?.data ?? response.data;
+      const servicesArray = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.services)
+          ? payload.services
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+      return servicesArray;
+    },
+  });
+
+  useEffect(() => {
+    if (servicesQuery.data) {
+      setServices(servicesQuery.data);
+    }
+  }, [servicesQuery.data]);
+
+  const membersQuery = useQuery<CompanyMember[]>({
+    queryKey: ['companyMembers', companyId, refreshKey],
+    enabled: !!companyId && (!readOnly || membersRequested),
+    queryFn: async () => {
+      let response = await getCompanyMembers(companyId, {
+        page: 1,
+        limit: 50,
+        sort: 'joined_at',
+        order: 'asc',
+      });
+
+      // If first attempt fails with 500, try without sort parameters
+      if (!response?.success && response?.error?.includes('500')) {
+        response = await getCompanyMembers(companyId, { page: 1, limit: 50 });
+      }
+
+      if (response?.success) {
+        let membersArray: CompanyMember[] = [];
+        const data = response.data;
+        if (data?.data && Array.isArray(data.data)) {
+          membersArray = data.data;
+        } else if (Array.isArray(data)) {
+          membersArray = data;
+        } else if (data?.members && Array.isArray(data.members)) {
+          membersArray = data.members;
+        }
+        const acceptedMembers = membersArray.filter((m) => m.invitation_status === 'accepted');
+        const pendingMembers = membersArray.filter((m) => m.invitation_status === 'pending');
+        return [...acceptedMembers, ...pendingMembers];
+      }
+
+      // Graceful fallback: show empty list
+      return [];
+    },
+  });
+
+  useEffect(() => {
+    if (membersQuery.data) {
+      setMembers(membersQuery.data);
+    }
+  }, [membersQuery.data]);
+
+  const documentsQuery = useQuery<CompanyDocument[]>({
+    queryKey: ['companyDocuments', companyId, refreshKey],
+    enabled: !!companyId && (!readOnly || documentsRequested),
+    queryFn: async () => {
+      const response = await getCompanyDocuments(companyId);
+      if (!response?.success) {
+        throw new Error(response?.error || 'Failed to load documents');
+      }
+      const docsArray = Array.isArray(response.data) ? response.data : (response.data?.data || []);
+      return docsArray.filter((doc: CompanyDocument) => !doc?.deleted_at);
+    },
+  });
+
+  useEffect(() => {
+    if (documentsQuery.data) {
+      setDocuments(documentsQuery.data);
+    }
+  }, [documentsQuery.data]);
+
+  const coursesQuery = useQuery<CourseWithDetails[]>({
+    queryKey: ['academyCourses', companyId, refreshKey],
+    enabled: !!companyId && isAcademy,
+    queryFn: async () => {
+      const coursesData = await getAcademyCourses(companyId);
+      return Array.isArray(coursesData) ? coursesData : [];
+    },
+  });
+
+  useEffect(() => {
+    if (!isAcademy) {
+      setCourses([]);
+      return;
+    }
+    if (coursesQuery.data) {
+      setCourses(coursesQuery.data);
+    }
+  }, [isAcademy, coursesQuery.data]);
+
+  const certificationsQuery = useQuery<UserCertification[]>({
+    queryKey: ['companyCertifications', companyId, refreshKey],
+    enabled: !!companyId && isAcademy && (!readOnly || certificationsRequested),
+    queryFn: async () => {
+      const certs = await getCompanyCertifications(companyId);
+      return Array.isArray(certs) ? certs : [];
+    },
+  });
+
+  useEffect(() => {
+    if (!isAcademy) {
+      setCertifications([]);
+      return;
+    }
+    if (certificationsQuery.data) {
+      setCertifications(certificationsQuery.data);
+    }
+  }, [isAcademy, certificationsQuery.data]);
+
+  const loading = companyCoreQuery.isLoading && !company;
+  const error: string | null = (() => {
+    const err: any = companyCoreQuery.error;
+    if (!err) return null;
+    return err instanceof Error ? err.message : String(err);
+  })();
+
+  const loadingMembers = membersQuery.isFetching;
+  const loadingServices = servicesQuery.isFetching;
+  const loadingDocuments = documentsQuery.isFetching;
+  const loadingCertifications = certificationsQuery.isFetching;
+  const loadingCourses = coursesQuery.isFetching;
 
   const handleRemoveMember = async (member: CompanyMember) => {
     // STRICT READ-ONLY: This function should never execute in read-only mode
@@ -182,274 +347,55 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   };
 
   const loadCompanyData = async () => {
-    const requestId = ++activeLoadRequestIdRef.current;
     try {
-      // Phase 1: Load core company data first (fast), unblock UI ASAP.
-      // Only show full-page loading if we don't already have a company rendered.
-      if (!company) setLoading(true);
-      setError(null);
-
-      const coreCompanyResponse = await getCompany(companyId);
-
-      if (requestId !== activeLoadRequestIdRef.current) return;
-
-      if (!coreCompanyResponse.success || !coreCompanyResponse.data) {
-        throw new Error(coreCompanyResponse.error || 'Failed to load company');
-      }
-
-      const coreCompanyData = coreCompanyResponse.data;
-      
-      // Set company data and loading state immediately to unblock UI rendering
-      setCompany(coreCompanyData);
-      setLoading(false); // Set loading to false immediately so UI can render
-
-      // Phase 2 (background): Load relationship data via include.
-      // This keeps perceived performance high even if the include endpoint is slow.
-      // Also: only request academy-specific relationships when the company is an academy.
-      const include: ('members' | 'services' | 'documents' | 'certifications' | 'courses')[] = ['members', 'services', 'documents'];
-      const isAcademy = coreCompanyData?.subcategory === 'academy';
-      if (isAcademy) include.push('certifications', 'courses');
-
-      setLoadingMembers(true);
-      setLoadingServices(true);
-      setLoadingDocuments(true);
-      if (isAcademy) {
-        setLoadingCertifications(true);
-        setLoadingCourses(true);
-      }
-
-      // Fire and await: if it fails, we keep the core UI and just show empty/previous section data.
-      const includedResponse = await getCompany(companyId, {
-        include,
-        membersLimit: 50,
-        membersPage: 1,
-      });
-
-      if (requestId !== activeLoadRequestIdRef.current) return;
-
-      if (includedResponse?.success && includedResponse?.data) {
-        const companyData = includedResponse.data;
-        // Prefer the freshest company object (may contain updated fields/relationships)
-        setCompany(companyData);
-
-        // Extract included data (already in memory)
-        try {
-          // Members
-          try {
-            if (companyData.members) {
-              let membersArray: CompanyMember[] = [];
-              if (Array.isArray(companyData.members)) {
-                membersArray = companyData.members;
-              } else if (companyData.members?.data && Array.isArray(companyData.members.data)) {
-                membersArray = companyData.members.data;
-              }
-              const acceptedMembers = membersArray.filter((m) => m?.invitation_status === 'accepted');
-              const pendingMembers = membersArray.filter((m) => m?.invitation_status === 'pending');
-              setMembers([...acceptedMembers, ...pendingMembers]);
-            }
-          } catch (err) {
-            console.error('Error extracting members:', err);
-          } finally {
-            setLoadingMembers(false);
-          }
-
-          // Services
-          try {
-            if (companyData.services) {
-              let servicesArray: CompanyService[] = [];
-              if (Array.isArray(companyData.services)) {
-                servicesArray = companyData.services;
-              } else if (companyData.services?.data && Array.isArray(companyData.services.data)) {
-                servicesArray = companyData.services.data;
-              }
-              setServices(servicesArray);
-            }
-          } catch (err) {
-            console.error('Error extracting services:', err);
-          } finally {
-            setLoadingServices(false);
-          }
-
-          // Documents
-          try {
-            if (companyData.documents) {
-              let docsArray: CompanyDocument[] = [];
-              if (Array.isArray(companyData.documents)) {
-                docsArray = companyData.documents;
-              } else if (companyData.documents?.data && Array.isArray(companyData.documents.data)) {
-                docsArray = companyData.documents.data;
-              }
-              setDocuments(docsArray.filter((doc: CompanyDocument) => !doc?.deleted_at));
-            }
-          } catch (err) {
-            console.error('Error extracting documents:', err);
-          } finally {
-            setLoadingDocuments(false);
-          }
-
-          // Certifications (academy only)
-          if (isAcademy) {
-            try {
-              const certsArray = Array.isArray(companyData.certifications)
-                ? companyData.certifications
-                : (companyData.certifications?.data || []);
-              setCertifications(certsArray);
-            } catch (err) {
-              console.error('Error extracting certifications:', err);
-              setCertifications([]);
-            } finally {
-              setLoadingCertifications(false);
-            }
-          }
-
-          // Courses (academy only)
-          if (isAcademy) {
-            try {
-              const coursesArray = Array.isArray(companyData.courses)
-                ? companyData.courses
-                : (companyData.courses?.data || []);
-              setCourses(coursesArray);
-            } catch (err) {
-              console.error('Error extracting courses:', err);
-              setCourses([]);
-            } finally {
-              setLoadingCourses(false);
-            }
-          }
-        } catch (err) {
-          console.error('Error extracting included data:', err);
-          setLoadingMembers(false);
-          setLoadingServices(false);
-          setLoadingDocuments(false);
-          setLoadingCertifications(false);
-          setLoadingCourses(false);
-        }
-      } else {
-        // Include request failed - keep UI responsive and just stop section loaders.
-        setLoadingMembers(false);
-        setLoadingServices(false);
-        setLoadingDocuments(false);
-        setLoadingCertifications(false);
-        setLoadingCourses(false);
-      }
+      // Backwards-compatible helper for existing call sites (retry/upload flows).
+      // With TanStack Query, the page's UI state is driven by the cached query data.
+      await companyCoreQuery.refetch();
+      if (!readOnly || servicesRequested) await servicesQuery.refetch();
+      if (!readOnly || membersRequested) await membersQuery.refetch();
+      if (!readOnly || documentsRequested) await documentsQuery.refetch();
+      if (isAcademy) await coursesQuery.refetch();
+      if (isAcademy && (!readOnly || certificationsRequested)) await certificationsQuery.refetch();
     } catch (err: any) {
       console.error('Failed to load company data:', err);
-      setError(err.message || 'Failed to load company profile');
       Alert.alert('Error', err.message || 'Failed to load company profile');
     } finally {
-      setLoading(false);
+      // no-op: loading UI is derived from query state
     }
   };
 
-  const loadMembers = async (id: string) => {
+  const loadMembers = async (_id: string) => {
     try {
-      setLoadingMembers(true);
-      // Use API parameters: page, limit, sort, order
-      // API automatically filters for invitation_status = 'accepted' and excludes soft-deleted members
-      let response = await getCompanyMembers(id, {
-        page: 1,
-        limit: 50,
-        sort: 'joined_at',
-        order: 'asc'
-      });
-      
-      // If first attempt fails with 500, try without sort parameters (in case sort field doesn't exist)
-      if (!response.success && response.error?.includes('500')) {
-        console.warn('⚠️ Retrying without sort parameters...');
-        response = await getCompanyMembers(id, {
-          page: 1,
-          limit: 50
-          // Removed sort and order - might be causing the 500 error
-        });
-      }
-      
-      // Handle successful response with data
-      if (response.success) {
-        // API returns paginated results - check both nested data structure and direct array
-        let membersArray: CompanyMember[] = [];
-        
-        if (response.data?.data && Array.isArray(response.data.data)) {
-          // Paginated response structure: { data: { data: [...], pagination: {...} } }
-          membersArray = response.data.data;
-        } else if (Array.isArray(response.data)) {
-          // Direct array response
-          membersArray = response.data;
-        } else if (response.data?.members && Array.isArray(response.data.members)) {
-          // Alternative structure with members key
-          membersArray = response.data.members;
-        }
-        
-        // Filter for accepted members
-        // Note: API should already filter, but we'll do it client-side as well for safety
-        // Show both accepted and pending members so admins can see all invitations
-        const acceptedMembers = membersArray.filter(m => m.invitation_status === 'accepted');
-        const pendingMembers = membersArray.filter(m => m.invitation_status === 'pending');
-        // Combine accepted and pending members (accepted first)
-        setMembers([...acceptedMembers, ...pendingMembers]);
-      } else {
-        // Error response (500, 403, etc.) 
-        // The ApiContext already handles these gracefully and returns success: true with empty data
-        // So if we get here with success: false, it's a non-500 error
-        if (response.error && !response.error.includes('500')) {
-          console.warn('⚠️ Failed to load members:', response.error);
-        }
-        setMembers([]);
-      }
-    } catch (err: any) {
-      // Fallback error handling
-      // Check if it's a 500 error
-      if (err.status === 500 || err.statusCode === 500 || err.message?.includes('500') || err.message?.includes('Failed to fetch members')) {
-        console.warn('⚠️ Server error loading members (500). Showing empty list.');
-      } else {
-        console.error('Failed to load members:', err);
-      }
-      setMembers([]);
-    } finally {
-      setLoadingMembers(false);
-    }
-  };
-
-  const loadCertifications = async (id: string) => {
-    try {
-      setLoadingCertifications(true);
-      const certs = await getCompanyCertifications(id);
-      setCertifications(Array.isArray(certs) ? certs : []);
+      setMembersRequested(true);
+      await membersQuery.refetch();
     } catch (err) {
-      console.error('Failed to load certifications:', err);
-      setCertifications([]);
-    } finally {
-      setLoadingCertifications(false);
+      console.warn('⚠️ Failed to refresh members:', err);
     }
   };
 
-  const loadCourses = async (id: string) => {
+  const loadCertifications = async (_id: string) => {
     try {
-      setLoadingCourses(true);
-      const coursesData = await getAcademyCourses(id);
-      setCourses(Array.isArray(coursesData) ? coursesData : []);
+      setCertificationsRequested(true);
+      await certificationsQuery.refetch();
     } catch (err) {
-      console.error('Failed to load courses:', err);
-      setCourses([]);
-    } finally {
-      setLoadingCourses(false);
+      console.warn('⚠️ Failed to refresh certifications:', err);
     }
   };
 
-  const loadDocuments = async (id: string) => {
+  const loadCourses = async (_id: string) => {
     try {
-      setLoadingDocuments(true);
-      const response = await getCompanyDocuments(id);
-      if (response.success && response.data) {
-        const docsArray = Array.isArray(response.data) ? response.data : (response.data?.data || []);
-        setDocuments(docsArray.filter((doc: CompanyDocument) => !doc.deleted_at));
-      } else {
-        setDocuments([]);
-      }
+      await coursesQuery.refetch();
     } catch (err) {
-      console.error('Failed to load documents:', err);
-      setDocuments([]);
-    } finally {
-      setLoadingDocuments(false);
+      console.warn('⚠️ Failed to refresh courses:', err);
+    }
+  };
+
+  const loadDocuments = async (_id: string) => {
+    try {
+      setDocumentsRequested(true);
+      await documentsQuery.refetch();
+    } catch (err) {
+      console.warn('⚠️ Failed to refresh documents:', err);
     }
   };
 
@@ -567,32 +513,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     );
   };
 
-  const loadServices = async (id: string) => {
+  const loadServices = async (_id: string) => {
     try {
-      setLoadingServices(true);
-      const response = await getCompanyServices(id);
-      
-      if (response.success && response.data) {
-        // Handle different response structures
-        let servicesArray: CompanyService[] = [];
-        if (Array.isArray(response.data)) {
-          servicesArray = response.data;
-        } else if (Array.isArray(response.data?.data)) {
-          servicesArray = response.data.data;
-        } else if (Array.isArray(response.data?.services)) {
-          servicesArray = response.data.services;
-        }
-        
-        setServices(servicesArray);
-      } else {
-        console.warn('⚠️ No services found or failed to load:', response.error);
-        setServices([]);
-      }
+      setServicesRequested(true);
+      await servicesQuery.refetch();
     } catch (err) {
-      console.error('❌ Failed to load services:', err);
-      setServices([]);
-    } finally {
-      setLoadingServices(false);
+      console.warn('⚠️ Failed to refresh services:', err);
     }
   };
 
@@ -956,7 +882,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             {/* Company Profile Image Banner */}
             <View style={styles.academyImageContainer}>
               {company.logo_url ? (
-                <Image source={{ uri: company.logo_url }} style={styles.academyImage} />
+                <Image
+                  source={{ uri: company.logo_url }}
+                  style={styles.academyImage}
+                  contentFit="cover"
+                  transition={150}
+                />
               ) : (
                 <View style={styles.academyImagePlaceholder}>
                   <Ionicons name="school" size={50} color="#71717a" />
@@ -1127,7 +1058,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="people-outline" size={18} color="#000" />
                   <Text style={styles.metricLabel}>Active Users</Text>
                   <Text style={styles.metricValue}>
-                    {loadingMembers ? '...' : `${members.length}+`}
+                    {(!readOnly || membersRequested) ? (loadingMembers ? '...' : `${members.length}+`) : '—'}
                   </Text>
                 </View>
 
@@ -1135,7 +1066,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="bar-chart-outline" size={18} color="#000" />
                   <Text style={styles.metricLabel}>Active</Text>
                   <Text style={styles.metricValue}>
-                    {loadingMembers ? '...' : `${members.length}+`}
+                    {(!readOnly || membersRequested) ? (loadingMembers ? '...' : `${members.length}+`) : '—'}
                   </Text>
                 </View>
               </View>
@@ -1161,29 +1092,33 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 <ActivityIndicator size="small" color="#000" />
               ) : courses.length > 0 ? (
                 <>
-                  <ScrollView 
-                    horizontal 
+                  <FlashListUnsafe
+                    horizontal
+                    data={courses}
+                    keyExtractor={(course: CourseWithDetails) => String(course.id)}
                     showsHorizontalScrollIndicator={false}
                     style={styles.coursesHorizontalScroll}
                     contentContainerStyle={styles.coursesHorizontalContent}
-                  >
-                    {courses.map((course) => (
-                      <CourseCard
-                        key={course.id}
-                        course={course}
-                        onSelect={() => {
-                          // STRICT READ-ONLY: In read-only mode, only allow viewing course details
-                          if (readOnly && onCourseSelect) {
-                            onCourseSelect(course);
-                          } else if (!readOnly && onCourseSelect) {
-                            onCourseSelect(course);
-                          } else if (!readOnly && onManageCourses) {
-                            onManageCourses(company);
-                          }
-                        }}
-                      />
-                    ))}
-                  </ScrollView>
+                    ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
+                    estimatedItemSize={courseCardWidth}
+                    renderItem={({ item: course }: { item: CourseWithDetails }) => (
+                      <View style={{ width: courseCardWidth }}>
+                        <CourseCard
+                          course={course}
+                          onSelect={() => {
+                            // STRICT READ-ONLY: In read-only mode, only allow viewing course details
+                            if (readOnly && onCourseSelect) {
+                              onCourseSelect(course);
+                            } else if (!readOnly && onCourseSelect) {
+                              onCourseSelect(course);
+                            } else if (!readOnly && onManageCourses) {
+                              onManageCourses(company);
+                            }
+                          }}
+                        />
+                      </View>
+                    )}
+                  />
                   {/* STRICT READ-ONLY: In read-only mode, only allow viewing courses, not managing */}
                   {readOnly && onCourseSelect ? (
                     <TouchableOpacity
@@ -1280,7 +1215,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             <View style={styles.headerSection}>
               <View style={styles.logoContainer}>
                 {company.logo_url ? (
-                  <Image source={{ uri: company.logo_url }} style={styles.logo} />
+                  <Image
+                    source={{ uri: company.logo_url }}
+                    style={styles.logo}
+                    contentFit="cover"
+                    transition={150}
+                  />
                 ) : (
                   <View style={styles.logoPlaceholder}>
                     <Ionicons name="business" size={48} color="#71717a" />
@@ -1482,7 +1422,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>
-                  Services We Provide {services.length > 0 && `(${services.length})`}
+                  Services We Provide {((!readOnly || servicesRequested) && services.length > 0) ? `(${services.length})` : ''}
                 </Text>
                 {/* STRICT READ-ONLY: Manage Services button completely removed when readOnly is true */}
                 {!readOnly && canEdit() && onManageServices && (
@@ -1494,11 +1434,20 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     <Text style={styles.manageButtonText}>Manage</Text>
                   </TouchableOpacity>
                 )}
+                {readOnly && !servicesRequested && (
+                  <TouchableOpacity
+                    style={styles.manageButton}
+                    onPress={() => loadServices(company.id)}
+                  >
+                    <Ionicons name="download-outline" size={18} color="#000" />
+                    <Text style={styles.manageButtonText}>Load</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               {loadingServices ? (
                 <ActivityIndicator size="small" color="#000" />
-              ) : services.length > 0 ? (
+              ) : (!readOnly || servicesRequested) && services.length > 0 ? (
                 <View style={styles.servicesGrid}>
                   {services.map((companyService) => {
                     const service = companyService.service;
@@ -1526,7 +1475,9 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="briefcase-outline" size={48} color="#e4e4e7" />
-                  <Text style={styles.emptyStateText}>No services added yet</Text>
+                  <Text style={styles.emptyStateText}>
+                    {readOnly && !servicesRequested ? 'Tap "Load" to view services' : 'No services added yet'}
+                  </Text>
                   {/* STRICT READ-ONLY: Add Services button completely removed when readOnly is true */}
                   {!readOnly && canEdit() && onManageServices && (
                     <TouchableOpacity
@@ -1556,11 +1507,20 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     <Text style={styles.manageButtonText}>Invite</Text>
                   </TouchableOpacity>
                 )}
+                {readOnly && !membersRequested && (
+                  <TouchableOpacity
+                    style={styles.manageButton}
+                    onPress={() => loadMembers(company.id)}
+                  >
+                    <Ionicons name="download-outline" size={18} color="#000" />
+                    <Text style={styles.manageButtonText}>Load</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               {loadingMembers ? (
                 <ActivityIndicator size="small" color="#000" />
-              ) : members.length > 0 ? (
+              ) : (!readOnly || membersRequested) && members.length > 0 ? (
                 <View style={styles.membersList}>
                   {members.map((member) => (
                       <View key={member.user_id} style={styles.memberCard}>
@@ -1569,6 +1529,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                             <Image
                               source={{ uri: member.user.image_url }}
                               style={styles.memberAvatarImage}
+                              contentFit="cover"
+                              transition={150}
                             />
                           ) : (
                             <View style={styles.memberAvatarPlaceholder}>
@@ -1641,7 +1603,9 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="people-outline" size={48} color="#e4e4e7" />
-                  <Text style={styles.emptyStateText}>No members yet</Text>
+                  <Text style={styles.emptyStateText}>
+                    {readOnly && !membersRequested ? 'Tap "Load" to view team members' : 'No members yet'}
+                  </Text>
                   {/* STRICT READ-ONLY: Invite Members button completely removed when readOnly is true */}
                   {!readOnly && canEdit() && onInviteMember && (
                     <TouchableOpacity
@@ -2051,8 +2015,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   coursesHorizontalContent: {
-    paddingRight: 10,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingRight: 16,
+    paddingVertical: 4,
   },
   chatIconButton: {
     position: 'absolute',

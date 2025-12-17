@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Share, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { shareAppInvite } from '../utils/shareAppInvite';
 
 interface UserMenuModalProps {
   visible: boolean;
@@ -14,8 +15,6 @@ interface UserMenuModalProps {
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
 }
-
-const APP_STORE_URL = 'https://apps.apple.com/app/cool-steps/id6756064436';
 
 const UserMenuModal: React.FC<UserMenuModalProps> = ({
   visible,
@@ -32,23 +31,26 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
   const isDark = theme === 'dark';
 
   const handleInviteFriend = async () => {
-    try {
-      // iOS will combine `message` + `url` when copying/sharing; avoid duplicating the link.
-      const content =
-        Platform.OS === 'ios'
-          ? { message: 'Join me on Cool Steps!', url: APP_STORE_URL }
-          : { message: `Join me on Cool Steps! Download it here: ${APP_STORE_URL}` };
-
-      await Share.share(content);
-    } catch (error) {
-      Alert.alert('Unable to share', 'Please try again.');
-    }
+    // Sharing from within a modal can be flaky on iOS; close first, then present share sheet.
+    onClose();
+    setTimeout(() => {
+      void shareAppInvite();
+    }, 350);
   };
   
-  const menuItems = [
+  type MenuItem = {
+    id: string;
+    label: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    onPress: () => void | Promise<void>;
+    isDestructive?: boolean;
+    shouldCloseOnPress?: boolean;
+  };
+
+  const menuItems: MenuItem[] = [
     { id: 'myTeam', label: 'My Team', icon: 'people', onPress: onMyTeam },
     { id: 'settings', label: 'Settings', icon: 'settings', onPress: onSettings },
-    { id: 'inviteFriend', label: 'Invite a friend', icon: 'share-social', onPress: handleInviteFriend },
+    { id: 'inviteFriend', label: 'Invite a friend', icon: 'share-social', onPress: handleInviteFriend, shouldCloseOnPress: false },
     { id: 'profileEdit', label: 'Profile Edit', icon: 'create', onPress: onProfileEdit },
     { id: 'createCompany', label: 'Create Company', icon: 'business', onPress: onCreateCompany || (() => {}) },
     { id: 'helpSupport', label: 'Help & Support', icon: 'help-circle', onPress: onHelpSupport },
@@ -83,8 +85,10 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
                   item.isDestructive && styles.destructiveMenuItem
                 ]}
                 onPress={() => {
-                  item.onPress();
-                  onClose();
+                  void item.onPress();
+                  if (item.shouldCloseOnPress !== false) {
+                    onClose();
+                  }
                 }}
               >
                 <Ionicons

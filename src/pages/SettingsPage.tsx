@@ -6,11 +6,9 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
-  Share,
-  Alert,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { shareAppInvite } from '../utils/shareAppInvite';
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -29,8 +27,6 @@ interface SettingsItem {
   danger?: boolean;
 }
 
-const APP_STORE_URL = 'https://apps.apple.com/app/cool-steps/id6756064436';
-
 const SettingsPage: React.FC<SettingsPageProps> = ({ 
   onBack, 
   onNavigate, 
@@ -40,17 +36,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const isDark = theme === 'dark';
 
   const handleInviteFriend = async () => {
-    try {
-      // iOS will combine `message` + `url` when copying/sharing; avoid duplicating the link.
-      const content =
-        Platform.OS === 'ios'
-          ? { message: 'Join me on Cool Steps!', url: APP_STORE_URL }
-          : { message: `Join me on Cool Steps! Download it here: ${APP_STORE_URL}` };
-
-      await Share.share(content);
-    } catch (error) {
-      Alert.alert('Unable to share', 'Please try again.');
-    }
+    await shareAppInvite();
   };
 
   const settingsSections: { title?: string; items: SettingsItem[] }[] = [

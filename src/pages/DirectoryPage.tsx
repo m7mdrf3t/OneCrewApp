@@ -1,11 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Alert, Image, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { FlashList } from '@shopify/flash-list';
+import { Image } from 'expo-image';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../contexts/ApiContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import SearchBar from '../components/SearchBar';
 import FilterModal, { FilterParams } from '../components/FilterModal';
 import SkeletonUserCard from '../components/SkeletonUserCard';
+
+// NOTE: FlashList runtime supports `estimatedItemSize`, but the shipped TS typings
+// in our current setup don't expose it. We cast to keep the perf optimization without
+// blocking typecheck; consider revisiting after dependency upgrades.
+const FlashListUnsafe: React.ComponentType<any> = FlashList as any;
 
 interface User {
   id: string;
@@ -81,27 +89,18 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   // Hide subcategory counts for now (they can be inaccurate due to role/label normalization differences)
   const SHOW_SUBCATEGORY_COUNTS = false;
 
-  const { api, getUsersDirect, getMyTeam, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies } = useApi();
-  const [users, setUsers] = useState<User[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies } = useApi();
+  const queryClient = useQueryClient();
+  const isCompaniesSection = section.key === 'onehub' || section.key === 'academy';
+
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [loadingCompleteData, setLoadingCompleteData] = useState<Set<string>>(new Set());
-  const [teamMemberIds, setTeamMemberIds] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [filters, setFilters] = useState<FilterParams>({});
   const [debouncedFilters, setDebouncedFilters] = useState<FilterParams>({});
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Pagination state (users list)
-  const [usersPage, setUsersPage] = useState(1);
-  const [hasMoreUsers, setHasMoreUsers] = useState(true);
-  const [loadingMoreUsers, setLoadingMoreUsers] = useState(false);
 
   // Local back behavior: close in-page UI (filter/subcategory) before popping navigation history
   const handleBackPress = useCallback(() => {
@@ -132,32 +131,38 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     return () => clearTimeout(timer);
   }, [filters]);
 
-  const fetchUsers = useCallback(async (page: number = 1, append: boolean = false) => {
-    // Cancel previous request if still pending (only for fresh loads)
-    if (!append && abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+  const directoryUsersQueryKey = useMemo(
+    () => [
+      'directoryUsers',
+      {
+        sectionKey: section.key,
+        isGuest,
+        search: debouncedSearchQuery,
+        filters: debouncedFilters,
+      },
+    ],
+    [section.key, isGuest, debouncedSearchQuery, debouncedFilters]
+  );
 
-    // Create new AbortController for this request
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-    try {
-      console.log('👥 Fetching users for directory...', isGuest ? '(Guest Mode)' : '(Authenticated)', `Page: ${page}`, append ? '(append)' : '(replace)');
-      setError(null);
+  type DirectoryUsersPage = {
+    users: User[];
+    page: number;
+    limit: number;
+    pagination?: { totalPages?: number };
+  };
 
-      if (append) {
-        setLoadingMoreUsers(true);
-      } else {
-        setIsLoading(true);
-      }
-
+  const directoryUsersQuery = useInfiniteQuery<DirectoryUsersPage>({
+    queryKey: directoryUsersQueryKey,
+    enabled: !isCompaniesSection,
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const page = typeof pageParam === 'number' ? pageParam : 1;
       const limit = 50;
 
       const inferredCategory =
         section.key === 'talent' ? 'talent' : section.key === 'individuals' ? 'crew' : undefined;
       const effectiveCategory = debouncedFilters.category ?? inferredCategory;
 
-      // Build params with debounced search and filters
       const params: any = {
         limit,
         page,
@@ -200,80 +205,40 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         skills: debouncedFilters.skills,
         languages: debouncedFilters.languages,
       };
-      
-      // Remove undefined values
-      Object.keys(params).forEach(key => {
+
+      Object.keys(params).forEach((key) => {
         if (params[key] === undefined || params[key] === null || params[key] === '') {
           delete params[key];
         }
       });
 
-      const mergeById = (prev: User[], next: User[]) => {
-        if (!prev.length) return next;
-        const seen = new Set(prev.map(u => u.id));
-        const merged = [...prev];
-        next.forEach(u => {
-          if (!seen.has(u.id)) {
-            seen.add(u.id);
-            merged.push(u);
-          }
-        });
-        return merged;
-      };
-      
-      // Use guest browsing if in guest mode
       if (isGuest) {
-        try {
-          console.log('🎭 Browsing users as guest...', params);
-          const response = await browseUsersAsGuest(params);
-          
-          if (response.success && response.data) {
-            const data = response.data.data || response.data;
-            const usersArray = Array.isArray(data) ? data : (Array.isArray(data?.users) ? data.users : []);
-            const pagination = response.data.pagination;
-
-            console.log('✅ Users fetched successfully as guest:', usersArray.length);
-            setUsers(prev => (append ? mergeById(prev, usersArray) : usersArray));
-            setUsersPage(page);
-            setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
-            return;
-          } else {
-            throw new Error(response.error || 'Failed to browse users as guest');
-          }
-        } catch (guestErr: any) {
-          console.error('❌ Guest browsing failed:', guestErr);
-          setError(guestErr.message || 'Failed to browse users as guest');
-          throw guestErr;
+        const response = await browseUsersAsGuest(params);
+        if (!response.success || !response.data) {
+          throw new Error(response.error || 'Failed to browse users as guest');
         }
+        const data = response.data.data || response.data;
+        const usersArray = Array.isArray(data) ? data : Array.isArray(data?.users) ? data.users : [];
+        const pagination = response.data.pagination;
+        return { users: usersArray, page, limit, pagination };
       }
-      
-      // Authenticated user flow
-      // Try direct fetch first
+
+      // Authenticated user flow: try direct fetch first
       try {
         const response = await getUsersDirect(params);
-        
         if (response.success && response.data) {
           const data = response.data.data || response.data;
           const usersArray = Array.isArray(data) ? data : [];
           const pagination = response.data.pagination;
-
-          console.log('✅ Users fetched successfully with direct fetch:', usersArray.length);
-          setUsers(prev => (append ? mergeById(prev, usersArray) : usersArray));
-          setUsersPage(page);
-          setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
-          return;
+          return { users: usersArray, page, limit, pagination };
         }
       } catch (directErr) {
         console.warn('⚠️ Direct fetch failed, trying API client:', directErr);
       }
-      
+
       // Fallback to API client
-      const apiParams: any = {
-        limit,
-        page,
-      };
-      // Copy all filter parameters
-      Object.keys(params).forEach(key => {
+      const apiParams: any = { limit, page };
+      Object.keys(params).forEach((key) => {
         if (key !== 'limit' && params[key] !== undefined && params[key] !== null && params[key] !== '') {
           if (key === 'search') {
             apiParams.q = params[key];
@@ -283,144 +248,153 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         }
       });
       const response = await api.getUsers(apiParams);
-      
-      if (response.success && response.data) {
-        const data = response.data.data || response.data;
-        const usersArray = Array.isArray(data) ? data : [];
-        const pagination = response.data.pagination;
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to load users');
+      }
+      const data = response.data.data || response.data;
+      const usersArray = Array.isArray(data) ? data : [];
+      const pagination = response.data.pagination;
+      return { users: usersArray, page, limit, pagination };
+    },
+    getNextPageParam: (lastPage) => {
+      const totalPages = lastPage.pagination?.totalPages;
+      if (typeof totalPages === 'number') {
+        return lastPage.page < totalPages ? lastPage.page + 1 : undefined;
+      }
+      return lastPage.users.length === lastPage.limit ? lastPage.page + 1 : undefined;
+    },
+  });
 
-        console.log('✅ Users fetched successfully with API client:', usersArray.length);
-        
-        // For now, use basic user data to avoid rate limiting
-        // TODO: Implement batch API call or server-side complete data fetching
-        const completeUsers = usersArray;
-        
-        setUsers(prev => (append ? mergeById(prev, completeUsers) : completeUsers));
-        setUsersPage(page);
-        setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
-        console.log('✅ Complete user data fetched:', completeUsers.length);
-      } else {
-        console.error('❌ Failed to fetch users:', response.error);
-        setError('Failed to load users');
-      }
-    } catch (err: any) {
-      // Don't update state if request was aborted
-      if (abortController.signal.aborted) {
-        console.log('⏹️ Request aborted');
-        return;
-      }
-      console.error('❌ Error fetching users:', err);
-      setError(err.message || 'Failed to load users');
-    } finally {
-      // Only update loading state if request wasn't aborted
-      if (!abortController.signal.aborted) {
-        setIsLoading(false);
-        setRefreshing(false);
-        setLoadingMoreUsers(false);
-      }
-    }
-  }, [isGuest, debouncedSearchQuery, debouncedFilters, browseUsersAsGuest, getUsersDirect, api, section.key]);
+  const directoryCompaniesQueryKey = useMemo(
+    () => ['directoryCompanies', { sectionKey: section.key }],
+    [section.key]
+  );
 
-  const fetchCompanies = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
+  const directoryCompaniesQuery = useQuery<Company[]>({
+    queryKey: directoryCompaniesQueryKey,
+    enabled: isCompaniesSection,
+    queryFn: async () => {
       // Determine subcategory filter based on section (v2.24.0 optimization - server-side filtering)
       let subcategoryFilter: string | undefined;
       if (section.key === 'onehub') {
-        // Studios & Agencies: production_house, agency, studio, casting_agency, management_company
         subcategoryFilter = 'production_house,agency,casting_agency,studio,management_company';
       } else if (section.key === 'academy') {
-        // Academy: academy subcategory
         subcategoryFilter = 'academy';
       }
-      
-      // Optimize payload size by selecting only essential fields for list view (v2.24.0)
-      // Use server-side subcategory filtering to reduce payload and improve performance
-      const response = await getCompanies({ 
+
+      const response = await getCompanies({
         limit: 100,
         fields: ['id', 'name', 'logo_url', 'location_text', 'subcategory', 'company_type_info'],
         subcategory: subcategoryFilter,
         sort: 'name',
-        order: 'asc'
+        order: 'asc',
       });
-      
-      if (response.success && response.data) {
-        const companiesArray = Array.isArray(response.data) 
-          ? response.data 
-          : (Array.isArray(response.data?.data) ? response.data.data : []);
-        setCompanies(companiesArray);
-      } else {
-        console.error('❌ Failed to fetch companies:', response.error);
-        setError('Failed to load companies');
+
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to load companies');
       }
-    } catch (err: any) {
-      console.error('❌ Error fetching companies:', err);
-      setError(err.message || 'Failed to load companies');
-    } finally {
-      setIsLoading(false);
-      setRefreshing(false);
-    }
-  }, [getCompanies, section.key]);
 
+      const companiesArray = Array.isArray(response.data)
+        ? response.data
+        : Array.isArray((response.data as any)?.data)
+          ? (response.data as any).data
+          : [];
 
-  useEffect(() => {
-    setUsersPage(1);
-    setHasMoreUsers(true);
+      return companiesArray;
+    },
+  });
 
-    // Only fetch users if not viewing companies section
-    if (section.key !== 'onehub' && section.key !== 'academy') {
-      fetchUsers(1, false);
-    }
-    
-    // Fetch companies for Studios & Agencies and Academy sections
-    if (section.key === 'onehub' || section.key === 'academy') {
-      fetchCompanies(); // fetchCompanies already handles setIsLoading
-    }
-    
-    // Only load team members if authenticated (not guest)
-    if (!isGuest) {
-      loadTeamMembers();
-    }
-  }, [isGuest, section.key, debouncedSearchQuery, debouncedFilters, fetchUsers, fetchCompanies]);
+  const teamMembersQueryKey = useMemo(() => ['myTeamMembers'], []);
 
-  const loadTeamMembers = async () => {
-    // Skip loading team members if guest
-    if (isGuest) return;
-    
-    try {
+  const teamMembersQuery = useQuery<any[]>({
+    queryKey: teamMembersQueryKey,
+    enabled: !isGuest,
+    queryFn: async () => {
       const response = await getMyTeamMembers();
-      if (response.success && response.data) {
-        console.log('🔍 DirectoryPage - Team members data:', JSON.stringify(response.data, null, 2));
-        const memberIds = new Set<string>(response.data.map((member: any) => member.user_id));
-        setTeamMemberIds(memberIds);
-        console.log('✅ DirectoryPage - Team member IDs loaded:', Array.from(memberIds));
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to load team members');
       }
-    } catch (error) {
-      console.error('Error loading team members:', error);
-    }
-  };
+      return Array.isArray(response.data) ? response.data : [];
+    },
+  });
+
+  const companies = directoryCompaniesQuery.data ?? [];
+
+  const users = useMemo(() => {
+    const pages = directoryUsersQuery.data?.pages ?? [];
+    const merged: User[] = [];
+    const seen = new Set<string>();
+    pages.forEach((p) => {
+      p.users.forEach((u) => {
+        if (!seen.has(u.id)) {
+          seen.add(u.id);
+          merged.push(u);
+        }
+      });
+    });
+    return merged;
+  }, [directoryUsersQuery.data]);
+
+  const teamMemberIds = useMemo(() => {
+    const ids = new Set<string>();
+    (teamMembersQuery.data ?? []).forEach((member: any) => {
+      const id = member?.user_id || member?.id;
+      if (typeof id === 'string') {
+        ids.add(id);
+      }
+    });
+    return ids;
+  }, [teamMembersQuery.data]);
+
+  const isLoading = isCompaniesSection
+    ? directoryCompaniesQuery.isLoading
+    : directoryUsersQuery.isLoading;
+
+  const refreshing = isCompaniesSection
+    ? directoryCompaniesQuery.isRefetching
+    : (directoryUsersQuery.isRefetching && !directoryUsersQuery.isFetchingNextPage);
+
+  const error = (() => {
+    const err: any = isCompaniesSection ? directoryCompaniesQuery.error : directoryUsersQuery.error;
+    return err ? (err instanceof Error ? err.message : String(err)) : null;
+  })();
+
+  const hasMoreUsers = !!directoryUsersQuery.hasNextPage;
+  const loadingMoreUsers = directoryUsersQuery.isFetchingNextPage;
 
   const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    if (section.key !== 'onehub' && section.key !== 'academy') {
-      setUsersPage(1);
-      setHasMoreUsers(true);
-      fetchUsers(1, false);
+    if (!isCompaniesSection) {
+      // Keep refresh lightweight: drop to page 1 then refetch.
+      queryClient.setQueryData(directoryUsersQueryKey, (old: any) => {
+        if (!old?.pages?.length) return old;
+        return {
+          ...old,
+          pages: old.pages.slice(0, 1),
+          pageParams: old.pageParams?.slice?.(0, 1) ?? old.pageParams,
+        };
+      });
+      directoryUsersQuery.refetch();
     } else {
-      fetchCompanies();
+      directoryCompaniesQuery.refetch();
     }
-    // Only refresh team members if authenticated (not guest)
+
     if (!isGuest) {
-      loadTeamMembers();
+      teamMembersQuery.refetch();
     }
-  }, [section.key, isGuest, fetchUsers, fetchCompanies]);
+  }, [
+    isCompaniesSection,
+    isGuest,
+    queryClient,
+    directoryUsersQueryKey,
+    directoryUsersQuery,
+    directoryCompaniesQuery,
+    teamMembersQuery,
+  ]);
 
   const handleLoadMoreUsers = useCallback(() => {
-    if (isLoading || refreshing || loadingMoreUsers || !hasMoreUsers) return;
-    fetchUsers(usersPage + 1, true);
-  }, [isLoading, refreshing, loadingMoreUsers, hasMoreUsers, fetchUsers, usersPage]);
+    if (!directoryUsersQuery.hasNextPage || directoryUsersQuery.isFetchingNextPage) return;
+    directoryUsersQuery.fetchNextPage();
+  }, [directoryUsersQuery]);
 
   const fetchCompleteUserData = async (userId: string): Promise<User | null> => {
     if (loadingCompleteData.has(userId)) {
@@ -435,11 +409,19 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       
       if (completeResponse.success && completeResponse.data) {
         const updatedUser = completeResponse.data;
-        setUsers(prevUsers => 
-          prevUsers.map(user => 
-            user.id === userId ? updatedUser : user
-          )
-        );
+        // Update cached list data so the UI re-renders without additional refetches
+        queryClient.setQueryData(directoryUsersQueryKey, (old: any) => {
+          if (!old?.pages?.length) return old;
+          return {
+            ...old,
+            pages: old.pages.map((p: any) => ({
+              ...p,
+              users: Array.isArray(p.users)
+                ? p.users.map((u: User) => (u.id === userId ? updatedUser : u))
+                : p.users,
+            })),
+          };
+        });
         console.log(`✅ Complete data fetched for user: ${userId}`);
         return updatedUser;
       }
@@ -843,10 +825,9 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         const response = await removeFromMyTeam(user.id);
         
         if (response.success) {
-          setTeamMemberIds(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(user.id);
-            return newSet;
+          queryClient.setQueryData(teamMembersQueryKey, (old: any) => {
+            const prev = Array.isArray(old) ? old : [];
+            return prev.filter((m: any) => (m?.user_id || m?.id) !== user.id);
           });
         } else {
           console.error('Failed to remove user:', response.error);
@@ -857,7 +838,12 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         const response = await addToMyTeam(user.id);
         
         if (response.success) {
-          setTeamMemberIds(prev => new Set(prev).add(user.id));
+          queryClient.setQueryData(teamMembersQueryKey, (old: any) => {
+            const prev = Array.isArray(old) ? old : [];
+            const already = prev.some((m: any) => (m?.user_id || m?.id) === user.id);
+            if (already) return prev;
+            return [...prev, { user_id: user.id }];
+          });
         } else {
           console.error('Failed to add user:', response.error);
         }
@@ -1015,126 +1001,117 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           </View>
         </ScrollView>
       ) : (section.key === 'onehub' || section.key === 'academy') ? (
-        <ScrollView
-          style={styles.content}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        >
-          {error && (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
+        (() => {
+          const itemCompanies = (filteredCompaniesByType as any)[selectedSubcategory] || [];
+          const isAcademy = section.key === 'academy';
 
-          {/* Show companies for selected subcategory */}
-          <View style={styles.usersContainer}>
-            {(() => {
-              const itemCompanies = (filteredCompaniesByType as any)[selectedSubcategory] || [];
-              const isAcademy = section.key === 'academy';
+          return (
+            <FlashListUnsafe
+              data={itemCompanies}
+              keyExtractor={(c: Company) => c.id}
+              contentContainerStyle={[styles.usersContainer, { paddingBottom: 24 }]}
+              showsVerticalScrollIndicator={false}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              estimatedItemSize={320}
+              ListHeaderComponent={
+                error ? (
+                  <View style={styles.errorContainer}>
+                    <Text style={styles.errorText}>{error}</Text>
+                  </View>
+                ) : null
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} found</Text>
+                </View>
+              }
+              renderItem={({ item: company }: { item: Company }) => {
+                const location = company.location_text || company.location || '';
+                const companyType = company.company_type_info?.name || '';
 
-              return itemCompanies.length > 0 ? (
-                <View style={styles.companiesListContainer}>
-                  {itemCompanies.map((company: Company) => {
-                    const location = company.location_text || company.location || '';
-                    const companyType = company.company_type_info?.name || '';
+                return (
+                  <TouchableOpacity
+                    key={company.id}
+                    style={[styles.companyCardTwoTone, isAcademy && styles.academyCard]}
+                    onPress={() => {
+                      if (onNavigate) {
+                        onNavigate('companyProfile', { companyId: company.id, readOnly: true });
+                      }
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    {/* Image Section */}
+                    <View style={styles.companyCardImageContainer}>
+                      {company.logo_url ? (
+                        <Image
+                          source={{ uri: company.logo_url }}
+                          style={styles.companyCardLogo}
+                          contentFit="cover"
+                          transition={150}
+                        />
+                      ) : (
+                        <View style={styles.companyCardLogoPlaceholder}>
+                          <Ionicons name={isAcademy ? 'school' : 'business'} size={56} color="#a1a1aa" />
+                        </View>
+                      )}
 
-                    return (
+                      {/* Navigation Arrow */}
                       <TouchableOpacity
-                        key={company.id}
-                        style={[
-                          styles.companyCardTwoTone,
-                          isAcademy && styles.academyCard
-                        ]}
-                        onPress={() => {
+                        style={styles.companyNavButton}
+                        onPress={(e) => {
+                          e.stopPropagation();
                           if (onNavigate) {
                             onNavigate('companyProfile', { companyId: company.id, readOnly: true });
                           }
                         }}
-                        activeOpacity={0.85}
+                        activeOpacity={0.8}
                       >
-                        {/* Image Section */}
-                        <View style={styles.companyCardImageContainer}>
-                          {company.logo_url ? (
-                            <Image
-                              source={{ uri: company.logo_url }}
-                              style={styles.companyCardLogo}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <View style={styles.companyCardLogoPlaceholder}>
-                              <Ionicons
-                                name={isAcademy ? "school" : "business"}
-                                size={56}
-                                color="#a1a1aa"
-                              />
-                            </View>
-                          )}
-
-                          {/* Navigation Arrow */}
-                          <TouchableOpacity
-                            style={styles.companyNavButton}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              if (onNavigate) {
-                                onNavigate('companyProfile', { companyId: company.id, readOnly: true });
-                              }
-                            }}
-                            activeOpacity={0.8}
-                          >
-                            <Ionicons name="chevron-forward" size={18} color="#fff" />
-                          </TouchableOpacity>
-                        </View>
-
-                        {/* Bottom Info Section */}
-                        <View style={styles.companyCardBottom}>
-                          <View style={styles.companyCardBottomHeader}>
-                            <Text style={styles.companyCardBottomName} numberOfLines={1}>
-                              {company.name}
-                            </Text>
-                            {companyType ? (
-                              <View style={styles.companyCardTypeBadge}>
-                                <Text style={styles.companyCardTypeText} numberOfLines={1}>
-                                  {companyType}
-                                </Text>
-                              </View>
-                            ) : null}
-                          </View>
-                          {location ? (
-                            <View style={styles.companyCardLocation}>
-                              <Ionicons name="location" size={16} color="#71717a" />
-                              <Text style={styles.companyCardLocationText} numberOfLines={1}>
-                                {location}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
+                        <Ionicons name="chevron-forward" size={18} color="#fff" />
                       </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ) : (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} found</Text>
-                </View>
-              );
-            })()}
-          </View>
-        </ScrollView>
+                    </View>
+
+                    {/* Bottom Info Section */}
+                    <View style={styles.companyCardBottom}>
+                      <View style={styles.companyCardBottomHeader}>
+                        <Text style={styles.companyCardBottomName} numberOfLines={1}>
+                          {company.name}
+                        </Text>
+                        {companyType ? (
+                          <View style={styles.companyCardTypeBadge}>
+                            <Text style={styles.companyCardTypeText} numberOfLines={1}>
+                              {companyType}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      {location ? (
+                        <View style={styles.companyCardLocation}>
+                          <Ionicons name="location" size={16} color="#71717a" />
+                          <Text style={styles.companyCardLocationText} numberOfLines={1}>
+                            {location}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          );
+        })()
       ) : (
-        <FlatList
+        <FlashListUnsafe
           data={(filteredUsers as any)[selectedSubcategory] || []}
           keyExtractor={(u: User) => u.id}
           numColumns={2}
-          columnWrapperStyle={styles.usersGrid}
           contentContainerStyle={[styles.usersContainer, { paddingBottom: 24 }]}
           showsVerticalScrollIndicator={false}
           onEndReached={handleLoadMoreUsers}
           onEndReachedThreshold={0.5}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          estimatedItemSize={260}
           ListHeaderComponent={
             error ? (
               <View style={styles.errorContainer}>
@@ -1184,7 +1161,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                     <Image
                       source={{ uri: user.image_url }}
                       style={styles.userImage}
-                      resizeMode="cover"
+                      contentFit="cover"
+                      transition={150}
                     />
                   ) : (
                     <Text style={styles.initialsText}>
@@ -1393,9 +1371,10 @@ const styles = StyleSheet.create({
     gap: semanticSpacing.buttonPadding,
   },
   userCard: {
-    width: '48%',
+    flex: 1,
     backgroundColor: '#000',
     borderRadius: 12,
+    marginHorizontal: spacing.xs,
     marginBottom: semanticSpacing.buttonPadding,
     minHeight: 220,
   },

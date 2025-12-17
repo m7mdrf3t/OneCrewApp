@@ -1,14 +1,17 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, Image, NativeModules } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { QueryClientProvider } from '@tanstack/react-query';
 // Firebase Messaging is now used instead of expo-notifications
 // We'll import it dynamically to avoid errors when native modules aren't ready
 
 // Context
 import { ApiProvider, useApi } from './src/contexts/ApiContext';
 import pushNotificationService from './src/services/PushNotificationService';
+import { queryClient } from './src/services/queryClient';
 
 // Components
 import TabBar from './src/components/TabBar';
@@ -1155,7 +1158,7 @@ const AppContent: React.FC = () => {
               <Image 
                 source={require('./assets/Logo_alpha.png')} 
                 style={{ width: 20, height: 20 }}
-                resizeMode="contain"
+                contentFit="contain"
               />
             </TouchableOpacity>
             <TouchableOpacity 
@@ -1928,11 +1931,13 @@ const styles = StyleSheet.create({
 const App: React.FC = () => {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ApiProvider>
-        <SafeAreaProvider>
-          <AppContent />
-        </SafeAreaProvider>
-      </ApiProvider>
+      <QueryClientProvider client={queryClient}>
+        <ApiProvider>
+          <SafeAreaProvider>
+            <AppContent />
+          </SafeAreaProvider>
+        </ApiProvider>
+      </QueryClientProvider>
     </GestureHandlerRootView>
   );
 };

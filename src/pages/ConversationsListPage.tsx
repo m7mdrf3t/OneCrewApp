@@ -2,134 +2,116 @@ import React, { useState, useEffect, useCallback, useRef, useMemo, memo } from '
 import {
   View,
   Text,
-  FlatList,
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
-  Image,
   TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { FlashList } from '@shopify/flash-list';
+import { Image } from 'expo-image';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../contexts/ApiContext';
 import { ConversationsListPageProps, ChatConversation, ChatParticipant } from '../types';
 import supabaseService from '../services/SupabaseService';
 import SkeletonConversationItem from '../components/SkeletonConversationItem';
+
+// NOTE: FlashList runtime supports `estimatedItemSize`, but our current TS setup may not expose it.
+// We cast to keep the perf optimization without blocking typecheck; revisit after dependency upgrades.
+const FlashListUnsafe: React.ComponentType<any> = FlashList as any;
 
 const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   onBack,
   onConversationSelect,
 }) => {
   const { getConversations, getConversationById, user, currentProfileType, activeCompany } = useApi();
-  const [conversations, setConversations] = useState<ChatConversation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const conversationsChannelIdRef = useRef<string | null>(null);
   const lastUpdateTimeRef = useRef<{ [key: string]: number }>({});
-  const hasInitiallyLoadedRef = useRef(false);
-  const getConversationsRef = useRef(getConversations);
-  
-  // Keep ref updated
-  useEffect(() => {
-    getConversationsRef.current = getConversations;
-  }, [getConversations]);
+  const currentProfileId =
+    currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+  const currentProfileTypeValue = currentProfileType === 'company' ? 'company' : 'user';
 
-  const loadConversations = useCallback(async (pageNum: number = 1, append: boolean = false) => {
-    // Only set loading to true if this is the initial load (not appending)
-    if (!append && !hasInitiallyLoadedRef.current) {
-      console.log('🔄 Setting loading to true for initial load');
-      setLoading(true);
-    } else {
-      console.log('⏭️ Skipping loading state - append:', append, 'hasInitiallyLoaded:', hasInitiallyLoadedRef.current);
-    }
-    
-    try {
-      setError(null);
-      const response = await getConversationsRef.current({ page: pageNum, limit: 20 });
-      
-      if (response.success && response.data) {
-        const data = response.data.data || response.data;
-        const pagination = response.data.pagination;
-        
-        if (Array.isArray(data)) {
-          // Filter conversations to only include those where current profile is a participant
-          const currentProfileId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
-          const currentProfileTypeValue = currentProfileType === 'company' ? 'company' : 'user';
-          
-          const filteredData = data.filter((conv: ChatConversation) => {
-            if (!conv || !conv.participants || !Array.isArray(conv.participants)) {
-              return false;
-            }
-            
-            // Check if current profile is a participant
-            const isParticipant = conv.participants.some((p: any) => 
-              p.participant_id === currentProfileId && p.participant_type === currentProfileTypeValue
-            );
-            
-            if (!isParticipant) {
-              console.log('⚠️ Filtering out conversation - current profile is not a participant:', {
-                conversationId: conv.id,
-                currentProfileType: currentProfileTypeValue,
-                currentProfileId: currentProfileId,
-                participants: conv.participants,
-              });
-            }
-            
-            return isParticipant;
-          });
-          
-          console.log(`📊 Filtered conversations: ${data.length} total, ${filteredData.length} belong to current profile`);
-          
-          if (append) {
-            setConversations(prev => [...prev, ...filteredData]);
-          } else {
-            setConversations(filteredData);
-            hasInitiallyLoadedRef.current = true; // Mark as initially loaded
-            console.log('✅ Initial load complete, hasInitiallyLoaded set to true');
-          }
-          setHasMore(pagination ? pageNum < pagination.totalPages : false);
-        }
-      } else {
+  type ConversationsPage = {
+    items: ChatConversation[];
+    page: number;
+    totalPages?: number;
+  };
+
+  const conversationsQueryKey = useMemo(
+    () => ['conversations', currentProfileTypeValue, currentProfileId, { limit: 20 }],
+    [currentProfileTypeValue, currentProfileId]
+  );
+
+  const conversationsQuery = useInfiniteQuery<ConversationsPage>({
+    queryKey: conversationsQueryKey,
+    enabled: !!currentProfileId,
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const pageNum = typeof pageParam === 'number' ? pageParam : 1;
+      const response = await getConversations({ page: pageNum, limit: 20 });
+      if (!response.success || !response.data) {
         throw new Error(response.error || 'Failed to load conversations');
       }
-    } catch (err: any) {
-      console.error('Failed to load conversations:', err);
-      const errorMessage = err.message || 'Failed to load conversations';
-      setError(errorMessage);
-      
-      // Handle profile mismatch or 403 errors gracefully
-      if (err?.response?.status === 403 || errorMessage.includes('403') || errorMessage.includes('not a participant')) {
-        console.warn('⚠️ Profile mismatch or access denied - clearing conversations');
-        setConversations([]);
-        setError('Unable to load conversations for current profile. Please try switching profiles.');
-      } else if (!append) {
-        // Only clear conversations if we haven't loaded initially
-        // This prevents the loading screen from showing when we already have conversations
-        if (!hasInitiallyLoadedRef.current) {
-          setConversations([]);
-        }
-      }
-    } finally {
-      console.log('🔄 Setting loading to false');
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [currentProfileType, activeCompany?.id, user?.id]); // Include profile dependencies to filter correctly
+      const data = response.data.data || response.data;
+      const pagination = response.data.pagination;
 
-  // Reload conversations when profile type or active company changes
-  useEffect(() => {
-    // Reset state when profile changes
-    hasInitiallyLoadedRef.current = false;
-    setConversations([]);
-    setPage(1);
-    setHasMore(true);
-    // Load conversations for the current profile
-    loadConversations(1, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProfileType, activeCompany?.id, user?.id]); // Reload when profile context changes
+      const list = Array.isArray(data) ? data : [];
+      const filtered = list.filter((conv: ChatConversation) => {
+        if (!conv || !Array.isArray(conv.participants)) return false;
+        return conv.participants.some(
+          (p: any) =>
+            p.participant_id === currentProfileId && p.participant_type === currentProfileTypeValue
+        );
+      });
+
+      return {
+        items: filtered,
+        page: pageNum,
+        totalPages: pagination?.totalPages,
+      };
+    },
+    getNextPageParam: (lastPage) => {
+      if (typeof lastPage.totalPages === 'number') {
+        return lastPage.page < lastPage.totalPages ? lastPage.page + 1 : undefined;
+      }
+      // If server didn't return pagination, stop (conservative)
+      return undefined;
+    },
+  });
+
+  const conversations = useMemo(() => {
+    const pages = conversationsQuery.data?.pages ?? [];
+    const merged: ChatConversation[] = [];
+    const seen = new Set<string>();
+    pages.forEach((p) => {
+      (p.items || []).forEach((c) => {
+        if (!c?.id) return;
+        if (!seen.has(c.id)) {
+          seen.add(c.id);
+          merged.push(c);
+        }
+      });
+    });
+
+    // Keep list stable but ensure newest messages float to top
+    merged.sort((a, b) => {
+      const at = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+      const bt = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+      return bt - at;
+    });
+
+    return merged;
+  }, [conversationsQuery.data]);
+
+  const loading = conversationsQuery.isLoading;
+  const refreshing = conversationsQuery.isRefetching && !conversationsQuery.isFetchingNextPage;
+  const hasMore = !!conversationsQuery.hasNextPage;
+  const error: string | null = (() => {
+    const err: any = conversationsQuery.error;
+    return err ? (err instanceof Error ? err.message : String(err)) : null;
+  })();
 
   // Subscribe to real-time conversation updates
   useEffect(() => {
@@ -168,67 +150,35 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         }
         lastUpdateTimeRef.current[updatedConversation.id] = now;
         
-        // Update the conversation in the list efficiently
-        // Ensure loading is false during real-time updates
-        setLoading(false);
-        
-        // Validate conversation belongs to current profile before processing
-        const currentProfileIdForUpdate = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
-        const currentProfileTypeForUpdate = currentProfileType === 'company' ? 'company' : 'user';
-        
-        const isParticipant = updatedConversation.participants?.some((p: any) => 
-          p.participant_id === currentProfileIdForUpdate && p.participant_type === currentProfileTypeForUpdate
+        const isParticipant = updatedConversation.participants?.some(
+          (p: any) =>
+            p.participant_id === currentProfileId && p.participant_type === currentProfileTypeValue
         );
-        
-        if (!isParticipant) {
-          console.log('⚠️ Ignoring conversation update - current profile is not a participant:', {
-            conversationId: updatedConversation.id,
-            currentProfileType: currentProfileTypeForUpdate,
-            currentProfileId: currentProfileIdForUpdate,
-          });
-          return;
-        }
-        
-        setConversations(prev => {
-          // Safety check: never return empty array if we have conversations
-          if (prev.length === 0 && hasInitiallyLoadedRef.current) {
-            console.warn('⚠️ Attempted to update conversations but list is empty - this should not happen');
-            return prev;
+        if (!isParticipant) return;
+
+        queryClient.setQueryData(conversationsQueryKey, (old: any) => {
+          const base = old ?? { pages: [], pageParams: [1] };
+          const pages = Array.isArray(base.pages) ? base.pages : [];
+
+          // Remove existing occurrences
+          const cleaned = pages.map((p: any) => ({
+            ...p,
+            items: Array.isArray(p.items) ? p.items.filter((c: any) => c?.id !== updatedConversation.id) : [],
+          }));
+
+          if (cleaned.length === 0) {
+            return {
+              ...base,
+              pages: [{ items: [updatedConversation], page: 1, totalPages: 1 }],
+              pageParams: [1],
+            };
           }
-          
-          const existingIndex = prev.findIndex(conv => conv.id === updatedConversation.id);
-          
-          // Check if the update actually changed anything meaningful
-          if (existingIndex >= 0) {
-            const existing = prev[existingIndex];
-            const existingTime = existing.last_message_at ? new Date(existing.last_message_at).getTime() : 0;
-            const updatedTime = updatedConversation.last_message_at ? new Date(updatedConversation.last_message_at).getTime() : 0;
-            
-            // If the last_message_at hasn't changed, skip the update
-            if (existingTime === updatedTime && existing.last_message_preview === updatedConversation.last_message_preview) {
-              console.log('⏭️ Skipping conversation update (no changes)');
-              return prev;
-            }
-            
-            // If conversation needs to move to top (new message), do it efficiently
-            if (updatedTime > existingTime) {
-              // Remove from current position and add to top
-              const updated = [...prev];
-              updated.splice(existingIndex, 1);
-              updated.unshift({ ...existing, ...updatedConversation });
-              return updated;
-            } else {
-              // Just update in place without re-sorting
-              return prev.map(conv => 
-                conv.id === updatedConversation.id 
-                  ? { ...conv, ...updatedConversation }
-                  : conv
-              );
-            }
-          } else {
-            // New conversation, add to top
-            return [updatedConversation, ...prev];
-          }
+
+          const first = cleaned[0];
+          const firstItems = Array.isArray(first.items) ? first.items : [];
+          cleaned[0] = { ...first, items: [updatedConversation, ...firstItems] };
+
+          return { ...base, pages: cleaned };
         });
       }
     );
@@ -247,18 +197,22 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   }, [user?.id, currentProfileType, activeCompany?.id]); // Update subscription when profile changes
 
   const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    setPage(1);
-    loadConversations(1, false);
-  }, [loadConversations]);
+    // Keep refresh light: drop cached pages to page 1 then refetch.
+    queryClient.setQueryData(conversationsQueryKey, (old: any) => {
+      if (!old?.pages?.length) return old;
+      return {
+        ...old,
+        pages: old.pages.slice(0, 1),
+        pageParams: old.pageParams?.slice?.(0, 1) ?? old.pageParams,
+      };
+    });
+    conversationsQuery.refetch();
+  }, [queryClient, conversationsQueryKey, conversationsQuery]);
 
   const handleLoadMore = useCallback(() => {
-    if (!loading && hasMore && !refreshing) {
-      const nextPage = page + 1;
-      setPage(nextPage);
-      loadConversations(nextPage, true);
-    }
-  }, [loading, hasMore, refreshing, page, loadConversations]);
+    if (!conversationsQuery.hasNextPage || conversationsQuery.isFetchingNextPage) return;
+    conversationsQuery.fetchNextPage();
+  }, [conversationsQuery]);
 
   const getConversationName = (conversation: ChatConversation): string => {
     if (conversation.name) {
@@ -467,7 +421,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       >
         <View style={styles.avatarContainer}>
           {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} contentFit="cover" transition={150} />
           ) : (
             <View style={styles.avatarPlaceholder}>
               <Text style={styles.avatarText}>{initials}</Text>
@@ -589,10 +543,9 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
 
   // Only show loading screen on initial load, not during real-time updates
   // NEVER show loading if we have conversations - this prevents flickering on real-time updates
-  const shouldShowLoading = loading && !hasInitiallyLoadedRef.current && conversations.length === 0;
+  const shouldShowLoading = loading && conversations.length === 0;
   
   if (shouldShowLoading) {
-    console.log('📱 Showing loading screen - loading:', loading, 'hasInitiallyLoaded:', hasInitiallyLoadedRef.current, 'conversations.length:', conversations.length);
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -602,26 +555,17 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
           <Text style={styles.headerTitle}>Messages</Text>
           <View style={styles.headerRight} />
         </View>
-        <FlatList
+        <FlashListUnsafe
           data={Array.from({ length: 8 })}
           renderItem={() => <SkeletonConversationItem isDark={false} />}
           keyExtractor={(_, index) => `skeleton-conversation-${index}`}
           contentContainerStyle={styles.skeletonList}
+          estimatedItemSize={72}
         />
       </View>
     );
   }
   
-  // Debug log when loading screen should NOT show but loading is true
-  if (loading && (hasInitiallyLoadedRef.current || conversations.length > 0)) {
-    console.log('⚠️ Loading is true but not showing loading screen - hasInitiallyLoaded:', hasInitiallyLoadedRef.current, 'conversations.length:', conversations.length);
-    // Force loading to false if we have conversations - this is a safety measure
-    if (conversations.length > 0) {
-      console.log('🔧 Force setting loading to false because we have conversations');
-      setLoading(false);
-    }
-  }
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -655,16 +599,12 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       {error && conversations.length === 0 ? (
         renderError()
       ) : (
-        <FlatList
+        <FlashListUnsafe
           data={filteredConversations}
           renderItem={renderConversationItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={filteredConversations.length === 0 ? styles.emptyList : undefined}
-          removeClippedSubviews={true}
-          maxToRenderPerBatch={10}
-          updateCellsBatchingPeriod={50}
-          initialNumToRender={10}
-          windowSize={10}
+          estimatedItemSize={72}
           ListEmptyComponent={
             searchQuery.trim() ? (
               <View style={styles.emptyState}>
@@ -678,17 +618,12 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
               renderEmptyState()
             )
           }
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor="#3b82f6"
-            />
-          }
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={
-            loading && conversations.length > 0 ? (
+            conversationsQuery.isFetchingNextPage ? (
               <View style={styles.footerLoader}>
                 {Array.from({ length: 2 }).map((_, index) => (
                   <SkeletonConversationItem key={`footer-skeleton-${index}`} isDark={false} />
