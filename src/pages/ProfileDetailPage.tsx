@@ -266,9 +266,9 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   // Load certifications for the user
   useEffect(() => {
     const loadCertifications = async () => {
-      const userIdToFetch = isCurrentUser && currentUser?.id 
-        ? currentUser.id 
-        : (profile?.id || userProfile?.id);
+      // Always prioritize the profile being viewed (profile?.id), not the current user's ID
+      // This ensures we fetch certifications for the correct user, not the logged-in user
+      const userIdToFetch = profile?.id || userProfile?.id || (isCurrentUser ? currentUser?.id : undefined);
       
       if (userIdToFetch) {
         try {
@@ -289,9 +289,9 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   // Load social links from API
   useEffect(() => {
     const loadSocialLinks = async () => {
-      const userIdToFetch = isCurrentUser && currentUser?.id 
-        ? currentUser.id 
-        : (profile?.id || userProfile?.id);
+      // Always prioritize the profile being viewed (profile?.id), not the current user's ID
+      // This ensures we fetch social links for the correct user, not the logged-in user
+      const userIdToFetch = profile?.id || userProfile?.id || (isCurrentUser ? currentUser?.id : undefined);
       
       // Skip if no user ID available
       if (!userIdToFetch) {
@@ -307,17 +307,27 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
       try {
         setLoadingSocialLinks(true);
+        // CRITICAL: Log the userId being fetched to debug the issue
+        console.log('🔗 [ProfileDetailPage] Fetching social links for userId:', userIdToFetch, {
+          profileId: profile?.id,
+          userProfileId: userProfile?.id,
+          currentUserId: currentUser?.id,
+          isCurrentUser,
+        });
+        
         // Fetch social links for the specific user (current user or other user)
         const response = await getUserSocialLinks(userIdToFetch);
         if (response.success && response.data) {
           const links = Array.isArray(response.data) ? response.data : response.data.data || [];
+          console.log('✅ [ProfileDetailPage] Social links loaded:', links.length, 'links for userId:', userIdToFetch);
           setSocialLinks(links);
         } else {
+          console.warn('⚠️ [ProfileDetailPage] No social links in response, using fallback');
           // Fallback to userProfile data if available
           setSocialLinks(userProfile?.social_links || []);
         }
       } catch (error) {
-        console.error('Failed to load social links:', error);
+        console.error('❌ [ProfileDetailPage] Failed to load social links for userId:', userIdToFetch, error);
         // Fallback to userProfile data if available
         setSocialLinks(userProfile?.social_links || []);
       } finally {
