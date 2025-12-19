@@ -28,7 +28,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
   company,
   onInvitationSent,
 }) => {
-  const { api, addCompanyMember } = useApi();
+  const { api, addCompanyMember, user, getCompanyMembers } = useApi();
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
@@ -36,19 +36,55 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [sending, setSending] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<CompanyMemberRole | null>(null);
 
-  const roles: { value: CompanyMemberRole; label: string }[] = [
-    { value: 'owner', label: 'Owner' },
-    { value: 'admin', label: 'Admin' },
-    { value: 'manager', label: 'Manager' },
-    { value: 'member', label: 'Member' },
-  ];
+  // Determine available roles based on current user's permissions
+  // Admin and Owner users can add other admin users to companies/academies
+  const getAvailableRoles = (): { value: CompanyMemberRole; label: string }[] => {
+    const allRoles: { value: CompanyMemberRole; label: string }[] = [
+      { value: 'owner', label: 'Owner' },
+      { value: 'admin', label: 'Admin' },
+      { value: 'manager', label: 'Manager' },
+      { value: 'member', label: 'Member' },
+    ];
 
-  useEffect(() => {
-    if (visible) {
-      resetForm();
+    // If current user is admin or owner, they can assign all roles including admin
+    if (currentUserRole === 'admin' || currentUserRole === 'owner') {
+      return allRoles;
     }
-  }, [visible]);
+
+    // For other roles, still allow all roles (backend will enforce permissions)
+    // This ensures admin role is always available for users with edit permissions
+    return allRoles;
+  };
+
+  const roles = getAvailableRoles();
+
+  // Fetch current user's role in the company when modal opens
+  useEffect(() => {
+    if (visible && company && user) {
+      const fetchCurrentUserRole = async () => {
+        try {
+          const response = await getCompanyMembers(company.id, { page: 1, limit: 100 });
+          if (response.success && response.data) {
+            const members = Array.isArray(response.data) 
+              ? response.data 
+              : (response.data.data || []);
+            const userMember = members.find((m: any) => m.user_id === user.id);
+            setCurrentUserRole(userMember?.role || null);
+          }
+        } catch (error) {
+          console.error('Failed to fetch current user role:', error);
+          setCurrentUserRole(null);
+        }
+      };
+      fetchCurrentUserRole();
+      resetForm();
+    } else if (!visible) {
+      // Reset when modal closes
+      setCurrentUserRole(null);
+    }
+  }, [visible, company, user, getCompanyMembers]);
 
   // Search users using API q parameter when search query changes
   useEffect(() => {
@@ -96,6 +132,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
     setSelectedUser(null);
     setSelectedRole('member');
     setFilteredUsers([]);
+    // Don't reset currentUserRole here - it should persist while modal is open
   };
 
   const handleSelectUser = (user: any) => {
@@ -281,6 +318,11 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
           {/* Role Selection */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Role</Text>
+            {(currentUserRole === 'admin' || currentUserRole === 'owner') && (
+              <Text style={styles.roleHelperText}>
+                You can assign admin role to other users. Admin users have full management privileges.
+              </Text>
+            )}
             <View style={styles.roleContainer}>
               {roles.map((role) => (
                 <TouchableOpacity
@@ -377,6 +419,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#111827',
     marginBottom: 12,
+  },
+  roleHelperText: {
+    fontSize: 13,
+    color: '#6366f1',
+    marginBottom: 8,
+    fontStyle: 'italic',
   },
   searchContainer: {
     flexDirection: 'row',
