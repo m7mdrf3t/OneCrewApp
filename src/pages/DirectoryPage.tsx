@@ -92,8 +92,12 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies } = useApi();
   const queryClient = useQueryClient();
   const isCompaniesSection = section.key === 'onehub' || section.key === 'academy';
+  const isDirectorySection = section.key === 'directory';
 
-  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  // Auto-select "All Members" for directory section since it only has one item
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(
+    isDirectorySection && section.items.length === 1 ? section.items[0].label : null
+  );
   const [loadingCompleteData, setLoadingCompleteData] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -101,6 +105,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [filters, setFilters] = useState<FilterParams>({});
   const [debouncedFilters, setDebouncedFilters] = useState<FilterParams>({});
+  const [showSearchBar, setShowSearchBar] = useState(false);
 
   // Local back behavior: close in-page UI (filter/subcategory) before popping navigation history
   const handleBackPress = useCallback(() => {
@@ -159,8 +164,12 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       const page = typeof pageParam === 'number' ? pageParam : 1;
       const limit = 50;
 
+      // For directory section, don't filter by category (show all users)
+      // For other sections, infer category from section key
       const inferredCategory =
-        section.key === 'talent' ? 'talent' : section.key === 'individuals' ? 'crew' : undefined;
+        isDirectorySection ? undefined : 
+        section.key === 'talent' ? 'talent' : 
+        section.key === 'individuals' ? 'crew' : undefined;
       const effectiveCategory = debouncedFilters.category ?? inferredCategory;
 
       const params: any = {
@@ -719,6 +728,17 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     
     const sectionUsers: { [key: string]: User[] } = {};
 
+    // Directory section: show all users without category/role filtering
+    if (isDirectorySection) {
+      section.items.forEach(item => {
+        // For directory, all users go under "All Members"
+        if (item.label === 'All Members') {
+          sectionUsers[item.label] = filteredByCriteria;
+        }
+      });
+      return sectionUsers;
+    }
+
     // Custom section: allow an "All Custom Users" bucket + role-based buckets.
     // We infer "custom users" from the section's role items (generated on HomePageWithUsers),
     // so this works even before the backend supports a true `custom` category.
@@ -786,6 +806,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     return `${firstInitial}${lastInitial}`.toUpperCase();
   };
 
+  const capitalizeName = (name: string) => {
+    if (!name) return '';
+    return name
+      .toLowerCase()
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
   const getOnlineStatus = (user: User) => {
     if (user.online_last_seen) {
       const lastSeen = new Date(user.online_last_seen);
@@ -825,10 +854,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         const response = await removeFromMyTeam(user.id);
         
         if (response.success) {
-          queryClient.setQueryData(teamMembersQueryKey, (old: any) => {
-            const prev = Array.isArray(old) ? old : [];
-            return prev.filter((m: any) => (m?.user_id || m?.id) !== user.id);
-          });
+          // Invalidate and refetch to get fresh data
+          queryClient.invalidateQueries({ queryKey: teamMembersQueryKey });
         } else {
           console.error('Failed to remove user:', response.error);
         }
@@ -838,11 +865,24 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         const response = await addToMyTeam(user.id);
         
         if (response.success) {
+          // Invalidate and refetch to get fresh data immediately
+          queryClient.invalidateQueries({ queryKey: teamMembersQueryKey });
+          // Also optimistically update the UI
           queryClient.setQueryData(teamMembersQueryKey, (old: any) => {
             const prev = Array.isArray(old) ? old : [];
             const already = prev.some((m: any) => (m?.user_id || m?.id) === user.id);
             if (already) return prev;
-            return [...prev, { user_id: user.id }];
+            // Add user with full data structure
+            return [...prev, { 
+              user_id: user.id,
+              user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                image_url: user.image_url,
+                specialty: user.primary_role
+              }
+            }];
           });
         } else {
           console.error('Failed to add user:', response.error);
@@ -869,20 +909,30 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           <Text style={styles.title}>
             {selectedSubcategory ? selectedSubcategory : section.title}
           </Text>
-          {selectedSubcategory ? (
-            <TouchableOpacity
-              onPress={() => setSelectedSubcategory(null)}
-              style={styles.backButton}
-            >
-              <Ionicons name="close" size={24} color="#000" />
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.placeholder} />
-          )}
+          <View style={styles.headerRight}>
+            {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+              <TouchableOpacity 
+                onPress={() => setShowSearchBar(!showSearchBar)} 
+                style={styles.searchToggleButton}
+              >
+                <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
+              </TouchableOpacity>
+            )}
+            {selectedSubcategory ? (
+              <TouchableOpacity
+                onPress={() => setSelectedSubcategory(null)}
+                style={styles.backButton}
+              >
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.placeholder} />
+            )}
+          </View>
         </View>
 
-        {/* Keep SearchBar mounted while loading so typing isn't interrupted */}
-        {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+        {/* Search and Filter Bar - Expandable */}
+        {showSearchBar && selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
           <View style={styles.searchContainer}>
             <SearchBar
               value={searchQuery}
@@ -924,18 +974,28 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         <Text style={styles.title}>
           {selectedSubcategory ? selectedSubcategory : section.title}
         </Text>
-        {selectedSubcategory && (
-          <TouchableOpacity 
-            onPress={() => setSelectedSubcategory(null)} 
-            style={styles.backButton}
-          >
-            <Ionicons name="close" size={24} color="#000" />
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerRight}>
+          {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+            <TouchableOpacity 
+              onPress={() => setShowSearchBar(!showSearchBar)} 
+              style={styles.searchToggleButton}
+            >
+              <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
+            </TouchableOpacity>
+          )}
+          {selectedSubcategory && (
+            <TouchableOpacity 
+              onPress={() => setSelectedSubcategory(null)} 
+              style={styles.backButton}
+            >
+              <Ionicons name="close" size={24} color="#000" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Search and Filter Bar */}
-      {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+      {/* Search and Filter Bar - Expandable */}
+      {showSearchBar && selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
         <View style={styles.searchContainer}>
           <SearchBar
             value={searchQuery}
@@ -1155,29 +1215,62 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
               }}
               activeOpacity={0.7}
             >
-              <View style={styles.userCardContent}>
-                <View style={styles.userInitials}>
-                  {user.image_url ? (
-                    <Image
-                      source={{ uri: user.image_url }}
-                      style={styles.userImage}
-                      contentFit="cover"
-                      transition={150}
-                    />
-                  ) : (
-                    <Text style={styles.initialsText}>
-                      {getInitials(user.name)}
-                    </Text>
-                  )}
+              {/* Full card background image */}
+              {user.image_url ? (
+                <Image
+                  source={{ uri: user.image_url }}
+                  style={styles.userCardBackgroundImage}
+                  contentFit="cover"
+                  transition={150}
+                />
+              ) : (
+                <View style={styles.userCardBackgroundPlaceholder}>
+                  <Text style={styles.initialsText}>
+                    {getInitials(user.name)}
+                  </Text>
                 </View>
+              )}
 
+              {/* Gradient overlay for text readability - full card */}
+              <View style={styles.userCardGradientOverlay} />
+
+              {/* Top actions bar */}
+              {!isGuest && (
+                <View style={styles.userCardTopActions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.actionButtonTop,
+                      teamMemberIds.has(user.id) && styles.actionButtonTopAdded,
+                      actionLoading.has(user.id) && styles.actionButtonTopLoading
+                    ]}
+                    onPress={() => handleToggleTeamMember(user)}
+                    disabled={actionLoading.has(user.id)}
+                  >
+                    {actionLoading.has(user.id) ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons
+                        name={teamMemberIds.has(user.id) ? "checkmark" : "add"}
+                        size={18}
+                        color="#fff"
+                      />
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.actionButtonTop}>
+                    <Ionicons name="briefcase" size={18} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Bottom content overlay */}
+              <View style={styles.userCardBottomContent}>
                 <View style={styles.userInfo}>
                   <View style={styles.statusRow}>
                     <View style={[
                       styles.statusDot,
                       { backgroundColor: getOnlineStatus(user) === 'online' ? '#10b981' : '#9ca3af' }
                     ]} />
-                    <Text style={styles.userName}>{user.name}</Text>
+                    <Text style={styles.userName}>{capitalizeName(user.name)}</Text>
                   </View>
                   <Text style={styles.userRole}>
                     {user.primary_role?.replace('_', ' ').toUpperCase() || 'Member'}
@@ -1226,46 +1319,6 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                       )}
                     </View>
                   )}
-
-                  {/* Show message if talent profile data is not available */}
-                  {user.category === 'talent' && !user.about && (
-                    <View style={styles.talentDetails}>
-                      <Text style={[styles.talentDetailText, { fontStyle: 'italic' }]}>
-                        {loadingCompleteData.has(user.id) ? 'Loading details...' : 'Profile details not loaded'}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                <View style={styles.userActions}>
-                  {/* Only show team actions if authenticated (not guest) */}
-                  {!isGuest && (
-                    <TouchableOpacity
-                      style={[
-                        styles.actionButton,
-                        teamMemberIds.has(user.id) && styles.actionButtonAdded,
-                        actionLoading.has(user.id) && styles.actionButtonLoading
-                      ]}
-                      onPress={() => handleToggleTeamMember(user)}
-                      disabled={actionLoading.has(user.id)}
-                    >
-                      {actionLoading.has(user.id) ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Ionicons
-                          name={teamMemberIds.has(user.id) ? "checkmark" : "add"}
-                          size={16}
-                          color="#fff"
-                        />
-                      )}
-                    </TouchableOpacity>
-                  )}
-                  {/* Project assignment button - also only for authenticated users */}
-                  {!isGuest && (
-                    <TouchableOpacity style={styles.actionButton}>
-                      <Ionicons name="briefcase" size={16} color="#fff" />
-                    </TouchableOpacity>
-                  )}
                 </View>
               </View>
             </TouchableOpacity>
@@ -1295,8 +1348,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 2,
     borderBottomColor: '#000',
-    padding: semanticSpacing.containerPadding,
-    paddingTop: semanticSpacing.containerPadding,
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingVertical: spacing.xs,
+    paddingTop: spacing.xs,
   },
   backButton: {
     padding: spacing.xs,
@@ -1310,6 +1364,14 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     width: 32,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  searchToggleButton: {
+    padding: spacing.xs,
   },
   searchContainer: {
     padding: semanticSpacing.containerPadding,
@@ -1373,26 +1435,89 @@ const styles = StyleSheet.create({
   userCard: {
     flex: 1,
     backgroundColor: '#000',
-    borderRadius: 12,
+    borderRadius: 16,
     marginHorizontal: spacing.xs,
     marginBottom: semanticSpacing.buttonPadding,
-    minHeight: 220,
+    minHeight: 240,
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  userCardBackgroundImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+  },
+  userCardBackgroundPlaceholder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#1f2937',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userCardGradientOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    zIndex: 1,
+  },
+  userCardTopActions: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    gap: 8,
+    zIndex: 3,
+  },
+  userCardBottomContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: semanticSpacing.containerPadding,
+    paddingTop: 20,
+    zIndex: 2,
   },
   userCardContent: {
     padding: semanticSpacing.containerPadding,
     flex: 1,
+    position: 'relative',
+    zIndex: 2,
+    justifyContent: 'flex-end',
   },
   userInitials: {
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: semanticSpacing.containerPadding,
-    height: 100,
+    height: 140,
     width: '100%',
+    overflow: 'hidden',
   },
   userImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
     backgroundColor: '#1f2937',
   },
   initialsText: {
@@ -1409,20 +1534,40 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 2,
   },
   userName: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#fff',
     flex: 1,
+    letterSpacing: 0.2,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   userRole: {
-    fontSize: 12,
-    color: '#9ca3af',
+    fontSize: 10,
+    color: '#d1d5db',
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    marginTop: 2,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   talentDetails: {
     marginTop: spacing.xs,
@@ -1431,12 +1576,16 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   talentDetailText: {
-    fontSize: 10,
-    color: '#9ca3af',
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    fontSize: 9,
+    color: '#e5e7eb',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    fontWeight: '500',
+    overflow: 'hidden',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   userActions: {
     flexDirection: 'row',
@@ -1449,6 +1598,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#374151',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  actionButtonTop: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  actionButtonTopAdded: {
+    backgroundColor: 'rgba(16, 185, 129, 0.9)', // Green color when user is in team
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  actionButtonTopLoading: {
+    backgroundColor: 'rgba(107, 114, 128, 0.8)', // Gray color when loading
   },
   actionButtonAdded: {
     backgroundColor: '#10b981', // Green color when user is in team

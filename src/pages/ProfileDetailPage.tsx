@@ -616,11 +616,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         <View style={styles.profileContainer}>
           <View style={styles.nameRow}> 
             <Text style={styles.name}>{userProfile.name}</Text>
-            <Ionicons 
-              name={userProfile.about?.gender?.toLowerCase() === 'female' ? 'female' : 'male'} 
-              size={18} 
-              color="#000" 
-            />
           </View>
           <Text style={styles.lastSeen}>
             {userProfile.onlineStatus || (userProfile.online_last_seen ? formatLastSeen(userProfile.online_last_seen) : 'Last seen recently')}

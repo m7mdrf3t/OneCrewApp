@@ -20,9 +20,10 @@ interface TeamMember {
 interface MyTeamModalProps {
   visible: boolean;
   onClose: () => void;
+  onUserSelect?: (user: any) => void;
 }
 
-const MyTeamModal: React.FC<MyTeamModalProps> = ({ visible, onClose }) => {
+const MyTeamModal: React.FC<MyTeamModalProps> = ({ visible, onClose, onUserSelect }) => {
   const { getMyTeamMembers, removeFromMyTeam } = useApi();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -195,7 +196,17 @@ const MyTeamModal: React.FC<MyTeamModalProps> = ({ visible, onClose }) => {
                   {teamMembers.map((member, index) => {
                     console.log(`🔍 Rendering member ${index}:`, member.user?.name || 'No name');
                     return (
-                    <View key={member.id} style={styles.memberCard}>
+                    <TouchableOpacity
+                      key={member.id}
+                      style={styles.memberCard}
+                      onPress={() => {
+                        if (onUserSelect && member.user) {
+                          onUserSelect(member.user);
+                          onClose();
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
                       <View style={styles.memberInfo}>
                         <View style={styles.avatarContainer}>
                           <View style={styles.avatar}>
@@ -222,7 +233,10 @@ const MyTeamModal: React.FC<MyTeamModalProps> = ({ visible, onClose }) => {
                       </View>
                       <TouchableOpacity
                         style={styles.removeButton}
-                        onPress={() => handleRemoveMember(member)}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleRemoveMember(member);
+                        }}
                         disabled={isRemoving === member.id}
                       >
                         {isRemoving === member.id ? (
@@ -231,7 +245,7 @@ const MyTeamModal: React.FC<MyTeamModalProps> = ({ visible, onClose }) => {
                           <Ionicons name="trash-outline" size={20} color="#ef4444" />
                         )}
                       </TouchableOpacity>
-                    </View>
+                    </TouchableOpacity>
                     );
                   })}
                 </>
@@ -311,6 +325,8 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     minHeight: 80,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
   memberInfo: {
     flexDirection: 'row',

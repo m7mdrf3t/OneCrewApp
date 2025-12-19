@@ -1824,60 +1824,68 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                       <View key={picture.id} style={styles.coverImageItem}>
                         <ImageUploadWithProgress
                           imageUrl={picture.image_url}
-                          placeholderSize={{ width: 120, height: 80 }}
-                          borderRadius={8}
+                          placeholderSize={{ width: 150, height: 100 }}
+                          borderRadius={12}
                           isUploading={false}
                         >
                           <View style={styles.coverImagePlaceholder}>
-                            <Ionicons name="image-outline" size={24} color="#9ca3af" />
+                            <Ionicons name="image-outline" size={28} color="#9ca3af" />
                           </View>
                         </ImageUploadWithProgress>
+                        {/* Main Badge - Top Left */}
                         {picture.is_main && (
                           <View style={styles.mainImageBadge}>
-                            <Ionicons name="star" size={16} color="#fff" />
+                            <Ionicons name="star" size={14} color="#fff" />
                             <Text style={styles.mainImageBadgeText}>Main</Text>
                           </View>
                         )}
-                        <View style={styles.coverImageActions}>
-                          {!picture.is_main && (
-                            <TouchableOpacity
-                              style={styles.setMainButton}
-                              onPress={async () => {
-                                try {
-                                  const userId = currentUser?.id || user?.id;
-                                  if (!userId) return;
-                                  await setMainProfilePicture(userId, picture.id);
-                                  // Reload profile pictures
-                                  const response = await getUserProfilePictures(userId);
-                                  if (response.success && response.data) {
-                                    const pictures = Array.isArray(response.data) ? response.data : [];
-                                    setProfilePictures(pictures);
-                                    const mainPicture = pictures.find((p: any) => p.is_main);
-                                    if (mainPicture) {
-                                      setFormData(prev => ({
-                                        ...prev,
-                                        imageUrl: mainPicture.image_url,
-                                      }));
-                                    }
-                                  }
-                                  Alert.alert('Success', 'Main profile picture updated!');
-                                } catch (error: any) {
-                                  console.error('Failed to set main picture:', error);
-                                  Alert.alert('Error', error.message || 'Failed to set main picture.');
+                        
+                        {/* Delete Button - Top Right */}
+                        <TouchableOpacity
+                          style={styles.removeCoverImageButton}
+                          onPress={async () => {
+                            try {
+                              const userId = currentUser?.id || user?.id;
+                              if (!userId) return;
+                              await deleteProfilePicture(userId, picture.id);
+                              // Reload profile pictures
+                              const response = await getUserProfilePictures(userId);
+                              if (response.success && response.data) {
+                                const pictures = Array.isArray(response.data) ? response.data : [];
+                                setProfilePictures(pictures);
+                                const mainPicture = pictures.find((p: any) => p.is_main);
+                                if (mainPicture) {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    imageUrl: mainPicture.image_url,
+                                  }));
+                                } else {
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    imageUrl: '',
+                                  }));
                                 }
-                              }}
-                              disabled={isSubmitting}
-                            >
-                              <Ionicons name="star-outline" size={16} color="#3b82f6" />
-                            </TouchableOpacity>
-                          )}
+                              }
+                              Alert.alert('Success', 'Profile picture deleted!');
+                            } catch (error: any) {
+                              console.error('Failed to delete picture:', error);
+                              Alert.alert('Error', error.message || 'Failed to delete picture.');
+                            }
+                          }}
+                          disabled={isSubmitting}
+                        >
+                          <Ionicons name="close-circle" size={20} color="#ef4444" />
+                        </TouchableOpacity>
+                        
+                        {/* Set Main Button - Bottom Right (only for non-main images) */}
+                        {!picture.is_main && (
                           <TouchableOpacity
-                            style={styles.removeCoverImageButton}
+                            style={styles.setMainButton}
                             onPress={async () => {
                               try {
                                 const userId = currentUser?.id || user?.id;
                                 if (!userId) return;
-                                await deleteProfilePicture(userId, picture.id);
+                                await setMainProfilePicture(userId, picture.id);
                                 // Reload profile pictures
                                 const response = await getUserProfilePictures(userId);
                                 if (response.success && response.data) {
@@ -1889,24 +1897,19 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                                       ...prev,
                                       imageUrl: mainPicture.image_url,
                                     }));
-                                  } else {
-                                    setFormData(prev => ({
-                                      ...prev,
-                                      imageUrl: '',
-                                    }));
                                   }
                                 }
-                                Alert.alert('Success', 'Profile picture deleted!');
+                                Alert.alert('Success', 'Main profile picture updated!');
                               } catch (error: any) {
-                                console.error('Failed to delete picture:', error);
-                                Alert.alert('Error', error.message || 'Failed to delete picture.');
+                                console.error('Failed to set main picture:', error);
+                                Alert.alert('Error', error.message || 'Failed to set main picture.');
                               }
                             }}
                             disabled={isSubmitting}
                           >
-                            <Ionicons name="close-circle" size={20} color="#ef4444" />
+                            <Ionicons name="star-outline" size={18} color="#3b82f6" />
                           </TouchableOpacity>
-                        </View>
+                        )}
                       </View>
                     ))}
                   </View>
@@ -1918,14 +1921,14 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                     <View style={styles.coverImageItem}>
                       <ImageUploadWithProgress
                         imageUrl={undefined}
-                        placeholderSize={{ width: 120, height: 80 }}
-                        borderRadius={8}
+                        placeholderSize={{ width: 150, height: 100 }}
+                        borderRadius={12}
                         isUploading={true}
                         uploadProgress={uploadingImage.progress}
                         uploadLabel="Uploading cover image..."
                       >
                         <View style={styles.coverImagePlaceholder}>
-                          <Ionicons name="image-outline" size={24} color="#9ca3af" />
+                          <Ionicons name="image-outline" size={28} color="#9ca3af" />
                         </View>
                       </ImageUploadWithProgress>
                     </View>
@@ -1935,7 +1938,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                 {/* Add Cover Image Buttons */}
                 <View style={styles.imageSelectionContainer}>
                   <TouchableOpacity
-                    style={styles.imageSelectionButton}
+                    style={[styles.imageSelectionButton, styles.imageSelectionButtonPrimary]}
                     onPress={async () => {
                       try {
                         const result = await mediaPicker.pickImage({
@@ -2004,12 +2007,14 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                     }}
                     disabled={isSubmitting}
                   >
-                    <Ionicons name="image-outline" size={20} color="#3b82f6" />
-                    <Text style={styles.imageSelectionText}>Add from Gallery</Text>
+                    <View style={styles.imageSelectionButtonIcon}>
+                      <Ionicons name="images-outline" size={22} color="#fff" />
+                    </View>
+                    <Text style={styles.imageSelectionTextPrimary}>From Gallery</Text>
                   </TouchableOpacity>
                   
                   <TouchableOpacity
-                    style={styles.imageSelectionButton}
+                    style={[styles.imageSelectionButton, styles.imageSelectionButtonSecondary]}
                     onPress={async () => {
                       try {
                         const result = await mediaPicker.takePhoto({
@@ -2078,8 +2083,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                     }}
                     disabled={isSubmitting}
                   >
-                    <Ionicons name="camera-outline" size={20} color="#3b82f6" />
-                    <Text style={styles.imageSelectionText}>Take Photo</Text>
+                    <View style={styles.imageSelectionButtonIconSecondary}>
+                      <Ionicons name="camera-outline" size={22} color="#3b82f6" />
+                    </View>
+                    <Text style={styles.imageSelectionTextSecondary}>Take Photo</Text>
                   </TouchableOpacity>
                 </View>
               </>
@@ -2945,18 +2952,27 @@ const styles = StyleSheet.create({
   coverImagesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 12,
-    marginBottom: 16,
+    gap: 16,
+    marginTop: 16,
+    marginBottom: 20,
   },
   coverImageItem: {
     position: 'relative',
-    width: 120,
-    height: 80,
-    borderRadius: 8,
+    width: 150,
+    height: 100,
+    borderRadius: 12,
     overflow: 'hidden',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#e5e7eb',
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   coverImageThumbnail: {
     width: '100%',
@@ -2965,52 +2981,81 @@ const styles = StyleSheet.create({
   coverImagePlaceholder: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f9fafb',
     justifyContent: 'center',
     alignItems: 'center',
   },
   removeCoverImageButton: {
     position: 'absolute',
-    top: -8,
-    right: -8,
+    top: 8,
+    right: 8,
     backgroundColor: '#fff',
-    borderRadius: 12,
-    zIndex: 1,
+    borderRadius: 18,
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 4,
+    zIndex: 20,
   },
   mainImageBadge: {
     position: 'absolute',
-    top: 4,
-    left: 4,
+    top: 8,
+    left: 8,
     backgroundColor: '#3b82f6',
-    borderRadius: 12,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    zIndex: 1,
+    gap: 5,
+    shadowColor: '#3b82f6',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 20,
   },
   mainImageBadgeText: {
     color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  coverImageActions: {
-    position: 'absolute',
-    bottom: 4,
-    right: 4,
-    flexDirection: 'row',
-    gap: 4,
-    zIndex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   setMainButton: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 4,
+    borderRadius: 18,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 4,
+    zIndex: 20,
   },
   imageSelectionContainer: {
     flexDirection: 'row',
     gap: 12,
+    marginTop: 8,
     marginBottom: 8,
   },
   imageSelectionButton: {
@@ -3018,17 +3063,57 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#d1d5db',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    gap: 10,
+    minHeight: 52,
+  },
+  imageSelectionButtonPrimary: {
+    backgroundColor: '#3b82f6',
+    shadowColor: '#3b82f6',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  imageSelectionButtonSecondary: {
     backgroundColor: '#fff',
-    gap: 8,
+    borderWidth: 2,
+    borderColor: '#3b82f6',
+  },
+  imageSelectionButtonIcon: {
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageSelectionButtonIconSecondary: {
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    borderRadius: 8,
   },
   imageSelectionText: {
-    fontSize: 14,
-    color: '#374151',
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  imageSelectionTextPrimary: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  imageSelectionTextSecondary: {
+    color: '#3b82f6',
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   inputContainer: {
     marginBottom: 16,

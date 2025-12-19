@@ -1627,6 +1627,7 @@ const AppContent: React.FC = () => {
         <MyTeamModal
           visible={showMyTeam}
           onClose={() => setShowMyTeam(false)}
+          onUserSelect={handleProfileSelect}
         />
 
         {/* Invitation Modal */}
