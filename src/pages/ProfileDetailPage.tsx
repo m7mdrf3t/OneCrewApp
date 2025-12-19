@@ -881,60 +881,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             </View>
           )}
 
-          {/* Certificates Section */}
-          <View style={styles.infoCard}>
-            <View style={styles.sectionTitleRow}>
-              <Ionicons name="document-text-outline" size={20} color="#000" />
-              <Text style={styles.infoSectionTitle}>Certificates</Text>
-            </View>
-            {loadingCertifications ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#3b82f6" />
-              </View>
-            ) : certifications.length > 0 ? (
-              <View style={styles.certificatesGrid}>
-                {certifications.slice(0, 3).map((certification, index) => {
-                  // Get icon based on index or certification type
-                  const icons = ['document-text-outline', 'document-outline', 'checkmark-circle-outline'];
-                  const iconName = icons[index % icons.length] as any;
-                  
-                  // Extract year from issued_at or use a default
-                  const year = certification.issued_at 
-                    ? new Date(certification.issued_at).getFullYear().toString()
-                    : new Date().getFullYear().toString();
-                  
-                  // Get certification name
-                  const certName = certification.certification_template?.name || 'Certification';
-                  
-                  return (
-                    <View key={certification.id} style={styles.certificateCard}>
-                      <Ionicons name={iconName} size={24} color="#fff" />
-                      <Text style={styles.certificateTitle}>{certName}</Text>
-                      <Text style={styles.certificateYear}>{year}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons name="document-text-outline" size={32} color="#d1d5db" />
-                <Text style={styles.emptyStateText}>No certificates yet</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Awards Section */}
-          <View style={styles.infoCard}>
-            <View style={styles.sectionTitleRow}>
-              <Ionicons name="trophy-outline" size={20} color="#000" />
-              <Text style={styles.infoSectionTitle}>Awards</Text>
-            </View>
-            <View style={styles.emptyState}>
-              <Ionicons name="trophy-outline" size={32} color="#d1d5db" />
-              <Text style={styles.emptyStateText}>No awards yet</Text>
-            </View>
-          </View>
-
           {/* Gallery/Portfolio Section */}
           {((userProfile.portfolio && userProfile.portfolio.length > 0) || userProfile.category === 'talent') && (
             <View style={styles.infoCard}>
@@ -1084,6 +1030,60 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               </View>
             </View>
           )}
+
+          {/* Certificates Section */}
+          <View style={styles.infoCard}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="document-text-outline" size={20} color="#000" />
+              <Text style={styles.infoSectionTitle}>Certificates</Text>
+            </View>
+            {loadingCertifications ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+              </View>
+            ) : certifications.length > 0 ? (
+              <View style={styles.certificatesGrid}>
+                {certifications.slice(0, 3).map((certification, index) => {
+                  // Get icon based on index or certification type
+                  const icons = ['document-text-outline', 'document-outline', 'checkmark-circle-outline'];
+                  const iconName = icons[index % icons.length] as any;
+                  
+                  // Extract year from issued_at or use a default
+                  const year = certification.issued_at 
+                    ? new Date(certification.issued_at).getFullYear().toString()
+                    : new Date().getFullYear().toString();
+                  
+                  // Get certification name
+                  const certName = certification.certification_template?.name || 'Certification';
+                  
+                  return (
+                    <View key={certification.id} style={styles.certificateCard}>
+                      <Ionicons name={iconName} size={24} color="#fff" />
+                      <Text style={styles.certificateTitle}>{certName}</Text>
+                      <Text style={styles.certificateYear}>{year}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="document-text-outline" size={32} color="#d1d5db" />
+                <Text style={styles.emptyStateText}>No certificates yet</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Awards Section */}
+          <View style={styles.infoCard}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="trophy-outline" size={20} color="#000" />
+              <Text style={styles.infoSectionTitle}>Awards</Text>
+            </View>
+            <View style={styles.emptyState}>
+              <Ionicons name="trophy-outline" size={32} color="#d1d5db" />
+              <Text style={styles.emptyStateText}>No awards yet</Text>
+            </View>
+          </View>
 
           {/* Social Media Links */}
           <View style={styles.infoCard}>

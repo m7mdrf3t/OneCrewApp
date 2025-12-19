@@ -107,6 +107,13 @@ const AppContent: React.FC = () => {
   const systemColorScheme = useColorScheme();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const lastBackPressAtRef = useRef<number>(0);
+  
+  // Guest user tracking state
+  const [guestSessionStartTime, setGuestSessionStartTime] = useState<number | null>(null);
+  const [guestClickCount, setGuestClickCount] = useState(0);
+  const [showGuestPrompt, setShowGuestPrompt] = useState(false);
+  const guestPromptShownRef = useRef(false);
+  const pendingTabChangeRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (systemColorScheme === 'light' || systemColorScheme === 'dark') {
@@ -351,6 +358,62 @@ const AppContent: React.FC = () => {
       }
     }
   }, [isAuthenticated, isLoading, user, isGuest, signupEmail, authPage]);
+
+  // Initialize guest session tracking
+  useEffect(() => {
+    if (isGuest && !guestSessionStartTime) {
+      setGuestSessionStartTime(Date.now());
+      setGuestClickCount(0);
+      guestPromptShownRef.current = false;
+    } else if (!isGuest) {
+      // Reset tracking when user is no longer a guest
+      setGuestSessionStartTime(null);
+      setGuestClickCount(0);
+      setShowGuestPrompt(false);
+      guestPromptShownRef.current = false;
+    }
+  }, [isGuest, guestSessionStartTime]);
+
+  // Check for 5 minutes elapsed
+  useEffect(() => {
+    if (isGuest && guestSessionStartTime && !guestPromptShownRef.current) {
+      const checkInterval = setInterval(() => {
+        const elapsed = Date.now() - guestSessionStartTime;
+        const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
+        if (elapsed >= fiveMinutes) {
+          setShowGuestPrompt(true);
+          guestPromptShownRef.current = true;
+          clearInterval(checkInterval);
+        }
+      }, 1000); // Check every second
+
+      return () => clearInterval(checkInterval);
+    }
+  }, [isGuest, guestSessionStartTime]);
+
+  // Track clicks for guest users
+  useEffect(() => {
+    if (isGuest && !guestPromptShownRef.current) {
+      const handleClick = () => {
+        setGuestClickCount(prev => {
+          const newCount = prev + 1;
+          if (newCount >= 20) {
+            setShowGuestPrompt(true);
+            guestPromptShownRef.current = true;
+          }
+          return newCount;
+        });
+      };
+
+      // Add click listener to document/root view
+      // Note: In React Native, we'll track clicks through TouchableOpacity/TouchableHighlight onPress events
+      // We'll increment this in handleTabChange and other interaction handlers
+      
+      return () => {
+        // Cleanup if needed
+      };
+    }
+  }, [isGuest]);
 
   const page = history[history.length - 1];
 
@@ -919,12 +982,32 @@ const AppContent: React.FC = () => {
   }, [updateTaskStatus, getProjectById, page.data]);
 
   const handleTabChange = useCallback((newTab: string) => {
+    // Track clicks for guest users
+    if (isGuest) {
+      setGuestClickCount(prev => {
+        const newCount = prev + 1;
+        if (newCount >= 20 && !guestPromptShownRef.current) {
+          setShowGuestPrompt(true);
+          guestPromptShownRef.current = true;
+        }
+        return newCount;
+      });
+    }
+
+    // Show prompt for guest users accessing projects or wall (Agenda) pages
+    if (isGuest && (newTab === 'projects' || newTab === 'wall') && !guestPromptShownRef.current) {
+      setShowGuestPrompt(true);
+      guestPromptShownRef.current = true;
+      pendingTabChangeRef.current = newTab; // Store the tab they wanted to navigate to
+      return; // Don't navigate yet, wait for user response
+    }
+
     setTab(newTab);
     setSearchQuery('');
     
     const rootPage = { name: newTab, data: null };
     setHistory([rootPage]);
-  }, []);
+  }, [isGuest]);
 
   const handleSplashFinished = () => {
     setShowSplash(false);
@@ -1543,6 +1626,9 @@ const AppContent: React.FC = () => {
               onNavigate={navigateTo}
               theme={theme}
               onToggleTheme={toggleTheme}
+              isGuest={isGuest}
+              onSignUp={handleNavigateToSignup}
+              onSignIn={handleNavigateToLogin}
             />
           )}
           {page.name === 'changePassword' && (
@@ -1621,6 +1707,9 @@ const AppContent: React.FC = () => {
           onCreateCompany={isAuthenticated ? handleCreateCompany : undefined}
           theme={theme}
           onToggleTheme={toggleTheme}
+          isGuest={isGuest}
+          onSignUp={handleNavigateToSignup}
+          onSignIn={handleNavigateToLogin}
         />
 
         {/* My Team Modal */}
@@ -1819,6 +1908,60 @@ const AppContent: React.FC = () => {
         {__DEV__ && (
           <ScreenshotHelper onNavigate={navigateTo} />
         )}
+
+        {/* Guest Prompt Modal */}
+        {showGuestPrompt && isGuest && (
+          <View style={[styles.modalOverlay, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.8)' }]}>
+            <View style={[styles.guestPromptModal, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
+              <Text style={[styles.guestPromptTitle, { color: isDark ? '#fff' : '#000' }]}>
+                Sign Up to Continue
+              </Text>
+              <Text style={[styles.guestPromptMessage, { color: isDark ? '#9ca3af' : '#71717a' }]}>
+                Create an account to access all features and save your progress.
+              </Text>
+              <View style={styles.guestPromptButtons}>
+                <TouchableOpacity
+                  style={[styles.guestPromptButton, styles.guestPromptButtonPrimary, { backgroundColor: '#000' }]}
+                  onPress={() => {
+                    setShowGuestPrompt(false);
+                    pendingTabChangeRef.current = null; // Clear pending navigation
+                    handleNavigateToSignup();
+                  }}
+                >
+                  <Text style={[styles.guestPromptButtonText, { color: '#fff' }]}>Sign Up</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.guestPromptButton, styles.guestPromptButtonSecondary, { backgroundColor: isDark ? '#2a2a2a' : '#f4f4f5', borderColor: isDark ? '#3a3a3a' : '#e5e7eb' }]}
+                  onPress={() => {
+                    setShowGuestPrompt(false);
+                    pendingTabChangeRef.current = null; // Clear pending navigation
+                    handleNavigateToLogin();
+                  }}
+                >
+                  <Text style={[styles.guestPromptButtonText, { color: isDark ? '#fff' : '#000' }]}>Sign In</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.guestPromptButton, styles.guestPromptButtonTertiary]}
+                  onPress={() => {
+                    setShowGuestPrompt(false);
+                    guestPromptShownRef.current = false; // Allow prompt to show again later
+                    // If there was a pending tab change, execute it now
+                    if (pendingTabChangeRef.current) {
+                      const tabToNavigate = pendingTabChangeRef.current;
+                      pendingTabChangeRef.current = null;
+                      setTab(tabToNavigate);
+                      setSearchQuery('');
+                      const rootPage = { name: tabToNavigate, data: null };
+                      setHistory([rootPage]);
+                    }
+                  }}
+                >
+                  <Text style={[styles.guestPromptButtonText, { color: isDark ? '#9ca3af' : '#71717a' }]}>Maybe Later</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
       </View>
     );
   };
@@ -1933,6 +2076,59 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     fontWeight: '500',
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10000,
+  },
+  guestPromptModal: {
+    width: '85%',
+    maxWidth: 400,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+  },
+  guestPromptTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  guestPromptMessage: {
+    fontSize: 16,
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  guestPromptButtons: {
+    width: '100%',
+    gap: 12,
+  },
+  guestPromptButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestPromptButtonPrimary: {
+    backgroundColor: '#000',
+  },
+  guestPromptButtonSecondary: {
+    borderWidth: 1,
+  },
+  guestPromptButtonTertiary: {
+    backgroundColor: 'transparent',
+  },
+  guestPromptButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

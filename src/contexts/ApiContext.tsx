@@ -800,7 +800,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           throw deletionError;
         }
         
-        throw new Error(errorMessage);
+        // Normalize common authentication error messages for better UX
+        if (errorLower.includes('invalid') && (errorLower.includes('email') || errorLower.includes('password') || errorLower.includes('credential'))) {
+          errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+        } else if (errorLower.includes('unauthorized') || response.status === 401) {
+          errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+        }
+        
+        const authError: any = new Error(errorMessage);
+        authError.isAuthError = true;
+        authError.statusCode = response.status;
+        throw authError;
       }
 
       // Parse response as JSON
@@ -987,13 +997,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       return authResponse;
     } catch (err: any) {
-      console.error('Login failed:', err);
-      console.error('Error details:', {
-        message: err.message,
-        name: err.name,
-        stack: err.stack,
-        cause: err.cause
-      });
+      // Only log detailed error info for unexpected errors, not for normal auth failures
+      if (err.isAuthError || err.code === 'ACCOUNT_LOCKOUT' || err.code === 'ACCOUNT_DELETION_PENDING') {
+        // For expected auth errors, just log a simple message
+        console.log('🔒 Authentication failed:', err.message);
+      } else {
+        // For unexpected errors, log full details
+        console.error('Login failed:', err);
+        console.error('Error details:', {
+          message: err.message,
+          name: err.name,
+          stack: err.stack,
+          cause: err.cause
+        });
+      }
       
       // If direct fetch fails, try the API client as fallback
       if (err.message.includes('Network error') || err.message.includes('ENOENT')) {
@@ -2089,8 +2106,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Note: social_links are handled separately via dedicated endpoints
       const basicProfileData: any = {
         bio: profileData.bio,
-        specialty: profileData.specialty,
-        location_text: profileData.location_text || profileData.about?.location || null, // Location stored in users table
+        // Only include specialty if it has a value (it's optional)
+        ...(profileData.specialty && profileData.specialty.trim() ? { specialty: profileData.specialty.trim() } : {}),
+        // Only include location_text if it has a value (it's optional)
+        ...(profileData.location_text && profileData.location_text.trim() ? { location_text: profileData.location_text.trim() } : {}),
       };
       
       // Add image_url only if it has a valid value (don't send empty strings)
@@ -2504,9 +2523,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       errors.push('Bio is required');
     }
     
-    if (!profileData.specialty || profileData.specialty.trim() === '') {
-      errors.push('Specialty is required');
-    }
+    // Note: specialty is now optional, no validation needed
     
     // Check talent-specific fields if user is talent
     if (profileData.about) {
@@ -3659,14 +3676,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getProfileRequirements = () => {
     return {
       basic: {
-        required: ['bio', 'specialty'],
+        required: ['bio'],
         bio: {
           required: true,
           minLength: 10,
           description: 'A brief description about yourself'
         },
         specialty: {
-          required: true,
+          required: false,
           description: 'Your main area of expertise'
         }
       },

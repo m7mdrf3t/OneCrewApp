@@ -561,25 +561,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       errors.bio = 'Bio is required';
     }
 
-    if (!formData.specialty.trim()) {
-      errors.specialty = 'Specialty is required';
-    }
-
-    if (!formData.about.gender) {
-      errors.gender = 'Gender is required';
-    }
-
-    if (!formData.about.birthday) {
-      errors.birthday = 'Date of birth is required';
-    }
-
-    if (!formData.about.nationality) {
-      errors.nationality = 'Nationality is required';
-    }
-
-    if (!formData.about.location) {
-      errors.location = 'Location is required';
-    }
+    // Note: specialty, gender, birthday, nationality, and location are now optional
 
     // Validate image URL if provided (but don't require it - user can upload via picker)
     // Only validate format if a URL is manually entered
@@ -1515,10 +1497,10 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
       const basicProfileData = {
         bio: formData.bio.trim(),
-        specialty: formData.specialty.trim(),
+        specialty: formData.specialty.trim() || undefined, // Optional field
         skills: formData.skills,
         imageUrl: finalImageUrl, // This will be mapped to image_url in ApiContext
-        location_text: formData.about.location.trim(), // Location stored in users table
+        location_text: formData.about.location.trim() || undefined, // Location stored in users table, optional
         // Note: Cover images are managed separately via profile pictures API
       };
 
@@ -1545,9 +1527,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       };
 
       const userDetailsData = {
-        gender: genderMapping[formData.about.gender] || 'prefer_not_to_say',
+        gender: formData.about.gender ? (genderMapping[formData.about.gender] || 'prefer_not_to_say') : undefined, // Optional field
         birthday: formData.about.birthday || undefined,
-        nationality: formData.about.nationality,
+        nationality: formData.about.nationality && formData.about.nationality.trim() ? formData.about.nationality.trim() : undefined, // Optional field
         // Note: location is stored in users table as location_text, not in userDetails
       };
 
@@ -1885,8 +1867,28 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                               try {
                                 const userId = currentUser?.id || user?.id;
                                 if (!userId) return;
+                                
+                                // Optimistically update the state immediately
+                                const previousPictures = [...profilePictures];
+                                const updatedPictures = profilePictures.map((p) => ({
+                                  ...p,
+                                  is_main: p.id === picture.id,
+                                }));
+                                setProfilePictures(updatedPictures);
+                                
+                                // Update form data with the new main picture
+                                setFormData(prev => ({
+                                  ...prev,
+                                  imageUrl: picture.image_url,
+                                }));
+                                
+                                // Call the API
                                 await setMainProfilePicture(userId, picture.id);
-                                // Reload profile pictures
+                                
+                                // Wait a bit to ensure cache is cleared, then reload
+                                await new Promise(resolve => setTimeout(resolve, 300));
+                                
+                                // Reload profile pictures to get fresh data
                                 const response = await getUserProfilePictures(userId);
                                 if (response.success && response.data) {
                                   const pictures = Array.isArray(response.data) ? response.data : [];
@@ -1898,10 +1900,20 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                                       imageUrl: mainPicture.image_url,
                                     }));
                                   }
+                                } else {
+                                  // If fetch fails, revert to previous state
+                                  setProfilePictures(previousPictures);
                                 }
+                                
                                 Alert.alert('Success', 'Main profile picture updated!');
                               } catch (error: any) {
                                 console.error('Failed to set main picture:', error);
+                                // Revert optimistic update on error
+                                const response = await getUserProfilePictures(currentUser?.id || user?.id);
+                                if (response.success && response.data) {
+                                  const pictures = Array.isArray(response.data) ? response.data : [];
+                                  setProfilePictures(pictures);
+                                }
                                 Alert.alert('Error', error.message || 'Failed to set main picture.');
                               }
                             }}
@@ -2111,7 +2123,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
           {/* Specialty */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Specialty *</Text>
+            <Text style={styles.label}>Specialty</Text>
             <View ref={specialtyInputRef} style={styles.autocompleteContainer} collapsable={false}>
               <TextInput
                 style={[styles.input, formErrors.specialty && styles.inputError]}
@@ -2434,7 +2446,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
         <View style={styles.row}>
           <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-            <Text style={styles.label}>Gender *</Text>
+            <Text style={styles.label}>Gender</Text>
             <CustomDropdown
               options={[
                 { id: 'male', name: 'Male' },
@@ -2453,7 +2465,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
           <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
             <DatePicker
-              label="Date of Birth *"
+              label="Date of Birth"
               value={formData.about.birthday}
               onChange={(date) => handleInputChange('about.birthday', date)}
               placeholder="Select your birthday"
@@ -2461,7 +2473,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
               maximumDate={new Date()} // Can't be in the future
               minimumDate={new Date(1900, 0, 1)} // Reasonable minimum date
               disabled={isSubmitting}
-              required={true}
+              required={false}
               error={formErrors.birthday}
               style={{ marginBottom: 0 }}
             />
@@ -2470,7 +2482,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 
         <View style={styles.row}>
           <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-            <Text style={styles.label}>Nationality *</Text>
+            <Text style={styles.label}>Nationality</Text>
             <TextInput
               style={[styles.input, formErrors.nationality && styles.inputError]}
               placeholder="Egyptian"
@@ -2483,7 +2495,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         </View>
 
           <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-            <Text style={styles.label}>Location *</Text>
+            <Text style={styles.label}>Location</Text>
             <TextInput
               style={[styles.input, formErrors.location && styles.inputError]}
               placeholder="Cairo, EG"

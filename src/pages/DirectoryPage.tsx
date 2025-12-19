@@ -815,6 +815,22 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       .join(' ');
   };
 
+  const capitalizeRole = (role: string) => {
+    if (!role) return '';
+    // Handle special cases that should be all caps
+    const allCapsRoles = ['vfx', 'dop', 'ad', 'pa'];
+    const lowerRole = role.toLowerCase();
+    if (allCapsRoles.includes(lowerRole)) {
+      return role.toUpperCase();
+    }
+    // For other roles, capitalize first letter of each word
+    return role
+      .toLowerCase()
+      .split(/[\s_-]+/)
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  };
+
   const getOnlineStatus = (user: User) => {
     if (user.online_last_seen) {
       const lastSeen = new Date(user.online_last_seen);
@@ -907,7 +923,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
           <Text style={styles.title}>
-            {selectedSubcategory ? selectedSubcategory : section.title}
+            {selectedSubcategory ? capitalizeRole(selectedSubcategory) : section.title}
           </Text>
           <View style={styles.headerRight}>
             {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
@@ -972,7 +988,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title}>
-          {selectedSubcategory ? selectedSubcategory : section.title}
+          {selectedSubcategory ? capitalizeRole(selectedSubcategory) : section.title}
         </Text>
         <View style={styles.headerRight}>
           {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
@@ -1046,7 +1062,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                       />
                     </View>
                     <View style={styles.subcategoryInfo}>
-                      <Text style={styles.subcategoryTitle}>{item.label}</Text>
+                      <Text style={styles.subcategoryTitle}>{capitalizeRole(item.label)}</Text>
                       {SHOW_SUBCATEGORY_COUNTS && (
                         <Text style={styles.subcategoryCount}>
                           {count} {(section.key === 'onehub' || section.key === 'academy') ? 'companies' : 'profiles'}
@@ -1083,7 +1099,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
               }
               ListEmptyComponent={
                 <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} found</Text>
+                  <Text style={styles.emptyText}>No {capitalizeRole(selectedSubcategory)} found</Text>
                 </View>
               }
               renderItem={({ item: company }: { item: Company }) => {
@@ -1181,7 +1197,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           }
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No {selectedSubcategory.toLowerCase()} profiles found</Text>
+              <Text style={styles.emptyText}>No {capitalizeRole(selectedSubcategory)} profiles found</Text>
               {hasMoreUsers && !loadingMoreUsers ? (
                 <TouchableOpacity
                   style={styles.loadMoreButton}

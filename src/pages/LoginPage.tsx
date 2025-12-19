@@ -91,7 +91,23 @@ const LoginPage: React.FC<LoginPageProps> = ({
           [{ text: 'OK' }]
         );
       } else {
-        Alert.alert('Login Failed', err.message || 'Please check your credentials and try again.');
+        // Clear only the password field on authentication errors
+        setPassword('');
+        
+        // Provide a user-friendly error message
+        let errorMessage = err.message || 'Please check your credentials and try again.';
+        
+        // Normalize common error messages for better UX
+        const errorLower = errorMessage.toLowerCase();
+        if (errorLower.includes('invalid') && (errorLower.includes('email') || errorLower.includes('password'))) {
+          errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+        } else if (errorLower.includes('network') || errorLower.includes('connection')) {
+          errorMessage = 'Unable to connect to the server. Please check your internet connection and try again.';
+        } else if (errorLower.includes('timeout')) {
+          errorMessage = 'Request timed out. Please try again.';
+        }
+        
+        Alert.alert('Login Failed', errorMessage);
       }
     }
   };

@@ -14,6 +14,9 @@ interface UserMenuModalProps {
   onCreateCompany?: () => void;
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
+  isGuest?: boolean;
+  onSignUp?: () => void;
+  onSignIn?: () => void;
 }
 
 const UserMenuModal: React.FC<UserMenuModalProps> = ({
@@ -27,6 +30,9 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
   onCreateCompany,
   theme = 'light',
   onToggleTheme,
+  isGuest = false,
+  onSignUp,
+  onSignIn,
 }) => {
   const isDark = theme === 'dark';
 
@@ -48,11 +54,16 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
   };
 
   const menuItems: MenuItem[] = [
-    { id: 'myTeam', label: 'My Team', icon: 'people', onPress: onMyTeam },
+    ...(isGuest ? [
+      { id: 'signUp', label: 'Sign Up', icon: 'person-add', onPress: onSignUp || (() => {}) },
+      { id: 'signIn', label: 'Sign In', icon: 'log-in', onPress: onSignIn || (() => {}) },
+    ] : [
+      { id: 'myTeam', label: 'My Team', icon: 'people', onPress: onMyTeam },
+      { id: 'profileEdit', label: 'Profile Edit', icon: 'create', onPress: onProfileEdit },
+      { id: 'createCompany', label: 'Create Company', icon: 'business', onPress: onCreateCompany || (() => {}) },
+    ]),
     { id: 'settings', label: 'Settings', icon: 'settings', onPress: onSettings },
     { id: 'inviteFriend', label: 'Invite a friend', icon: 'share-social', onPress: handleInviteFriend, shouldCloseOnPress: false },
-    { id: 'profileEdit', label: 'Profile Edit', icon: 'create', onPress: onProfileEdit },
-    { id: 'createCompany', label: 'Create Company', icon: 'business', onPress: onCreateCompany || (() => {}) },
     { id: 'helpSupport', label: 'Help & Support', icon: 'help-circle', onPress: onHelpSupport },
     ...(onToggleTheme ? [{ 
       id: 'theme', 
@@ -60,7 +71,7 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
       icon: isDark ? 'sunny' : 'moon', 
       onPress: onToggleTheme 
     }] : []),
-    { id: 'logout', label: 'Logout', icon: 'log-out', onPress: onLogout, isDestructive: true },
+    ...(isGuest ? [] : [{ id: 'logout', label: 'Logout', icon: 'log-out', onPress: onLogout, isDestructive: true }]),
   ];
 
   return (
