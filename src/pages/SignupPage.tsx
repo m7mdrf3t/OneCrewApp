@@ -32,7 +32,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
     email: '',
     password: '',
     confirmPassword: '',
-    category: 'crew' as 'crew' | 'talent',
+    category: 'crew' as 'crew' | 'talent' | 'custom',
     primaryRole: '',
   });
   const [showPassword, setShowPassword] = useState(false);
@@ -230,20 +230,45 @@ const SignupPage: React.FC<SignupPageProps> = ({
       clearError();
       const userEmail = formData.email.trim().toLowerCase();
 
+      // When in custom role mode, the backend requires primary_role to exist in the roles table.
+      // Since custom roles don't exist in the table yet, we need to use a workaround:
+      // Option 1: Try "custom" as the role (if backend supports it)
+      // Option 2: Use a valid role from the roles table as a placeholder
+      // For now, we'll try "custom" first, and if that fails, the backend should handle it
+      const customRoleName = isCustomRoleMode 
+        ? normalizeRoleInput(customRoleInput) 
+        : null;
+
+      // Try "custom" as the role value - if backend doesn't support it, it will fail
+      // and we'll need backend support for custom roles
       const roleToSubmit = isCustomRoleMode
-        ? (normalizeRoleInput(customRoleInput) || formData.primaryRole)
+        ? 'custom'  // Try "custom" - backend may need to add this to roles table
         : formData.primaryRole;
 
+      // Use "custom" as category - backend may need to support this
+      const categoryToSubmit = isCustomRoleMode ? 'custom' : formData.category;
+
       console.log('📧 [SignupPage] Attempting signup with email:', userEmail, 'at', new Date().toISOString());
-      const signupResponse = await signup({
+      console.log('📧 [SignupPage] Category:', categoryToSubmit, 'Role:', roleToSubmit, 'isCustomRoleMode:', isCustomRoleMode);
+      if (customRoleName) {
+        console.log('📧 [SignupPage] Custom role name (specialty):', customRoleName);
+      }
+      
+      // Build signup request - include specialty when primary_role is "custom"
+      const signupData: any = {
         name: formData.name.trim(),
         email: userEmail,
         password: formData.password,
-        category: formData.category,
-        // `UserRole` from the API client is a narrow union; we still allow custom roles in the UI.
-        // Backend stores roles as strings, so we pass through and cast for TS.
+        category: categoryToSubmit as any,
         primary_role: roleToSubmit as any as UserRole,
-      });
+      };
+      
+      // Backend requires "specialty" field when primary_role is "custom"
+      if (isCustomRoleMode && customRoleName) {
+        signupData.specialty = customRoleName;
+      }
+      
+      const signupResponse = await signup(signupData);
       
       // MANDATORY: Always navigate to OTP verification page after signup
       // User MUST verify email via OTP before being authenticated
@@ -261,10 +286,14 @@ const SignupPage: React.FC<SignupPageProps> = ({
         timestamp: new Date().toISOString(),
       });
       
-      // Provide more helpful error message for duplicate email
+      // Provide more helpful error messages
       let errorMessage = err.message || 'Please try again.';
       if (err.message?.toLowerCase().includes('already exists') || err.status === 409) {
         errorMessage = `An account with email ${formData.email.trim().toLowerCase()} already exists. If this is your account, please try logging in instead.`;
+      } else if (isCustomRoleMode && err.message?.includes('foreign key constraint') && err.message?.includes('primary_role')) {
+        // Custom role error - backend needs to support custom roles
+        const customRoleName = normalizeRoleInput(customRoleInput);
+        errorMessage = `Custom role "${customRoleName}" is not supported yet. The backend needs to add support for custom roles. Please try selecting a role from the available options, or contact support.`;
       }
       
       Alert.alert('Signup Failed', errorMessage);
@@ -289,7 +318,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
   const handleOtherRoleMode = () => {
     setIsCustomRoleMode(true);
-    setFormData(prev => ({ ...prev, primaryRole: '' }));
+    setFormData(prev => ({ ...prev, category: 'custom', primaryRole: '' }));
     setFormErrors(prev => ({ ...prev, primaryRole: '' }));
   };
 
