@@ -28,7 +28,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
   company,
   onInvitationSent,
 }) => {
-  const { api, addCompanyMember } = useApi();
+  const { api, addCompanyMember, getUsersDirect } = useApi();
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
@@ -50,7 +50,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
     }
   }, [visible]);
 
-  // Search users using API q parameter when search query changes
+  // Search users using getUsersDirect when search query changes
   useEffect(() => {
     const searchUsers = async () => {
       if (!searchQuery.trim()) {
@@ -60,24 +60,63 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
 
       try {
         setSearching(true);
-        // Use the API's q parameter for full-text search
-        const response = await api.getUsers({
+        console.log('🔍 Searching for users with query:', searchQuery);
+        
+        // Use getUsersDirect which properly handles search with 'q' parameter
+        const response = await getUsersDirect({
           search: searchQuery,
           limit: 20,
+          page: 1,
         });
 
-        if (response.success && response.data) {
-          // Handle both array and paginated response
-          const usersArray = Array.isArray(response.data) 
-            ? response.data 
-            : (response.data.data || []);
-          setFilteredUsers(usersArray.slice(0, 10)); // Limit to 10 results for display
-        } else {
+        console.log('📥 Search response:', response);
+
+        // Handle different response structures
+        let usersArray: any[] = [];
+        
+        if (response && response.success !== false) {
+          // Response might be: { success: true, data: [...] } or { data: [...] } or just [...]
+          if (Array.isArray(response)) {
+            usersArray = response;
+          } else if (response.data) {
+            if (Array.isArray(response.data)) {
+              usersArray = response.data;
+            } else if (response.data.data && Array.isArray(response.data.data)) {
+              usersArray = response.data.data;
+            }
+          }
+        }
+
+        console.log('👥 Found users:', usersArray.length);
+        setFilteredUsers(usersArray.slice(0, 10)); // Limit to 10 results for display
+      } catch (error) {
+        console.error('❌ Failed to search users with getUsersDirect:', error);
+        // Fallback to API client if direct fetch fails
+        try {
+          console.log('🔄 Trying fallback API client search...');
+          const fallbackResponse = await api.getUsers({
+            q: searchQuery,
+            limit: 20,
+          });
+          console.log('📥 Fallback response:', fallbackResponse);
+          
+          if (fallbackResponse && fallbackResponse.success !== false) {
+            let usersArray: any[] = [];
+            if (Array.isArray(fallbackResponse.data)) {
+              usersArray = fallbackResponse.data;
+            } else if (fallbackResponse.data?.data && Array.isArray(fallbackResponse.data.data)) {
+              usersArray = fallbackResponse.data.data;
+            }
+            console.log('👥 Found users (fallback):', usersArray.length);
+            setFilteredUsers(usersArray.slice(0, 10));
+          } else {
+            console.warn('⚠️ Fallback search returned no results');
+            setFilteredUsers([]);
+          }
+        } catch (fallbackError) {
+          console.error('❌ Fallback search also failed:', fallbackError);
           setFilteredUsers([]);
         }
-      } catch (error) {
-        console.error('Failed to search users:', error);
-        setFilteredUsers([]);
       } finally {
         setSearching(false);
       }
@@ -89,7 +128,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
     }, 300); // 300ms debounce
 
     return () => clearTimeout(timeoutId);
-  }, [searchQuery, api]);
+  }, [searchQuery, getUsersDirect, api]);
 
   const resetForm = () => {
     setSearchQuery('');

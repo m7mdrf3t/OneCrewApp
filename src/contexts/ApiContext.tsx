@@ -5046,12 +5046,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const switchToCompanyProfile = async (companyId: string) => {
     try {
-      // Verify user is owner of this company before allowing switch
+      // Verify user is owner or admin of this company before allowing switch
       if (!user?.id) {
         throw new Error('User not authenticated');
       }
       
-      // Get user's companies to check ownership
+      // Get user's companies to check ownership or admin status
       const userCompaniesResponse = await getUserCompanies(user.id);
       if (userCompaniesResponse.success && userCompaniesResponse.data) {
         const responseData = userCompaniesResponse.data as any;
@@ -5059,7 +5059,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           ? responseData 
           : (responseData.data || []);
         
-        // Find the company and check if user is owner
+        // Find the company and check if user is owner or admin
         const companyMember = companies.find((cm: any) => {
           const cmCompanyId = cm.companies?.id || cm.company_id || cm.id;
           return cmCompanyId === companyId;
@@ -5070,8 +5070,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         
         const role = companyMember.role || companyMember.member?.role;
-        if (role !== 'owner') {
-          throw new Error('Only company owners can switch to company profiles');
+        if (role !== 'owner' && role !== 'admin') {
+          throw new Error('Only company owners and admins can switch to company profiles');
         }
       }
       

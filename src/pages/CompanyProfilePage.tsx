@@ -1186,6 +1186,25 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               </View>
             )}
 
+            {/* STRICT READ-ONLY: Invite Admin Users Section completely removed when readOnly is true */}
+            {!readOnly && canEdit() && company.subcategory === 'academy' && onInviteMember && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Admin Management</Text>
+                </View>
+                <Text style={styles.description}>
+                  Invite users as administrators to help manage your academy. Admin users have full management privileges including the ability to add other admin users, manage courses, and grant certifications.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.manageRegistrationsButton, styles.inviteAdminButton]}
+                  onPress={() => onInviteMember(company)}
+                >
+                  <Ionicons name="person-add-outline" size={18} color="#fff" />
+                  <Text style={styles.manageRegistrationsButtonText}>Invite Admin User</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* STRICT READ-ONLY: Grant Certification Section completely removed when readOnly is true */}
             {!readOnly && canEdit() && company.subcategory === 'academy' && (
               <View style={styles.section}>
@@ -2308,6 +2327,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 8,
     gap: 8,
+  },
+  inviteAdminButton: {
+    backgroundColor: '#6366f1',
+    borderWidth: 2,
+    borderColor: '#4f46e5',
+    shadowColor: '#6366f1',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
   manageRegistrationsButtonText: {
     fontSize: 14,
