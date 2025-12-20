@@ -362,8 +362,8 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-  baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
- //baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app' // Staging server
+   baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
+  //baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app' // Staging server
  //baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
@@ -800,7 +800,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           throw deletionError;
         }
         
-        throw new Error(errorMessage);
+        // Normalize common authentication error messages for better UX
+        if (errorLower.includes('invalid') && (errorLower.includes('email') || errorLower.includes('password') || errorLower.includes('credential'))) {
+          errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+        } else if (errorLower.includes('unauthorized') || response.status === 401) {
+          errorMessage = 'Invalid email or password. Please check your credentials and try again.';
+        }
+        
+        const authError: any = new Error(errorMessage);
+        authError.isAuthError = true;
+        authError.statusCode = response.status;
+        throw authError;
       }
 
       // Parse response as JSON
@@ -987,13 +997,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       return authResponse;
     } catch (err: any) {
-      console.error('Login failed:', err);
-      console.error('Error details:', {
-        message: err.message,
-        name: err.name,
-        stack: err.stack,
-        cause: err.cause
-      });
+      // Only log detailed error info for unexpected errors, not for normal auth failures
+      if (err.isAuthError || err.code === 'ACCOUNT_LOCKOUT' || err.code === 'ACCOUNT_DELETION_PENDING') {
+        // For expected auth errors, just log a simple message
+        console.log('🔒 Authentication failed:', err.message);
+      } else {
+        // For unexpected errors, log full details
+        console.error('Login failed:', err);
+        console.error('Error details:', {
+          message: err.message,
+          name: err.name,
+          stack: err.stack,
+          cause: err.cause
+        });
+      }
       
       // If direct fetch fails, try the API client as fallback
       if (err.message.includes('Network error') || err.message.includes('ENOENT')) {
@@ -2089,8 +2106,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Note: social_links are handled separately via dedicated endpoints
       const basicProfileData: any = {
         bio: profileData.bio,
-        specialty: profileData.specialty,
-        location_text: profileData.location_text || profileData.about?.location || null, // Location stored in users table
+        // Only include specialty if it has a value (it's optional)
+        ...(profileData.specialty && profileData.specialty.trim() ? { specialty: profileData.specialty.trim() } : {}),
+        // Only include location_text if it has a value (it's optional)
+        ...(profileData.location_text && profileData.location_text.trim() ? { location_text: profileData.location_text.trim() } : {}),
       };
       
       // Add image_url only if it has a valid value (don't send empty strings)
@@ -2504,9 +2523,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       errors.push('Bio is required');
     }
     
-    if (!profileData.specialty || profileData.specialty.trim() === '') {
-      errors.push('Specialty is required');
-    }
+    // Note: specialty is now optional, no validation needed
     
     // Check talent-specific fields if user is talent
     if (profileData.about) {
@@ -3659,14 +3676,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getProfileRequirements = () => {
     return {
       basic: {
-        required: ['bio', 'specialty'],
+        required: ['bio'],
         bio: {
           required: true,
           minLength: 10,
           description: 'A brief description about yourself'
         },
         specialty: {
-          required: true,
+          required: false,
           description: 'Your main area of expertise'
         }
       },
@@ -3827,15 +3844,27 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Social media links management methods
   const getUserSocialLinks = async (userId?: string) => {
-    const targetUserId = userId || user?.id;
-    const cacheKey = userId ? `user-social-links-${userId}` : 'user-social-links';
-    return rateLimiter.execute(cacheKey, async () => {
+    // CRITICAL: Always use the provided userId, never fall back to current user's ID
+    // This ensures we fetch the correct user's social links, not the logged-in user's
+    const targetUserId = userId; // Don't fall back to user?.id - this causes the bug!
+    
+    // Check if fetching for current user or another user
+    const isCurrentUserRequest = !targetUserId || targetUserId === user?.id;
+    
+    // IMPORTANT: Only cache for current user's social links
+    // For other users, always fetch fresh data to avoid showing wrong social links
+    const fetchSocialLinks = async () => {
       try {
-        console.log('🔗 Fetching user social links...', userId ? `for user ${userId}` : 'for current user');
+        console.log('🔗 Fetching user social links...', targetUserId ? `for user ${targetUserId}` : 'for current user (no cache)');
         const accessToken = getAccessToken();
-        const url = userId 
-          ? `${baseUrl}/api/social-links?user_id=${userId}`
+        
+        // Always include user_id parameter if provided, otherwise backend returns current user's links
+        const url = targetUserId 
+          ? `${baseUrl}/api/social-links?user_id=${targetUserId}`
           : `${baseUrl}/api/social-links`;
+        
+        console.log('🔗 API URL:', url);
+        
         const response = await fetch(url, {
           method: 'GET',
           headers: {
@@ -3851,13 +3880,41 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           throw new Error(result.error || 'Failed to fetch social links');
         }
 
-        console.log('✅ Social links fetched successfully:', result.data?.length || 0, 'links');
+        // DEBUG: Log the actual response data to verify backend is returning correct user's links
+        if (result.data && Array.isArray(result.data) && result.data.length > 0) {
+          console.log('🔍 [DEBUG] Social links response data:', JSON.stringify(result.data, null, 2));
+          const firstLink = result.data[0];
+          if (firstLink.user_id) {
+            console.log('🔍 [DEBUG] First link user_id:', firstLink.user_id, 'Expected:', targetUserId);
+            if (firstLink.user_id !== targetUserId) {
+              console.error('❌ [BUG DETECTED] Backend returned wrong user\'s social links!');
+              console.error('   Expected user_id:', targetUserId);
+              console.error('   Got user_id:', firstLink.user_id);
+              console.error('   This is a BACKEND bug - the API is ignoring the user_id parameter');
+            } else {
+              console.log('✅ [DEBUG] Backend returned correct user\'s social links');
+            }
+          }
+        }
+
+        console.log('✅ Social links fetched successfully for user', targetUserId || 'current', ':', result.data?.length || 0, 'links');
         return result;
       } catch (error: any) {
-        console.error('❌ Failed to fetch social links:', error);
+        console.error('❌ Failed to fetch social links for user', targetUserId || 'current', ':', error);
         throw error;
       }
-    }, { ttl: CacheTTL.SHORT, persistent: false }); // Social links change frequently - 30sec TTL, no persistence for faster updates
+    };
+    
+    // Only cache for current user's own social links
+    // For other users, always fetch fresh to avoid showing wrong data
+    if (isCurrentUserRequest) {
+      const cacheKey = 'user-social-links-current';
+      return rateLimiter.execute(cacheKey, fetchSocialLinks, { ttl: CacheTTL.SHORT, persistent: false });
+    } else {
+      // NO CACHING for other users' social links - always fetch fresh!
+      console.log('🔗 Fetching OTHER user social links (no cache) for:', targetUserId);
+      return fetchSocialLinks();
+    }
   };
 
   const addSocialLink = async (linkData: { platform: string; url: string; is_custom?: boolean }) => {
@@ -5006,12 +5063,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const switchToCompanyProfile = async (companyId: string) => {
     try {
-      // Verify user is owner of this company before allowing switch
+      // Verify user is owner or admin of this company before allowing switch
       if (!user?.id) {
         throw new Error('User not authenticated');
       }
       
-      // Get user's companies to check ownership
+      // Get user's companies to check ownership or admin status
       const userCompaniesResponse = await getUserCompanies(user.id);
       if (userCompaniesResponse.success && userCompaniesResponse.data) {
         const responseData = userCompaniesResponse.data as any;
@@ -5019,7 +5076,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           ? responseData 
           : (responseData.data || []);
         
-        // Find the company and check if user is owner
+        // Find the company and check if user is owner or admin
         const companyMember = companies.find((cm: any) => {
           const cmCompanyId = cm.companies?.id || cm.company_id || cm.id;
           return cmCompanyId === companyId;
@@ -5030,8 +5087,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         
         const role = companyMember.role || companyMember.member?.role;
-        if (role !== 'owner') {
-          throw new Error('Only company owners can switch to company profiles');
+        if (role !== 'owner' && role !== 'admin') {
+          throw new Error('Only company owners and admins can switch to company profiles');
         }
       }
       

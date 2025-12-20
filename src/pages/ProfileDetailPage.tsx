@@ -266,9 +266,9 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   // Load certifications for the user
   useEffect(() => {
     const loadCertifications = async () => {
-      const userIdToFetch = isCurrentUser && currentUser?.id 
-        ? currentUser.id 
-        : (profile?.id || userProfile?.id);
+      // Always prioritize the profile being viewed (profile?.id), not the current user's ID
+      // This ensures we fetch certifications for the correct user, not the logged-in user
+      const userIdToFetch = profile?.id || userProfile?.id || (isCurrentUser ? currentUser?.id : undefined);
       
       if (userIdToFetch) {
         try {
@@ -289,9 +289,9 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   // Load social links from API
   useEffect(() => {
     const loadSocialLinks = async () => {
-      const userIdToFetch = isCurrentUser && currentUser?.id 
-        ? currentUser.id 
-        : (profile?.id || userProfile?.id);
+      // Always prioritize the profile being viewed (profile?.id), not the current user's ID
+      // This ensures we fetch social links for the correct user, not the logged-in user
+      const userIdToFetch = profile?.id || userProfile?.id || (isCurrentUser ? currentUser?.id : undefined);
       
       // Skip if no user ID available
       if (!userIdToFetch) {
@@ -307,17 +307,27 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
       try {
         setLoadingSocialLinks(true);
+        // CRITICAL: Log the userId being fetched to debug the issue
+        console.log('🔗 [ProfileDetailPage] Fetching social links for userId:', userIdToFetch, {
+          profileId: profile?.id,
+          userProfileId: userProfile?.id,
+          currentUserId: currentUser?.id,
+          isCurrentUser,
+        });
+        
         // Fetch social links for the specific user (current user or other user)
         const response = await getUserSocialLinks(userIdToFetch);
         if (response.success && response.data) {
           const links = Array.isArray(response.data) ? response.data : response.data.data || [];
+          console.log('✅ [ProfileDetailPage] Social links loaded:', links.length, 'links for userId:', userIdToFetch);
           setSocialLinks(links);
         } else {
+          console.warn('⚠️ [ProfileDetailPage] No social links in response, using fallback');
           // Fallback to userProfile data if available
           setSocialLinks(userProfile?.social_links || []);
         }
       } catch (error) {
-        console.error('Failed to load social links:', error);
+        console.error('❌ [ProfileDetailPage] Failed to load social links for userId:', userIdToFetch, error);
         // Fallback to userProfile data if available
         setSocialLinks(userProfile?.social_links || []);
       } finally {
@@ -606,11 +616,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         <View style={styles.profileContainer}>
           <View style={styles.nameRow}> 
             <Text style={styles.name}>{userProfile.name}</Text>
-            <Ionicons 
-              name={userProfile.about?.gender?.toLowerCase() === 'female' ? 'female' : 'male'} 
-              size={18} 
-              color="#000" 
-            />
           </View>
           <Text style={styles.lastSeen}>
             {userProfile.onlineStatus || (userProfile.online_last_seen ? formatLastSeen(userProfile.online_last_seen) : 'Last seen recently')}
@@ -876,60 +881,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             </View>
           )}
 
-          {/* Certificates Section */}
-          <View style={styles.infoCard}>
-            <View style={styles.sectionTitleRow}>
-              <Ionicons name="document-text-outline" size={20} color="#000" />
-              <Text style={styles.infoSectionTitle}>Certificates</Text>
-            </View>
-            {loadingCertifications ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#3b82f6" />
-              </View>
-            ) : certifications.length > 0 ? (
-              <View style={styles.certificatesGrid}>
-                {certifications.slice(0, 3).map((certification, index) => {
-                  // Get icon based on index or certification type
-                  const icons = ['document-text-outline', 'document-outline', 'checkmark-circle-outline'];
-                  const iconName = icons[index % icons.length] as any;
-                  
-                  // Extract year from issued_at or use a default
-                  const year = certification.issued_at 
-                    ? new Date(certification.issued_at).getFullYear().toString()
-                    : new Date().getFullYear().toString();
-                  
-                  // Get certification name
-                  const certName = certification.certification_template?.name || 'Certification';
-                  
-                  return (
-                    <View key={certification.id} style={styles.certificateCard}>
-                      <Ionicons name={iconName} size={24} color="#fff" />
-                      <Text style={styles.certificateTitle}>{certName}</Text>
-                      <Text style={styles.certificateYear}>{year}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons name="document-text-outline" size={32} color="#d1d5db" />
-                <Text style={styles.emptyStateText}>No certificates yet</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Awards Section */}
-          <View style={styles.infoCard}>
-            <View style={styles.sectionTitleRow}>
-              <Ionicons name="trophy-outline" size={20} color="#000" />
-              <Text style={styles.infoSectionTitle}>Awards</Text>
-            </View>
-            <View style={styles.emptyState}>
-              <Ionicons name="trophy-outline" size={32} color="#d1d5db" />
-              <Text style={styles.emptyStateText}>No awards yet</Text>
-            </View>
-          </View>
-
           {/* Gallery/Portfolio Section */}
           {((userProfile.portfolio && userProfile.portfolio.length > 0) || userProfile.category === 'talent') && (
             <View style={styles.infoCard}>
@@ -1079,6 +1030,60 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               </View>
             </View>
           )}
+
+          {/* Certificates Section */}
+          <View style={styles.infoCard}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="document-text-outline" size={20} color="#000" />
+              <Text style={styles.infoSectionTitle}>Certificates</Text>
+            </View>
+            {loadingCertifications ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3b82f6" />
+              </View>
+            ) : certifications.length > 0 ? (
+              <View style={styles.certificatesGrid}>
+                {certifications.slice(0, 3).map((certification, index) => {
+                  // Get icon based on index or certification type
+                  const icons = ['document-text-outline', 'document-outline', 'checkmark-circle-outline'];
+                  const iconName = icons[index % icons.length] as any;
+                  
+                  // Extract year from issued_at or use a default
+                  const year = certification.issued_at 
+                    ? new Date(certification.issued_at).getFullYear().toString()
+                    : new Date().getFullYear().toString();
+                  
+                  // Get certification name
+                  const certName = certification.certification_template?.name || 'Certification';
+                  
+                  return (
+                    <View key={certification.id} style={styles.certificateCard}>
+                      <Ionicons name={iconName} size={24} color="#fff" />
+                      <Text style={styles.certificateTitle}>{certName}</Text>
+                      <Text style={styles.certificateYear}>{year}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="document-text-outline" size={32} color="#d1d5db" />
+                <Text style={styles.emptyStateText}>No certificates yet</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Awards Section */}
+          <View style={styles.infoCard}>
+            <View style={styles.sectionTitleRow}>
+              <Ionicons name="trophy-outline" size={20} color="#000" />
+              <Text style={styles.infoSectionTitle}>Awards</Text>
+            </View>
+            <View style={styles.emptyState}>
+              <Ionicons name="trophy-outline" size={32} color="#d1d5db" />
+              <Text style={styles.emptyStateText}>No awards yet</Text>
+            </View>
+          </View>
 
           {/* Social Media Links */}
           <View style={styles.infoCard}>

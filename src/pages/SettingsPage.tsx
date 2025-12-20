@@ -15,6 +15,9 @@ interface SettingsPageProps {
   onNavigate?: (pageName: string) => void;
   theme?: 'light' | 'dark';
   onToggleTheme?: () => void;
+  isGuest?: boolean;
+  onSignUp?: () => void;
+  onSignIn?: () => void;
 }
 
 interface SettingsItem {
@@ -31,7 +34,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   onBack, 
   onNavigate, 
   theme = 'light', 
-  onToggleTheme 
+  onToggleTheme,
+  isGuest = false,
+  onSignUp,
+  onSignIn,
 }) => {
   const isDark = theme === 'dark';
 
@@ -43,21 +49,38 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     {
       title: 'Account',
       items: [
-        {
-          id: 'changePassword',
-          title: 'Change Password',
-          icon: 'lock-closed',
-          action: () => onNavigate?.('changePassword'),
-          showArrow: true,
-        },
-        {
-          id: 'deleteAccount',
-          title: 'Delete Account',
-          icon: 'trash',
-          action: () => onNavigate?.('accountDeletion'),
-          showArrow: true,
-          danger: true,
-        },
+        ...(isGuest ? [
+          {
+            id: 'signUp',
+            title: 'Sign Up',
+            icon: 'person-add' as keyof typeof Ionicons.glyphMap,
+            action: () => onSignUp?.(),
+            showArrow: true,
+          },
+          {
+            id: 'signIn',
+            title: 'Sign In',
+            icon: 'log-in' as keyof typeof Ionicons.glyphMap,
+            action: () => onSignIn?.(),
+            showArrow: true,
+          },
+        ] : [
+          {
+            id: 'changePassword',
+            title: 'Change Password',
+            icon: 'lock-closed' as keyof typeof Ionicons.glyphMap,
+            action: () => onNavigate?.('changePassword'),
+            showArrow: true,
+          },
+          {
+            id: 'deleteAccount',
+            title: 'Delete Account',
+            icon: 'trash' as keyof typeof Ionicons.glyphMap,
+            action: () => onNavigate?.('accountDeletion'),
+            showArrow: true,
+            danger: true,
+          },
+        ]) as SettingsItem[],
       ],
     },
     {

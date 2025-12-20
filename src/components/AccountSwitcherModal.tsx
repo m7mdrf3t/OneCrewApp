@@ -81,29 +81,33 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
           console.log(`  Company ${index + 1}: ${companyData?.name || 'Unknown'} - Approval Status: ${approvalStatus}`);
         });
         
-        // Filter to only show companies where user is owner
-        // IMPORTANT: Do NOT filter by approval_status - show all owned companies including pending ones
+        // Filter to show companies where user is owner or admin
+        // IMPORTANT: Do NOT filter by approval_status - show all companies including pending ones
         // Check multiple ways: role field, owner.id, or company.owner.id
-        const ownedCompanies = companiesList.filter((company: any) => {
+        const accessibleCompanies = companiesList.filter((company: any) => {
           const companyData = getCompanyData(company);
           const role = company.role || company.member?.role || company.company_member?.role;
           const isOwnerByRole = role === 'owner';
+          const isAdminByRole = role === 'admin';
           const isOwnerById = companyData?.owner?.id === user.id;
           const isOwnerByCompanyOwner = (companyData as any)?.owner_id === user.id;
           
-          // Show company if user is owner by any method (regardless of approval_status)
+          // Show company if user is owner or admin by any method (regardless of approval_status)
           const isOwner = isOwnerByRole || isOwnerById || isOwnerByCompanyOwner;
+          const isAdmin = isAdminByRole;
+          const hasAccess = isOwner || isAdmin;
           
-          if (isOwner) {
+          if (hasAccess) {
             const approvalStatus = companyData?.approval_status || company.approval_status;
-            console.log(`✅ Including company "${companyData?.name || 'Unknown'}" (owner) - Approval: ${approvalStatus || 'unknown'}`);
+            const roleLabel = isOwner ? 'owner' : 'admin';
+            console.log(`✅ Including company "${companyData?.name || 'Unknown'}" (${roleLabel}) - Approval: ${approvalStatus || 'unknown'}`);
           }
           
-          return isOwner;
+          return hasAccess;
         });
         
-        console.log(`✅ Filtered to ${ownedCompanies.length} owned companies (including pending)`);
-        setCompanies(ownedCompanies);
+        console.log(`✅ Filtered to ${accessibleCompanies.length} accessible companies (owner/admin, including pending)`);
+        setCompanies(accessibleCompanies);
       } else {
         console.warn('⚠️ getUserCompanies returned no data:', response);
       }
@@ -312,7 +316,7 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
               <>
                 <View style={styles.sectionHeader}>
                   <View style={styles.sectionDivider} />
-                  <Text style={styles.sectionTitle}>Your Companies</Text>
+                  <Text style={styles.sectionTitle}>Your Companies & Academies</Text>
                   <View style={styles.sectionDivider} />
                 </View>
                 {companies.map((company, index) => {

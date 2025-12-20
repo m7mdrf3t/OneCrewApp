@@ -456,15 +456,27 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     return counts;
   }, [usersByCategory?.crew]);
 
-  // Filter sections to only show: talent, individuals (Crew), onehub (Studios & Agencies), academy, custom
-  const allowedSectionKeys = ['talent', 'individuals', 'onehub', 'academy', 'custom'];
+  // Filter sections to only show: talent, individuals (Crew), onehub (Studios & Agencies), academy, custom, directory
+  const allowedSectionKeys = ['talent', 'individuals', 'onehub', 'academy', 'custom', 'directory'];
   
   const filteredSections = useMemo(() => {
+    // Add "All Members" directory section dynamically
+    const directorySection = {
+      key: 'directory',
+      title: 'All Members',
+      items: [
+        { label: 'All Members', users: users.length }
+      ]
+    };
+    
     const allowedSections = SECTIONS.filter(section => allowedSectionKeys.includes(section.key));
+    
+    // Combine directory section with allowed sections
+    const allSections = [directorySection, ...allowedSections];
     
     // Dynamically update the crew (individuals) and talent sections with API roles
     // But only if roles have loaded, otherwise use original section items
-    const updatedSections = allowedSections.map(section => {
+    const updatedSections = allSections.map(section => {
       if (section.key === 'individuals') {
         // Only update if crew roles have loaded
         if (crewRoles.length > 0) {
@@ -566,6 +578,14 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
           items: items.length > 0 ? items : section.items,
         };
       }
+      // For directory section, keep it as is
+      if (section.key === 'directory') {
+        return {
+          ...section,
+          items: [{ label: 'All Members', users: users.length }]
+        };
+      }
+      
       // For other sections (onehub, academy), keep original items
       return section;
     });
@@ -604,7 +624,10 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       let userCount = 0;
       
       // Map section keys to user categories and companies
-      if (section.key === 'talent') {
+      if (section.key === 'directory') {
+        // All Members: total count of all users
+        userCount = users.length;
+      } else if (section.key === 'talent') {
         userCount = usersByCategory.talent.length;
       } else if (section.key === 'individuals') {
         userCount = usersByCategory.crew.length;
@@ -623,7 +646,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
         userCount
       };
     });
-  }, [usersByCategory, companiesByType, filteredSections]);
+  }, [users, usersByCategory, companiesByType, filteredSections]);
 
   const handleUserSelect = async (selectedUser: User) => {
     console.log('👤 User selected:', selectedUser.name);

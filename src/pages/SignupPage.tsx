@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,9 +11,11 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import type { UserRole } from 'onecrew-api-client';
 import { useApi } from '../contexts/ApiContext';
 import CategorySelectionModal from '../components/CategorySelectionModal';
 import { validatePassword, getPasswordRequirements } from '../utils/passwordValidator';
+import { filterRolesByCategory } from '../utils/roleCategorizer';
 
 interface SignupPageProps {
   onNavigateToLogin: () => void;
@@ -24,13 +26,13 @@ const SignupPage: React.FC<SignupPageProps> = ({
   onNavigateToLogin,
   onSignupSuccess,
 }) => {
-  const { signup, googleSignIn, isLoading, error, clearError } = useApi();
+  const { signup, googleSignIn, isLoading, error, clearError, isAuthenticated, getRoles } = useApi();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
     confirmPassword: '',
-    category: 'crew' as 'crew' | 'talent',
+    category: 'crew' as 'crew' | 'talent' | 'custom',
     primaryRole: '',
   });
   const [showPassword, setShowPassword] = useState(false);
@@ -38,21 +40,107 @@ const SignupPage: React.FC<SignupPageProps> = ({
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [crewRoles, setCrewRoles] = useState<string[]>([]);
+  const [talentRoles, setTalentRoles] = useState<string[]>([]);
+  const [customRoles, setCustomRoles] = useState<string[]>([]);
+  const [customRoleInput, setCustomRoleInput] = useState('');
+  const [isCustomRoleMode, setIsCustomRoleMode] = useState(false);
+  const [rolesLoading, setRolesLoading] = useState(true);
 
   const categories = [
     { key: 'crew', label: 'Crew Member', icon: 'people' },
     { key: 'talent', label: 'Talent', icon: 'star' },
+    { key: 'other', label: 'Other', icon: 'create' },
   ];
 
-  const crewRoles = [
+  // Fallback roles in case API fails
+  const fallbackCrewRoles = [
     'actor', 'voice_actor', 'director', 'dop', 'editor', 'producer',
     'scriptwriter', 'gaffer', 'grip', 'sound_engineer', 'makeup_artist',
     'stylist', 'vfx', 'colorist'
   ];
 
-  const talentRoles = [
-    'actor', 'voice_actor', 'singer', 'dancer', 'model'
+  const fallbackTalentRoles = [
+    'actor', 'voice_actor', 'singer', 'dancer', 'model', 'engineer'
   ];
+
+  // Use the shared categorizeRole function from utils
+
+  // Load roles from API
+  useEffect(() => {
+    const loadRoles = async () => {
+      setRolesLoading(true);
+      try {
+        const normalizeRoles = (data: any): string[] => {
+          const rolesData = Array.isArray(data) ? data : [];
+          const normalized = rolesData
+            .map((role: any) => {
+              const roleName =
+                typeof role === 'string'
+                  ? role
+                  : (typeof role?.name === 'string' ? role.name : '');
+              if (!roleName) return '';
+              return roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            })
+            .filter(Boolean);
+          return Array.from(new Set(normalized)).sort();
+        };
+
+        // Prefer server-driven categories (dynamic)
+        // Use allSettled so a missing `custom` endpoint doesn't break crew/talent loads.
+        const [crewResResult, talentResResult, customResResult] = await Promise.allSettled([
+          getRoles({ category: 'crew' }),
+          getRoles({ category: 'talent' }),
+          getRoles({ category: 'custom' }),
+        ]);
+
+        const crewRes = crewResResult.status === 'fulfilled' ? crewResResult.value : null;
+        const talentRes = talentResResult.status === 'fulfilled' ? talentResResult.value : null;
+        const customRes = customResResult.status === 'fulfilled' ? customResResult.value : null;
+
+        const crewFromApi = crewRes?.success ? normalizeRoles(crewRes.data) : [];
+        const talentFromApi = talentRes?.success ? normalizeRoles(talentRes.data) : [];
+        const customFromApi = customRes?.success ? normalizeRoles(customRes.data) : [];
+        setCustomRoles(customFromApi);
+
+        // If backend returns anything for the category calls, trust it (this is what makes roles truly dynamic)
+        if (crewFromApi.length > 0 || talentFromApi.length > 0) {
+          setCrewRoles(crewFromApi.length > 0 ? crewFromApi : fallbackCrewRoles);
+          setTalentRoles(talentFromApi.length > 0 ? talentFromApi : fallbackTalentRoles);
+          return;
+        }
+
+        // Fallback: load all roles then split via local categorizer
+        const response = await getRoles();
+        if (response.success && response.data) {
+          const rolesData = Array.isArray(response.data) ? response.data : [];
+
+          const crewRolesFiltered = filterRolesByCategory(rolesData, 'crew');
+          const talentRolesFiltered = filterRolesByCategory(rolesData, 'talent');
+
+          const crew = normalizeRoles(crewRolesFiltered);
+          const talent = normalizeRoles(talentRolesFiltered);
+
+          setCrewRoles(crew.length > 0 ? crew : fallbackCrewRoles);
+          setTalentRoles(talent.length > 0 ? talent : fallbackTalentRoles);
+        } else {
+          setCrewRoles(fallbackCrewRoles);
+          setTalentRoles(fallbackTalentRoles);
+        }
+      } catch (err) {
+        console.error('Failed to load roles from API, using fallback:', err);
+        // Use fallback on error
+        setCrewRoles(fallbackCrewRoles);
+        setTalentRoles(fallbackTalentRoles);
+        setCustomRoles([]);
+      } finally {
+        setRolesLoading(false);
+      }
+    };
+
+    loadRoles();
+  }, [getRoles]);
 
   const getRolesForCategory = (category: string) => {
     switch (category) {
@@ -60,6 +148,28 @@ const SignupPage: React.FC<SignupPageProps> = ({
       case 'talent': return talentRoles;
       default: return [];
     }
+  };
+
+  const rolesForSelectedCategory = getRolesForCategory(formData.category);
+  const customRolesForPicker = customRoles.filter((r) => !new Set(rolesForSelectedCategory).has(r));
+
+  const normalizeRoleInput = (value: string) => {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  };
+
+  const applyCustomRole = (rawValue?: string) => {
+    const normalized = normalizeRoleInput(rawValue ?? customRoleInput);
+    if (!normalized) {
+      setFormErrors((prev) => ({ ...prev, primaryRole: 'Please enter a custom role' }));
+      return;
+    }
+    handleInputChange('primaryRole', normalized);
+    // Show the normalized value so users understand what will be saved.
+    setCustomRoleInput(normalized);
   };
 
   const validateForm = () => {
@@ -93,7 +203,13 @@ const SignupPage: React.FC<SignupPageProps> = ({
     }
 
     if (!formData.primaryRole) {
-      errors.primaryRole = 'Please select your primary role';
+      // If user is in custom-role mode, allow the typed value (even if they didn't tap "Use")
+      const typed = isCustomRoleMode ? normalizeRoleInput(customRoleInput) : '';
+      if (typed) {
+        // ok (we'll submit typed value)
+      } else {
+        errors.primaryRole = isCustomRoleMode ? 'Please enter your role' : 'Please select your primary role';
+      }
     }
 
     setFormErrors(errors);
@@ -102,20 +218,87 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
   const handleSignup = async () => {
     if (!validateForm()) return;
+    
+    // Prevent double submission
+    if (isSubmitting || isLoading) {
+      console.log('⚠️ Signup already in progress, ignoring duplicate call');
+      return;
+    }
 
     try {
+      setIsSubmitting(true);
       clearError();
       const userEmail = formData.email.trim().toLowerCase();
-      await signup({
+
+      // When in custom role mode, the backend requires primary_role to exist in the roles table.
+      // Since custom roles don't exist in the table yet, we need to use a workaround:
+      // Option 1: Try "custom" as the role (if backend supports it)
+      // Option 2: Use a valid role from the roles table as a placeholder
+      // For now, we'll try "custom" first, and if that fails, the backend should handle it
+      const customRoleName = isCustomRoleMode 
+        ? normalizeRoleInput(customRoleInput) 
+        : null;
+
+      // Try "custom" as the role value - if backend doesn't support it, it will fail
+      // and we'll need backend support for custom roles
+      const roleToSubmit = isCustomRoleMode
+        ? 'custom'  // Try "custom" - backend may need to add this to roles table
+        : formData.primaryRole;
+
+      // Use "custom" as category - backend may need to support this
+      const categoryToSubmit = isCustomRoleMode ? 'custom' : formData.category;
+
+      console.log('📧 [SignupPage] Attempting signup with email:', userEmail, 'at', new Date().toISOString());
+      console.log('📧 [SignupPage] Category:', categoryToSubmit, 'Role:', roleToSubmit, 'isCustomRoleMode:', isCustomRoleMode);
+      if (customRoleName) {
+        console.log('📧 [SignupPage] Custom role name (specialty):', customRoleName);
+      }
+      
+      // Build signup request - include specialty when primary_role is "custom"
+      const signupData: any = {
         name: formData.name.trim(),
         email: userEmail,
         password: formData.password,
-        category: formData.category,
-        primary_role: formData.primaryRole,
-      });
+        category: categoryToSubmit as any,
+        primary_role: roleToSubmit as any as UserRole,
+      };
+      
+      // Backend requires "specialty" field when primary_role is "custom"
+      if (isCustomRoleMode && customRoleName) {
+        signupData.specialty = customRoleName;
+      }
+      
+      const signupResponse = await signup(signupData);
+      
+      // MANDATORY: Always navigate to OTP verification page after signup
+      // User MUST verify email via OTP before being authenticated
+      console.log('✅ [SignupPage] Signup successful - MANDATORY OTP verification required');
+      console.log('📧 [SignupPage] Email for OTP verification:', userEmail);
+      console.log('🚀 [SignupPage] Calling onSignupSuccess to navigate to OTP verification page');
       onSignupSuccess(userEmail);
+      console.log('✅ [SignupPage] onSignupSuccess called successfully');
     } catch (err: any) {
-      Alert.alert('Signup Failed', err.message || 'Please try again.');
+      console.error('❌ [SignupPage] Signup error details:', {
+        message: err.message,
+        code: err.code,
+        status: err.status,
+        email: formData.email.trim().toLowerCase(),
+        timestamp: new Date().toISOString(),
+      });
+      
+      // Provide more helpful error messages
+      let errorMessage = err.message || 'Please try again.';
+      if (err.message?.toLowerCase().includes('already exists') || err.status === 409) {
+        errorMessage = `An account with email ${formData.email.trim().toLowerCase()} already exists. If this is your account, please try logging in instead.`;
+      } else if (isCustomRoleMode && err.message?.includes('foreign key constraint') && err.message?.includes('primary_role')) {
+        // Custom role error - backend needs to support custom roles
+        const customRoleName = normalizeRoleInput(customRoleInput);
+        errorMessage = `Custom role "${customRoleName}" is not supported yet. The backend needs to add support for custom roles. Please try selecting a role from the available options, or contact support.`;
+      }
+      
+      Alert.alert('Signup Failed', errorMessage);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -129,17 +312,41 @@ const SignupPage: React.FC<SignupPageProps> = ({
   const handleCategoryChange = (category: 'crew' | 'talent') => {
     setFormData(prev => ({ ...prev, category, primaryRole: '' }));
     setFormErrors(prev => ({ ...prev, primaryRole: '' }));
+    setCustomRoleInput('');
+    setIsCustomRoleMode(false);
+  };
+
+  const handleOtherRoleMode = () => {
+    setIsCustomRoleMode(true);
+    setFormData(prev => ({ ...prev, category: 'custom', primaryRole: '' }));
+    setFormErrors(prev => ({ ...prev, primaryRole: '' }));
   };
 
   const handleGoogleSignIn = async () => {
+    // Prevent multiple simultaneous calls
+    if (pendingGoogleSignIn || isLoading) {
+      console.log('⚠️ Google Sign-In already in progress, ignoring duplicate call');
+      return;
+    }
+
     try {
       clearError();
       setPendingGoogleSignIn(true);
+      
       // Try without category first (for existing users)
-      await googleSignIn();
-      onSignupSuccess();
+      const authResponse = await googleSignIn();
+      // For Google Sign-In, use the email from the response or form data
+      const email = authResponse?.user?.email || formData.email.trim().toLowerCase() || '';
+      onSignupSuccess(email);
     } catch (err: any) {
-      console.error('Google Sign-In error in SignupPage:', err);
+      console.error('❌ Google Sign-In error in SignupPage:', err);
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled Google Sign-In');
+        return;
+      }
+      
       // Check if error is about category being required
       if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
         // Show category selection modal
@@ -158,8 +365,10 @@ const SignupPage: React.FC<SignupPageProps> = ({
       setShowCategoryModal(false);
       clearError();
       setPendingGoogleSignIn(true);
-      await googleSignIn(category, primaryRole);
-      onSignupSuccess();
+      const authResponse = await googleSignIn(category, primaryRole);
+      // For Google Sign-In, use the email from the response or form data
+      const email = authResponse?.user?.email || formData.email.trim().toLowerCase() || '';
+      onSignupSuccess(email);
     } catch (err: any) {
       console.error('Google Sign-In error in category select:', err);
       const errorMessage = err?.message || err?.toString() || 'Google Sign-Up failed. Please try again.';
@@ -237,20 +446,29 @@ const SignupPage: React.FC<SignupPageProps> = ({
                   key={category.key}
                   style={[
                     styles.categoryButton,
-                    formData.category === category.key && styles.categoryButtonActive,
+                    (category.key === 'other'
+                      ? isCustomRoleMode
+                      : (!isCustomRoleMode && formData.category === category.key)) && styles.categoryButtonActive,
                   ]}
-                  onPress={() => handleCategoryChange(category.key as any)}
+                  onPress={() => {
+                    if (category.key === 'other') return handleOtherRoleMode();
+                    return handleCategoryChange(category.key as any);
+                  }}
                   disabled={isLoading}
                 >
                   <Ionicons
                     name={category.icon as any}
                     size={20}
-                    color={formData.category === category.key ? '#fff' : '#71717a'}
+                    color={(category.key === 'other'
+                      ? isCustomRoleMode
+                      : (!isCustomRoleMode && formData.category === category.key)) ? '#fff' : '#71717a'}
                   />
                   <Text
                     style={[
                       styles.categoryButtonText,
-                      formData.category === category.key && styles.categoryButtonTextActive,
+                      (category.key === 'other'
+                        ? isCustomRoleMode
+                        : (!isCustomRoleMode && formData.category === category.key)) && styles.categoryButtonTextActive,
                     ]}
                   >
                     {category.label}
@@ -264,33 +482,100 @@ const SignupPage: React.FC<SignupPageProps> = ({
             <Text style={styles.label}>Primary Role</Text>
             <View style={[styles.inputWrapper, formErrors.primaryRole && styles.inputError]}>
               <Ionicons name="briefcase" size={20} color="#71717a" style={styles.inputIcon} />
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.roleScrollView}
-              >
-                {getRolesForCategory(formData.category).map((role) => (
-                  <TouchableOpacity
-                    key={role}
-                    style={[
-                      styles.roleButton,
-                      formData.primaryRole === role && styles.roleButtonActive,
-                    ]}
-                    onPress={() => handleInputChange('primaryRole', role)}
-                    disabled={isLoading}
+              {rolesLoading ? (
+                <View style={styles.roleLoadingContainer}>
+                  <Text style={styles.roleLoadingText}>Loading roles...</Text>
+                </View>
+              ) : (
+                isCustomRoleMode ? (
+                  <View style={styles.customRoleInputRow}>
+                    <TextInput
+                      style={styles.customRoleInput}
+                      placeholder="Type your role (e.g., production_assistant)"
+                      placeholderTextColor="#9ca3af"
+                      value={customRoleInput}
+                      onChangeText={(text) => {
+                        setCustomRoleInput(text);
+                        // Keep primaryRole in sync so validation/errors behave naturally.
+                        const normalized = normalizeRoleInput(text);
+                        if (normalized) {
+                          handleInputChange('primaryRole', normalized);
+                        }
+                      }}
+                      editable={!isLoading}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                      onSubmitEditing={() => applyCustomRole()}
+                      onBlur={() => applyCustomRole()}
+                    />
+                  </View>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.roleScrollView}
                   >
-                    <Text
-                      style={[
-                        styles.roleButtonText,
-                        formData.primaryRole === role && styles.roleButtonTextActive,
-                      ]}
-                    >
-                      {role.replace('_', ' ').toUpperCase()}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+                    {rolesForSelectedCategory.map((role) => (
+                      <TouchableOpacity
+                        key={role}
+                        style={[
+                          styles.roleButton,
+                          formData.primaryRole === role && styles.roleButtonActive,
+                        ]}
+                        onPress={() => handleInputChange('primaryRole', role)}
+                        disabled={isLoading}
+                      >
+                        <Text
+                          style={[
+                            styles.roleButtonText,
+                            formData.primaryRole === role && styles.roleButtonTextActive,
+                          ]}
+                        >
+                          {role.replace(/_/g, ' ').toUpperCase()}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )
+              )}
             </View>
+            {isCustomRoleMode && !rolesLoading && (
+              <Text style={styles.customRoleHint}>
+                We’ll format it as lowercase with underscores.
+              </Text>
+            )}
+            {!isCustomRoleMode && !rolesLoading && customRolesForPicker.length > 0 && (
+              <View style={styles.customRolesSection}>
+                <Text style={styles.customRolesTitle}>Custom roles</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.roleScrollView}
+                >
+                  {customRolesForPicker.map((role) => (
+                    <TouchableOpacity
+                      key={role}
+                      style={[
+                        styles.roleButton,
+                        formData.primaryRole === role && styles.roleButtonActive,
+                      ]}
+                      onPress={() => handleInputChange('primaryRole', role)}
+                      disabled={isLoading}
+                    >
+                      <Text
+                        style={[
+                          styles.roleButtonText,
+                          formData.primaryRole === role && styles.roleButtonTextActive,
+                        ]}
+                      >
+                        {role.replace(/_/g, ' ').toUpperCase()}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
             {formErrors.primaryRole && <Text style={styles.fieldError}>{formErrors.primaryRole}</Text>}
           </View>
 
@@ -382,9 +667,9 @@ const SignupPage: React.FC<SignupPageProps> = ({
           </View>
 
           <TouchableOpacity
-            style={[styles.signupButton, isLoading && styles.signupButtonDisabled]}
+            style={[styles.signupButton, (isLoading || isSubmitting) && styles.signupButtonDisabled]}
             onPress={handleSignup}
-            disabled={isLoading}
+            disabled={isLoading || isSubmitting}
           >
             {isLoading ? (
               <Text style={styles.signupButtonText}>Creating Account...</Text>
@@ -393,7 +678,8 @@ const SignupPage: React.FC<SignupPageProps> = ({
             )}
           </TouchableOpacity>
 
-          <View style={styles.divider}>
+          {/* Google Sign-Up temporarily hidden */}
+          {/* <View style={styles.divider}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>OR</Text>
             <View style={styles.dividerLine} />
@@ -401,14 +687,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
           <TouchableOpacity
             style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
-            onPress={() => {
-              try {
-                handleGoogleSignIn();
-              } catch (err: any) {
-                console.error('Error in Google Sign-In button handler:', err);
-                Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-              }
-            }}
+            onPress={handleGoogleSignIn}
             disabled={isLoading || pendingGoogleSignIn}
           >
             <View style={styles.googleButtonContent}>
@@ -417,7 +696,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
                 {pendingGoogleSignIn ? 'Signing Up...' : 'Sign up with Google'}
               </Text>
             </View>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           <View style={styles.loginContainer}>
             <Text style={styles.loginText}>Already have an account? </Text>
@@ -582,6 +861,46 @@ const styles = StyleSheet.create({
   },
   roleScrollView: {
     flex: 1,
+  },
+  customRolesSection: {
+    marginTop: 10,
+  },
+  customRoleInputRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  customRoleInput: {
+    flex: 1,
+    // This input sits inside `inputWrapper` (which already has border/radius/padding).
+    // Keep the inner TextInput borderless so it visually follows the wrapper's borders.
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    fontSize: 16,
+    color: '#000',
+    backgroundColor: 'transparent',
+  },
+  customRoleHint: {
+    marginTop: 6,
+    marginLeft: 4,
+    fontSize: 11,
+    color: '#71717a',
+  },
+  customRolesTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#71717a',
+    marginBottom: 6,
+    marginLeft: 4,
+  },
+  roleLoadingContainer: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  roleLoadingText: {
+    color: '#71717a',
+    fontSize: 14,
   },
   roleButton: {
     backgroundColor: '#f4f4f5',

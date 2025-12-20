@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,6 +58,7 @@ import CompanyEditPage from './src/pages/CompanyEditPage';
 import CoursesManagementPage from './src/pages/CoursesManagementPage';
 import CourseEditPage from './src/pages/CourseEditPage';
 import CourseDetailPage from './src/pages/CourseDetailPage';
+import CompanyMembersManagementPage from './src/pages/CompanyMembersManagementPage';
 import PublicCoursesPage from './src/pages/PublicCoursesPage';
 import SettingsPage from './src/pages/SettingsPage';
 import ChangePasswordPage from './src/pages/ChangePasswordPage';
@@ -78,7 +79,7 @@ import { spacing, semanticSpacing } from './src/constants/spacing';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted, getCompanyMembers } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -107,6 +108,13 @@ const AppContent: React.FC = () => {
   const systemColorScheme = useColorScheme();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const lastBackPressAtRef = useRef<number>(0);
+  
+  // Guest user tracking state
+  const [guestSessionStartTime, setGuestSessionStartTime] = useState<number | null>(null);
+  const [guestClickCount, setGuestClickCount] = useState(0);
+  const [showGuestPrompt, setShowGuestPrompt] = useState(false);
+  const guestPromptShownRef = useRef(false);
+  const pendingTabChangeRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (systemColorScheme === 'light' || systemColorScheme === 'dark') {
@@ -351,6 +359,62 @@ const AppContent: React.FC = () => {
       }
     }
   }, [isAuthenticated, isLoading, user, isGuest, signupEmail, authPage]);
+
+  // Initialize guest session tracking
+  useEffect(() => {
+    if (isGuest && !guestSessionStartTime) {
+      setGuestSessionStartTime(Date.now());
+      setGuestClickCount(0);
+      guestPromptShownRef.current = false;
+    } else if (!isGuest) {
+      // Reset tracking when user is no longer a guest
+      setGuestSessionStartTime(null);
+      setGuestClickCount(0);
+      setShowGuestPrompt(false);
+      guestPromptShownRef.current = false;
+    }
+  }, [isGuest, guestSessionStartTime]);
+
+  // Check for 5 minutes elapsed
+  useEffect(() => {
+    if (isGuest && guestSessionStartTime && !guestPromptShownRef.current) {
+      const checkInterval = setInterval(() => {
+        const elapsed = Date.now() - guestSessionStartTime;
+        const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
+        if (elapsed >= fiveMinutes) {
+          setShowGuestPrompt(true);
+          guestPromptShownRef.current = true;
+          clearInterval(checkInterval);
+        }
+      }, 1000); // Check every second
+
+      return () => clearInterval(checkInterval);
+    }
+  }, [isGuest, guestSessionStartTime]);
+
+  // Track clicks for guest users
+  useEffect(() => {
+    if (isGuest && !guestPromptShownRef.current) {
+      const handleClick = () => {
+        setGuestClickCount(prev => {
+          const newCount = prev + 1;
+          if (newCount >= 20) {
+            setShowGuestPrompt(true);
+            guestPromptShownRef.current = true;
+          }
+          return newCount;
+        });
+      };
+
+      // Add click listener to document/root view
+      // Note: In React Native, we'll track clicks through TouchableOpacity/TouchableHighlight onPress events
+      // We'll increment this in handleTabChange and other interaction handlers
+      
+      return () => {
+        // Cleanup if needed
+      };
+    }
+  }, [isGuest]);
 
   const page = history[history.length - 1];
 
@@ -919,12 +983,32 @@ const AppContent: React.FC = () => {
   }, [updateTaskStatus, getProjectById, page.data]);
 
   const handleTabChange = useCallback((newTab: string) => {
+    // Track clicks for guest users
+    if (isGuest) {
+      setGuestClickCount(prev => {
+        const newCount = prev + 1;
+        if (newCount >= 20 && !guestPromptShownRef.current) {
+          setShowGuestPrompt(true);
+          guestPromptShownRef.current = true;
+        }
+        return newCount;
+      });
+    }
+
+    // Show prompt for guest users accessing projects or wall (Agenda) pages
+    if (isGuest && (newTab === 'projects' || newTab === 'wall') && !guestPromptShownRef.current) {
+      setShowGuestPrompt(true);
+      guestPromptShownRef.current = true;
+      pendingTabChangeRef.current = newTab; // Store the tab they wanted to navigate to
+      return; // Don't navigate yet, wait for user response
+    }
+
     setTab(newTab);
     setSearchQuery('');
     
     const rootPage = { name: newTab, data: null };
     setHistory([rootPage]);
-  }, []);
+  }, [isGuest]);
 
   const handleSplashFinished = () => {
     setShowSplash(false);
@@ -1419,8 +1503,7 @@ const AppContent: React.FC = () => {
                 navigateTo('companyEdit', { company });
               }}
               onManageMembers={(company) => {
-                // Navigate to manage members (can be added later)
-                console.log('Manage members:', company);
+                navigateTo('companyMembersManagement', { company });
               }}
               onManageServices={(company) => {
                 setSelectedCompanyForServices(company);
@@ -1509,6 +1592,12 @@ const AppContent: React.FC = () => {
               }}
             />
           )}
+          {page.name === 'companyMembersManagement' && page.data?.company && (
+            <CompanyMembersManagementWrapper
+              company={page.data.company}
+              onBack={handleBack}
+            />
+          )}
           {page.name === 'publicCourses' && (
             <PublicCoursesPage
               onBack={handleBack}
@@ -1543,6 +1632,9 @@ const AppContent: React.FC = () => {
               onNavigate={navigateTo}
               theme={theme}
               onToggleTheme={toggleTheme}
+              isGuest={isGuest}
+              onSignUp={handleNavigateToSignup}
+              onSignIn={handleNavigateToLogin}
             />
           )}
           {page.name === 'changePassword' && (
@@ -1621,12 +1713,16 @@ const AppContent: React.FC = () => {
           onCreateCompany={isAuthenticated ? handleCreateCompany : undefined}
           theme={theme}
           onToggleTheme={toggleTheme}
+          isGuest={isGuest}
+          onSignUp={handleNavigateToSignup}
+          onSignIn={handleNavigateToLogin}
         />
 
         {/* My Team Modal */}
         <MyTeamModal
           visible={showMyTeam}
           onClose={() => setShowMyTeam(false)}
+          onUserSelect={handleProfileSelect}
         />
 
         {/* Invitation Modal */}
@@ -1818,6 +1914,60 @@ const AppContent: React.FC = () => {
         {__DEV__ && (
           <ScreenshotHelper onNavigate={navigateTo} />
         )}
+
+        {/* Guest Prompt Modal */}
+        {showGuestPrompt && isGuest && (
+          <View style={[styles.modalOverlay, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.8)' }]}>
+            <View style={[styles.guestPromptModal, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
+              <Text style={[styles.guestPromptTitle, { color: isDark ? '#fff' : '#000' }]}>
+                Sign Up to Continue
+              </Text>
+              <Text style={[styles.guestPromptMessage, { color: isDark ? '#9ca3af' : '#71717a' }]}>
+                Create an account to access all features and save your progress.
+              </Text>
+              <View style={styles.guestPromptButtons}>
+                <TouchableOpacity
+                  style={[styles.guestPromptButton, styles.guestPromptButtonPrimary, { backgroundColor: '#000' }]}
+                  onPress={() => {
+                    setShowGuestPrompt(false);
+                    pendingTabChangeRef.current = null; // Clear pending navigation
+                    handleNavigateToSignup();
+                  }}
+                >
+                  <Text style={[styles.guestPromptButtonText, { color: '#fff' }]}>Sign Up</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.guestPromptButton, styles.guestPromptButtonSecondary, { backgroundColor: isDark ? '#2a2a2a' : '#f4f4f5', borderColor: isDark ? '#3a3a3a' : '#e5e7eb' }]}
+                  onPress={() => {
+                    setShowGuestPrompt(false);
+                    pendingTabChangeRef.current = null; // Clear pending navigation
+                    handleNavigateToLogin();
+                  }}
+                >
+                  <Text style={[styles.guestPromptButtonText, { color: isDark ? '#fff' : '#000' }]}>Sign In</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.guestPromptButton, styles.guestPromptButtonTertiary]}
+                  onPress={() => {
+                    setShowGuestPrompt(false);
+                    guestPromptShownRef.current = false; // Allow prompt to show again later
+                    // If there was a pending tab change, execute it now
+                    if (pendingTabChangeRef.current) {
+                      const tabToNavigate = pendingTabChangeRef.current;
+                      pendingTabChangeRef.current = null;
+                      setTab(tabToNavigate);
+                      setSearchQuery('');
+                      const rootPage = { name: tabToNavigate, data: null };
+                      setHistory([rootPage]);
+                    }
+                  }}
+                >
+                  <Text style={[styles.guestPromptButtonText, { color: isDark ? '#9ca3af' : '#71717a' }]}>Maybe Later</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
       </View>
     );
   };
@@ -1933,7 +2083,116 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10000,
+  },
+  guestPromptModal: {
+    width: '85%',
+    maxWidth: 400,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+  },
+  guestPromptTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  guestPromptMessage: {
+    fontSize: 16,
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  guestPromptButtons: {
+    width: '100%',
+    gap: 12,
+  },
+  guestPromptButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestPromptButtonPrimary: {
+    backgroundColor: '#000',
+  },
+  guestPromptButtonSecondary: {
+    borderWidth: 1,
+  },
+  guestPromptButtonTertiary: {
+    backgroundColor: 'transparent',
+  },
+  guestPromptButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });
+
+// Wrapper component to fetch user role and pass to management page
+const CompanyMembersManagementWrapper: React.FC<{
+  company: any;
+  userId: string;
+  onBack: () => void;
+}> = ({ company, userId, onBack }) => {
+  const { getCompanyMembers } = useApi();
+  const [userRole, setUserRole] = React.useState<'owner' | 'admin' | 'manager' | 'member'>('member');
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const fetchUserRole = async () => {
+      try {
+        const response = await getCompanyMembers(company.id, { page: 1, limit: 100 });
+        if (response.success && response.data) {
+          const membersArray = Array.isArray(response.data)
+            ? response.data
+            : response.data.data || [];
+          const userMember = membersArray.find((m: any) => m.user_id === userId);
+          if (userMember) {
+            setUserRole(userMember.role || 'member');
+          } else {
+            // Check if user is owner by company.owner.id
+            if (company.owner?.id === userId) {
+              setUserRole('owner');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch user role:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserRole();
+  }, [company.id, userId, getCompanyMembers]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#3b82f6" />
+      </View>
+    );
+  }
+
+  return (
+    <CompanyMembersManagementPage
+      company={company}
+      currentUserId={userId}
+      currentUserRole={userRole}
+      onBack={onBack}
+    />
+  );
+};
 
 // Main App Component with API Provider
 const App: React.FC = () => {

@@ -28,7 +28,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
   company,
   onInvitationSent,
 }) => {
-  const { api, addCompanyMember, user, getCompanyMembers } = useApi();
+  const { api, addCompanyMember, getUsersDirect } = useApi();
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
@@ -36,57 +36,21 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [sending, setSending] = useState(false);
-  const [currentUserRole, setCurrentUserRole] = useState<CompanyMemberRole | null>(null);
 
-  // Determine available roles based on current user's permissions
-  // Admin and Owner users can add other admin users to companies/academies
-  const getAvailableRoles = (): { value: CompanyMemberRole; label: string }[] => {
-    const allRoles: { value: CompanyMemberRole; label: string }[] = [
-      { value: 'owner', label: 'Owner' },
-      { value: 'admin', label: 'Admin' },
-      { value: 'manager', label: 'Manager' },
-      { value: 'member', label: 'Member' },
-    ];
+  const roles: { value: CompanyMemberRole; label: string }[] = [
+    { value: 'owner', label: 'Owner' },
+    { value: 'admin', label: 'Admin' },
+    { value: 'manager', label: 'Manager' },
+    { value: 'member', label: 'Member' },
+  ];
 
-    // If current user is admin or owner, they can assign all roles including admin
-    if (currentUserRole === 'admin' || currentUserRole === 'owner') {
-      return allRoles;
-    }
-
-    // For other roles, still allow all roles (backend will enforce permissions)
-    // This ensures admin role is always available for users with edit permissions
-    return allRoles;
-  };
-
-  const roles = getAvailableRoles();
-
-  // Fetch current user's role in the company when modal opens
   useEffect(() => {
-    if (visible && company && user) {
-      const fetchCurrentUserRole = async () => {
-        try {
-          const response = await getCompanyMembers(company.id, { page: 1, limit: 100 });
-          if (response.success && response.data) {
-            const members = Array.isArray(response.data) 
-              ? response.data 
-              : (response.data.data || []);
-            const userMember = members.find((m: any) => m.user_id === user.id);
-            setCurrentUserRole(userMember?.role || null);
-          }
-        } catch (error) {
-          console.error('Failed to fetch current user role:', error);
-          setCurrentUserRole(null);
-        }
-      };
-      fetchCurrentUserRole();
+    if (visible) {
       resetForm();
-    } else if (!visible) {
-      // Reset when modal closes
-      setCurrentUserRole(null);
     }
-  }, [visible, company, user, getCompanyMembers]);
+  }, [visible]);
 
-  // Search users using API q parameter when search query changes
+  // Search users using getUsersDirect when search query changes
   useEffect(() => {
     const searchUsers = async () => {
       if (!searchQuery.trim()) {
@@ -96,24 +60,63 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
 
       try {
         setSearching(true);
-        // Use the API's q parameter for full-text search
-        const response = await api.getUsers({
+        console.log('🔍 Searching for users with query:', searchQuery);
+        
+        // Use getUsersDirect which properly handles search with 'q' parameter
+        const response = await getUsersDirect({
           search: searchQuery,
           limit: 20,
+          page: 1,
         });
 
-        if (response.success && response.data) {
-          // Handle both array and paginated response
-          const usersArray = Array.isArray(response.data) 
-            ? response.data 
-            : (response.data.data || []);
-          setFilteredUsers(usersArray.slice(0, 10)); // Limit to 10 results for display
-        } else {
+        console.log('📥 Search response:', response);
+
+        // Handle different response structures
+        let usersArray: any[] = [];
+        
+        if (response && response.success !== false) {
+          // Response might be: { success: true, data: [...] } or { data: [...] } or just [...]
+          if (Array.isArray(response)) {
+            usersArray = response;
+          } else if (response.data) {
+            if (Array.isArray(response.data)) {
+              usersArray = response.data;
+            } else if (response.data.data && Array.isArray(response.data.data)) {
+              usersArray = response.data.data;
+            }
+          }
+        }
+
+        console.log('👥 Found users:', usersArray.length);
+        setFilteredUsers(usersArray.slice(0, 10)); // Limit to 10 results for display
+      } catch (error) {
+        console.error('❌ Failed to search users with getUsersDirect:', error);
+        // Fallback to API client if direct fetch fails
+        try {
+          console.log('🔄 Trying fallback API client search...');
+          const fallbackResponse = await api.getUsers({
+            q: searchQuery,
+            limit: 20,
+          });
+          console.log('📥 Fallback response:', fallbackResponse);
+          
+          if (fallbackResponse && fallbackResponse.success !== false) {
+            let usersArray: any[] = [];
+            if (Array.isArray(fallbackResponse.data)) {
+              usersArray = fallbackResponse.data;
+            } else if (fallbackResponse.data?.data && Array.isArray(fallbackResponse.data.data)) {
+              usersArray = fallbackResponse.data.data;
+            }
+            console.log('👥 Found users (fallback):', usersArray.length);
+            setFilteredUsers(usersArray.slice(0, 10));
+          } else {
+            console.warn('⚠️ Fallback search returned no results');
+            setFilteredUsers([]);
+          }
+        } catch (fallbackError) {
+          console.error('❌ Fallback search also failed:', fallbackError);
           setFilteredUsers([]);
         }
-      } catch (error) {
-        console.error('Failed to search users:', error);
-        setFilteredUsers([]);
       } finally {
         setSearching(false);
       }
@@ -125,14 +128,13 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
     }, 300); // 300ms debounce
 
     return () => clearTimeout(timeoutId);
-  }, [searchQuery, api]);
+  }, [searchQuery, getUsersDirect, api]);
 
   const resetForm = () => {
     setSearchQuery('');
     setSelectedUser(null);
     setSelectedRole('member');
     setFilteredUsers([]);
-    // Don't reset currentUserRole here - it should persist while modal is open
   };
 
   const handleSelectUser = (user: any) => {
@@ -149,13 +151,39 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
 
     try {
       setSending(true);
+      console.log('📤 Sending invitation:', {
+        companyId: company.id,
+        userId: selectedUser.id,
+        role: selectedRole,
+        userName: selectedUser.name || selectedUser.email,
+      });
+      
       const response = await addCompanyMember(company.id, {
         user_id: selectedUser.id,
         role: selectedRole,
       });
 
+      console.log('📥 Invitation response:', {
+        success: response.success,
+        data: response.data,
+        error: response.error,
+        fullResponse: JSON.stringify(response, null, 2),
+      });
+
       if (response.success) {
-        Alert.alert('Success', `Invitation sent to ${selectedUser.name || selectedUser.email}`);
+        // Check if the response includes invitation status
+        const invitationStatus = response.data?.invitation_status || response.data?.data?.invitation_status;
+        console.log('📋 Invitation status from backend:', invitationStatus);
+        
+        if (invitationStatus === 'accepted') {
+          Alert.alert(
+            'Member Added',
+            `${selectedUser.name || selectedUser.email} was immediately added as a member (not pending).`
+          );
+        } else {
+          Alert.alert('Success', `Invitation sent to ${selectedUser.name || selectedUser.email}`);
+        }
+        
         resetForm();
         // Call callback BEFORE closing to ensure refresh happens
         // Add a small delay to ensure backend has processed the request
@@ -163,13 +191,24 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
           if (onInvitationSent) {
             onInvitationSent();
           }
-        }, 500);
+        }, 1000); // Increased delay to ensure backend processes
         onClose();
       } else {
+        console.error('❌ Invitation failed:', {
+          success: response.success,
+          error: response.error,
+          fullResponse: response,
+        });
         throw new Error(response.error || 'Failed to send invitation');
       }
     } catch (error: any) {
-      console.error('Failed to send invitation:', error);
+      console.error('❌ Failed to send invitation:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        error: error.error,
+        response: error.response,
+        stack: error.stack,
+      });
       
       // Handle duplicate key error (member was previously removed but record still exists)
       const errorMessage = error.message || error.error || '';
@@ -182,7 +221,10 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
           ]
         );
       } else {
-        Alert.alert('Error', errorMessage || 'Failed to send invitation. Please try again.');
+        Alert.alert(
+          'Error', 
+          errorMessage || 'Failed to send invitation. Please try again.\n\nCheck the console logs for more details.'
+        );
       }
     } finally {
       setSending(false);
@@ -318,11 +360,6 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
           {/* Role Selection */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Role</Text>
-            {(currentUserRole === 'admin' || currentUserRole === 'owner') && (
-              <Text style={styles.roleHelperText}>
-                You can assign admin role to other users. Admin users have full management privileges.
-              </Text>
-            )}
             <View style={styles.roleContainer}>
               {roles.map((role) => (
                 <TouchableOpacity
@@ -419,12 +456,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#111827',
     marginBottom: 12,
-  },
-  roleHelperText: {
-    fontSize: 13,
-    color: '#6366f1',
-    marginBottom: 8,
-    fontStyle: 'italic',
   },
   searchContainer: {
     flexDirection: 'row',
