@@ -48,3 +48,4 @@ export function isHeicFile(fileName: string): boolean {
   return extension === 'heic' || extension === 'heif';
 }
 
+
