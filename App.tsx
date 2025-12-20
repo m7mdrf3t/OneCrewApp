@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,6 +58,7 @@ import CompanyEditPage from './src/pages/CompanyEditPage';
 import CoursesManagementPage from './src/pages/CoursesManagementPage';
 import CourseEditPage from './src/pages/CourseEditPage';
 import CourseDetailPage from './src/pages/CourseDetailPage';
+import CompanyMembersManagementPage from './src/pages/CompanyMembersManagementPage';
 import PublicCoursesPage from './src/pages/PublicCoursesPage';
 import SettingsPage from './src/pages/SettingsPage';
 import ChangePasswordPage from './src/pages/ChangePasswordPage';
@@ -78,7 +79,7 @@ import { spacing, semanticSpacing } from './src/constants/spacing';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted, getCompanyMembers } = useApi();
   const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1502,8 +1503,7 @@ const AppContent: React.FC = () => {
                 navigateTo('companyEdit', { company });
               }}
               onManageMembers={(company) => {
-                // Navigate to manage members (can be added later)
-                console.log('Manage members:', company);
+                navigateTo('companyMembersManagement', { company });
               }}
               onManageServices={(company) => {
                 setSelectedCompanyForServices(company);
@@ -1590,6 +1590,12 @@ const AppContent: React.FC = () => {
                 // Refresh course detail or navigate back
                 handleBack();
               }}
+            />
+          )}
+          {page.name === 'companyMembersManagement' && page.data?.company && (
+            <CompanyMembersManagementWrapper
+              company={page.data.company}
+              onBack={handleBack}
             />
           )}
           {page.name === 'publicCourses' && (
@@ -2131,6 +2137,62 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+// Wrapper component to fetch user role and pass to management page
+const CompanyMembersManagementWrapper: React.FC<{
+  company: any;
+  userId: string;
+  onBack: () => void;
+}> = ({ company, userId, onBack }) => {
+  const { getCompanyMembers } = useApi();
+  const [userRole, setUserRole] = React.useState<'owner' | 'admin' | 'manager' | 'member'>('member');
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const fetchUserRole = async () => {
+      try {
+        const response = await getCompanyMembers(company.id, { page: 1, limit: 100 });
+        if (response.success && response.data) {
+          const membersArray = Array.isArray(response.data)
+            ? response.data
+            : response.data.data || [];
+          const userMember = membersArray.find((m: any) => m.user_id === userId);
+          if (userMember) {
+            setUserRole(userMember.role || 'member');
+          } else {
+            // Check if user is owner by company.owner.id
+            if (company.owner?.id === userId) {
+              setUserRole('owner');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch user role:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserRole();
+  }, [company.id, userId, getCompanyMembers]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#3b82f6" />
+      </View>
+    );
+  }
+
+  return (
+    <CompanyMembersManagementPage
+      company={company}
+      currentUserId={userId}
+      currentUserRole={userRole}
+      onBack={onBack}
+    />
+  );
+};
 
 // Main App Component with API Provider
 const App: React.FC = () => {

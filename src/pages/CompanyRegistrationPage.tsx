@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useApi } from '../contexts/ApiContext';
 import ProfileCompletionGate from '../components/ProfileCompletionGate';
+import { getMimeTypeFromFileName, isHeicFile } from '../utils/fileUtils';
 import {
   CompanySubcategory,
   CompanyDocumentType,
@@ -292,7 +293,8 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
-        quality: 0.8,
+        quality: 0.8, // Quality setting helps with image processing
+        // Note: On iOS, HEIC files may need conversion - backend may not support HEIC
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -392,9 +394,17 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
       for (const doc of documents) {
         try {
           // Step 1: Upload file to storage
+          // Determine correct MIME type from file extension
+          const mimeType = getMimeTypeFromFileName(doc.file_name);
+          
+          // Log warning if HEIC file (backend may not support it)
+          if (isHeicFile(doc.file_name)) {
+            console.warn('⚠️ HEIC file detected:', doc.file_name, '- Backend may not support HEIC format');
+          }
+          
           const uploadResponse = await uploadFile({
             uri: doc.file_uri,
-            type: 'image/jpeg',
+            type: mimeType,
             name: doc.file_name,
           });
 

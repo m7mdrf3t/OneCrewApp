@@ -151,13 +151,39 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
 
     try {
       setSending(true);
+      console.log('📤 Sending invitation:', {
+        companyId: company.id,
+        userId: selectedUser.id,
+        role: selectedRole,
+        userName: selectedUser.name || selectedUser.email,
+      });
+      
       const response = await addCompanyMember(company.id, {
         user_id: selectedUser.id,
         role: selectedRole,
       });
 
+      console.log('📥 Invitation response:', {
+        success: response.success,
+        data: response.data,
+        error: response.error,
+        fullResponse: JSON.stringify(response, null, 2),
+      });
+
       if (response.success) {
-        Alert.alert('Success', `Invitation sent to ${selectedUser.name || selectedUser.email}`);
+        // Check if the response includes invitation status
+        const invitationStatus = response.data?.invitation_status || response.data?.data?.invitation_status;
+        console.log('📋 Invitation status from backend:', invitationStatus);
+        
+        if (invitationStatus === 'accepted') {
+          Alert.alert(
+            'Member Added',
+            `${selectedUser.name || selectedUser.email} was immediately added as a member (not pending).`
+          );
+        } else {
+          Alert.alert('Success', `Invitation sent to ${selectedUser.name || selectedUser.email}`);
+        }
+        
         resetForm();
         // Call callback BEFORE closing to ensure refresh happens
         // Add a small delay to ensure backend has processed the request
@@ -165,13 +191,24 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
           if (onInvitationSent) {
             onInvitationSent();
           }
-        }, 500);
+        }, 1000); // Increased delay to ensure backend processes
         onClose();
       } else {
+        console.error('❌ Invitation failed:', {
+          success: response.success,
+          error: response.error,
+          fullResponse: response,
+        });
         throw new Error(response.error || 'Failed to send invitation');
       }
     } catch (error: any) {
-      console.error('Failed to send invitation:', error);
+      console.error('❌ Failed to send invitation:', error);
+      console.error('❌ Error details:', {
+        message: error.message,
+        error: error.error,
+        response: error.response,
+        stack: error.stack,
+      });
       
       // Handle duplicate key error (member was previously removed but record still exists)
       const errorMessage = error.message || error.error || '';
@@ -184,7 +221,10 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
           ]
         );
       } else {
-        Alert.alert('Error', errorMessage || 'Failed to send invitation. Please try again.');
+        Alert.alert(
+          'Error', 
+          errorMessage || 'Failed to send invitation. Please try again.\n\nCheck the console logs for more details.'
+        );
       }
     } finally {
       setSending(false);
