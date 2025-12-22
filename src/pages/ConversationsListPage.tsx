@@ -530,9 +530,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         <TouchableOpacity
           style={styles.retryButton}
           onPress={() => {
-            setError(null);
-            setLoading(true);
-            loadConversations(1, false);
+            conversationsQuery.refetch();
           }}
         >
           <Text style={styles.retryButtonText}>Retry</Text>
@@ -558,7 +556,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         <FlashListUnsafe
           data={Array.from({ length: 8 })}
           renderItem={() => <SkeletonConversationItem isDark={false} />}
-          keyExtractor={(_, index) => `skeleton-conversation-${index}`}
+          keyExtractor={(_: any, index: number) => `skeleton-conversation-${index}`}
           contentContainerStyle={styles.skeletonList}
           estimatedItemSize={72}
         />
@@ -602,7 +600,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         <FlashListUnsafe
           data={filteredConversations}
           renderItem={renderConversationItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item: ChatConversation) => item.id}
           contentContainerStyle={filteredConversations.length === 0 ? styles.emptyList : undefined}
           estimatedItemSize={72}
           ListEmptyComponent={

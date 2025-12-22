@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, ScrollView, StyleSheet } from 'react-native';
-import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 
 interface SkeletonProfilePageProps {
   isDark?: boolean;
@@ -10,72 +9,60 @@ const SkeletonProfilePage: React.FC<SkeletonProfilePageProps> = ({ isDark = fals
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <SkeletonPlaceholder
-          backgroundColor={isDark ? '#1f1f1f' : '#e5e7eb'}
-          highlightColor={isDark ? '#2a2a2a' : '#f3f4f6'}
-          borderRadius={4}
-        >
-          <View style={styles.headerContent}>
-            <View style={styles.backButton} />
-            <View style={styles.headerTitle} />
-            <View style={styles.headerRight} />
-          </View>
-        </SkeletonPlaceholder>
+        <View style={styles.headerContent}>
+          <View style={[styles.backButton, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+          <View style={[styles.headerTitle, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+          <View style={[styles.headerRight, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+        </View>
       </View>
       
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <SkeletonPlaceholder
-          backgroundColor={isDark ? '#1f1f1f' : '#e5e7eb'}
-          highlightColor={isDark ? '#2a2a2a' : '#f3f4f6'}
-          borderRadius={0}
-        >
           {/* Hero Section */}
-          <View style={styles.heroSection}>
+          <View style={[styles.heroSection, { backgroundColor: isDark ? '#1f1f1f' : '#f3f4f6' }]}>
             <View style={styles.heroImage} />
           </View>
           
           {/* Profile Info Section */}
           <View style={styles.profileInfo}>
-            <View style={styles.avatar} />
+            <View style={[styles.avatar, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
             <View style={styles.nameContainer}>
-              <View style={styles.name} />
-              <View style={styles.subtitle} />
+              <View style={[styles.name, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+              <View style={[styles.subtitle, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
             </View>
           </View>
           
           {/* Stats Section */}
           <View style={styles.statsSection}>
-            <View style={styles.statItem} />
-            <View style={styles.statItem} />
-            <View style={styles.statItem} />
+            <View style={[styles.statItem, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+            <View style={[styles.statItem, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+            <View style={[styles.statItem, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
           </View>
           
           {/* About Section */}
           <View style={styles.section}>
-            <View style={styles.sectionTitle} />
-            <View style={styles.sectionLine1} />
-            <View style={styles.sectionLine2} />
-            <View style={styles.sectionLine3} />
+            <View style={[styles.sectionTitle, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+            <View style={[styles.sectionLine1, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+            <View style={[styles.sectionLine2, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+            <View style={[styles.sectionLine3, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
           </View>
           
           {/* Skills/Details Section */}
           <View style={styles.section}>
-            <View style={styles.sectionTitle} />
+            <View style={[styles.sectionTitle, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
             <View style={styles.tagsContainer}>
-              <View style={styles.tag} />
-              <View style={styles.tag} />
-              <View style={styles.tag} />
-              <View style={styles.tag} />
+              <View style={[styles.tag, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+              <View style={[styles.tag, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+              <View style={[styles.tag, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+              <View style={[styles.tag, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
             </View>
           </View>
           
           {/* Additional Section */}
           <View style={styles.section}>
-            <View style={styles.sectionTitle} />
-            <View style={styles.sectionLine1} />
-            <View style={styles.sectionLine2} />
+            <View style={[styles.sectionTitle, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+            <View style={[styles.sectionLine1, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+            <View style={[styles.sectionLine2, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
           </View>
-        </SkeletonPlaceholder>
       </ScrollView>
     </View>
   );

@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 
 interface SkeletonMessageProps {
   isOwn?: boolean;
@@ -11,20 +10,46 @@ const SkeletonMessage: React.FC<SkeletonMessageProps> = ({
   isOwn = false, 
   isDark = false 
 }) => {
+  // Fallback component - simple gray boxes (always safe)
   return (
     <View style={[styles.container, isOwn && styles.containerOwn]}>
-      <SkeletonPlaceholder
-        backgroundColor={isDark ? '#1f1f1f' : '#e5e7eb'}
-        highlightColor={isDark ? '#2a2a2a' : '#f3f4f6'}
-        borderRadius={18}
-      >
-        <View style={[styles.bubble, isOwn && styles.bubbleOwn]}>
-          <View style={styles.line1} />
-          <View style={styles.line2} />
-        </View>
-      </SkeletonPlaceholder>
+      <View style={[styles.bubble, isOwn && styles.bubbleOwn, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]}>
+        <View style={[styles.line1, { backgroundColor: isDark ? '#1f1f1f' : '#d1d5db' }]} />
+        <View style={[styles.line2, { backgroundColor: isDark ? '#1f1f1f' : '#d1d5db' }]} />
+      </View>
     </View>
   );
+
+  // TODO: After iOS rebuild, uncomment this to use real skeleton:
+  /*
+  try {
+    const SkeletonPlaceholder = require('react-native-skeleton-placeholder').default;
+    
+    return (
+      <View style={[styles.container, isOwn && styles.containerOwn]}>
+        <SkeletonPlaceholder
+          backgroundColor={isDark ? '#1f1f1f' : '#e5e7eb'}
+          highlightColor={isDark ? '#2a2a2a' : '#f3f4f6'}
+          borderRadius={18}
+        >
+          <View style={[styles.bubble, isOwn && styles.bubbleOwn]}>
+            <View style={styles.line1} />
+            <View style={styles.line2} />
+          </View>
+        </SkeletonPlaceholder>
+      </View>
+    );
+  } catch (error) {
+    return (
+      <View style={[styles.container, isOwn && styles.containerOwn]}>
+        <View style={[styles.bubble, isOwn && styles.bubbleOwn, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]}>
+          <View style={[styles.line1, { backgroundColor: isDark ? '#1f1f1f' : '#d1d5db' }]} />
+          <View style={[styles.line2, { backgroundColor: isDark ? '#1f1f1f' : '#d1d5db' }]} />
+        </View>
+      </View>
+    );
+  }
+  */
 };
 
 const styles = StyleSheet.create({

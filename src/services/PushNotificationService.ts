@@ -28,6 +28,9 @@ let lastLoadAttempt = 0;
 const RETRY_DELAY_MS = 3000; // Retry after 3 seconds if previous attempt failed (reduced from 5s)
 const MIN_APP_START_TIME = 2000; // Minimum time before trying to load Firebase (reduced from 5s to 2s)
 
+// Track if we've already logged the Firebase error (to avoid spam)
+let hasLoggedFirebaseError = false;
+
 function getMessagingModule() {
   // Return cached module if already loaded successfully
   if (isMessagingModuleLoaded && messagingModuleCache) {
@@ -86,13 +89,12 @@ function getMessagingModule() {
     }
     
     if (!messagingModule) {
-      console.error('❌ [Firebase] Messaging module is null or undefined after require');
-      console.error('❌ [Firebase] This indicates the native module is not properly linked');
-      console.error('❌ [Firebase] Possible causes:');
-      console.error('   1. Native module not installed in iOS project');
-      console.error('   2. Pods need to be reinstalled: cd ios && pod install');
-      console.error('   3. App needs to be rebuilt: npx expo run:ios --device');
-      console.error('   4. Module not properly configured in Expo config');
+      // Only log the error once to avoid flooding the console
+      if (!hasLoggedFirebaseError) {
+        hasLoggedFirebaseError = true;
+        console.warn('⚠️ [Firebase] Messaging module not available. Push notifications will be disabled.');
+        console.warn('⚠️ [Firebase] To enable: Rebuild iOS with: npx expo run:ios');
+      }
       lastLoadAttempt = 0;
       return null;
     }
@@ -100,6 +102,7 @@ function getMessagingModule() {
     // Module loaded successfully
     messagingModuleCache = messagingModule;
     isMessagingModuleLoaded = true;
+    hasLoggedFirebaseError = false; // Reset flag on success
     return messagingModule;
   } catch (error: any) {
     // Catch any unexpected errors
@@ -115,13 +118,10 @@ function getMessagingModule() {
       return null;
     }
     
-    // Log unexpected errors
-    console.error('❌ [Firebase] Unexpected error loading messaging module:', error?.message || error);
-    if (error?.stack) {
-      console.error('❌ [Firebase] Error stack:', error.stack.substring(0, 300));
-    }
-    if (error?.name) {
-      console.error('❌ [Firebase] Error name:', error.name);
+    // Only log unexpected errors once
+    if (!hasLoggedFirebaseError) {
+      hasLoggedFirebaseError = true;
+      console.warn('⚠️ [Firebase] Unexpected error loading messaging module:', error?.message || error);
     }
     lastLoadAttempt = 0;
     return null;

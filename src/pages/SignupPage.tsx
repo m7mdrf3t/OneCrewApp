@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -16,6 +15,10 @@ import { useApi } from '../contexts/ApiContext';
 import CategorySelectionModal from '../components/CategorySelectionModal';
 import { validatePassword, getPasswordRequirements } from '../utils/passwordValidator';
 import { filterRolesByCategory } from '../utils/roleCategorizer';
+import { createPlatformStyles } from '../utils/platformStyles';
+import { signupPageCommonStyles } from './SignupPage.styles.common';
+import { signupPageIosStyles } from './SignupPage.styles.ios';
+import { signupPageAndroidStyles } from './SignupPage.styles.android';
 
 interface SignupPageProps {
   onNavigateToLogin: () => void;
@@ -717,275 +720,11 @@ const SignupPage: React.FC<SignupPageProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f4f4f5',
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#000',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#71717a',
-    textAlign: 'center',
-  },
-  form: {
-    width: '100%',
-  },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
-  },
-  errorText: {
-    color: '#ef4444',
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  inputError: {
-    borderColor: '#ef4444',
-  },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#000',
-  },
-  eyeIcon: {
-    padding: 4,
-  },
-  fieldError: {
-    color: '#ef4444',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  passwordRequirements: {
-    color: '#71717a',
-    fontSize: 12,
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  passwordRequirementsList: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 8,
-  },
-  requirementsTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-  },
-  requirementItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  requirementText: {
-    fontSize: 11,
-    color: '#9ca3af',
-    marginLeft: 6,
-  },
-  requirementTextMet: {
-    color: '#10b981',
-  },
-  categoryContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  categoryButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    gap: 6,
-  },
-  categoryButtonActive: {
-    backgroundColor: '#000',
-    borderColor: '#000',
-  },
-  categoryButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#71717a',
-  },
-  categoryButtonTextActive: {
-    color: '#fff',
-  },
-  roleScrollView: {
-    flex: 1,
-  },
-  customRolesSection: {
-    marginTop: 10,
-  },
-  customRoleInputRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  customRoleInput: {
-    flex: 1,
-    // This input sits inside `inputWrapper` (which already has border/radius/padding).
-    // Keep the inner TextInput borderless so it visually follows the wrapper's borders.
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    fontSize: 16,
-    color: '#000',
-    backgroundColor: 'transparent',
-  },
-  customRoleHint: {
-    marginTop: 6,
-    marginLeft: 4,
-    fontSize: 11,
-    color: '#71717a',
-  },
-  customRolesTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#71717a',
-    marginBottom: 6,
-    marginLeft: 4,
-  },
-  roleLoadingContainer: {
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  roleLoadingText: {
-    color: '#71717a',
-    fontSize: 14,
-  },
-  roleButton: {
-    backgroundColor: '#f4f4f5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
-  },
-  roleButtonActive: {
-    backgroundColor: '#3b82f6',
-  },
-  roleButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#71717a',
-  },
-  roleButtonTextActive: {
-    color: '#fff',
-  },
-  signupButton: {
-    backgroundColor: '#000',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  signupButtonDisabled: {
-    backgroundColor: '#9ca3af',
-  },
-  signupButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#d4d4d8',
-  },
-  dividerText: {
-    color: '#71717a',
-    fontSize: 14,
-    marginHorizontal: 16,
-  },
-  loginContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loginText: {
-    color: '#71717a',
-    fontSize: 14,
-  },
-  loginLink: {
-    color: '#3b82f6',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  googleButton: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-  },
-  googleButtonDisabled: {
-    opacity: 0.5,
-  },
-  googleButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  googleButtonText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+// Create platform-specific styles
+const styles = createPlatformStyles({
+  common: signupPageCommonStyles,
+  ios: signupPageIosStyles,
+  android: signupPageAndroidStyles,
 });
 
 export default SignupPage;

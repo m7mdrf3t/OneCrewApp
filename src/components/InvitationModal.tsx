@@ -95,7 +95,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
         try {
           console.log('🔄 Trying fallback API client search...');
           const fallbackResponse = await api.getUsers({
-            q: searchQuery,
+            search: searchQuery,
             limit: 20,
           });
           console.log('📥 Fallback response:', fallbackResponse);

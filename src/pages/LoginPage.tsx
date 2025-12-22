@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -343,189 +342,17 @@ const LoginPage: React.FC<LoginPageProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f4f4f5',
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#000',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#71717a',
-    textAlign: 'center',
-  },
-  form: {
-    width: '100%',
-  },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
-  },
-  errorText: {
-    color: '#ef4444',
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  inputError: {
-    borderColor: '#ef4444',
-  },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#000',
-  },
-  eyeIcon: {
-    padding: 4,
-  },
-  fieldError: {
-    color: '#ef4444',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  passwordRequirements: {
-    color: '#71717a',
-    fontSize: 12,
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginBottom: 24,
-  },
-  forgotPasswordText: {
-    color: '#3b82f6',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  loginButton: {
-    backgroundColor: '#000',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  loginButtonDisabled: {
-    backgroundColor: '#9ca3af',
-  },
-  loginButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  guestButton: {
-    backgroundColor: '#3b82f6',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 24,
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  guestButtonDisabled: {
-    backgroundColor: '#9ca3af',
-  },
-  guestButtonIcon: {
-    marginRight: 8,
-  },
-  guestButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#d4d4d8',
-  },
-  dividerText: {
-    color: '#71717a',
-    fontSize: 14,
-    marginHorizontal: 16,
-  },
-  signupContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  signupText: {
-    color: '#71717a',
-    fontSize: 14,
-  },
-  signupLink: {
-    color: '#3b82f6',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  googleButton: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-  },
-  googleButtonDisabled: {
-    opacity: 0.5,
-  },
-  googleButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  googleButtonText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+// Import platform-specific styles
+import { createPlatformStyles } from '../utils/platformStyles';
+import { loginPageCommonStyles } from './LoginPage.styles.common';
+import { loginPageIosStyles } from './LoginPage.styles.ios';
+import { loginPageAndroidStyles } from './LoginPage.styles.android';
+
+// Create platform-specific styles
+const styles = createPlatformStyles({
+  common: loginPageCommonStyles,
+  ios: loginPageIosStyles,
+  android: loginPageAndroidStyles,
 });
 
 export default LoginPage;

@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -14,6 +13,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import PasswordResetProgress from '../components/PasswordResetProgress';
 import SuccessAnimation from '../components/SuccessAnimation';
+import { createPlatformStyles } from '../utils/platformStyles';
+import { forgotPasswordPageCommonStyles } from './ForgotPasswordPage.styles.common';
+import { forgotPasswordPageIosStyles } from './ForgotPasswordPage.styles.ios';
+import { forgotPasswordPageAndroidStyles } from './ForgotPasswordPage.styles.android';
 
 interface ForgotPasswordPageProps {
   onNavigateToLogin: () => void;
@@ -227,180 +230,11 @@ const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f4f4f5',
-  },
-  content: {
-    flex: 1,
-    padding: 24,
-    justifyContent: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  backButton: {
-    padding: 4,
-    marginRight: 12,
-  },
-  title: {
-    flex: 1,
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#000',
-  },
-  placeholder: {
-    width: 32,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#71717a',
-    lineHeight: 24,
-    marginBottom: 32,
-  },
-  successIcon: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  emailText: {
-    fontWeight: '600',
-    color: '#000',
-  },
-  instructions: {
-    fontSize: 14,
-    color: '#71717a',
-    lineHeight: 20,
-    textAlign: 'center',
-    marginBottom: 32,
-  },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fef2f2',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
-  },
-  errorText: {
-    color: '#ef4444',
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-  },
-  inputContainer: {
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 8,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  inputError: {
-    borderColor: '#ef4444',
-  },
-  inputValid: {
-    borderColor: '#10b981',
-  },
-  inputInvalid: {
-    borderColor: '#ef4444',
-  },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#000',
-  },
-  fieldError: {
-    color: '#ef4444',
-    fontSize: 12,
-    marginTop: 4,
-  },
-  sendButton: {
-    backgroundColor: '#000',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  sendButtonDisabled: {
-    backgroundColor: '#9ca3af',
-  },
-  sendButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  resendButton: {
-    backgroundColor: '#3b82f6',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  resendButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  backToLoginButton: {
-    backgroundColor: 'transparent',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-  },
-  backToLoginText: {
-    color: '#71717a',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  helpContainer: {
-    alignItems: 'center',
-  },
-  helpText: {
-    fontSize: 14,
-    color: '#71717a',
-  },
-  helpLink: {
-    color: '#3b82f6',
-    fontWeight: '600',
-  },
-  loadingOverlay: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#71717a',
-  },
-  buttonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonSpinner: {
-    marginRight: 8,
-  },
+// Create platform-specific styles
+const styles = createPlatformStyles({
+  common: forgotPasswordPageCommonStyles,
+  ios: forgotPasswordPageIosStyles,
+  android: forgotPasswordPageAndroidStyles,
 });
 
 export default ForgotPasswordPage;

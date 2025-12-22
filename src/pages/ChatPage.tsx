@@ -1599,10 +1599,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
         </View>
         <FlashListUnsafe
           data={Array.from({ length: 5 })}
-          renderItem={({ index }) => (
+          renderItem={({ index }: { index: number }) => (
             <SkeletonMessage key={index} isOwn={index % 2 === 0} isDark={false} />
           )}
-          keyExtractor={(_, index) => `skeleton-loading-${index}`}
+          keyExtractor={(_: any, index: number) => `skeleton-loading-${index}`}
           contentContainerStyle={styles.skeletonLoadingContainer}
           inverted={false}
           estimatedItemSize={88}
@@ -1686,7 +1686,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         ref={flatListRef}
         data={messages}
         renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item: ChatMessage) => item.id}
         contentContainerStyle={styles.messagesList}
         inverted={false}
         onEndReached={handleLoadMore}

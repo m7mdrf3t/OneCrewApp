@@ -55,23 +55,23 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
 
   const menuItems: MenuItem[] = [
     ...(isGuest ? [
-      { id: 'signUp', label: 'Sign Up', icon: 'person-add', onPress: onSignUp || (() => {}) },
-      { id: 'signIn', label: 'Sign In', icon: 'log-in', onPress: onSignIn || (() => {}) },
+      { id: 'signUp', label: 'Sign Up', icon: 'person-add' as keyof typeof Ionicons.glyphMap, onPress: onSignUp || (() => {}) },
+      { id: 'signIn', label: 'Sign In', icon: 'log-in' as keyof typeof Ionicons.glyphMap, onPress: onSignIn || (() => {}) },
     ] : [
-      { id: 'myTeam', label: 'My Team', icon: 'people', onPress: onMyTeam },
-      { id: 'profileEdit', label: 'Profile Edit', icon: 'create', onPress: onProfileEdit },
-      { id: 'createCompany', label: 'Create Company', icon: 'business', onPress: onCreateCompany || (() => {}) },
+      { id: 'myTeam', label: 'My Team', icon: 'people' as keyof typeof Ionicons.glyphMap, onPress: onMyTeam },
+      { id: 'profileEdit', label: 'Profile Edit', icon: 'create' as keyof typeof Ionicons.glyphMap, onPress: onProfileEdit },
+      { id: 'createCompany', label: 'Create Company', icon: 'business' as keyof typeof Ionicons.glyphMap, onPress: onCreateCompany || (() => {}) },
     ]),
-    { id: 'settings', label: 'Settings', icon: 'settings', onPress: onSettings },
-    { id: 'inviteFriend', label: 'Invite a friend', icon: 'share-social', onPress: handleInviteFriend, shouldCloseOnPress: false },
-    { id: 'helpSupport', label: 'Help & Support', icon: 'help-circle', onPress: onHelpSupport },
+    { id: 'settings', label: 'Settings', icon: 'settings' as keyof typeof Ionicons.glyphMap, onPress: onSettings },
+    { id: 'inviteFriend', label: 'Invite a friend', icon: 'share-social' as keyof typeof Ionicons.glyphMap, onPress: handleInviteFriend, shouldCloseOnPress: false },
+    { id: 'helpSupport', label: 'Help & Support', icon: 'help-circle' as keyof typeof Ionicons.glyphMap, onPress: onHelpSupport },
     ...(onToggleTheme ? [{ 
       id: 'theme', 
       label: isDark ? 'Light Mode' : 'Dark Mode', 
-      icon: isDark ? 'sunny' : 'moon', 
+      icon: (isDark ? 'sunny' : 'moon') as keyof typeof Ionicons.glyphMap, 
       onPress: onToggleTheme 
     }] : []),
-    ...(isGuest ? [] : [{ id: 'logout', label: 'Logout', icon: 'log-out', onPress: onLogout, isDestructive: true }]),
+    ...(isGuest ? [] : [{ id: 'logout', label: 'Logout', icon: 'log-out' as keyof typeof Ionicons.glyphMap, onPress: onLogout, isDestructive: true }]),
   ];
 
   return (

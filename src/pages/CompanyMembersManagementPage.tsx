@@ -841,6 +841,13 @@ const styles = StyleSheet.create({
     marginTop: 16,
     textAlign: 'center',
   },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#9ca3af',
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
   emptyStateButton: {
     marginTop: 24,
     backgroundColor: '#3b82f6',

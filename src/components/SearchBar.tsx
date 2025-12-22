@@ -1,9 +1,13 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SearchBarProps } from '../types';
 import { FilterParams } from './FilterModal';
 import { spacing, semanticSpacing } from '../constants/spacing';
+import { createPlatformStyles } from '../utils/platformStyles';
+import { searchBarCommonStyles } from './SearchBar.styles.common';
+import { searchBarIosStyles } from './SearchBar.styles.ios';
+import { searchBarAndroidStyles } from './SearchBar.styles.android';
 
 interface EnhancedSearchBarProps extends SearchBarProps {
   filters?: FilterParams;
@@ -160,106 +164,11 @@ const SearchBar: React.FC<EnhancedSearchBarProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  wrapper: {
-    marginBottom: semanticSpacing.containerPadding,
-  },
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: semanticSpacing.borderRadius.lg,
-    paddingHorizontal: semanticSpacing.containerPadding,
-    height: 48,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  searchIcon: {
-    marginRight: spacing.sm,
-  },
-  input: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#000',
-    letterSpacing: -0.2,
-  },
-  clearButton: {
-    padding: spacing.xs,
-    marginLeft: spacing.xs,
-  },
-  closeButton: {
-    padding: spacing.xs,
-    marginLeft: spacing.sm,
-  },
-  filterButton: {
-    position: 'relative',
-    padding: spacing.xs,
-    marginLeft: spacing.sm,
-    borderRadius: semanticSpacing.borderRadius.sm,
-  },
-  filterButtonActive: {
-    backgroundColor: '#000',
-  },
-  filterBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: '#ef4444',
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-  },
-  filterBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  filtersContainer: {
-    marginTop: spacing.sm,
-    maxHeight: 40,
-  },
-  filtersContent: {
-    paddingRight: semanticSpacing.containerPadding,
-  },
-  filterChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    borderRadius: semanticSpacing.borderRadius.md,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    marginRight: spacing.sm,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  filterChipText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#374151',
-    marginRight: spacing.xs,
-  },
-  filterChipClose: {
-    padding: 2,
-  },
-  clearAllButton: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    justifyContent: 'center',
-  },
-  clearAllText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#ef4444',
-  },
+// Create platform-specific styles
+const styles = createPlatformStyles({
+  common: searchBarCommonStyles,
+  ios: searchBarIosStyles,
+  android: searchBarAndroidStyles,
 });
 
 export default SearchBar;

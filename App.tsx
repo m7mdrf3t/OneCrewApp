@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
@@ -77,10 +77,29 @@ import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
 import { NavigationState, User, ProjectCreationData, ProjectDashboardData, Notification } from './src/types';
 import { spacing, semanticSpacing } from './src/constants/spacing';
 
+// Platform-specific styles
+import { createPlatformStyles } from './src/utils/platformStyles';
+import { appCommonStyles } from './App.styles.common';
+import { appIosStyles } from './App.styles.ios';
+import { appAndroidStyles } from './App.styles.android';
+
+// Create platform-specific styles
+const styles = createPlatformStyles({
+  common: appCommonStyles,
+  ios: appIosStyles,
+  android: appAndroidStyles,
+});
+
+// Track if we've already logged Firebase errors (to avoid spam)
+let hasLoggedAppFirebaseError = false;
+
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted, getCompanyMembers } = useApi();
-  const [showSplash, setShowSplash] = useState(true);
+  console.log('📱 [AppContent] Component initializing...');
+  try {
+    const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted, getCompanyMembers } = useApi();
+    console.log('📱 [AppContent] API context loaded, isLoading:', isLoading);
+    const [showSplash, setShowSplash] = useState(true);
   const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState('spot');
@@ -224,28 +243,27 @@ const AppContent: React.FC = () => {
     setupNotifications();
 
     // Handle notification that opened the app (if app was closed)
-    console.log('📱 [App] Checking for initial notification...');
     pushNotificationService.getInitialNotification().then((response) => {
       if (response) {
-        console.log('📱 [App] App opened from notification:', response);
         const data = response.notification.request.content.data;
-        console.log('📱 [App] Initial notification data:', data);
         
         // Handle navigation based on notification data
         if (data) {
           // Small delay to ensure app is fully loaded
-          console.log('📱 [App] Navigating based on notification data...');
           setTimeout(() => {
             handleNotificationNavigation(data);
           }, 1000);
-        } else {
-          console.warn('⚠️ [App] Initial notification has no data');
         }
-      } else {
-        console.log('📱 [App] No initial notification found');
       }
     }).catch((error) => {
-      console.error('❌ [App] Error getting initial notification:', error);
+      // Silently handle - Firebase may not be available
+      if (!hasLoggedAppFirebaseError) {
+        // Only log if it's not a Firebase availability issue
+        const isFirebaseError = error?.message?.includes('null') || error?.message?.includes('undefined');
+        if (!isFirebaseError) {
+          console.warn('⚠️ [App] Error getting initial notification:', error?.message);
+        }
+      }
     });
 
     // Set up listener for notification taps when app is in background/foreground
@@ -255,46 +273,36 @@ const AppContent: React.FC = () => {
     
     // Delay to ensure native modules are fully initialized
     // Reduced from 5s to 3s since initialization is improved
-    console.log('📱 [App] Scheduling notification opened listener setup in 3 seconds...');
     const setupNotificationListener = setTimeout(() => {
       try {
-        console.log('📱 [App] Setting up notification opened listener...');
         // In Expo dev builds, NativeModules might be empty until bridge is ready
         // Just try to require the module and handle errors gracefully
         const messagingModule = require('@react-native-firebase/messaging');
         if (messagingModule) {
-          console.log('✅ [App] Messaging module loaded');
           const messaging = messagingModule.default || messagingModule;
           if (messaging && typeof messaging === 'function') {
-            console.log('📱 [App] Registering onNotificationOpenedApp listener...');
             unsubscribeOnNotificationOpened = messaging().onNotificationOpenedApp((remoteMessage: any) => {
-              console.log('👆 [App] Notification tapped (app in background):', remoteMessage);
-              console.log('👆 [App] Notification title:', remoteMessage.notification?.title);
-              console.log('👆 [App] Notification body:', remoteMessage.notification?.body);
-              console.log('👆 [App] Notification data:', remoteMessage.data);
               const data = remoteMessage.data || {};
               handleNotificationNavigation(data);
             });
-            console.log('✅ [App] Notification opened listener registered');
-          } else {
-            console.error('❌ [App] Messaging is not a function. Type:', typeof messaging);
+          } else if (!hasLoggedAppFirebaseError) {
+            hasLoggedAppFirebaseError = true;
+            console.warn('⚠️ [App] Firebase messaging not available');
           }
-        } else {
-          console.error('❌ [App] Messaging module is null or undefined');
+        } else if (!hasLoggedAppFirebaseError) {
+          hasLoggedAppFirebaseError = true;
+          console.warn('⚠️ [App] Firebase messaging module not available');
         }
       } catch (error: any) {
         // If error is about NativeEventEmitter, native modules aren't ready
-        // Log for debugging but don't fail
-        if (error?.message?.includes('NativeEventEmitter') || 
-            error?.message?.includes('non-null') ||
-            error?.message?.includes('requires a non-null') ||
-            error?.message?.includes('Cannot read property')) {
-          console.warn('⚠️ [App] Native modules not ready (NativeEventEmitter error)');
-        } else {
-          console.error('❌ [App] Could not set up Firebase notification opened listener:', error?.message || error);
-          if (error?.stack) {
-            console.error('❌ [App] Stack trace:', error.stack.substring(0, 300));
-          }
+        // Silently handle - don't spam console
+        if (!error?.message?.includes('NativeEventEmitter') && 
+            !error?.message?.includes('non-null') &&
+            !error?.message?.includes('requires a non-null') &&
+            !error?.message?.includes('Cannot read property') &&
+            !hasLoggedAppFirebaseError) {
+          hasLoggedAppFirebaseError = true;
+          console.warn('⚠️ [App] Firebase notification listener not available');
         }
       }
     }, 3000); // Delay 3 seconds to let native modules fully initialize
@@ -1972,178 +1980,39 @@ const AppContent: React.FC = () => {
     );
   };
 
-  return (
-    <SafeAreaProvider>
-      <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
-        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-        {renderContent()}
-      </SafeAreaView>
-    </SafeAreaProvider>
-  );
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+          {renderContent()}
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  } catch (error: any) {
+    console.error('❌ [AppContent] Error in AppContent component:', error?.message || error);
+    console.error('❌ [AppContent] Stack:', error?.stack);
+    // Return a simple error view
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+          <Text style={{ color: '#fff', padding: 20, textAlign: 'center' }}>
+            App Error: {error?.message || 'Unknown error'}
+          </Text>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f4f4f5',
-  },
-  appContainer: {
-    flex: 1,
-    backgroundColor: '#f4f4f5',
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    borderBottomWidth: 2,
-    borderBottomColor: '#000',
-    paddingHorizontal: semanticSpacing.containerPadding,
-    paddingVertical: semanticSpacing.headerPaddingVertical,
-    paddingTop: semanticSpacing.containerPadding,
-    minHeight: 56,
-  },
-  topBarLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  topBarRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: spacing.xs,
-  },
-  topBarButton: {
-    padding: semanticSpacing.tightPadding,
-    marginLeft: spacing.xs,
-    position: 'relative',
-  },
-  topBarTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: semanticSpacing.containerPadding,
-  },
-  topBarTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-  },
-  userName: {
-    fontWeight: '400',
-  },
-  chevronIcon: {
-    marginLeft: spacing.xs,
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#ef4444',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xs,
-    borderWidth: 2,
-    borderColor: '#ffffff',
-  },
-  notificationBadgeText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-  },
-  backButton: {
-    position: 'absolute',
-    bottom: 88,
-    left: semanticSpacing.sectionGapLarge,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    borderRadius: 24,
-    padding: semanticSpacing.buttonPadding,
-    zIndex: 20,
-  },
-  fullPageOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#f5f5f5',
-    zIndex: 1000,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10000,
-  },
-  guestPromptModal: {
-    width: '85%',
-    maxWidth: 400,
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-  },
-  guestPromptTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  guestPromptMessage: {
-    fontSize: 16,
-    marginBottom: 24,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  guestPromptButtons: {
-    width: '100%',
-    gap: 12,
-  },
-  guestPromptButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  guestPromptButtonPrimary: {
-    backgroundColor: '#000',
-  },
-  guestPromptButtonSecondary: {
-    borderWidth: 1,
-  },
-  guestPromptButtonTertiary: {
-    backgroundColor: 'transparent',
-  },
-  guestPromptButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});
+// Styles are now defined in platform-specific files above
 
 // Wrapper component to fetch user role and pass to management page
 const CompanyMembersManagementWrapper: React.FC<{
   company: any;
-  userId: string;
   onBack: () => void;
-}> = ({ company, userId, onBack }) => {
+}> = ({ company, onBack }) => {
+  const { user } = useApi();
+  const userId = user?.id || '';
   const { getCompanyMembers } = useApi();
   const [userRole, setUserRole] = React.useState<'owner' | 'admin' | 'manager' | 'member'>('member');
   const [loading, setLoading] = React.useState(true);
@@ -2196,17 +2065,31 @@ const CompanyMembersManagementWrapper: React.FC<{
 
 // Main App Component with API Provider
 const App: React.FC = () => {
-  return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
-        <ApiProvider>
-          <SafeAreaProvider>
-            <AppContent />
-          </SafeAreaProvider>
-        </ApiProvider>
-      </QueryClientProvider>
-    </GestureHandlerRootView>
-  );
+  console.log('🚀 [App] App component rendering...');
+  try {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <QueryClientProvider client={queryClient}>
+          <ApiProvider>
+            <SafeAreaProvider>
+              <AppContent />
+            </SafeAreaProvider>
+          </ApiProvider>
+        </QueryClientProvider>
+      </GestureHandlerRootView>
+    );
+  } catch (error: any) {
+    console.error('❌ [App] Error in App component:', error?.message || error);
+    console.error('❌ [App] Stack:', error?.stack);
+    // Return a simple error view so app doesn't crash completely
+    return (
+      <GestureHandlerRootView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+        <Text style={{ color: '#fff', padding: 20, textAlign: 'center' }}>
+          App Error: {error?.message || 'Unknown error'}
+        </Text>
+      </GestureHandlerRootView>
+    );
+  }
 };
 
 export default App;

@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, StyleSheet, StyleProp, ViewStyle, DimensionValue } from 'react-native';
-import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 
 interface SkeletonCardProps {
   width?: DimensionValue;
@@ -17,15 +16,53 @@ const SkeletonCard: React.FC<SkeletonCardProps> = ({
   style,
   isDark = false,
 }) => {
+  // Fallback component - simple gray box (always safe)
   return (
-    <SkeletonPlaceholder
-      backgroundColor={isDark ? '#1f1f1f' : '#e5e7eb'}
-      highlightColor={isDark ? '#2a2a2a' : '#f3f4f6'}
-      borderRadius={borderRadius}
-    >
-      <View style={[styles.container, { width, height, borderRadius }, style]} />
-    </SkeletonPlaceholder>
+    <View 
+      style={[
+        styles.container, 
+        { 
+          width, 
+          height, 
+          borderRadius, 
+          backgroundColor: isDark ? '#1f1f1f' : '#e5e7eb' 
+        }, 
+        style
+      ]} 
+    />
   );
+
+  // TODO: After iOS rebuild, uncomment this to use real skeleton:
+  /*
+  try {
+    const SkeletonPlaceholder = require('react-native-skeleton-placeholder').default;
+    
+    return (
+      <SkeletonPlaceholder
+        backgroundColor={isDark ? '#1f1f1f' : '#e5e7eb'}
+        highlightColor={isDark ? '#2a2a2a' : '#f3f4f6'}
+        borderRadius={borderRadius}
+      >
+        <View style={[styles.container, { width, height, borderRadius }, style]} />
+      </SkeletonPlaceholder>
+    );
+  } catch (error) {
+    return (
+      <View 
+        style={[
+          styles.container, 
+          { 
+            width, 
+            height, 
+            borderRadius, 
+            backgroundColor: isDark ? '#1f1f1f' : '#e5e7eb' 
+          }, 
+          style
+        ]} 
+      />
+    );
+  }
+  */
 };
 
 const styles = StyleSheet.create({

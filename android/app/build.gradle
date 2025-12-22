@@ -104,18 +104,25 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            // Production signing configuration
+            storeFile file('release.keystore')
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: "OneCrew2024!"
+            keyAlias "release-key"
+            keyPassword System.getenv("KEY_PASSWORD") ?: "OneCrew2024!"
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
-            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
-            shrinkResources enableShrinkResources.toBoolean()
-            minifyEnabled enableMinifyInReleaseBuilds
+            signingConfig signingConfigs.release
+            def enableMinify = enableMinifyInReleaseBuilds
+            minifyEnabled enableMinify
+            // shrinkResources requires minifyEnabled to be true
+            def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: enableMinify.toString()
+            shrinkResources enableShrinkResources.toBoolean() && enableMinify
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()

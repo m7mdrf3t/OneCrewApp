@@ -495,18 +495,21 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       return;
     }
 
-    // Check if this is a token invalidation error
+    // Check if this is a token invalidation or invalid token error
     if (error?.status === 401 || error?.statusCode === 401) {
+      const errorLower = errorMessage.toLowerCase();
       const isTokenInvalidated = 
-        errorMessage.toLowerCase().includes('token has been invalidated') ||
-        errorMessage.toLowerCase().includes('invalidated') ||
-        errorMessage.toLowerCase().includes('please sign in again');
+        errorLower.includes('token has been invalidated') ||
+        errorLower.includes('invalidated') ||
+        errorLower.includes('please sign in again') ||
+        errorLower.includes('invalid token'); // Also handle "Invalid token" errors
 
       if (isTokenInvalidated) {
         isHandling401Ref.current = true;
         last401ErrorRef.current = now;
         
-        console.log('🔒 Token invalidated - clearing auth state and forcing re-login');
+        console.log('🔒 Token error detected - clearing auth state and forcing re-login');
+        console.log(`🔒 Error message: ${errorMessage}`);
         
         try {
           // Stop heartbeat
@@ -535,7 +538,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           await pushNotificationService.clearToken().catch(() => {});
           await pushNotificationService.setBadgeCount(0).catch(() => {});
 
-          console.log('✅ Auth state cleared due to token invalidation');
+          console.log('✅ Auth state cleared due to token error');
         } catch (err) {
           console.error('❌ Error during 401 handling:', err);
         } finally {
@@ -4411,12 +4414,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             }
           } catch (err) {
             console.error('❌ Failed to get my projects:', err);
+            // Handle 401 errors
+            if (err && (err as any).statusCode === 401 || (err as any).status === 401) {
+              await handle401Error(err);
+            }
             throw err;
           }
           
           return projects;
         } catch (error) {
           console.error('❌ Failed to get all user projects:', error);
+          // Handle 401 errors
+          if (error && ((error as any).statusCode === 401 || (error as any).status === 401)) {
+            await handle401Error(error);
+          }
           throw error;
         }
       }

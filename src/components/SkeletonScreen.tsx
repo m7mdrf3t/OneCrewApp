@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import SkeletonPlaceholder from 'react-native-skeleton-placeholder';
 import SkeletonCard from './SkeletonCard';
 
 interface SkeletonScreenProps {
@@ -19,17 +18,11 @@ const SkeletonScreen: React.FC<SkeletonScreenProps> = ({
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
       {showHeader && (
-        <SkeletonPlaceholder
-          backgroundColor={isDark ? '#1f1f1f' : '#e5e7eb'}
-          highlightColor={isDark ? '#2a2a2a' : '#f3f4f6'}
-          borderRadius={0}
-        >
-          <View style={styles.header}>
-            <View style={styles.headerLeft} />
-            <View style={styles.headerTitle} />
-            <View style={styles.headerRight} />
-          </View>
-        </SkeletonPlaceholder>
+        <View style={styles.header}>
+          <View style={[styles.headerLeft, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+          <View style={[styles.headerTitle, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+          <View style={[styles.headerRight, { backgroundColor: isDark ? '#2a2a2a' : '#e5e7eb' }]} />
+        </View>
       )}
       {showContent && (
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>

@@ -3,12 +3,15 @@ import {
   View,
   Text,
   TouchableOpacity,
-  StyleSheet,
   ScrollView,
   Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { shareAppInvite } from '../utils/shareAppInvite';
+import { createPlatformStyles } from '../utils/platformStyles';
+import { settingsPageCommonStyles } from './SettingsPage.styles.common';
+import { settingsPageIosStyles } from './SettingsPage.styles.ios';
+import { settingsPageAndroidStyles } from './SettingsPage.styles.android';
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -233,90 +236,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f4f4f5',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderBottomWidth: 2,
-    borderBottomColor: '#000',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingTop: 16,
-  },
-  backButton: {
-    padding: 4,
-    marginRight: 12,
-  },
-  title: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#000',
-  },
-  placeholder: {
-    width: 32,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 24,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#71717a',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  sectionContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  settingsItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 0,
-  },
-  dangerItem: {
-    // Additional styling for danger items if needed
-  },
-  settingsItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  settingsIcon: {
-    marginRight: 12,
-  },
-  settingsItemText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#000',
-    flex: 1,
-  },
-  settingsItemRight: {
-    marginLeft: 12,
-  },
-  separator: {
-    height: 1,
-    marginLeft: 52, // Align with text after icon
-  },
+// Create platform-specific styles
+const styles = createPlatformStyles({
+  common: settingsPageCommonStyles,
+  ios: settingsPageIosStyles,
+  android: settingsPageAndroidStyles,
 });
 
 export default SettingsPage;
