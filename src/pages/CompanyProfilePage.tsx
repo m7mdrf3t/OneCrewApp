@@ -70,6 +70,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const {
     getCompany,
     getCompanyMembers,
+    getPendingCompanyMembers,
     getCompanyServices,
     user,
     activeCompany,
@@ -191,6 +192,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   }, [servicesQuery.data]);
 
+  // Query for active (accepted) members
   const membersQuery = useQuery<CompanyMember[]>({
     queryKey: ['companyMembers', companyId, refreshKey],
     enabled: !!companyId && (!readOnly || membersRequested),
@@ -217,9 +219,9 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         } else if (data?.members && Array.isArray(data.members)) {
           membersArray = data.members;
         }
+        // Only return accepted members - pending members are handled separately
         const acceptedMembers = membersArray.filter((m) => m.invitation_status === 'accepted');
-        const pendingMembers = membersArray.filter((m) => m.invitation_status === 'pending');
-        return [...acceptedMembers, ...pendingMembers];
+        return acceptedMembers;
       }
 
       // Graceful fallback: show empty list
@@ -227,11 +229,45 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     },
   });
 
+  // Query for pending members using the dedicated endpoint
+  const pendingMembersQuery = useQuery<CompanyMember[]>({
+    queryKey: ['companyPendingMembers', companyId, refreshKey],
+    enabled: !!companyId && (!readOnly || membersRequested),
+    queryFn: async () => {
+      try {
+        const response = await getPendingCompanyMembers(companyId, {
+          page: 1,
+          limit: 50,
+          sort: 'created_at',
+          order: 'desc',
+        });
+
+        if (response?.success && response.data) {
+          // The API returns data as an array directly in response.data, not response.data.data
+          // Check if data is an array or if it's nested in a data property
+          if (Array.isArray(response.data)) {
+            return response.data;
+          } else if (response.data.data && Array.isArray(response.data.data)) {
+            return response.data.data;
+          }
+          return [];
+        }
+
+        // Graceful fallback: show empty list
+        return [];
+      } catch (error) {
+        console.warn('⚠️ Failed to load pending members, falling back to empty list:', error);
+        return [];
+      }
+    },
+  });
+
   useEffect(() => {
-    if (membersQuery.data) {
-      setMembers(membersQuery.data);
-    }
-  }, [membersQuery.data]);
+    // Combine accepted and pending members for display
+    const acceptedMembers = membersQuery.data || [];
+    const pendingMembers = pendingMembersQuery.data || [];
+    setMembers([...acceptedMembers, ...pendingMembers]);
+  }, [membersQuery.data, pendingMembersQuery.data]);
 
   const documentsQuery = useQuery<CompanyDocument[]>({
     queryKey: ['companyDocuments', companyId, refreshKey],
@@ -297,7 +333,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     return err instanceof Error ? err.message : String(err);
   })();
 
-  const loadingMembers = membersQuery.isFetching;
+  const loadingMembers = membersQuery.isFetching || pendingMembersQuery.isFetching;
   const loadingServices = servicesQuery.isFetching;
   const loadingDocuments = documentsQuery.isFetching;
   const loadingCertifications = certificationsQuery.isFetching;
@@ -1707,6 +1743,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <ActivityIndicator size="small" color="#000" style={{ marginTop: 12 }} />
                 ) : (
                   <>
+                    {/* Show required documents if available */}
                     {company.company_type_info?.required_documents && company.company_type_info.required_documents.length > 0 ? (
                       company.company_type_info.required_documents.map((docType) => {
                         const uploadedDoc = documents.find((d) => d.document_type === docType);
@@ -1763,12 +1800,69 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                         );
                       })
                     ) : (
-                      <Text style={styles.emptyStateText}>No documents required for this company type</Text>
+                      /* If no required documents defined, show a generic upload option */
+                      <View style={styles.documentCard}>
+                        <Text style={[styles.emptyStateText, { marginBottom: 12 }]}>
+                          Upload documents to complete your company profile
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.uploadButton, uploadingDocument && styles.uploadButtonDisabled]}
+                          onPress={() => handleUploadDocument('other')}
+                          disabled={uploadingDocument}
+                        >
+                          {uploadingDocument ? (
+                            <ActivityIndicator size="small" color="#000" />
+                          ) : (
+                            <>
+                              <Ionicons name="cloud-upload-outline" size={18} color="#000" />
+                              <Text style={styles.uploadButtonText}>Upload Document</Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      </View>
                     )}
-                    {documents.length > 0 && (
+                    
+                    {/* Show uploaded documents that aren't in required_documents list */}
+                    {documents.filter(doc => {
+                      const requiredDocs = company.company_type_info?.required_documents || [];
+                      return !requiredDocs.includes(doc.document_type);
+                    }).length > 0 && (
+                      <View style={styles.section}>
+                        <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>Additional Documents</Text>
+                        {documents.filter(doc => {
+                          const requiredDocs = company.company_type_info?.required_documents || [];
+                          return !requiredDocs.includes(doc.document_type);
+                        }).map((doc) => (
+                          <View key={doc.id} style={styles.documentCard}>
+                            <View style={styles.documentHeader}>
+                              <View style={styles.documentInfo}>
+                                <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                                <View style={styles.documentText}>
+                                  <Text style={styles.documentType}>
+                                    {doc.document_type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                                  </Text>
+                                  <Text style={styles.documentFileName}>
+                                    {doc.file_name || 'Uploaded'}
+                                  </Text>
+                                </View>
+                              </View>
+                              <TouchableOpacity
+                                onPress={() => handleDeleteDocument(doc.id)}
+                                style={styles.removeButton}
+                                disabled={uploadingDocument}
+                              >
+                                <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    
+                    {documents.length > 0 && company.company_type_info?.required_documents && company.company_type_info.required_documents.length > 0 && (
                       <View style={styles.documentsProgress}>
                         <Text style={styles.progressText}>
-                          {documents.length} of {company.company_type_info?.required_documents?.length || 0} documents uploaded
+                          {documents.filter(d => company.company_type_info?.required_documents?.includes(d.document_type)).length} of {company.company_type_info.required_documents.length} required documents uploaded
                         </Text>
                       </View>
                     )}

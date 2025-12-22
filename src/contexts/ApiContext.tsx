@@ -227,7 +227,7 @@ interface ApiContextType {
   // Company members
   addCompanyMember: (companyId: string, memberData: any) => Promise<any>;
   getCompanyMembers: (companyId: string, params?: any) => Promise<any>;
-  getPendingCompanyMembers: (companyId: string, params?: { page?: number; limit?: number; sort?: 'invited_at' | 'created_at' | 'role'; order?: 'asc' | 'desc' }) => Promise<any>;
+  getPendingCompanyMembers: (companyId: string, params?: { page?: number; limit?: number; sort?: 'joined_at' | 'created_at' | 'role' | 'accepted_at'; order?: 'asc' | 'desc' }) => Promise<any>;
   acceptInvitation: (companyId: string, userId: string) => Promise<any>;
   rejectInvitation: (companyId: string, userId: string) => Promise<any>;
   cancelInvitation: (companyId: string, userId: string) => Promise<any>;
@@ -363,9 +363,9 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-   baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
+   // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
   //baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app' // Staging server
- //baseUrl = 'http://localhost:3000' // Local server
+ baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
     console.log('🔧 Initializing OneCrewApi with baseUrl:', baseUrl);
@@ -5962,7 +5962,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getPendingCompanyMembers = async (companyId: string, params?: {
     page?: number;
     limit?: number;
-    sort?: 'invited_at' | 'created_at' | 'role';
+    sort?: 'joined_at' | 'created_at' | 'role' | 'accepted_at';
     order?: 'asc' | 'desc';
   }) => {
     const cacheKey = `company-pending-members-${companyId}-${JSON.stringify(params || {})}`;
@@ -5986,7 +5986,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           };
         }
         
-        const response = await api.getPendingCompanyMembers(companyId, params);
+        // Cast params to match API client's expected type (API client may have outdated types)
+        // The actual API accepts: joined_at, created_at, role, accepted_at
+        const apiParams = params ? {
+          ...params,
+          sort: params.sort as any, // Cast to any to handle type mismatch with API client
+        } : undefined;
+        
+        const response = await api.getPendingCompanyMembers(companyId, apiParams);
         return response;
       } catch (error: any) {
         console.error('Failed to get pending company members:', error);

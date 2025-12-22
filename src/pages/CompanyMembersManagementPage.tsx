@@ -77,7 +77,6 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
           const { rateLimiter } = await import('../utils/rateLimiter');
           await rateLimiter.clearCacheByPattern(`company-members-${company.id}`);
           await rateLimiter.clearCacheByPattern(`company-pending-members-${company.id}`);
-          console.log('🔄 Cleared cache for company members');
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
         }
@@ -96,21 +95,12 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
         getPendingCompanyMembers(company.id, {
           page: 1,
           limit: 100,
-          sort: 'invited_at',
+          sort: 'created_at',
           order: 'desc',
         }),
       ]);
 
-      console.log('📋 Load members responses:', {
-        active: {
-          success: activeResponse.success,
-          hasData: !!activeResponse.data,
-        },
-        pending: {
-          success: pendingResponse.success,
-          hasData: !!pendingResponse.data,
-        },
-      });
+      // Removed verbose logging to prevent rate limiting
 
       // Process active members
       if (activeResponse.success && activeResponse.data) {
@@ -126,32 +116,34 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
           return (hasAcceptedStatus || hasAcceptedAt) && isNotDeleted;
         });
 
-        console.log('✅ Active members loaded:', accepted.length);
+        // Active members loaded
         setActiveMembers(accepted);
-      } else {
-        console.warn('⚠️ No active members data in response');
-        setActiveMembers([]);
-      }
+        } else {
+          setActiveMembers([]);
+        }
 
       // Process pending members
       if (pendingResponse.success && pendingResponse.data) {
-        // The new method returns data in a structured format
-        const pendingData = pendingResponse.data.data || [];
+        // The API returns data as an array directly in response.data, not response.data.data
+        // Check if data is an array or if it's nested in a data property
+        let pendingData: CompanyMember[] = [];
         
-        console.log('✅ Pending members loaded:', pendingData.length);
-        console.log('📊 Pending members breakdown:', {
-          total: pendingData.length,
-          withInviter: pendingData.filter((m: any) => m.inviter).length,
-          withUser: pendingData.filter((m: any) => m.user).length,
-        });
+        if (Array.isArray(pendingResponse.data)) {
+          // Data is directly an array
+          pendingData = pendingResponse.data;
+        } else if (pendingResponse.data.data && Array.isArray(pendingResponse.data.data)) {
+          // Data is nested in a data property
+          pendingData = pendingResponse.data.data;
+        } else {
+          // Fallback: try to extract from any structure
+          pendingData = [];
+        }
 
-        // Map the response to match CompanyMember type if needed
-        // The new endpoint already returns the correct format
+        // Set the pending invitations
         setPendingInvitations(pendingData);
       } else {
         // If the new endpoint is not available (404) or unauthorized (403), 
         // fall back to filtering from getCompanyMembers
-        console.warn('⚠️ Pending members endpoint not available, falling back to filtering');
         
         if (activeResponse.success && activeResponse.data) {
           const membersArray = Array.isArray(activeResponse.data)
@@ -166,7 +158,7 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
             return (hasPendingStatus || (!m.invitation_status && hasNoAcceptedAt && hasNoRejectedAt)) && isNotDeleted;
           });
 
-          console.log('✅ Fallback: Pending members filtered:', pending.length);
+          // Fallback: Pending members filtered
           setPendingInvitations(pending);
         } else {
           setPendingInvitations([]);
@@ -245,10 +237,11 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
           onPress: async () => {
             try {
               setProcessing(invitation.user_id);
-              const response = await removeCompanyMember(company.id, invitation.user_id);
+              // Use the dedicated cancelInvitation method instead of removeCompanyMember
+              const response = await cancelInvitation(company.id, invitation.user_id);
               if (response.success) {
                 Alert.alert('Success', 'Invitation canceled successfully.');
-                await loadMembers();
+                await loadMembers(true); // Force refresh to update the list
               } else {
                 throw new Error(response.error || 'Failed to cancel invitation');
               }
