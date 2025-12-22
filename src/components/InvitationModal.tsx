@@ -181,7 +181,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
             `${selectedUser.name || selectedUser.email} was immediately added as a member (not pending).`
           );
         } else {
-          Alert.alert('Success', `Invitation sent to ${selectedUser.name || selectedUser.email}`);
+        Alert.alert('Success', `Invitation sent to ${selectedUser.name || selectedUser.email}`);
         }
         
         resetForm();

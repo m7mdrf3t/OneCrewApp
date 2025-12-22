@@ -227,6 +227,7 @@ interface ApiContextType {
   // Company members
   addCompanyMember: (companyId: string, memberData: any) => Promise<any>;
   getCompanyMembers: (companyId: string, params?: any) => Promise<any>;
+  getPendingCompanyMembers: (companyId: string, params?: { page?: number; limit?: number; sort?: 'invited_at' | 'created_at' | 'role'; order?: 'asc' | 'desc' }) => Promise<any>;
   acceptInvitation: (companyId: string, userId: string) => Promise<any>;
   rejectInvitation: (companyId: string, userId: string) => Promise<any>;
   cancelInvitation: (companyId: string, userId: string) => Promise<any>;
@@ -374,6 +375,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     if ((apiClient as any).baseUrl && (apiClient as any).baseUrl.includes('localhost:3000')) {
       console.log('🔧 Overriding API client baseUrl from localhost to:', baseUrl);
       (apiClient as any).baseUrl = baseUrl;
+    }
+    
+    // Verify new methods are available
+    if (typeof apiClient.getPendingCompanyMembers !== 'function') {
+      console.warn('⚠️ getPendingCompanyMembers method not found on API instance. Package may need update or cache clear.');
+    } else {
+      console.log('✅ getPendingCompanyMembers method available');
     }
     
     return apiClient;
@@ -5724,7 +5732,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
         // Also clear any cache with different parameter combinations
         await rateLimiter.clearCacheByPattern(`company-members-${companyId}-`);
-        console.log('🔄 Cleared company members cache after adding member');
+        // Clear pending members cache since a new invitation was sent
+        await rateLimiter.clearCacheByPattern(`company-pending-members-${companyId}`);
+        console.log('🔄 Cleared company members and pending members cache after adding member');
       }
       return response;
     } catch (error: any) {
@@ -5949,12 +5959,86 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }, { ttl: CacheTTL.MEDIUM }); // Company members change when users join/leave - 5min TTL
   };
 
+  const getPendingCompanyMembers = async (companyId: string, params?: {
+    page?: number;
+    limit?: number;
+    sort?: 'invited_at' | 'created_at' | 'role';
+    order?: 'asc' | 'desc';
+  }) => {
+    const cacheKey = `company-pending-members-${companyId}-${JSON.stringify(params || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        // Check if method exists (in case package wasn't updated or cached)
+        if (typeof api.getPendingCompanyMembers !== 'function') {
+          console.warn('⚠️ getPendingCompanyMembers method not available. Package may need to be updated or app restarted.');
+          // Return empty list gracefully
+          return {
+            success: true,
+            data: {
+              data: [],
+              pagination: {
+                page: params?.page || 1,
+                limit: params?.limit || 50,
+                total: 0,
+                totalPages: 0,
+              },
+            },
+          };
+        }
+        
+        const response = await api.getPendingCompanyMembers(companyId, params);
+        return response;
+      } catch (error: any) {
+        console.error('Failed to get pending company members:', error);
+        
+        // Handle 403 (unauthorized) gracefully
+        if (error.status === 403 || error.statusCode === 403) {
+          console.warn('⚠️ Unauthorized to view pending company members (403). Returning empty list.');
+          return {
+            success: true,
+            data: {
+              data: [],
+              pagination: {
+                page: params?.page || 1,
+                limit: params?.limit || 50,
+                total: 0,
+                totalPages: 0,
+              },
+            },
+          };
+        }
+        
+        // Handle 404 (endpoint not found) gracefully
+        if (error.status === 404 || error.statusCode === 404) {
+          console.warn('⚠️ Pending company members endpoint not found (404). Returning empty list.');
+          return {
+            success: true,
+            data: {
+              data: [],
+              pagination: {
+                page: params?.page || 1,
+                limit: params?.limit || 50,
+                total: 0,
+                totalPages: 0,
+              },
+            },
+          };
+        }
+        
+        // For other errors, throw to let caller handle
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT }); // Pending members change more frequently - 2min TTL
+  };
+
   const acceptInvitation = async (companyId: string, userId: string) => {
     try {
       const response = await api.acceptInvitation(companyId, userId);
       if (response.success) {
         // Invalidate company members cache
         await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
+        // Clear pending members cache since invitation was accepted
+        await rateLimiter.clearCacheByPattern(`company-pending-members-${companyId}`);
         // Invalidate user companies cache
         await rateLimiter.clearCache(`user-companies-${userId}`);
       }
@@ -5978,6 +6062,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const cancelInvitation = async (companyId: string, userId: string) => {
     try {
       const response = await api.cancelInvitation(companyId, userId);
+      if (response.success) {
+        // Clear pending members cache since invitation was cancelled
+        await rateLimiter.clearCacheByPattern(`company-pending-members-${companyId}`);
+        // Also clear company members cache
+        await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
+      }
       return response;
     } catch (error) {
       console.error('Failed to cancel invitation:', error);
@@ -6011,6 +6101,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (response.success) {
         // Invalidate company members cache
         await rateLimiter.clearCacheByPattern(`company-members-${companyId}`);
+        // Clear pending members cache in case a pending member was removed
+        await rateLimiter.clearCacheByPattern(`company-pending-members-${companyId}`);
       }
       return response;
     } catch (error) {
@@ -7712,6 +7804,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     // Company members
     addCompanyMember,
     getCompanyMembers,
+    getPendingCompanyMembers,
     acceptInvitation,
     rejectInvitation,
     cancelInvitation,

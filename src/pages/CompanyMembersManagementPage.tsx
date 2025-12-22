@@ -33,6 +33,7 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
 }) => {
   const {
     getCompanyMembers,
+    getPendingCompanyMembers,
     addCompanyMember,
     removeCompanyMember,
     updateCompanyMemberRole,
@@ -75,114 +76,101 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
         try {
           const { rateLimiter } = await import('../utils/rateLimiter');
           await rateLimiter.clearCacheByPattern(`company-members-${company.id}`);
+          await rateLimiter.clearCacheByPattern(`company-pending-members-${company.id}`);
           console.log('🔄 Cleared cache for company members');
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
         }
       }
       
-      // Backend filters by invitation_status='accepted' by default
-      // Try to get all members including pending by using different parameters
-      const response = await getCompanyMembers(company.id, {
-        page: 1,
-        limit: 100,
-        sort: 'joined_at',
-        order: 'desc',
-        // Try different parameter names the backend might support
-        include_pending: true,
-        status: 'all',
-        invitation_status: 'all',
+      // Load active members and pending members in parallel
+      const [activeResponse, pendingResponse] = await Promise.all([
+        // Load active members (accepted invitations)
+        getCompanyMembers(company.id, {
+          page: 1,
+          limit: 100,
+          sort: 'joined_at',
+          order: 'desc',
+        }),
+        // Load pending members using the new dedicated method
+        getPendingCompanyMembers(company.id, {
+          page: 1,
+          limit: 100,
+          sort: 'invited_at',
+          order: 'desc',
+        }),
+      ]);
+
+      console.log('📋 Load members responses:', {
+        active: {
+          success: activeResponse.success,
+          hasData: !!activeResponse.data,
+        },
+        pending: {
+          success: pendingResponse.success,
+          hasData: !!pendingResponse.data,
+        },
       });
-      
-      console.log('🔍 Requesting members with params:', {
-        include_pending: true,
-        status: 'all',
-        invitation_status: 'all',
-      });
 
-      console.log('📋 Load members response:', {
-        success: response.success,
-        hasData: !!response.data,
-        dataType: typeof response.data,
-        isArray: Array.isArray(response.data),
-      });
+      // Process active members
+      if (activeResponse.success && activeResponse.data) {
+        const membersArray = Array.isArray(activeResponse.data)
+          ? activeResponse.data
+          : activeResponse.data.data || activeResponse.data.members || [];
 
-      if (response.success && response.data) {
-        const membersArray = Array.isArray(response.data)
-          ? response.data
-          : response.data.data || response.data.members || [];
-
-        console.log('👥 Total members found:', membersArray.length);
-        console.log('📊 Members breakdown:', {
-          total: membersArray.length,
-          withStatus: membersArray.filter((m: any) => m.invitation_status).length,
-          pending: membersArray.filter((m: any) => m.invitation_status === 'pending').length,
-          accepted: membersArray.filter((m: any) => m.invitation_status === 'accepted').length,
-          noStatus: membersArray.filter((m: any) => !m.invitation_status).length,
-        });
-        
-        // Log the raw response to see what backend is actually returning
-        console.log('📦 Raw response data:', JSON.stringify(response.data, null, 2));
-        console.log('📦 Members array:', JSON.stringify(membersArray, null, 2));
-
-        // Log each member's status for debugging
-        membersArray.forEach((m: any, index: number) => {
-          console.log(`Member ${index + 1}:`, {
-            user_id: m.user_id,
-            user_name: m.user?.name || 'Unknown',
-            invitation_status: m.invitation_status || 'MISSING',
-            accepted_at: m.accepted_at || 'none',
-            rejected_at: m.rejected_at || 'none',
-            invited_at: m.invited_at || 'none',
-            joined_at: m.joined_at || 'none',
-            deleted_at: m.deleted_at || 'none',
-            role: m.role || 'MISSING',
-          });
-        });
-
-        // Filter members - handle cases where invitation_status might be missing
-        // If status is missing but there's no accepted_at, consider it pending
-        // IMPORTANT: Don't filter by role - show ALL members regardless of role
+        // Filter for accepted members only
         const accepted = membersArray.filter((m: CompanyMember) => {
           const hasAcceptedStatus = m.invitation_status === 'accepted';
           const hasAcceptedAt = !!m.accepted_at;
           const isNotDeleted = !m.deleted_at;
-          const isAccepted = (hasAcceptedStatus || hasAcceptedAt) && isNotDeleted;
-          
-          // Log if member is being filtered out
-          if (!isAccepted) {
-            console.log('⚠️ Member filtered out from accepted:', {
-              user_id: m.user_id,
-              user_name: m.user?.name || 'Unknown',
-              invitation_status: m.invitation_status,
-              accepted_at: m.accepted_at,
-              deleted_at: m.deleted_at,
-            });
-          }
-          
-          return isAccepted;
+          return (hasAcceptedStatus || hasAcceptedAt) && isNotDeleted;
         });
 
-        const pending = membersArray.filter((m: CompanyMember) => {
-          const hasPendingStatus = m.invitation_status === 'pending';
-          const hasNoAcceptedAt = !m.accepted_at;
-          const hasNoRejectedAt = !m.rejected_at;
-          const isNotDeleted = !m.deleted_at;
-          // Include if status is pending, OR if status is missing but no accepted_at/rejected_at
-          return (hasPendingStatus || (!m.invitation_status && hasNoAcceptedAt && hasNoRejectedAt)) && isNotDeleted;
-        });
-
-        console.log('✅ Filtered results:', {
-          accepted: accepted.length,
-          pending: pending.length,
-        });
-
+        console.log('✅ Active members loaded:', accepted.length);
         setActiveMembers(accepted);
-        setPendingInvitations(pending);
       } else {
-        console.warn('⚠️ No data in response:', response);
+        console.warn('⚠️ No active members data in response');
         setActiveMembers([]);
-        setPendingInvitations([]);
+      }
+
+      // Process pending members
+      if (pendingResponse.success && pendingResponse.data) {
+        // The new method returns data in a structured format
+        const pendingData = pendingResponse.data.data || [];
+        
+        console.log('✅ Pending members loaded:', pendingData.length);
+        console.log('📊 Pending members breakdown:', {
+          total: pendingData.length,
+          withInviter: pendingData.filter((m: any) => m.inviter).length,
+          withUser: pendingData.filter((m: any) => m.user).length,
+        });
+
+        // Map the response to match CompanyMember type if needed
+        // The new endpoint already returns the correct format
+        setPendingInvitations(pendingData);
+      } else {
+        // If the new endpoint is not available (404) or unauthorized (403), 
+        // fall back to filtering from getCompanyMembers
+        console.warn('⚠️ Pending members endpoint not available, falling back to filtering');
+        
+        if (activeResponse.success && activeResponse.data) {
+          const membersArray = Array.isArray(activeResponse.data)
+            ? activeResponse.data
+            : activeResponse.data.data || activeResponse.data.members || [];
+
+          const pending = membersArray.filter((m: CompanyMember) => {
+            const hasPendingStatus = m.invitation_status === 'pending';
+            const hasNoAcceptedAt = !m.accepted_at;
+            const hasNoRejectedAt = !m.rejected_at;
+            const isNotDeleted = !m.deleted_at;
+            return (hasPendingStatus || (!m.invitation_status && hasNoAcceptedAt && hasNoRejectedAt)) && isNotDeleted;
+          });
+
+          console.log('✅ Fallback: Pending members filtered:', pending.length);
+          setPendingInvitations(pending);
+        } else {
+          setPendingInvitations([]);
+        }
       }
     } catch (error) {
       console.error('❌ Failed to load members:', error);

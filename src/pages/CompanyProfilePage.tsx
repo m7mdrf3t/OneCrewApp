@@ -1077,7 +1077,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Team & Metrics</Text>
                 {/* STRICT READ-ONLY: Manage button completely removed when readOnly is true */}
-                {!readOnly && canEdit() && onManageCourses && (
+                {!readOnly && canEdit() && company.approval_status === 'approved' && onManageCourses && (
                   <TouchableOpacity
                     style={styles.manageButton}
                     onPress={() => onManageCourses(company)}
@@ -1148,7 +1148,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="school-outline" size={48} color="#e4e4e7" />
                   <Text style={styles.emptyStateText}>No courses available yet</Text>
                   {/* STRICT READ-ONLY: Create Course button completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && onManageCourses && (
+                  {!readOnly && canEdit() && company.approval_status === 'approved' && onManageCourses && (
                     <TouchableOpacity
                       style={styles.addButton}
                       onPress={() => onManageCourses(company)}
@@ -1161,7 +1161,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             </View>
 
             {/* STRICT READ-ONLY: Course Registrations Section completely removed when readOnly is true */}
-            {!readOnly && canEdit() && (
+            {!readOnly && canEdit() && company.approval_status === 'approved' && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Course Registrations</Text>
@@ -1187,7 +1187,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             )}
 
             {/* STRICT READ-ONLY: Invite Admin Users Section completely removed when readOnly is true */}
-            {!readOnly && canEdit() && company.subcategory === 'academy' && onInviteMember && (
+            {!readOnly && canEdit() && company.subcategory === 'academy' && company.approval_status === 'approved' && onInviteMember && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Admin Management</Text>
@@ -1205,19 +1205,19 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                       <Text style={styles.manageRegistrationsButtonText}>Manage All Members</Text>
                     </TouchableOpacity>
                   )}
-                  <TouchableOpacity
-                    style={[styles.manageRegistrationsButton, styles.inviteAdminButton]}
-                    onPress={() => onInviteMember(company)}
-                  >
-                    <Ionicons name="person-add-outline" size={18} color="#fff" />
-                    <Text style={styles.manageRegistrationsButtonText}>Invite Admin User</Text>
+                <TouchableOpacity
+                  style={[styles.manageRegistrationsButton, styles.inviteAdminButton]}
+                  onPress={() => onInviteMember(company)}
+                >
+                  <Ionicons name="person-add-outline" size={18} color="#fff" />
+                  <Text style={styles.manageRegistrationsButtonText}>Invite Admin User</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
             
             {/* User Management Section - For all company types */}
-            {!readOnly && canEdit() && onManageMembers && company.subcategory !== 'academy' && (
+            {!readOnly && canEdit() && company.approval_status === 'approved' && onManageMembers && company.subcategory !== 'academy' && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>User Management</Text>
@@ -1236,7 +1236,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             )}
 
             {/* STRICT READ-ONLY: Grant Certification Section completely removed when readOnly is true */}
-            {!readOnly && canEdit() && company.subcategory === 'academy' && (
+            {!readOnly && canEdit() && company.subcategory === 'academy' && company.approval_status === 'approved' && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Grant Certifications</Text>
@@ -1548,7 +1548,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 </Text>
                 <View style={styles.memberActionButtons}>
                   {/* STRICT READ-ONLY: Manage Members button completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && onManageMembers && (
+                  {!readOnly && canEdit() && company.approval_status === 'approved' && onManageMembers && (
                     <TouchableOpacity
                       style={styles.manageButton}
                       onPress={() => onManageMembers(company)}
@@ -1557,16 +1557,16 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                       <Text style={styles.manageButtonText}>Manage</Text>
                     </TouchableOpacity>
                   )}
-                  {/* STRICT READ-ONLY: Invite Member button completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && onInviteMember && (
-                    <TouchableOpacity
-                      style={styles.manageButton}
-                      onPress={() => onInviteMember(company)}
-                    >
-                      <Ionicons name="person-add-outline" size={18} color="#000" />
-                      <Text style={styles.manageButtonText}>Invite</Text>
-                    </TouchableOpacity>
-                  )}
+                {/* STRICT READ-ONLY: Invite Member button completely removed when readOnly is true */}
+                {!readOnly && canEdit() && company.approval_status === 'approved' && onInviteMember && (
+                  <TouchableOpacity
+                    style={styles.manageButton}
+                    onPress={() => onInviteMember(company)}
+                  >
+                    <Ionicons name="person-add-outline" size={18} color="#000" />
+                    <Text style={styles.manageButtonText}>Invite</Text>
+                  </TouchableOpacity>
+                )}
                 </View>
                 {readOnly && !membersRequested && (
                   <TouchableOpacity
@@ -1668,7 +1668,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     {readOnly && !membersRequested ? 'Tap "Load" to view team members' : 'No members yet'}
                   </Text>
                   {/* STRICT READ-ONLY: Management buttons completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && (
+                  {!readOnly && canEdit() && company.approval_status === 'approved' && (
                     <View style={styles.emptyStateButtons}>
                       {onManageMembers && (
                         <TouchableOpacity
@@ -1680,12 +1680,12 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                         </TouchableOpacity>
                       )}
                       {onInviteMember && (
-                        <TouchableOpacity
-                          style={styles.addButton}
-                          onPress={() => onInviteMember(company)}
-                        >
-                          <Text style={styles.addButtonText}>Invite Members</Text>
-                        </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.addButton}
+                      onPress={() => onInviteMember(company)}
+                    >
+                      <Text style={styles.addButtonText}>Invite Members</Text>
+                    </TouchableOpacity>
                       )}
                     </View>
                   )}
@@ -1693,9 +1693,9 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               )}
             </View>
 
-            {/* Documents Section - Only show if company is not approved */}
+            {/* Documents Section - Show when company is pending or rejected, allow document upload */}
             {/* STRICT READ-ONLY: Documents section completely removed when readOnly is true */}
-            {!readOnly && company.approval_status !== 'approved' && (isOwner() || canEdit()) && (
+            {!readOnly && (company.approval_status === 'pending' || company.approval_status === 'rejected') && (isOwner() || canEdit()) && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Documents</Text>
