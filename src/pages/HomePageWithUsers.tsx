@@ -9,6 +9,7 @@ import SkeletonSectionCard from '../components/SkeletonSectionCard';
 import { HomePageProps } from '../types';
 import { SECTIONS } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import { getRoleName, filterRolesByCategory } from '../utils/roleCategorizer';
 
@@ -52,10 +53,14 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   onSearchChange,
   onToggleTheme,
   theme,
-  onNavigate,
+  onNavigate: onNavigateProp,
   user,
   onOpenMainMenu,
 }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+
   const { api, getUsersDirect, isGuest, browseUsersAsGuest, getCompanies, getRoles } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);

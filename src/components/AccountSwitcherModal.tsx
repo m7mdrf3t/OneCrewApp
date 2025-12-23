@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import { rateLimiter } from '../utils/rateLimiter';
 import { spacing, semanticSpacing } from '../constants/spacing';
 
@@ -26,8 +27,12 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
   visible,
   onClose,
   onCreateCompany,
-  onNavigate,
+  onNavigate: onNavigateProp,
 }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+
   const {
     user,
     activeCompany,

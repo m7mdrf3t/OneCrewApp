@@ -1,9 +1,12 @@
 import { Platform } from 'react-native';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
 
 // Dynamically import GoogleSignin to handle cases where native module isn't available
 let GoogleSignin: any;
 let statusCodes: any;
 let isInitialized = false;
+let supabaseClient: SupabaseClient | null = null;
 
 try {
   const googleSignInModule = require('@react-native-google-signin/google-signin');
@@ -90,8 +93,33 @@ export const initializeGoogleSignIn = async () => {
 };
 
 /**
- * Sign in with Google and return the ID token
- * @returns Promise<string> - The Google ID token
+ * Initialize Supabase client for OAuth
+ */
+const getSupabaseClient = (): SupabaseClient => {
+  if (supabaseClient) {
+    return supabaseClient;
+  }
+
+  const supabaseUrl = 
+    Constants.expoConfig?.extra?.supabaseUrl || 
+    process.env.SUPABASE_URL || 
+    '';
+  const supabaseAnonKey = 
+    Constants.expoConfig?.extra?.supabaseAnonKey || 
+    process.env.SUPABASE_ANON_KEY || 
+    '';
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Supabase URL or Anon Key not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY in app.json or environment variables.');
+  }
+
+  supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+  return supabaseClient;
+};
+
+/**
+ * Sign in with Google using Supabase OAuth
+ * @returns Promise<string> - The Supabase access token
  */
 export const signInWithGoogle = async (): Promise<string> => {
   try {
@@ -181,8 +209,26 @@ export const signInWithGoogle = async (): Promise<string> => {
       throw new Error('No ID token received from Google Sign-In');
     }
 
-    console.log('✅ Google Sign-In successful');
-    return userInfo.idToken;
+    console.log('✅ Google ID token received, exchanging with Supabase...');
+    
+    // Step 2: Exchange Google ID token for Supabase session
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.auth.signInWithIdToken({
+      provider: 'google',
+      token: userInfo.idToken,
+    });
+
+    if (error) {
+      console.error('❌ Supabase OAuth error:', error);
+      throw new Error(error.message || 'Failed to authenticate with Supabase');
+    }
+
+    if (!data.session || !data.session.access_token) {
+      throw new Error('No access token received from Supabase');
+    }
+
+    console.log('✅ Supabase OAuth successful, access token received');
+    return data.session.access_token;
   } catch (error: any) {
     console.error('❌ Google Sign-In error:', error);
     console.error('Error details:', {

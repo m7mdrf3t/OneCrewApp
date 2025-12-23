@@ -35,6 +35,7 @@ import ReferenceDataService from '../services/ReferenceDataService';
 import supabaseService from '../services/SupabaseService';
 import pushNotificationService from '../services/PushNotificationService';
 import { initializeGoogleSignIn, signInWithGoogle } from '../services/GoogleAuthService';
+import { initializeAppleAuthentication, signInWithApple } from '../services/AppleAuthService';
 import agendaService from '../services/AgendaService';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
 import { FilterParams } from '../components/FilterModal';
@@ -68,6 +69,7 @@ interface ApiContextType {
   logout: () => Promise<void>;
   signup: (userData: SignupRequest) => Promise<AuthResponse>;
   googleSignIn: (category?: 'crew' | 'talent' | 'company', primaryRole?: string) => Promise<AuthResponse>;
+  appleSignIn: (category?: 'crew' | 'talent' | 'company', primaryRole?: string) => Promise<AuthResponse>;
   forgotPassword: (email: string) => Promise<void>;
   verifyResetOtp: (email: string, otpCode: string) => Promise<{ resetToken: string }>;
   resetPassword: (resetToken: string, newPassword: string) => Promise<void>;
@@ -364,8 +366,8 @@ interface ApiProviderProps {
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
    // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
-  //baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app' // Staging server
- baseUrl = 'http://localhost:3000' // Local server
+  //baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
+  baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
     console.log('🔧 Initializing OneCrewApi with baseUrl:', baseUrl);
@@ -508,7 +510,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const isTokenInvalidated = 
         errorMessage.toLowerCase().includes('token has been invalidated') ||
         errorMessage.toLowerCase().includes('invalidated') ||
-        errorMessage.toLowerCase().includes('please sign in again');
+        errorMessage.toLowerCase().includes('please sign in again') ||
+        errorMessage.toLowerCase().includes('invalid token') ||
+        errorMessage.toLowerCase().includes('token is invalid') ||
+        errorMessage.toLowerCase().includes('unauthorized');
 
       if (isTokenInvalidated) {
         isHandling401Ref.current = true;
@@ -650,6 +655,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Initialize Google Sign-In
         try {
           await initializeGoogleSignIn();
+          await initializeAppleAuthentication();
           console.log('✅ Google Sign-In initialized');
         } catch (err) {
           console.warn('⚠️ Failed to initialize Google Sign-In:', err);
@@ -1232,20 +1238,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     setError(null);
     
     try {
-      // Step 1: Get ID token from Google
-      console.log('📱 Requesting Google Sign-In...');
-      const idToken = await signInWithGoogle();
-      console.log('✅ Google ID token received');
+      // Step 1: Get Supabase access token via Google OAuth
+      console.log('📱 Requesting Google Sign-In via Supabase OAuth...');
+      const accessToken = await signInWithGoogle();
+      console.log('✅ Supabase access token received');
       
-      // Step 2: Send ID token to backend
-      const requestBody: GoogleAuthRequest = {
-        idToken: idToken,
+      // Step 2: Send Supabase access token to backend
+      const requestBody: any = {
+        accessToken: accessToken,
         ...(category && { category }),
         ...(primaryRole && { primary_role: primaryRole }),
       };
       
       console.log('📤 Sending Google auth request to backend:', {
-        hasIdToken: !!idToken,
+        hasAccessToken: !!accessToken,
         category: category || 'not provided',
         primaryRole: primaryRole || 'not provided',
       });
@@ -1454,6 +1460,278 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const appleSignIn = async (category?: 'crew' | 'talent' | 'company', primaryRole?: string) => {
+    console.log('🍎 Apple Sign-In attempt');
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Step 1: Get Supabase access token via Apple OAuth
+      console.log('📱 Requesting Apple Sign-In via Supabase OAuth...');
+      const accessToken = await signInWithApple();
+      console.log('✅ Supabase access token received');
+      
+      // Step 2: Use API client method if available (v2.26.0+), otherwise fallback to direct fetch
+      let authResponse: any;
+      let userData: any = null;
+      let token: string | null = null;
+      
+      // Check if the new API client method is available
+      if (api.auth && typeof (api.auth as any).signInWithApple === 'function') {
+        console.log('📤 Using API client signInWithApple method (v2.26.0+)');
+        try {
+          const response = await (api.auth as any).signInWithApple(accessToken, category, primaryRole);
+          
+          if (!response.success) {
+            throw new Error(response.message || 'Apple Sign-In failed');
+          }
+          
+          authResponse = response;
+          
+          // Extract user data and token from API client response
+          if (response.data) {
+            if (response.data.user) {
+              userData = response.data.user;
+            } else if (response.data.userData) {
+              userData = response.data.userData;
+            } else if (response.data.id || response.data.name || response.data.email) {
+              userData = response.data;
+            }
+            
+            if (response.data.token) {
+              token = response.data.token;
+            } else if (response.data.accessToken) {
+              token = response.data.accessToken;
+            }
+          }
+        } catch (apiError: any) {
+          // If API client method fails, check for category required error
+          if (apiError.code === 'CATEGORY_REQUIRED' || 
+              apiError.message?.toLowerCase().includes('category') && 
+              apiError.message?.toLowerCase().includes('required')) {
+            console.log('⚠️ Category required for new user');
+            const categoryError = new Error('CATEGORY_REQUIRED');
+            (categoryError as any).code = 'CATEGORY_REQUIRED';
+            throw categoryError;
+          }
+          throw apiError;
+        }
+      } else {
+        // Fallback to direct fetch for older API client versions
+        console.log('📤 Using direct fetch (fallback for older API client versions)');
+        const requestBody: any = {
+          accessToken: accessToken,
+          ...(category && { category }),
+          ...(primaryRole && { primary_role: primaryRole }),
+        };
+        
+        console.log('📤 Sending Apple auth request to backend:', {
+          hasAccessToken: !!accessToken,
+          category: category || 'not provided',
+          primaryRole: primaryRole || 'not provided',
+        });
+        
+        const response = await fetch(`${baseUrl}/api/auth/apple`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        const responseText = await response.text();
+        
+        if (!response.ok) {
+          let errorMessage = responseText || `HTTP ${response.status}: ${response.statusText}`;
+          try {
+            const errorData = JSON.parse(responseText);
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          } catch {
+            // Not JSON, use text response as error message
+          }
+          
+          // Check if error is about missing category
+          if (errorMessage.toLowerCase().includes('category') && errorMessage.toLowerCase().includes('required')) {
+            console.log('⚠️ Category required for new user');
+            // Return a special error that can be caught by the UI to show category selection
+            const categoryError = new Error('CATEGORY_REQUIRED');
+            (categoryError as any).code = 'CATEGORY_REQUIRED';
+            throw categoryError;
+          }
+          
+          throw new Error(errorMessage);
+        }
+
+        // Parse response
+        try {
+          authResponse = JSON.parse(responseText);
+        } catch (parseError: any) {
+          console.error('❌ Failed to parse response as JSON:', responseText);
+          throw new Error(responseText || 'Server returned invalid JSON response');
+        }
+        
+        // Extract user data and token from fetch response
+        if (authResponse.data) {
+          if (authResponse.data.user) {
+            userData = authResponse.data.user;
+          } else if (authResponse.data.userData) {
+            userData = authResponse.data.userData;
+          } else if (authResponse.data.id || authResponse.data.name || authResponse.data.email) {
+            userData = authResponse.data;
+          }
+          
+          if (authResponse.data.token) {
+            token = authResponse.data.token;
+          } else if (authResponse.data.accessToken) {
+            token = authResponse.data.accessToken;
+          }
+        }
+        
+        // Fallback to root level
+        if (!userData) {
+          userData = authResponse.user;
+        }
+        
+        if (!token) {
+          token = authResponse.token || authResponse.accessToken;
+        }
+      }
+      
+      console.log('✅ Apple Sign-In successful:', authResponse);
+      
+      if (!userData) {
+        throw new Error('Apple Sign-In response missing user data');
+      }
+      
+      if (!token) {
+        throw new Error('Apple Sign-In response missing authentication token');
+      }
+      
+      console.log('🔑 Storing access token and user data');
+      
+      // Clear any existing tokens before storing new ones to ensure complete replacement
+      console.log('🧹 Clearing old tokens before storing new token...');
+      await clearAllAuthData();
+      
+      // Clear password reset flag if it exists (user successfully signed in after reset)
+      try {
+        await AsyncStorage.removeItem('passwordResetFlag');
+        console.log('✅ Password reset flag cleared');
+      } catch (err) {
+        console.warn('⚠️ Failed to clear password reset flag:', err);
+      }
+      
+      // Store auth data using the same method as login
+      if ((api as any).auth && typeof (api as any).auth.setAuthData === 'function') {
+        await (api as any).auth.setAuthData({
+          token: token,
+          user: userData
+        });
+      } else {
+        if ((api as any).apiClient && typeof (api as any).apiClient.setAuthToken === 'function') {
+          (api as any).apiClient.setAuthToken(token);
+        }
+        
+        if ((api as any).auth) {
+          (api as any).auth.authToken = token;
+          (api as any).auth.token = token;
+          (api as any).auth.accessToken = token;
+          (api as any).auth.currentUser = userData;
+        }
+      }
+      
+      // CRITICAL: Ensure API client headers are updated immediately after storing token
+      // This prevents race conditions where API calls are made before token is available
+      if ((api as any).apiClient) {
+        if (!(api as any).apiClient.defaultHeaders) {
+          (api as any).apiClient.defaultHeaders = {};
+        }
+        (api as any).apiClient.defaultHeaders['Authorization'] = `Bearer ${token}`;
+        console.log('✅ API client headers updated with new token');
+      }
+      
+      // Also update auth service properties directly to ensure immediate availability
+      if ((api as any).auth) {
+        (api as any).auth.authToken = token;
+        (api as any).auth.token = token;
+        (api as any).auth.accessToken = token;
+      }
+      
+      // Mark recent login FIRST to prevent immediate 401 handling (before setIsAuthenticated triggers API calls)
+      recentLoginRef.current = Date.now();
+      console.log('✅ Recent login timestamp set - 401 handling will be skipped for', RECENT_LOGIN_WINDOW, 'ms');
+      
+      // Update user state
+      setUser(userData);
+      setIsAuthenticated(true);
+      
+      // Set up token refresh callback for automatic re-registration
+      pushNotificationService.setOnTokenRefreshCallback((newToken) => {
+        if (api.auth.isAuthenticated()) {
+          console.log('📱 Token refreshed, re-registering with backend...');
+          registerPushToken(newToken).catch((error) => {
+            console.warn('⚠️ Failed to re-register token after refresh:', error);
+          });
+        }
+      });
+
+      // Register for push notifications after successful login
+      setTimeout(async () => {
+        try {
+          console.log('📱 Registering for push notifications...');
+          const pushToken = await pushNotificationService.initialize();
+          console.log('📱 [AppleLogin] Push token from initialize():', pushToken ? pushToken.substring(0, 20) + '...' : 'null');
+          console.log('📱 [AppleLogin] Is authenticated:', api.auth.isAuthenticated());
+          if (pushToken && api.auth.isAuthenticated()) {
+            console.log('📱 [AppleLogin] Calling registerPushToken...');
+            await registerPushToken(pushToken);
+          } else {
+            console.warn('⚠️ [AppleLogin] Skipping token registration:', {
+              hasToken: !!pushToken,
+              isAuthenticated: api.auth.isAuthenticated()
+            });
+          }
+        } catch (error) {
+          console.error('❌ [AppleLogin] Failed to register push notifications:', error);
+        }
+      }, 500);
+      
+      // Fetch complete user profile data after login
+      setTimeout(async () => {
+        console.log('🔄 Fetching complete user profile after Apple Sign-In...');
+        try {
+          const completeUser = await fetchCompleteUserProfile(userData.id, userData);
+          if (completeUser) {
+            console.log('👤 Complete user profile loaded:', completeUser);
+            setUser(completeUser as User);
+          }
+        } catch (err) {
+          console.warn('⚠️ Failed to load complete user profile:', err);
+        }
+      }, 1000);
+      
+      return {
+        user: userData,
+        token: token,
+      } as AuthResponse;
+      
+    } catch (err: any) {
+      console.error('❌ Apple Sign-In failed:', err);
+      
+      // Don't set error state for category required - let UI handle it
+      if (err.code === 'CATEGORY_REQUIRED') {
+        throw err;
+      }
+      
+      setIsAuthenticated(false);
+      setUser(null);
+      setError(err.message || 'Apple Sign-In failed');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async () => {
     // Clear token refresh callback
     pushNotificationService.clearTokenRefreshCallback();
@@ -1481,7 +1759,25 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       await pushNotificationService.clearToken();
       await pushNotificationService.setBadgeCount(0);
       
-      await api.auth.logout();
+      // Try to call logout API, but don't fail if token is invalid
+      try {
+        await api.auth.logout();
+      } catch (logoutError: any) {
+        // If logout fails due to invalid token, that's expected - continue with cleanup
+        const isInvalidToken = logoutError?.status === 401 || 
+                              logoutError?.statusCode === 401 ||
+                              (logoutError?.message || logoutError?.error || '').toLowerCase().includes('invalid token');
+        if (isInvalidToken) {
+          console.log('⚠️ Logout API call failed due to invalid token (expected) - continuing with cleanup');
+        } else {
+          console.warn('⚠️ Logout API call failed (non-critical):', logoutError);
+        }
+      }
+      
+      // Clear all auth data (including tokens from API client)
+      await clearAllAuthData();
+      
+      // Clear local state
       setUser(null);
       setIsAuthenticated(false);
       // Clear notification state
@@ -1489,6 +1785,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       setUnreadNotificationCount(0);
     } catch (err) {
       console.error('Logout failed:', err);
+      
+      // Always clear all auth data, even on error
+      try {
+        await clearAllAuthData();
+      } catch (clearError) {
+        console.error('❌ Error clearing auth data during logout:', clearError);
+      }
+      
       // Clear local state even if API call fails
       setUser(null);
       setIsAuthenticated(false);
@@ -7679,6 +7983,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     login,
     signup,
     googleSignIn,
+    appleSignIn,
     logout,
     forgotPassword,
     verifyResetOtp,

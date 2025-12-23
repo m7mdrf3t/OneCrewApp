@@ -20,13 +20,15 @@ import { filterRolesByCategory } from '../utils/roleCategorizer';
 interface SignupPageProps {
   onNavigateToLogin: () => void;
   onSignupSuccess: (email: string) => void;
+  onLoginSuccess?: () => void;
 }
 
 const SignupPage: React.FC<SignupPageProps> = ({
   onNavigateToLogin,
   onSignupSuccess,
+  onLoginSuccess,
 }) => {
-  const { signup, googleSignIn, isLoading, error, clearError, isAuthenticated, getRoles } = useApi();
+  const { signup, googleSignIn, appleSignIn, isLoading, error, clearError, isAuthenticated, getRoles } = useApi();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -40,6 +42,8 @@ const SignupPage: React.FC<SignupPageProps> = ({
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
+  const [pendingAppleSignIn, setPendingAppleSignIn] = useState(false);
+  const [pendingAuthProvider, setPendingAuthProvider] = useState<'google' | 'apple' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [crewRoles, setCrewRoles] = useState<string[]>([]);
   const [talentRoles, setTalentRoles] = useState<string[]>([]);
@@ -332,18 +336,23 @@ const SignupPage: React.FC<SignupPageProps> = ({
     try {
       clearError();
       setPendingGoogleSignIn(true);
+      setPendingAuthProvider('google');
       
       // Try without category first (for existing users)
       const authResponse = await googleSignIn();
-      // For Google Sign-In, use the email from the response or form data
-      const email = authResponse?.user?.email || formData.email.trim().toLowerCase() || '';
-      onSignupSuccess(email);
+      // Google Sign-In succeeded - user is authenticated (Google already verified email)
+      // Both existing and new users go directly to app (no OTP needed for Google Sign In)
+      setPendingAuthProvider(null);
+      if (onLoginSuccess) {
+        onLoginSuccess();
+      }
     } catch (err: any) {
       console.error('❌ Google Sign-In error in SignupPage:', err);
       
       // Don't show alert if user cancelled - this is expected behavior
       if (err?.message?.toLowerCase().includes('cancelled')) {
         console.log('ℹ️ User cancelled Google Sign-In');
+        setPendingAuthProvider(null);
         return;
       }
       
@@ -352,6 +361,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
         // Show category selection modal
         setShowCategoryModal(true);
       } else {
+        setPendingAuthProvider(null);
         const errorMessage = err?.message || err?.toString() || 'Google Sign-Up failed. Please try again.';
         Alert.alert('Google Sign-Up Failed', errorMessage);
       }
@@ -364,17 +374,78 @@ const SignupPage: React.FC<SignupPageProps> = ({
     try {
       setShowCategoryModal(false);
       clearError();
-      setPendingGoogleSignIn(true);
-      const authResponse = await googleSignIn(category, primaryRole);
-      // For Google Sign-In, use the email from the response or form data
-      const email = authResponse?.user?.email || formData.email.trim().toLowerCase() || '';
-      onSignupSuccess(email);
+      
+      let authResponse;
+      if (pendingAuthProvider === 'google') {
+        setPendingGoogleSignIn(true);
+        authResponse = await googleSignIn(category, primaryRole);
+      } else if (pendingAuthProvider === 'apple') {
+        setPendingAppleSignIn(true);
+        authResponse = await appleSignIn(category, primaryRole);
+      } else {
+        // Fallback to Google if provider not set
+        setPendingGoogleSignIn(true);
+        authResponse = await googleSignIn(category, primaryRole);
+      }
+      
+      // After category selection, user is authenticated - go directly to app
+      // Google/Apple Sign In doesn't require OTP verification (provider already verified email)
+      setPendingAuthProvider(null);
+      if (onLoginSuccess) {
+        onLoginSuccess();
+      }
     } catch (err: any) {
-      console.error('Google Sign-In error in category select:', err);
-      const errorMessage = err?.message || err?.toString() || 'Google Sign-Up failed. Please try again.';
-      Alert.alert('Google Sign-Up Failed', errorMessage);
+      console.error('Sign-In error in category select:', err);
+      const providerName = pendingAuthProvider === 'apple' ? 'Apple' : 'Google';
+      const errorMessage = err?.message || err?.toString() || `${providerName} Sign-Up failed. Please try again.`;
+      Alert.alert(`${providerName} Sign-Up Failed`, errorMessage);
+      setPendingAuthProvider(null);
     } finally {
       setPendingGoogleSignIn(false);
+      setPendingAppleSignIn(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    if (pendingAppleSignIn || isLoading) {
+      console.log('⚠️ Apple Sign-In already in progress, ignoring duplicate call');
+      return;
+    }
+
+    try {
+      clearError();
+      setPendingAppleSignIn(true);
+      setPendingAuthProvider('apple');
+      
+      // Try without category first (for existing users)
+      const authResponse = await appleSignIn();
+      // Apple Sign-In succeeded - user is authenticated (Apple already verified email)
+      // Both existing and new users go directly to app (no OTP needed for Apple Sign In)
+      setPendingAuthProvider(null);
+      if (onLoginSuccess) {
+        onLoginSuccess();
+      }
+    } catch (err: any) {
+      console.error('❌ Apple Sign-In error in SignupPage:', err);
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled Apple Sign-In');
+        setPendingAuthProvider(null);
+        return;
+      }
+      
+      // Check if error is about category being required
+      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
+        // Show category selection modal
+        setShowCategoryModal(true);
+      } else {
+        setPendingAuthProvider(null);
+        const errorMessage = err?.message || err?.toString() || 'Apple Sign-Up failed. Please try again.';
+        Alert.alert('Apple Sign-Up Failed', errorMessage);
+      }
+    } finally {
+      setPendingAppleSignIn(false);
     }
   };
 
@@ -678,8 +749,7 @@ const SignupPage: React.FC<SignupPageProps> = ({
             )}
           </TouchableOpacity>
 
-          {/* Google Sign-Up temporarily hidden */}
-          {/* <View style={styles.divider}>
+          <View style={styles.divider}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>OR</Text>
             <View style={styles.dividerLine} />
@@ -696,7 +766,22 @@ const SignupPage: React.FC<SignupPageProps> = ({
                 {pendingGoogleSignIn ? 'Signing Up...' : 'Sign up with Google'}
               </Text>
             </View>
-          </TouchableOpacity> */}
+          </TouchableOpacity>
+
+          {Platform.OS === 'ios' && (
+            <TouchableOpacity
+              style={[styles.appleButton, (isLoading || pendingAppleSignIn) && styles.appleButtonDisabled]}
+              onPress={handleAppleSignIn}
+              disabled={isLoading || pendingAppleSignIn}
+            >
+              <View style={styles.appleButtonContent}>
+                <Ionicons name="logo-apple" size={20} color="#fff" />
+                <Text style={styles.appleButtonText}>
+                  {pendingAppleSignIn ? 'Signing Up...' : 'Sign up with Apple'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.loginContainer}>
             <Text style={styles.loginText}>Already have an account? </Text>
@@ -710,8 +795,11 @@ const SignupPage: React.FC<SignupPageProps> = ({
       <CategorySelectionModal
         visible={showCategoryModal}
         onSelect={handleCategorySelect}
-        onCancel={() => setShowCategoryModal(false)}
-        isLoading={isLoading || pendingGoogleSignIn}
+        onCancel={() => {
+          setShowCategoryModal(false);
+          setPendingAuthProvider(null);
+        }}
+        isLoading={isLoading || pendingGoogleSignIn || pendingAppleSignIn}
       />
     </KeyboardAvoidingView>
   );
@@ -983,6 +1071,28 @@ const styles = StyleSheet.create({
   },
   googleButtonText: {
     color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  appleButton: {
+    backgroundColor: '#000',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: '#000',
+  },
+  appleButtonDisabled: {
+    opacity: 0.5,
+  },
+  appleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  appleButtonText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },

@@ -36,6 +36,12 @@
           <string>exp+one-crew</string>
         </array>
       </dict>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>com.googleusercontent.apps.309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj</string>
+        </array>
+      </dict>
     </array>
     <key>CFBundleVersion</key>
     <string>2</string>

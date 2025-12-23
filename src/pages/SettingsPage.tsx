@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { shareAppInvite } from '../utils/shareAppInvite';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -32,13 +33,17 @@ interface SettingsItem {
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ 
   onBack, 
-  onNavigate, 
+  onNavigate: onNavigateProp, 
   theme = 'light', 
   onToggleTheme,
   isGuest = false,
   onSignUp,
   onSignIn,
 }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+  
   const isDark = theme === 'dark';
 
   const handleInviteFriend = async () => {
@@ -69,14 +74,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             id: 'changePassword',
             title: 'Change Password',
             icon: 'lock-closed' as keyof typeof Ionicons.glyphMap,
-            action: () => onNavigate?.('changePassword'),
+            action: () => onNavigate('changePassword'),
             showArrow: true,
           },
           {
             id: 'deleteAccount',
             title: 'Delete Account',
             icon: 'trash' as keyof typeof Ionicons.glyphMap,
-            action: () => onNavigate?.('accountDeletion'),
+            action: () => onNavigate('accountDeletion'),
             showArrow: true,
             danger: true,
           },
@@ -121,14 +126,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           id: 'privacyPolicy',
           title: 'Privacy Policy',
           icon: 'shield',
-          action: () => onNavigate?.('privacyPolicy'),
+          action: () => onNavigate('privacyPolicy'),
           showArrow: true,
         },
         {
           id: 'support',
           title: 'Support',
           icon: 'help-circle',
-          action: () => onNavigate?.('support'),
+          action: () => onNavigate('support'),
           showArrow: true,
         },
       ],
@@ -136,7 +141,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   ];
 
   // Add developer tools section in dev mode
-  if (__DEV__ && onNavigate) {
+  if (__DEV__) {
     settingsSections.push({
       title: 'Developer',
       items: [

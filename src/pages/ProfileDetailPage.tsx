@@ -1,29 +1,61 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking, Modal, Dimensions, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { ProfileDetailPageProps } from '../types';
 import { getInitials } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
+import { RootStackScreenProps } from '../navigation/types';
 import ProfileCompletionBanner from '../components/ProfileCompletionBanner';
 import SignUpPromptModal from '../components/SignUpPromptModal';
 import CertificationCard from '../components/CertificationCard';
 import { UserCertification } from '../types';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import SkeletonProfilePage from '../components/SkeletonProfilePage';
+import ProfileHeaderRight from '../components/ProfileHeaderRight';
+import NotificationModal from '../components/NotificationModal';
+import AccountSwitcherModal from '../components/AccountSwitcherModal';
+import UserMenuModal from '../components/UserMenuModal';
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void; onNavigate?: (page: string, data?: any) => void }> = ({
-  profile,
-  onBack,
+  profile: profileProp,
+  onBack: onBackProp,
   onAssignToProject,
   onAddToTeam,
-  myTeam,
+  myTeam: myTeamProp,
   onStartChat,
   onMediaSelect,
   isCurrentUser = false,
   onLogout,
-  onNavigate,
+  onNavigate: onNavigateProp,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'profile'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  
+  const { navigateTo, goBack } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+  const onBack = onBackProp || goBack;
+  
+  // Get profile from route params or prop
+  const profile = profileProp || routeParams?.profile || routeParams?.user;
+
+  // If no profile provided, show loading/error state
+  if (!profile) {
+    return (
+      <View style={styles.container}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" />
+          <Text>Loading profile...</Text>
+        </View>
+      </View>
+    );
+  }
+  
   const { 
     api, 
     user: currentUser, 
@@ -39,7 +71,26 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     getMyOwnerProjects,
     getUserProfilePictures,
     socialLinksRefreshTrigger,
+    getMyTeamMembers,
   } = useApi();
+  
+  // Ensure myTeam is always an array
+  const [myTeam, setMyTeam] = useState<any[]>(myTeamProp || []);
+  
+  // Load team members if not provided and user is authenticated
+  useEffect(() => {
+    if (!myTeamProp && isAuthenticated && !isGuest) {
+      getMyTeamMembers().then((response) => {
+        if (response.success && response.data) {
+          setMyTeam(response.data || []);
+        }
+      }).catch((error) => {
+        console.error('Failed to load team members:', error);
+        setMyTeam([]);
+      });
+    }
+  }, [myTeamProp, isAuthenticated, isGuest, getMyTeamMembers]);
+  
   const [userProfile, setUserProfile] = useState(profile);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +102,9 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   const [galleryTab, setGalleryTab] = useState<'albums' | 'images' | 'videos' | 'audio'>('albums');
   const [showCompletionBanner, setShowCompletionBanner] = useState(true);
   const [certifications, setCertifications] = useState<UserCertification[]>([]);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [loadingCertifications, setLoadingCertifications] = useState(false);
   const [socialLinks, setSocialLinks] = useState<any[]>([]);
   const [loadingSocialLinks, setLoadingSocialLinks] = useState(false);
@@ -370,7 +424,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     loadProfilePictures();
   }, [profile?.id, userProfile?.id, getUserProfilePictures]);
 
-  const isInTeam = myTeam.some(member => member.id === userProfile.id);
+  const isInTeam = Array.isArray(myTeam) && myTeam.length > 0 && myTeam.some(member => member?.id === userProfile?.id);
 
   // Calculate profile completeness
   const calculateProfileCompleteness = (profile: any) => {
@@ -463,22 +517,35 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     return num.toString();
   };
 
+  // Configure header with icons
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <ProfileHeaderRight
+          onShowNotifications={() => setShowNotificationModal(true)}
+          onShowMessages={() => navigateTo('conversations')}
+          onShowAccountSwitcher={() => setShowAccountSwitcher(true)}
+          onShowMenu={() => setShowUserMenu(true)}
+        />
+      ),
+    });
+  }, [navigation, navigateTo]);
+
   // Show loading state
   if (isLoading) {
-    return <SkeletonProfilePage isDark={false} />;
+    return (
+      <View style={styles.container}>
+        <View style={{ flex: 1 }}>
+          <SkeletonProfilePage isDark={false} />
+        </View>
+      </View>
+    );
   }
 
   // Show error state
   if (error) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Error</Text>
-          <View style={styles.placeholder} />
-        </View>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle" size={48} color="#ef4444" />
           <Text style={styles.errorText}>{error}</Text>
@@ -497,14 +564,11 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.title}>{userProfile.name}</Text>
-        <View style={styles.placeholder} />
-      </View>
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.content}
+        contentContainerStyle={{ paddingTop: 0 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Profile Completion Banner */}
         <ProfileCompletionBanner
           completionPercentage={profileCompleteness}
@@ -1389,17 +1453,12 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                           console.log('👤 Selected user:', userProfile);
                           setShowProjectSelectionModal(false);
                           // Navigate to project with user profile data
-                          if (onNavigate) {
-                            console.log('🚀 Navigating via onNavigate to projectDetail');
-                            onNavigate('projectDetail', { 
-                              project, 
-                              selectedUser: userProfile,
-                              addUserToTask: true 
-                            });
-                          } else {
-                            console.log('⚠️ onNavigate not available, using onAssignToProject');
-                            onAssignToProject(userProfile);
-                          }
+                          console.log('🚀 Navigating via onNavigate to projectDetail');
+                          onNavigate('projectDetail', { 
+                            project, 
+                            selectedUser: userProfile,
+                            addUserToTask: true 
+                          });
                         }}
                       >
                         <View style={styles.projectItemLeft}>
@@ -1479,6 +1538,69 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         }}
         action={promptAction}
       />
+
+      {/* Notification Modal */}
+      <NotificationModal
+        visible={showNotificationModal}
+        onClose={() => setShowNotificationModal(false)}
+        onNotificationPress={(notification) => {
+          setShowNotificationModal(false);
+          // Handle notification press - navigate to relevant page
+          if (notification.data?.project_id) {
+            navigateTo('projectDetail', { id: notification.data.project_id });
+          } else if (notification.data?.conversation_id) {
+            navigateTo('chat', { conversationId: notification.data.conversation_id });
+          }
+        }}
+      />
+
+      {/* Account Switcher Modal */}
+      <AccountSwitcherModal
+        visible={showAccountSwitcher}
+        onClose={() => setShowAccountSwitcher(false)}
+        onCreateCompany={() => {
+          setShowAccountSwitcher(false);
+          navigateTo('companyRegistration');
+        }}
+      />
+
+      {/* User Menu Modal */}
+      <UserMenuModal
+        visible={showUserMenu}
+        onClose={() => setShowUserMenu(false)}
+        onMyTeam={() => {
+          setShowUserMenu(false);
+          // Navigate to team page or show team modal
+        }}
+        onSettings={() => {
+          setShowUserMenu(false);
+          navigateTo('settings');
+        }}
+        onProfileEdit={() => {
+          setShowUserMenu(false);
+          if (userProfile) {
+            navigateTo('profileCompletion', userProfile);
+          }
+        }}
+        onHelpSupport={() => {
+          setShowUserMenu(false);
+          navigateTo('support');
+        }}
+        onLogout={onLogout || (async () => {
+          setShowUserMenu(false);
+          // Handle logout
+        })}
+        theme="light"
+        isGuest={isGuest}
+        onSignUp={() => {
+          setShowUserMenu(false);
+          navigateTo('signup');
+        }}
+        onSignIn={() => {
+          setShowUserMenu(false);
+          navigateTo('login');
+        }}
+      />
     </View>
   );
 };
@@ -1487,28 +1609,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f4f4f5',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderBottomWidth: 2,
-    borderBottomColor: '#000',
-    padding: semanticSpacing.containerPadding,
-    paddingTop: semanticSpacing.containerPaddingLarge,
-  },
-  backButton: {
-    padding: spacing.xs,
-    marginRight: semanticSpacing.containerPadding,
-  },
-  title: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  placeholder: {
-    width: 32,
   },
   content: {
     flex: 1,

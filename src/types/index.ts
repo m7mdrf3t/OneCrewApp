@@ -192,7 +192,7 @@ export interface ConvertGuestToUserRequest {
 }
 
 export interface GoogleAuthRequest {
-  idToken: string;
+  accessToken: string; // Supabase access token (changed from idToken)
   category?: 'crew' | 'talent' | 'company';
   primary_role?: string;
 }

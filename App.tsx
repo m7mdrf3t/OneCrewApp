@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { NavigationContainer } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -12,6 +13,11 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { ApiProvider, useApi } from './src/contexts/ApiContext';
 import pushNotificationService from './src/services/PushNotificationService';
 import { queryClient } from './src/services/queryClient';
+
+// Navigation
+import { AppNavigator } from './src/navigation/AppNavigator';
+import { NavigationProvider, navigationRef } from './src/navigation/NavigationContext';
+import { RootStackParamList } from './src/navigation/types';
 
 // Components
 import TabBar from './src/components/TabBar';
@@ -74,14 +80,13 @@ import PerformanceTestPage from './src/pages/PerformanceTestPage';
 
 // Data
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
-import { NavigationState, User, ProjectCreationData, ProjectDashboardData, Notification } from './src/types';
+import { User, ProjectCreationData, ProjectDashboardData, Notification } from './src/types';
 import { spacing, semanticSpacing } from './src/constants/spacing';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
   const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted, getCompanyMembers } = useApi();
   const [showSplash, setShowSplash] = useState(true);
-  const [history, setHistory] = useState<NavigationState[]>([{ name: 'spot', data: null }]);
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState('spot');
   const [myTeam, setMyTeam] = useState([MOCK_PROFILES[0], MOCK_PROFILES[1]]);
@@ -122,17 +127,86 @@ const AppContent: React.FC = () => {
     }
   }, [systemColorScheme]);
 
-  // Navigation function - defined early so it can be used in useEffect
+  // Track current route to update tab and show/hide TabBar
+  const [currentRoute, setCurrentRoute] = useState<string>('spot');
+  const mainTabRoutes = ['home', 'projects', 'spot', 'wall'];
+  const shouldShowTabBar = mainTabRoutes.includes(currentRoute);
+
+  // Navigation function - uses React Navigation
   const navigateTo = useCallback((pageName: string, data: any = null) => {
     console.log('🧭 Navigating to:', pageName, data);
-    const newPage = { name: pageName, data };
-    setHistory(prevHistory => {
-      const newHistory = [...prevHistory, newPage];
-      console.log('📚 History updated. Current page:', newHistory[newHistory.length - 1]?.name);
-      return newHistory;
-    });
-    if (pageName !== 'home') {
-      setTab('');
+    
+    // Map legacy page names to React Navigation routes
+    const routeMap: Record<string, keyof RootStackParamList> = {
+      'spot': 'spot',
+      'home': 'home',
+      'projects': 'projects',
+      'wall': 'wall',
+      'profile': 'profile',
+      'myProfile': 'myProfile',
+      'profileCompletion': 'profileCompletion',
+      'companyProfile': 'companyProfile',
+      'companyRegistration': 'companyRegistration',
+      'projectDetail': 'projectDetail',
+      'newProject': 'newProject',
+      'newProjectEasy': 'newProjectEasy',
+      'details': 'details',
+      'academyDetail': 'academyDetail',
+      'legalDetail': 'legalDetail',
+      'sectionServices': 'sectionServices',
+      'directory': 'directory',
+      'chat': 'chat',
+      'conversations': 'conversations',
+      'settings': 'settings',
+      'changePassword': 'changePassword',
+      'accountDeletion': 'accountDeletion',
+      'privacyPolicy': 'privacyPolicy',
+      'support': 'support',
+      'agenda': 'agenda',
+      'allAgenda': 'allAgenda',
+      'bookingRequests': 'bookingRequests',
+      'weeklySchedule': 'weeklySchedule',
+      'performanceTest': 'performanceTest',
+      'coursesManagement': 'coursesManagement',
+      'courseEdit': 'courseEdit',
+      'courseDetail': 'courseDetail',
+      'publicCourses': 'publicCourses',
+      'companyEdit': 'companyEdit',
+      'companyMembersManagement': 'companyMembersManagement',
+    };
+
+    const routeName = routeMap[pageName] as keyof RootStackParamList;
+    if (routeName && navigationRef.current) {
+      // Transform data to match route params
+      let params: any = undefined;
+      
+      if (data) {
+        // Handle different data formats
+        if (pageName === 'profile' || pageName === 'myProfile') {
+          params = { profile: data, user: data };
+        } else if (pageName === 'projectDetail') {
+          params = { project: data };
+        } else if (pageName === 'companyProfile') {
+          params = { companyId: typeof data === 'string' ? data : (data?.companyId || data?.id || data) };
+        } else if (pageName === 'chat') {
+          params = data;
+        } else if (pageName === 'sectionServices') {
+          params = { sectionKey: data?.key || data };
+        } else if (pageName === 'details' || pageName === 'academyDetail' || pageName === 'legalDetail') {
+          params = { serviceData: data };
+        } else if (pageName === 'courseDetail' || pageName === 'courseEdit' || pageName === 'coursesManagement') {
+          params = data;
+        } else {
+          params = data;
+        }
+      }
+      
+      navigationRef.current.navigate(routeName, params as any);
+      if (pageName !== 'home') {
+        setTab('');
+      }
+    } else {
+      console.warn(`Unknown route or navigation not ready: ${pageName}`);
     }
   }, []);
 
@@ -416,100 +490,9 @@ const AppContent: React.FC = () => {
     }
   }, [isGuest]);
 
-  const page = history[history.length - 1];
-
   const toggleTheme = () => {
     setTheme(current => (current === 'light' ? 'dark' : 'light'));
   };
-
-  const handleBack = useCallback(() => {
-    // Guard against "touch-through" / accidental double-trigger which can pop 2 screens at once
-    // (e.g., when the back button stays in the same position after the first pop).
-    const now = Date.now();
-    if (now - lastBackPressAtRef.current < 400) {
-      return;
-    }
-    lastBackPressAtRef.current = now;
-
-    setHistory(prevHistory => {
-      if (prevHistory.length > 1) {
-        const currentPage = prevHistory[prevHistory.length - 1];
-        const newHistory = prevHistory.slice(0, -1);
-        const newCurrentPage = newHistory[newHistory.length - 1];
-        const tabPages = ['home', 'projects', 'spot', 'wall'];
-        
-        // Special handling for 'myProfile': find the last main tab in history
-        if (currentPage.name === 'myProfile') {
-          // Look backwards through history to find the last main tab
-          for (let i = newHistory.length - 1; i >= 0; i--) {
-            if (tabPages.includes(newHistory[i].name)) {
-              setTab(newHistory[i].name);
-              return newHistory;
-            }
-          }
-          // If no main tab found, set to empty
-          setTab('');
-        } 
-        // Special handling for 'companyProfile': ensure we can navigate back to it
-        // If going back to companyProfile, make sure the companyId is preserved
-        else if (newCurrentPage.name === 'companyProfile') {
-          // Ensure companyId is properly set in the page data
-          // Handle both object format { companyId: '...' } and string format '...'
-          let companyId = null;
-          // Preserve any existing page data (e.g., readOnly) when normalizing.
-          // This is critical for "public/read-only" company/academy previews that must stay view-only
-          // when navigating deeper (e.g., to All Courses) and then coming back.
-          const existingData =
-            newCurrentPage.data && typeof newCurrentPage.data === 'object'
-              ? { ...newCurrentPage.data }
-              : {};
-          
-          if (!newCurrentPage.data) {
-            // If no data, use activeCompany as fallback
-            companyId = activeCompany?.id;
-          } else if (typeof newCurrentPage.data === 'string') {
-            // If data is just a string (companyId), use it directly
-            companyId = newCurrentPage.data;
-          } else if (newCurrentPage.data.companyId) {
-            // If data is an object with companyId, use it
-            companyId = newCurrentPage.data.companyId;
-          } else if (activeCompany?.id) {
-            // If data object exists but no companyId, use activeCompany
-            companyId = activeCompany.id;
-          }
-          
-          // Normalize the data format to always be an object
-          if (companyId) {
-            newCurrentPage.data = { ...existingData, companyId };
-          } else {
-            // If we still don't have a companyId, this is a problem
-            // Try to find companyProfile in earlier history entries
-            for (let i = newHistory.length - 2; i >= 0; i--) {
-              if (newHistory[i].name === 'companyProfile') {
-                const prevCompanyId = typeof newHistory[i].data === 'string' 
-                  ? newHistory[i].data 
-                  : newHistory[i].data?.companyId;
-                if (prevCompanyId) {
-                  // Preserve any existing flags (e.g. readOnly) while restoring companyId.
-                  newCurrentPage.data = { ...existingData, companyId: prevCompanyId };
-                  break;
-                }
-              }
-            }
-          }
-          
-          setTab('');
-        }
-        else if (tabPages.includes(newCurrentPage.name)) {
-          setTab(newCurrentPage.name);
-        } else {
-          setTab('');
-        }
-        return newHistory;
-      }
-      return prevHistory;
-    });
-  }, [activeCompany]);
 
   const handleServiceSelect = useCallback((serviceData: any, sectionKey: string) => {
     if (sectionKey === 'academy') {
@@ -643,7 +626,8 @@ const AppContent: React.FC = () => {
       console.log('✅ Project created successfully:', createdProject);
 
       // Add project immediately to the list if on projects page
-      if (page.name === 'projects' && addProjectToPage) {
+      // Note: With React Navigation, we'll need to use navigation state or events
+      if (addProjectToPage) {
         addProjectToPage(createdProject);
       }
 
@@ -656,7 +640,7 @@ const AppContent: React.FC = () => {
       console.error('Failed to create project:', error);
       throw new Error(error.message || 'Failed to create project. Please try again.');
     }
-  }, [api, user, navigateTo, page.name, addProjectToPage]);
+  }, [api, user, navigateTo, addProjectToPage]);
 
   const handleUpdateProject = useCallback((updatedProject: ProjectDashboardData) => {
     setCurrentProject(updatedProject);
@@ -753,25 +737,26 @@ const AppContent: React.FC = () => {
   }, []);
 
   // Prevent guests from accessing profile completion page
-  useEffect(() => {
-    if (page.name === 'profileCompletion' && isGuest) {
-      Alert.alert(
-        'Sign Up Required',
-        'Create an account to complete your profile.',
-        [
-          { text: 'Cancel', style: 'cancel', onPress: handleBack },
-          { text: 'Sign Up', onPress: () => {
-            handleBack();
-            handleNavigateToSignup();
-          }},
-          { text: 'Sign In', onPress: () => {
-            handleBack();
-            handleNavigateToLogin();
-          }},
-        ]
-      );
-    }
-  }, [page.name, isGuest, handleBack, handleNavigateToSignup, handleNavigateToLogin]);
+  // Note: This will be handled in the ProfileCompletionPage component with React Navigation
+  // useEffect(() => {
+  //   if (page.name === 'profileCompletion' && isGuest) {
+  //     Alert.alert(
+  //       'Sign Up Required',
+  //       'Create an account to complete your profile.',
+  //       [
+  //         { text: 'Cancel', style: 'cancel', onPress: handleBack },
+  //         { text: 'Sign Up', onPress: () => {
+  //           handleBack();
+  //           handleNavigateToSignup();
+  //         }},
+  //         { text: 'Sign In', onPress: () => {
+  //           handleBack();
+  //           handleNavigateToLogin();
+  //         }},
+  //       ]
+  //     );
+  //   }
+  // }, [isGuest, handleBack, handleNavigateToSignup, handleNavigateToLogin]);
 
   const handleNavigateToProjectDetail = useCallback(async (projectData: any) => {
     try {
@@ -886,101 +871,58 @@ const AppContent: React.FC = () => {
   }, [navigateTo]);
 
   // Task management handlers
-  const handleCreateTask = useCallback(async (taskData: any) => {
+  const handleCreateTask = useCallback(async (taskData: any, projectId?: string) => {
     try {
-      const currentProject = page.data;
-      if (currentProject) {
-        const createdTask = await createTask(currentProject.id, taskData);
-        // Refresh project data
-        const updatedProject = await getProjectById(currentProject.id);
-        setHistory(prev => {
-          const newHistory = [...prev];
-          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
-          return newHistory;
-        });
+      if (projectId) {
+        const createdTask = await createTask(projectId, taskData);
+        // Project detail page will handle refresh via route params
         return createdTask; // Return the created task
       }
     } catch (error) {
       console.error('Failed to create task:', error);
       throw error;
     }
-  }, [createTask, getProjectById, page.data]);
+  }, [createTask]);
 
-  const handleUpdateTask = useCallback(async (taskId: string, updates: any) => {
+  const handleUpdateTask = useCallback(async (taskId: string, updates: any, projectId?: string) => {
     try {
       await updateTask(taskId, updates);
-      // Refresh project data
-      const currentProject = page.data;
-      if (currentProject) {
-        const updatedProject = await getProjectById(currentProject.id);
-        setHistory(prev => {
-          const newHistory = [...prev];
-          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
-          return newHistory;
-        });
-      }
+      // Project detail page will handle refresh via route params
     } catch (error) {
       console.error('Failed to update task:', error);
       throw error;
     }
-  }, [updateTask, getProjectById, page.data]);
+  }, [updateTask]);
 
-  const handleDeleteTask = useCallback(async (taskId: string) => {
+  const handleDeleteTask = useCallback(async (taskId: string, projectId?: string) => {
     try {
       await deleteTask(taskId);
-      // Refresh project data
-      const currentProject = page.data;
-      if (currentProject) {
-        const updatedProject = await getProjectById(currentProject.id);
-        setHistory(prev => {
-          const newHistory = [...prev];
-          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
-          return newHistory;
-        });
-      }
+      // Project detail page will handle refresh via route params
     } catch (error) {
       console.error('Failed to delete task:', error);
       throw error;
     }
-  }, [deleteTask, getProjectById, page.data]);
+  }, [deleteTask]);
 
   const handleAssignTask = useCallback(async (projectId: string, taskId: string, assignment: any) => {
     try {
       await assignTaskService(projectId, taskId, assignment);
-      // Refresh project data
-      const currentProject = page.data;
-      if (currentProject) {
-        const updatedProject = await getProjectById(currentProject.id);
-        setHistory(prev => {
-          const newHistory = [...prev];
-          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
-          return newHistory;
-        });
-      }
+      // Project detail page will handle refresh via route params
     } catch (error) {
       console.error('Failed to assign task:', error);
       throw error;
     }
-  }, [assignTaskService, getProjectById, page.data]);
+  }, [assignTaskService]);
 
-  const handleUpdateTaskStatus = useCallback(async (taskId: string, status: any) => {
+  const handleUpdateTaskStatus = useCallback(async (taskId: string, status: any, projectId?: string) => {
     try {
       await updateTaskStatus(taskId, status);
-      // Refresh project data
-      const currentProject = page.data;
-      if (currentProject) {
-        const updatedProject = await getProjectById(currentProject.id);
-        setHistory(prev => {
-          const newHistory = [...prev];
-          newHistory[newHistory.length - 1] = { name: 'projectDetail', data: updatedProject };
-          return newHistory;
-        });
-      }
+      // Project detail page will handle refresh via route params
     } catch (error) {
       console.error('Failed to update task status:', error);
       throw error;
     }
-  }, [updateTaskStatus, getProjectById, page.data]);
+  }, [updateTaskStatus]);
 
   const handleTabChange = useCallback((newTab: string) => {
     // Track clicks for guest users
@@ -1006,8 +948,8 @@ const AppContent: React.FC = () => {
     setTab(newTab);
     setSearchQuery('');
     
-    const rootPage = { name: newTab, data: null };
-    setHistory([rootPage]);
+    // Navigate to tab using React Navigation
+    navigationRef.current?.navigate(newTab as any);
   }, [isGuest]);
 
   const handleSplashFinished = () => {
@@ -1136,847 +1078,196 @@ const AppContent: React.FC = () => {
 
   const isDark = theme === 'dark';
 
-  const renderContent = () => {
-    if (showSplash) {
-      return <SplashScreen onFinished={handleSplashFinished} />;
-    }
+  // Show splash, auth, or onboarding outside of React Navigation
+  if (showSplash) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+          <SplashScreen onFinished={handleSplashFinished} />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
 
-    // Show loading state while API is initializing
-    if (isLoading) {
-      return <SkeletonScreen showHeader={true} contentCount={5} isDark={isDark} />;
-    }
+  if (isLoading) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+          <SkeletonScreen showHeader={true} contentCount={5} isDark={isDark} />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
 
-    // Get current page from history (use latest value)
-    const currentPage = history[history.length - 1];
-
-    // Allow access to important pages even during onboarding
-    // These pages should be accessible regardless of onboarding status
-    const pagesAccessibleDuringOnboarding = ['accountDeletion', 'settings', 'changePassword', 'privacyPolicy', 'support'];
-    const isAccessiblePage = currentPage && pagesAccessibleDuringOnboarding.includes(currentPage.name);
-
-    // Show onboarding for new users (unless accessing an important page)
-    if (showOnboarding && !isAccessiblePage) {
-      return (
-        <OnboardingPage
-          onComplete={handleOnboardingComplete}
-          onSkip={handleOnboardingSkip}
-        />
-      );
-    }
-
-    // Show authentication pages
-    if (authPage === 'login') {
-      return (
-        <LoginPage
-          onNavigateToSignup={handleNavigateToSignup}
-          onNavigateToForgotPassword={handleNavigateToForgotPassword}
-          onLoginSuccess={handleLoginSuccess}
-          onGuestMode={handleGuestMode}
-        />
-      );
-    }
-
-    if (authPage === 'signup') {
-      return (
-        <SignupPage
-          onNavigateToLogin={handleNavigateToLogin}
-          onSignupSuccess={handleSignupSuccess}
-        />
-      );
-    }
-
-    if (authPage === 'forgot-password') {
-      return (
-        <ForgotPasswordPage
-          onNavigateToLogin={handleNavigateToLogin}
-          onNavigateToVerifyOtp={handleNavigateToVerifyOtp}
-        />
-      );
-    }
-
-    if (authPage === 'verify-otp') {
-      return (
-        <VerifyOtpPage
-          email={resetEmail}
-          mode="password-reset"
-          onNavigateToLogin={handleNavigateToLogin}
-          onNavigateToResetPassword={handleNavigateToResetPassword}
-          onResendOtp={handleResendOtp}
-        />
-      );
-    }
-
-    if (authPage === 'verify-email-otp') {
-      console.log('📱 [App] Rendering VerifyOtpPage with email:', signupEmail);
-      if (!signupEmail) {
-        console.error('❌ [App] signupEmail is empty! Cannot render VerifyOtpPage');
-        // Fallback: show login page if email is missing
-        return (
+  // Show auth pages outside React Navigation
+  if (authPage === 'login') {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <LoginPage
             onNavigateToSignup={handleNavigateToSignup}
             onNavigateToForgotPassword={handleNavigateToForgotPassword}
             onLoginSuccess={handleLoginSuccess}
             onGuestMode={handleGuestMode}
           />
-        );
-      }
-      return (
-        <VerifyOtpPage
-          email={signupEmail}
-          mode="email-verification"
-          onNavigateToLogin={handleNavigateToLogin}
-          onVerificationSuccess={handleEmailVerificationSuccess}
-          onResendOtp={handleResendVerificationEmail}
-        />
-      );
-    }
-
-    if (authPage === 'reset-password') {
-      return (
-        <ResetPasswordPage
-          resetToken={resetToken}
-          onNavigateToLogin={handleNavigateToLogin}
-          onResetSuccess={handleResetSuccess}
-        />
-      );
-    }
-
-    // Show main app for authenticated users
-    return (
-      <View style={[styles.appContainer, { backgroundColor: isDark ? '#000' : '#f4f4f5' }]}>
-        <View style={[styles.topBar, { backgroundColor: isDark ? '#000' : '#fff', borderBottomColor: isDark ? '#1f2937' : '#000' }]}>
-          <View style={styles.topBarLeft}>
-            <TouchableOpacity style={styles.topBarButton} onPress={handleUserMenuPress}>
-              <Image 
-                source={require('./assets/Logo_alpha.png')} 
-                style={{ width: 20, height: 20 }}
-                contentFit="contain"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.topBarTitleContainer}
-              onPress={() => {
-                if (isAuthenticated && !isGuest) {
-                  setShowAccountSwitcher(true);
-                }
-              }}
-              disabled={isGuest || !isAuthenticated}
-            >
-              <Text style={styles.topBarTitle}>
-                <Text style={styles.userName}>
-                  {currentProfileType === 'company' && activeCompany
-                    ? activeCompany.name
-                    : isGuest ? 'Guest User' : (user?.name || 'Guest')
-                  }
-                </Text>
-              </Text>
-              {isAuthenticated && !isGuest && (
-                <Ionicons 
-                  name="chevron-down" 
-                  size={16} 
-                  color={isDark ? '#9ca3af' : '#71717a'} 
-                  style={styles.chevronIcon}
-                />
-              )}
-            </TouchableOpacity>
-          </View>
-          <View style={styles.topBarRight}>
-            <TouchableOpacity
-              style={styles.topBarButton}
-              onPress={() => navigateTo('conversations', null)}
-            >
-              <Ionicons name="chatbubble" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
-              {unreadConversationCount > 0 && (
-                <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationBadgeText}>
-                    {unreadConversationCount > 99 ? '99+' : unreadConversationCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.topBarButton}
-              onPress={() => setShowNotificationModal(true)}
-            >
-              <Ionicons name="notifications" size={20} color={isDark ? '#9ca3af' : '#71717a'} />
-              {unreadNotificationCount > 0 && (
-                <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationBadgeText}>
-                    {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.content}>
-          {page.name === 'home' && (
-            <HomePageWithUsers
-              onServiceSelect={handleServiceSelect}
-              onOpenFilter={() => {}}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              onToggleTheme={toggleTheme}
-              theme={theme}
-              onNavigate={navigateTo}
-              user={user}
-              onOpenMainMenu={() => {}}
-            />
-          )}
-          {page.name === 'spot' && (
-            <SpotPage isDark={isDark} onNavigate={navigateTo} />
-          )}
-          {page.name === 'wall' && (
-            <AgendaPage
-              onBack={handleBack}
-              onProfileSelect={handleProfileSelect}
-              onNavigate={navigateTo}
-              myTeam={myTeam}
-            />
-          )}
-          {page.name === 'newsDetail' && (
-            <NewsDetailPage
-              slug={page.data?.slug}
-              post={page.data?.post}
-              onBack={handleBack}
-              isDark={isDark}
-            />
-          )}
-          {page.name === 'sectionServices' && (
-            <DirectoryPage
-              section={page.data}
-              onBack={handleBack}
-              onUserSelect={handleProfileSelect}
-              onNavigate={navigateTo}
-            />
-          )}
-          {page.name === 'details' && (
-            <ServiceDetailPage
-              service={page.data}
-              onBack={handleBack}
-              onProfileSelect={handleProfileSelect}
-              onAddToTeam={handleAddToTeam}
-              onAssignToProject={handleAssignToProject}
-              onStartChat={handleStartChat}
-              myTeam={myTeam}
-            />
-          )}
-          {page.name === 'academyDetail' && (
-            <CompanyProfilePage
-              companyId={page.data?.id || page.data?.companyId || page.data || ''}
-              onBack={handleBack}
-              readOnly={true}
-              onCourseSelect={(course) => {
-                navigateTo('courseDetail', {
-                  courseId: course.id,
-                  companyId: course.company_id,
-                });
-              }}
-              onNavigate={(pageName: string, data?: any) => {
-                if (pageName === 'auth') {
-                  setAuthPage(data?.page || 'login');
-                } else {
-                  navigateTo(pageName, data);
-                }
-              }}
-            />
-          )}
-          {page.name === 'projects' && (
-            <ProjectsPage
-              onProjectSelect={handleProjectSelect}
-              onAddNewProject={handleCreateProjectDirect}
-              onAddNewProjectEasy={handleAddNewProjectEasy}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              onBack={handleBack}
-              myTeam={myTeam}
-              onProfileSelect={handleProfileSelect}
-              onNavigateToProjectDetail={handleNavigateToProjectDetail}
-              onRefresh={handleRefreshProjects}
-              onNavigateToSignup={handleNavigateToSignup}
-              onNavigateToLogin={handleNavigateToLogin}
-              onProjectCreated={(addFn: (project: any) => void) => {
-                setAddProjectToPage(() => addFn);
-              }}
-            />
-          )}
-          {page.name === 'profile' && (
-            <ProfileDetailPage
-              profile={page.data}
-              onBack={handleBack}
-              onAssignToProject={handleAssignToProject}
-              onAddToTeam={handleAddToTeam}
-              myTeam={myTeam}
-              onStartChat={handleStartChat}
-              onMediaSelect={() => {}}
-              onNavigate={(pageName: string, data?: any) => {
-                console.log('🧭 onNavigate called:', pageName, data);
-                if (pageName === 'signup') {
-                  handleNavigateToSignup();
-                } else if (pageName === 'login') {
-                  handleNavigateToLogin();
-                } else if (pageName === 'projectDetail') {
-                  // Handle project detail navigation with special data
-                  console.log('📁 Navigating to projectDetail with data:', data);
-                  handleNavigateToProjectDetail(data);
-                } else {
-                  navigateTo(pageName, data);
-                }
-              }}
-            />
-          )}
-          {page.name === 'projectDetail' && (
-            <ProjectDetailPage
-              project={page.data}
-              onBack={handleBack}
-              onCreateTask={handleCreateTask}
-              onUpdateTask={handleUpdateTask}
-              onDeleteTask={handleDeleteTask}
-              onAssignTask={handleAssignTask}
-              onUpdateTaskStatus={handleUpdateTaskStatus}
-            />
-          )}
-          {page.name === 'newProject' && (
-            <NewProjectPage
-              onBack={handleBack}
-              onProjectCreated={handleProjectCreated}
-            />
-          )}
-          {page.name === 'myProfile' && (
-            <ProfileDetailPage
-              profile={user || { id: '', name: 'Guest' }}
-              onBack={handleBack}
-              onAssignToProject={handleAssignToProject}
-              onAddToTeam={handleAddToTeam}
-              myTeam={myTeam}
-              onStartChat={handleStartChat}
-              onMediaSelect={() => {}}
-              isCurrentUser={true}
-              onLogout={handleLogout}
-              onNavigate={(pageName: string, data?: any) => {
-                console.log('🧭 onNavigate called:', pageName, data);
-                if (pageName === 'signup') {
-                  handleNavigateToSignup();
-                } else if (pageName === 'login') {
-                  handleNavigateToLogin();
-                } else if (pageName === 'projectDetail') {
-                  // Handle project detail navigation with special data
-                  console.log('📁 Navigating to projectDetail with data:', data);
-                  handleNavigateToProjectDetail(data);
-                } else {
-                  navigateTo(pageName, data);
-                }
-              }}
-            />
-          )}
-          {page.name === 'profileCompletion' && (
-            isGuest ? (
-              // Guest protection - this should not render but if it does, navigate back
-              null
-            ) : (
-              <ProfileCompletionPage
-                navigation={{ goBack: handleBack }}
-                user={page.data && page.data.initialSection ? { ...page.data, initialSection: undefined } : (page.data || user)}
-                initialSection={page.data?.initialSection}
-                onProfileUpdated={() => {
-                  // Refresh user data or navigate back
-                  handleBack();
-                }}
-              />
-            )
-          )}
-          {page.name === 'companyRegistration' && (
-            <CompanyRegistrationPage
-              onBack={handleBack}
-              onSuccess={handleCompanyRegistrationSuccess}
-              onNavigateToProfile={() => navigateTo('profileCompletion', user)}
-            />
-          )}
-          {page.name === 'companyProfile' && (
-            <CompanyProfilePage
-              companyId={page.data?.companyId || page.data || activeCompany?.id || ''}
-              onBack={handleBack}
-              refreshTrigger={companyProfileRefreshTrigger}
-              readOnly={page.data?.readOnly === true}
-              onEdit={(company) => {
-                navigateTo('companyEdit', { company });
-              }}
-              onManageMembers={(company) => {
-                navigateTo('companyMembersManagement', { company });
-              }}
-              onManageServices={(company) => {
-                setSelectedCompanyForServices(company);
-                setShowCompanyServicesModal(true);
-              }}
-              onInviteMember={(company) => {
-                setSelectedCompanyForInvitation(company);
-                setShowInvitationModal(true);
-              }}
-              onManageCourses={(company) => {
-                // Pass readOnly flag from company profile page
-                const isReadOnly = page.data?.readOnly === true;
-                navigateTo('coursesManagement', { companyId: company.id, readOnly: isReadOnly });
-              }}
-              onCourseSelect={(course) => {
-                navigateTo('courseDetail', {
-                  courseId: course.id,
-                  companyId: course.company_id,
-                });
-              }}
-              onNavigate={(pageName: string, data?: any) => {
-                if (pageName === 'auth') {
-                  setAuthPage(data?.page || 'login');
-                } else {
-                  navigateTo(pageName, data);
-                }
-              }}
-            />
-          )}
-          {page.name === 'companyEdit' && page.data?.company && (
-            <CompanyEditPage
-              company={page.data.company}
-              onBack={handleBack}
-              onCompanyUpdated={() => {
-                // Refresh company profile page
-                setCompanyProfileRefreshTrigger((prev) => prev + 1);
-                handleBack();
-              }}
-            />
-          )}
-          {page.name === 'coursesManagement' && (
-            <CoursesManagementPage
-              companyId={page.data?.companyId || page.data || ''}
-              onBack={handleBack}
-              readOnly={page.data?.readOnly === true}
-              onCourseSelect={(course) => {
-                // In read-only mode, navigate to course detail instead of edit
-                if (page.data?.readOnly === true) {
-                  navigateTo('courseDetail', {
-                    courseId: course.id,
-                    companyId: course.company_id || page.data?.companyId || page.data || '',
-                  });
-                } else {
-                  navigateTo('courseEdit', {
-                    courseId: course.id,
-                    companyId: page.data?.companyId || page.data || '',
-                  });
-                }
-              }}
-            />
-          )}
-          {page.name === 'courseEdit' && (
-            <CourseEditPage
-              courseId={page.data?.courseId || ''}
-              companyId={page.data?.companyId || ''}
-              onBack={handleBack}
-              onCourseUpdated={() => {
-                // Refresh courses management page if needed
-                handleBack();
-              }}
-            />
-          )}
-          {page.name === 'courseDetail' && (
-            <CourseDetailPage
-              courseId={page.data?.courseId || ''}
-              companyId={page.data?.companyId}
-              onBack={handleBack}
-              onNavigate={navigateTo}
-              onRegister={() => {
-                // Refresh course detail or navigate back
-                handleBack();
-              }}
-              onUnregister={() => {
-                // Refresh course detail or navigate back
-                handleBack();
-              }}
-            />
-          )}
-          {page.name === 'companyMembersManagement' && page.data?.company && (
-            <CompanyMembersManagementWrapper
-              company={page.data.company}
-              onBack={handleBack}
-            />
-          )}
-          {page.name === 'publicCourses' && (
-            <PublicCoursesPage
-              onBack={handleBack}
-              onCourseSelect={(course) => {
-                navigateTo('courseDetail', {
-                  courseId: course.id,
-                  companyId: course.company_id,
-                });
-              }}
-              filters={page.data?.filters}
-            />
-          )}
-          {page.name === 'conversations' && (
-            <ConversationsListPage
-              onBack={handleBack}
-              onConversationSelect={(conversation) => {
-                navigateTo('chat', { conversationId: conversation.id });
-              }}
-            />
-          )}
-          {page.name === 'chat' && (
-            <ChatPage
-              conversationId={page.data?.conversationId}
-              participant={page.data?.participant}
-              courseData={page.data?.courseData}
-              onBack={handleBack}
-            />
-          )}
-          {page.name === 'settings' && (
-            <SettingsPage
-              onBack={handleBack}
-              onNavigate={navigateTo}
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              isGuest={isGuest}
-              onSignUp={handleNavigateToSignup}
-              onSignIn={handleNavigateToLogin}
-            />
-          )}
-          {page.name === 'changePassword' && (
-            <ChangePasswordPage
-              onBack={handleBack}
-              theme={theme}
-            />
-          )}
-          {page.name === 'accountDeletion' && (
-            <AccountDeletionPage
-              onBack={handleBack}
-              theme={theme}
-            />
-          )}
-          {page.name === 'privacyPolicy' && (
-            <PrivacyPolicyPage
-              onBack={handleBack}
-              theme={theme}
-            />
-          )}
-          {page.name === 'support' && (
-            <SupportPage
-              onBack={handleBack}
-              theme={theme}
-            />
-          )}
-          {page.name === 'performanceTest' && (
-            <PerformanceTestPage
-              onBack={handleBack}
-            />
-          )}
-          {page.name === 'allAgenda' && (
-            <AllAgendaPage
-              onBack={handleBack}
-              onNavigate={navigateTo}
-              agenda={undefined} // Will use AsyncStorage internally
-              onProfileSelect={handleProfileSelect}
-            />
-          )}
-          {page.name === 'sPage' && (
-            <WeeklySchedulePage
-              onBack={handleBack}
-              onNavigate={navigateTo}
-            />
-          )}
-          {page.name === 'bookingRequests' && (
-            <BookingRequestsPage
-              onBack={handleBack}
-              onNavigate={navigateTo}
-              projects={[]} // Will be populated from API
-              requests={undefined} // Will use AsyncStorage internally
-              onRespond={(requestId, status) => {
-                // Handle booking request response
-                // TODO: Implement API call to respond to booking request
-              }}
-            />
-          )}
-        </View>
-
-        {/* Project Creation Modal */}
-        <ProjectCreationModal
-          visible={showProjectCreation}
-          onClose={() => setShowProjectCreation(false)}
-          onSubmit={handleCreateProject}
-        />
-
-        {/* User Menu Modal */}
-        <UserMenuModal
-          visible={showUserMenu}
-          onClose={() => setShowUserMenu(false)}
-          onMyTeam={handleMyTeam}
-          onSettings={handleSettings}
-          onProfileEdit={handleProfileEdit}
-          onHelpSupport={handleHelpSupport}
-          onLogout={handleLogout}
-          onCreateCompany={isAuthenticated ? handleCreateCompany : undefined}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          isGuest={isGuest}
-          onSignUp={handleNavigateToSignup}
-          onSignIn={handleNavigateToLogin}
-        />
-
-        {/* My Team Modal */}
-        <MyTeamModal
-          visible={showMyTeam}
-          onClose={() => setShowMyTeam(false)}
-          onUserSelect={handleProfileSelect}
-        />
-
-        {/* Invitation Modal */}
-        {selectedCompanyForInvitation && (
-          <InvitationModal
-            visible={showInvitationModal}
-            onClose={() => {
-              setShowInvitationModal(false);
-              setSelectedCompanyForInvitation(null);
-            }}
-            company={selectedCompanyForInvitation}
-            onInvitationSent={() => {
-              setCompanyProfileRefreshTrigger((prev) => prev + 1);
-            }}
-          />
-        )}
-
-        {/* Invitation List Modal */}
-        {user && (
-          <InvitationListModal
-            visible={showInvitationListModal}
-            onClose={() => setShowInvitationListModal(false)}
-            userId={user.id}
-            onInvitationResponded={() => {
-              // Refresh notifications and company profile if needed
-              setCompanyProfileRefreshTrigger((prev) => prev + 1);
-            }}
-          />
-        )}
-
-        {/* Account Switcher Modal */}
-        <AccountSwitcherModal
-          visible={showAccountSwitcher}
-          onClose={() => setShowAccountSwitcher(false)}
-          onCreateCompany={isAuthenticated ? handleCreateCompany : undefined}
-          onNavigate={(pageName: string, data?: any) => {
-            if (pageName === 'signup') {
-              handleNavigateToSignup();
-            } else if (pageName === 'login') {
-              handleNavigateToLogin();
-            } else {
-              navigateTo(pageName, data);
-            }
-          }}
-        />
-
-        {/* Notification Modal */}
-        <NotificationModal
-          visible={showNotificationModal}
-          onClose={() => setShowNotificationModal(false)}
-          onNotificationPress={(notification: Notification) => {
-            // Handle invitation notifications
-            if (notification.type === 'company_invitation' && user) {
-              setShowNotificationModal(false);
-              setShowInvitationListModal(true);
-              return;
-            }
-            // Handle navigation based on notification type
-            if (notification.link_url) {
-              // If notification has a link, navigate to it
-              console.log('Navigate to:', notification.link_url);
-            } else {
-              // Handle different notification types
-              switch (notification.type) {
-                case 'company_invitation':
-                case 'company_invitation_accepted':
-                case 'company_invitation_rejected':
-                  // Navigate to company profile or invitations page
-                  if (notification.data?.company_id) {
-                    navigateTo('companyProfile', { companyId: notification.data.company_id });
-                  }
-                  break;
-                case 'project_created':
-                case 'project_member_added':
-                  // Navigate to project
-                  if (notification.data?.project_id) {
-                    (async () => {
-                      try {
-                        const projectId = notification.data?.project_id;
-                        if (projectId) {
-                          const project = await getProjectById(projectId);
-                          if (project) {
-                            navigateTo('projectDetail', project);
-                          }
-                        }
-                      } catch (error) {
-                        console.error('Failed to fetch project for navigation:', error);
-                      }
-                    })();
-                  }
-                  break;
-                case 'task_assigned':
-                case 'task_completed':
-                  // Navigate to project/task
-                  if (notification.data?.project_id) {
-                    (async () => {
-                      try {
-                        const projectId = notification.data?.project_id;
-                        if (projectId) {
-                          const project = await getProjectById(projectId);
-                          if (project) {
-                            navigateTo('projectDetail', project);
-                          }
-                        }
-                      } catch (error) {
-                        console.error('Failed to fetch project for navigation:', error);
-                      }
-                    })();
-                  }
-                  break;
-                case 'certification_issued':
-                  // Navigate to profile
-                  if (notification.data?.user_id) {
-                    navigateTo('profileDetail', { userId: notification.data.user_id });
-                  }
-                  break;
-                default:
-                  console.log('Notification type:', notification.type);
-              }
-            }
-            setShowNotificationModal(false);
-          }}
-        />
-
-        {/* Company Services Modal */}
-        {selectedCompanyForServices && (
-          <CompanyServicesModal
-            visible={showCompanyServicesModal}
-            company={selectedCompanyForServices}
-            onClose={() => {
-              setShowCompanyServicesModal(false);
-              setSelectedCompanyForServices(null);
-            }}
-            onServicesUpdated={() => {
-              // Trigger refresh of company profile page
-              console.log('🔄 Services updated, refreshing company profile...');
-              setCompanyProfileRefreshTrigger((prev) => prev + 1);
-            }}
-          />
-        )}
-
-        <TabBar 
-          active={tab} 
-          onChange={handleTabChange}
-          onProfilePress={() => {
-            if (currentProfileType === 'company' && activeCompany?.id) {
-              navigateTo('companyProfile', { companyId: activeCompany.id });
-            } else if (user) {
-              navigateTo('myProfile', user);
-            }
-          }}
-        />
-
-        {history.length > 1 && (
-          <TouchableOpacity
-            onPress={handleBack}
-            style={styles.backButton}
-          >
-            <Ionicons name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-        )}
-
-        {/* Full-page Project Dashboard */}
-        {showProjectDashboard && selectedProject && (
-          <View style={styles.fullPageOverlay}>
-            <ProjectDashboard
-              project={selectedProject}
-              onBack={() => {
-                setShowProjectDashboard(false);
-                setSelectedProject(null);
-              }}
-              onEditProjectDetails={handleEditProjectDetails}
-              onRefreshProject={handleRefreshProject}
-              selectedUser={selectedProject.selectedUser}
-              addUserToTask={selectedProject.addUserToTask}
-            />
-          </View>
-        )}
-
-        {/* Project Details Modal */}
-        <ProjectDetailsModal
-          visible={showProjectDetails}
-          onClose={() => setShowProjectDetails(false)}
-          project={selectedProject}
-          onSave={handleSaveProjectDetails}
-        />
-
-        {/* Screenshot Helper - Only visible in development mode */}
-        {__DEV__ && (
-          <ScreenshotHelper onNavigate={navigateTo} />
-        )}
-
-        {/* Guest Prompt Modal */}
-        {showGuestPrompt && isGuest && (
-          <View style={[styles.modalOverlay, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.8)' }]}>
-            <View style={[styles.guestPromptModal, { backgroundColor: isDark ? '#1a1a1a' : '#fff' }]}>
-              <Text style={[styles.guestPromptTitle, { color: isDark ? '#fff' : '#000' }]}>
-                Sign Up to Continue
-              </Text>
-              <Text style={[styles.guestPromptMessage, { color: isDark ? '#9ca3af' : '#71717a' }]}>
-                Create an account to access all features and save your progress.
-              </Text>
-              <View style={styles.guestPromptButtons}>
-                <TouchableOpacity
-                  style={[styles.guestPromptButton, styles.guestPromptButtonPrimary, { backgroundColor: '#000' }]}
-                  onPress={() => {
-                    setShowGuestPrompt(false);
-                    pendingTabChangeRef.current = null; // Clear pending navigation
-                    handleNavigateToSignup();
-                  }}
-                >
-                  <Text style={[styles.guestPromptButtonText, { color: '#fff' }]}>Sign Up</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.guestPromptButton, styles.guestPromptButtonSecondary, { backgroundColor: isDark ? '#2a2a2a' : '#f4f4f5', borderColor: isDark ? '#3a3a3a' : '#e5e7eb' }]}
-                  onPress={() => {
-                    setShowGuestPrompt(false);
-                    pendingTabChangeRef.current = null; // Clear pending navigation
-                    handleNavigateToLogin();
-                  }}
-                >
-                  <Text style={[styles.guestPromptButtonText, { color: isDark ? '#fff' : '#000' }]}>Sign In</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.guestPromptButton, styles.guestPromptButtonTertiary]}
-                  onPress={() => {
-                    setShowGuestPrompt(false);
-                    guestPromptShownRef.current = false; // Allow prompt to show again later
-                    // If there was a pending tab change, execute it now
-                    if (pendingTabChangeRef.current) {
-                      const tabToNavigate = pendingTabChangeRef.current;
-                      pendingTabChangeRef.current = null;
-                      setTab(tabToNavigate);
-                      setSearchQuery('');
-                      const rootPage = { name: tabToNavigate, data: null };
-                      setHistory([rootPage]);
-                    }
-                  }}
-                >
-                  <Text style={[styles.guestPromptButtonText, { color: isDark ? '#9ca3af' : '#71717a' }]}>Maybe Later</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        )}
-      </View>
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
-  };
+  }
 
+  if (authPage === 'signup') {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+          <SignupPage
+            onNavigateToLogin={handleNavigateToLogin}
+            onSignupSuccess={handleSignupSuccess}
+            onLoginSuccess={handleLoginSuccess}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (authPage === 'forgot-password') {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+          <ForgotPasswordPage
+            onNavigateToLogin={handleNavigateToLogin}
+            onNavigateToVerifyOtp={handleNavigateToVerifyOtp}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (authPage === 'verify-otp') {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+          <VerifyOtpPage
+            email={resetEmail}
+            mode="password-reset"
+            onNavigateToLogin={handleNavigateToLogin}
+            onNavigateToResetPassword={handleNavigateToResetPassword}
+            onResendOtp={handleResendOtp}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (authPage === 'verify-email-otp') {
+    if (!signupEmail) {
+      return (
+        <SafeAreaProvider>
+          <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+            <LoginPage
+              onNavigateToSignup={handleNavigateToSignup}
+              onNavigateToForgotPassword={handleNavigateToForgotPassword}
+              onLoginSuccess={handleLoginSuccess}
+              onGuestMode={handleGuestMode}
+            />
+          </SafeAreaView>
+        </SafeAreaProvider>
+      );
+    }
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+          <VerifyOtpPage
+            email={signupEmail}
+            mode="email-verification"
+            onNavigateToLogin={handleNavigateToLogin}
+            onVerificationSuccess={handleEmailVerificationSuccess}
+            onResendOtp={handleResendVerificationEmail}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (authPage === 'reset-password') {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+          <ResetPasswordPage
+            resetToken={resetToken}
+            onNavigateToLogin={handleNavigateToLogin}
+            onResetSuccess={handleResetSuccess}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  // Show onboarding outside React Navigation
+  const pagesAccessibleDuringOnboarding = ['accountDeletion', 'settings', 'changePassword', 'privacyPolicy', 'support'];
+  // Note: We can't check current page name with React Navigation easily here
+  // For now, show onboarding if needed (this logic may need adjustment)
+  if (showOnboarding) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
+          <OnboardingPage
+            onComplete={handleOnboardingComplete}
+            onSkip={handleOnboardingSkip}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  // Main app with React Navigation
   return (
     <SafeAreaProvider>
       <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-        {renderContent()}
+        <View style={styles.appWrapper}>
+          <NavigationContainer 
+            ref={navigationRef}
+            onStateChange={(state) => {
+              if (state) {
+                const route = state.routes[state.index];
+                if (route?.name) {
+                  setCurrentRoute(route.name);
+                  // Update tab if it's a main tab route
+                  if (mainTabRoutes.includes(route.name)) {
+                    setTab(route.name);
+                  }
+                }
+              }
+            }}
+          >
+            <NavigationProvider>
+              <AppNavigator />
+            </NavigationProvider>
+          </NavigationContainer>
+          {shouldShowTabBar && (
+            <TabBar 
+              active={tab} 
+              onChange={handleTabChange}
+              onProfilePress={() => {
+                if (currentProfileType === 'company' && activeCompany?.id) {
+                  navigateTo('companyProfile', { companyId: activeCompany.id });
+                } else if (user) {
+                  navigateTo('myProfile', user);
+                }
+              }}
+            />
+          )}
+        </View>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -1986,6 +1277,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f4f4f5',
+  },
+  appWrapper: {
+    flex: 1,
   },
   appContainer: {
     flex: 1,

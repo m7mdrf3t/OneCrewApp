@@ -27,13 +27,15 @@ const LoginPage: React.FC<LoginPageProps> = ({
   onLoginSuccess,
   onGuestMode,
 }) => {
-  const { login, googleSignIn, isLoading, error, clearError, createGuestSession } = useApi();
+  const { login, googleSignIn, appleSignIn, isLoading, error, clearError, createGuestSession } = useApi();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
+  const [pendingAppleSignIn, setPendingAppleSignIn] = useState(false);
+  const [pendingAuthProvider, setPendingAuthProvider] = useState<'google' | 'apple' | null>(null);
 
   const validateForm = () => {
     const errors: { [key: string]: string } = {};
@@ -146,6 +148,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
     try {
       clearError();
       setPendingGoogleSignIn(true);
+      setPendingAuthProvider('google');
       
       // Try without category first (for existing users)
       await googleSignIn();
@@ -156,6 +159,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
       // Don't show alert if user cancelled - this is expected behavior
       if (err?.message?.toLowerCase().includes('cancelled')) {
         console.log('ℹ️ User cancelled Google Sign-In');
+        setPendingAuthProvider(null);
         return;
       }
       
@@ -164,6 +168,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
         // Show category selection modal
         setShowCategoryModal(true);
       } else {
+        setPendingAuthProvider(null);
         const errorMessage = err?.message || err?.toString() || 'Google Sign-In failed. Please try again.';
         Alert.alert('Google Sign-In Failed', errorMessage);
       }
@@ -176,15 +181,69 @@ const LoginPage: React.FC<LoginPageProps> = ({
     try {
       setShowCategoryModal(false);
       clearError();
-      setPendingGoogleSignIn(true);
-      await googleSignIn(category, primaryRole);
+      
+      if (pendingAuthProvider === 'google') {
+        setPendingGoogleSignIn(true);
+        await googleSignIn(category, primaryRole);
+      } else if (pendingAuthProvider === 'apple') {
+        setPendingAppleSignIn(true);
+        await appleSignIn(category, primaryRole);
+      } else {
+        // Fallback to Google if provider not set
+        setPendingGoogleSignIn(true);
+        await googleSignIn(category, primaryRole);
+      }
+      
+      setPendingAuthProvider(null);
       onLoginSuccess();
     } catch (err: any) {
-      console.error('Google Sign-In error in category select:', err);
-      const errorMessage = err?.message || err?.toString() || 'Google Sign-In failed. Please try again.';
-      Alert.alert('Google Sign-In Failed', errorMessage);
+      console.error('Sign-In error in category select:', err);
+      const providerName = pendingAuthProvider === 'apple' ? 'Apple' : 'Google';
+      const errorMessage = err?.message || err?.toString() || `${providerName} Sign-In failed. Please try again.`;
+      Alert.alert(`${providerName} Sign-In Failed`, errorMessage);
+      setPendingAuthProvider(null);
     } finally {
       setPendingGoogleSignIn(false);
+      setPendingAppleSignIn(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    if (pendingAppleSignIn || isLoading) {
+      console.log('⚠️ Apple Sign-In already in progress, ignoring duplicate call');
+      return;
+    }
+
+    try {
+      clearError();
+      setPendingAppleSignIn(true);
+      setPendingAuthProvider('apple');
+      
+      // Try without category first (for existing users)
+      await appleSignIn();
+      setPendingAuthProvider(null);
+      onLoginSuccess();
+    } catch (err: any) {
+      console.error('❌ Apple Sign-In error in LoginPage:', err);
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled Apple Sign-In');
+        setPendingAuthProvider(null);
+        return;
+      }
+      
+      // Check if error is about category being required
+      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
+        // Show category selection modal
+        setShowCategoryModal(true);
+      } else {
+        setPendingAuthProvider(null);
+        const errorMessage = err?.message || err?.toString() || 'Apple Sign-In failed. Please try again.';
+        Alert.alert('Apple Sign-In Failed', errorMessage);
+      }
+    } finally {
+      setPendingAppleSignIn(false);
     }
   };
 
@@ -202,132 +261,156 @@ const LoginPage: React.FC<LoginPageProps> = ({
         <View style={styles.form}>
           {error && (
             <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle" size={20} color="#ef4444" />
+              <Ionicons name="alert-circle" size={18} color="#ef4444" />
               <Text style={styles.errorText}>{error}</Text>
             </View>
           )}
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email</Text>
-            <View style={[styles.inputWrapper, formErrors.email && styles.inputError]}>
-              <Ionicons name="mail" size={20} color="#71717a" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your email"
-                placeholderTextColor="#9ca3af"
-                value={email}
-                onChangeText={handleEmailChange}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-                textContentType="emailAddress"
-                autoComplete="email"
-                onFocus={() => {
-                  // Clear any errors when user focuses on input
-                  if (formErrors.email) {
-                    setFormErrors(prev => ({ ...prev, email: '' }));
-                  }
-                }}
-              />
-            </View>
-            {formErrors.email && <Text style={styles.fieldError}>{formErrors.email}</Text>}
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
-            <View style={[styles.inputWrapper, formErrors.password && styles.inputError]}>
-              <Ionicons name="lock-closed" size={20} color="#71717a" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your password"
-                placeholderTextColor="#9ca3af"
-                value={password}
-                onChangeText={handlePasswordChange}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-                textContentType="password"
-                autoComplete="password"
-                onFocus={() => {
-                  // Clear any errors when user focuses on input
-                  if (formErrors.password) {
-                    setFormErrors(prev => ({ ...prev, password: '' }));
-                  }
-                }}
-              />
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeIcon}
-                disabled={isLoading}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color="#71717a"
+          <View style={styles.inputSection}>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Email</Text>
+              <View style={[styles.inputWrapper, formErrors.email && styles.inputError]}>
+                <Ionicons name="mail" size={20} color="#71717a" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your email"
+                  placeholderTextColor="#9ca3af"
+                  value={email}
+                  onChangeText={handleEmailChange}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!isLoading}
+                  textContentType="emailAddress"
+                  autoComplete="email"
+                  onFocus={() => {
+                    // Clear any errors when user focuses on input
+                    if (formErrors.email) {
+                      setFormErrors(prev => ({ ...prev, email: '' }));
+                    }
+                  }}
                 />
+              </View>
+              {formErrors.email && <Text style={styles.fieldError}>{formErrors.email}</Text>}
+            </View>
+
+            <View style={styles.inputContainer}>
+              <View style={styles.passwordHeader}>
+                <Text style={styles.label}>Password</Text>
+                <TouchableOpacity
+                  onPress={onNavigateToForgotPassword}
+                  disabled={isLoading}
+                >
+                  <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.inputWrapper, formErrors.password && styles.inputError]}>
+                <Ionicons name="lock-closed" size={20} color="#71717a" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#9ca3af"
+                  value={password}
+                  onChangeText={handlePasswordChange}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!isLoading}
+                  textContentType="password"
+                  autoComplete="password"
+                  onFocus={() => {
+                    // Clear any errors when user focuses on input
+                    if (formErrors.password) {
+                      setFormErrors(prev => ({ ...prev, password: '' }));
+                    }
+                  }}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeIcon}
+                  disabled={isLoading}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off' : 'eye'}
+                    size={20}
+                    color="#71717a"
+                  />
+                </TouchableOpacity>
+              </View>
+              {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
+              {password.length > 0 && password.length < 8 && !formErrors.password && (
+                <Text style={styles.passwordRequirements}>
+                  Password must be at least 8 characters long
+                </Text>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.buttonSection}>
+            <TouchableOpacity
+              style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
+              onPress={handleLogin}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <Text style={styles.loginButtonText}>Signing In...</Text>
+              ) : (
+                <Text style={styles.loginButtonText}>Sign In</Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <View style={styles.socialButtons}>
+              <TouchableOpacity
+                style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
+                onPress={handleGoogleSignIn}
+                disabled={isLoading || pendingGoogleSignIn}
+              >
+                <View style={styles.googleButtonContent}>
+                  <Ionicons name="logo-google" size={20} color="#4285F4" />
+                  <Text style={styles.googleButtonText}>
+                    {pendingGoogleSignIn ? 'Signing In...' : 'Sign in with Google'}
+                  </Text>
+                </View>
               </TouchableOpacity>
+
+              {Platform.OS === 'ios' && (
+                <TouchableOpacity
+                  style={[styles.appleButton, (isLoading || pendingAppleSignIn) && styles.appleButtonDisabled]}
+                  onPress={handleAppleSignIn}
+                  disabled={isLoading || pendingAppleSignIn}
+                >
+                  <View style={styles.appleButtonContent}>
+                    <Ionicons name="logo-apple" size={20} color="#fff" />
+                    <Text style={styles.appleButtonText}>
+                      {pendingAppleSignIn ? 'Signing In...' : 'Sign in with Apple'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
             </View>
-            {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
-            <Text style={styles.passwordRequirements}>
-              Password must be at least 8 characters long
-            </Text>
           </View>
 
-          <TouchableOpacity
-            onPress={onNavigateToForgotPassword}
-            style={styles.forgotPassword}
-            disabled={isLoading}
-          >
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
+          <View style={styles.footerSection}>
+            <TouchableOpacity
+              style={[styles.signupButton, isLoading && styles.signupButtonDisabled]}
+              onPress={onNavigateToSignup}
+              disabled={isLoading}
+            >
+              <Text style={styles.signupButtonText}>Sign Up</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
-            onPress={handleLogin}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <Text style={styles.loginButtonText}>Signing In...</Text>
-            ) : (
-              <Text style={styles.loginButtonText}>Sign In</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.guestButton, isLoading && styles.guestButtonDisabled]}
-            onPress={handleGuestMode}
-            disabled={isLoading}
-          >
-            <Ionicons name="eye" size={20} color="#fff" style={styles.guestButtonIcon} />
-            <Text style={styles.guestButtonText}>Browse as Guest</Text>
-          </TouchableOpacity>
-
-          {/* Google Sign-In temporarily hidden */}
-          {/* <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
-            onPress={handleGoogleSignIn}
-            disabled={isLoading || pendingGoogleSignIn}
-          >
-            <View style={styles.googleButtonContent}>
-              <Ionicons name="logo-google" size={20} color="#4285F4" />
-              <Text style={styles.googleButtonText}>
-                {pendingGoogleSignIn ? 'Signing In...' : 'Sign in with Google'}
-              </Text>
-            </View>
-          </TouchableOpacity> */}
-
-          <View style={styles.signupContainer}>
-            <Text style={styles.signupText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={onNavigateToSignup} disabled={isLoading}>
-              <Text style={styles.signupLink}>Sign Up</Text>
+            <TouchableOpacity
+              style={styles.guestLink}
+              onPress={handleGuestMode}
+              disabled={isLoading}
+            >
+              <Text style={styles.guestLinkText}>Browse as Guest</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -336,8 +419,11 @@ const LoginPage: React.FC<LoginPageProps> = ({
       <CategorySelectionModal
         visible={showCategoryModal}
         onSelect={handleCategorySelect}
-        onCancel={() => setShowCategoryModal(false)}
-        isLoading={isLoading || pendingGoogleSignIn}
+        onCancel={() => {
+          setShowCategoryModal(false);
+          setPendingAuthProvider(null);
+        }}
+        isLoading={isLoading || pendingGoogleSignIn || pendingAppleSignIn}
       />
     </KeyboardAvoidingView>
   );
@@ -346,27 +432,30 @@ const LoginPage: React.FC<LoginPageProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f4f4f5',
+    backgroundColor: '#ffffff',
   },
   scrollContainer: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 60,
+    paddingBottom: 40,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 48,
   },
   title: {
     fontSize: 32,
     fontWeight: '800',
     color: '#000',
     marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#71717a',
     textAlign: 'center',
+    lineHeight: 20,
   },
   form: {
     width: '100%',
@@ -377,37 +466,48 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 24,
   },
   errorText: {
-    color: '#ef4444',
-    fontSize: 14,
-    marginLeft: 8,
+    color: '#dc2626',
+    fontSize: 13,
+    marginLeft: 10,
     flex: 1,
+    lineHeight: 18,
+  },
+  inputSection: {
+    marginBottom: 32,
   },
   inputContainer: {
     marginBottom: 20,
+  },
+  passwordHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   label: {
     fontSize: 14,
     fontWeight: '600',
     color: '#000',
-    marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
+    borderWidth: 1.5,
+    borderColor: '#e4e4e7',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
+    minHeight: 52,
   },
   inputError: {
     borderColor: '#ef4444',
+    backgroundColor: '#fef2f2',
   },
   inputIcon: {
     marginRight: 12,
@@ -416,102 +516,81 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#000',
+    padding: 0,
   },
   eyeIcon: {
     padding: 4,
+    marginLeft: 8,
   },
   fieldError: {
     color: '#ef4444',
     fontSize: 12,
-    marginTop: 4,
+    marginTop: 6,
+    marginLeft: 2,
   },
   passwordRequirements: {
     color: '#71717a',
     fontSize: 12,
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginBottom: 24,
+    marginTop: 6,
+    marginLeft: 2,
   },
   forgotPasswordText: {
     color: '#3b82f6',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
+  },
+  buttonSection: {
+    marginBottom: 32,
   },
   loginButton: {
     backgroundColor: '#000',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   loginButtonDisabled: {
     backgroundColor: '#9ca3af',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   loginButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-  },
-  guestButton: {
-    backgroundColor: '#3b82f6',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 24,
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  guestButtonDisabled: {
-    backgroundColor: '#9ca3af',
-  },
-  guestButtonIcon: {
-    marginRight: 8,
-  },
-  guestButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 28,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#d4d4d8',
+    backgroundColor: '#e4e4e7',
   },
   dividerText: {
     color: '#71717a',
-    fontSize: 14,
+    fontSize: 13,
     marginHorizontal: 16,
+    fontWeight: '500',
   },
-  signupContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  signupText: {
-    color: '#71717a',
-    fontSize: 14,
-  },
-  signupLink: {
-    color: '#3b82f6',
-    fontSize: 14,
-    fontWeight: '600',
+  socialButtons: {
+    gap: 12,
   },
   googleButton: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    paddingVertical: 16,
+    paddingVertical: 15,
     alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
+    borderWidth: 1.5,
+    borderColor: '#e4e4e7',
   },
   googleButtonDisabled: {
     opacity: 0.5,
@@ -519,12 +598,82 @@ const styles = StyleSheet.create({
   googleButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   googleButtonText: {
     color: '#000',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  appleButton: {
+    backgroundColor: '#000',
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#000',
+  },
+  appleButtonDisabled: {
+    opacity: 0.5,
+  },
+  appleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  appleButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  footerSection: {
+    alignItems: 'center',
+    gap: 16,
+  },
+  signupButton: {
+    backgroundColor: '#3b82f6',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    width: '100%',
+    shadowColor: '#3b82f6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  signupButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  signupButtonText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  guestLink: {
+    paddingVertical: 8,
+  },
+  guestLinkText: {
+    color: '#71717a',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  loginContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loginText: {
+    color: '#71717a',
+    fontSize: 14,
+  },
+  loginLink: {
+    color: '#3b82f6',
+    fontSize: 18,
+    fontWeight: '700',
   },
 });
 

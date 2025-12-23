@@ -9,6 +9,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import AgendaTopBar from '../components/AgendaTopBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 interface WeeklySchedulePageProps {
   onBack?: () => void;
@@ -31,7 +32,10 @@ const BRUSH_TYPES = {
   Off: { color: '#a1a1aa', label: 'Off', icon: 'moon' },
 };
 
-const WeeklyScheduleManager: React.FC<{ onNavigate?: (page: string) => void }> = ({ onNavigate }) => {
+const WeeklyScheduleManager: React.FC<{ onNavigate?: (page: string) => void }> = ({ onNavigate: onNavigateProp }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
   const createDefaultSchedule = () => {
     const schedule: Record<string, string[]> = {};
     daysOfWeek.forEach(day => {
@@ -198,8 +202,11 @@ const WeeklyScheduleManager: React.FC<{ onNavigate?: (page: string) => void }> =
 
 const WeeklySchedulePage: React.FC<WeeklySchedulePageProps> = ({
   onBack,
-  onNavigate,
+  onNavigate: onNavigateProp,
 }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
   return (
     <View style={styles.pageContainer}>
       <AgendaTopBar onNavigate={onNavigate || (() => {})} activeTab="sPage" />

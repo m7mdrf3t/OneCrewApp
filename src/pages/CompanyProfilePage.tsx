@@ -15,7 +15,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
+import { RootStackScreenProps } from '../navigation/types';
 import SkeletonProfilePage from '../components/SkeletonProfilePage';
 import {
   Company,
@@ -55,8 +58,8 @@ interface CompanyProfilePageProps {
 }
 
 const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
-  companyId,
-  onBack,
+  companyId: companyIdProp,
+  onBack: onBackProp,
   onEdit,
   onManageMembers,
   onManageServices,
@@ -64,9 +67,31 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   onManageCourses,
   onCourseSelect,
   refreshTrigger,
-  onNavigate,
+  onNavigate: onNavigateProp,
   readOnly = false,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'companyProfile'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  
+  const { navigateTo, goBack } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+  const onBack = onBackProp || goBack;
+  
+  // Get companyId from route params or prop
+  const companyId = companyIdProp || routeParams?.companyId || '';
+  
+  // If no companyId provided, show error
+  if (!companyId) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text>Company ID not provided</Text>
+      </View>
+    );
+  }
+  
   const {
     getCompany,
     getCompanyMembers,

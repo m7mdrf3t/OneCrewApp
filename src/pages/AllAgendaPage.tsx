@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { MockAgenda, MockAgendaEvent, MOCK_AGENDA } from '../data/mockData';
 import AgendaTopBar from '../components/AgendaTopBar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 interface AllAgendaPageProps {
   onBack?: () => void;
@@ -23,10 +24,14 @@ interface AllAgendaPageProps {
 
 const AllAgendaPage: React.FC<AllAgendaPageProps> = ({
   onBack,
-  onNavigate,
+  onNavigate: onNavigateProp,
   agenda: propAgenda,
   onProfileSelect,
 }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+
   const [agenda, setAgenda] = useState<MockAgenda>(propAgenda || MOCK_AGENDA);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
   const [collaborationRequests, setCollaborationRequests] = useState<Record<string, boolean>>({});

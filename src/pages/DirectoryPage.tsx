@@ -4,11 +4,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import SearchBar from '../components/SearchBar';
 import FilterModal, { FilterParams } from '../components/FilterModal';
 import SkeletonUserCard from '../components/SkeletonUserCard';
+import { SECTIONS } from '../data/mockData';
+import { RootStackScreenProps } from '../navigation/types';
 
 // NOTE: FlashList runtime supports `estimatedItemSize`, but the shipped TS typings
 // in our current setup don't expose it. We cast to keep the perf optimization without
@@ -81,13 +85,36 @@ interface Company {
 }
 
 const DirectoryPage: React.FC<DirectoryPageProps> = ({
-  section,
-  onBack,
+  section: sectionProp,
+  onBack: onBackProp,
   onUserSelect,
-  onNavigate,
+  onNavigate: onNavigateProp,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'sectionServices'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  
   // Hide subcategory counts for now (they can be inaccurate due to role/label normalization differences)
   const SHOW_SUBCATEGORY_COUNTS = false;
+
+  const { navigateTo, goBack } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+  const onBack = onBackProp || goBack;
+
+  // Get section from route params or prop
+  const sectionKey = routeParams?.sectionKey || sectionProp?.key;
+  const section = sectionProp || (sectionKey ? SECTIONS.find(s => s.key === sectionKey) : undefined);
+  
+  // If no section found, show error or return early
+  if (!section) {
+    return (
+      <View style={styles.container}>
+        <Text>Section not found</Text>
+      </View>
+    );
+  }
 
   const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies } = useApi();
   const queryClient = useQueryClient();
@@ -1111,9 +1138,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                     key={company.id}
                     style={[styles.companyCardTwoTone, isAcademy && styles.academyCard]}
                     onPress={() => {
-                      if (onNavigate) {
-                        onNavigate('companyProfile', { companyId: company.id, readOnly: true });
-                      }
+                      onNavigate('companyProfile', { companyId: company.id, readOnly: true });
                     }}
                     activeOpacity={0.85}
                   >
@@ -1137,9 +1162,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                         style={styles.companyNavButton}
                         onPress={(e) => {
                           e.stopPropagation();
-                          if (onNavigate) {
-                            onNavigate('companyProfile', { companyId: company.id, readOnly: true });
-                          }
+                          onNavigate('companyProfile', { companyId: company.id, readOnly: true });
                         }}
                         activeOpacity={0.8}
                       >

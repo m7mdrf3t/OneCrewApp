@@ -9,19 +9,41 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { ProjectDetailPageProps, TaskWithAssignments, ProjectMember } from '../types';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
+import { RootStackScreenProps } from '../navigation/types';
 import CreateTaskModal from '../components/CreateTaskModal';
 
 const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
-  project,
-  onBack,
+  project: projectProp,
+  onBack: onBackProp,
   onCreateTask,
   onUpdateTask,
   onDeleteTask,
   onAssignTask,
   onUpdateTaskStatus,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'projectDetail'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  
+  const { goBack } = useAppNavigation();
+  const onBack = onBackProp || goBack;
+  
+  // Get project from route params or prop
+  const project = projectProp || routeParams?.project;
+  
+  if (!project) {
+    return (
+      <View style={styles.container}>
+        <Text>Project not found</Text>
+      </View>
+    );
+  }
+  
   const { user } = useApi();
   const [tasks, setTasks] = useState<TaskWithAssignments[]>(project.tasks || []);
   const [members, setMembers] = useState<ProjectMember[]>(project.members || []);

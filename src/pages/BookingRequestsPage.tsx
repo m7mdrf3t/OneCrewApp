@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { MOCK_BOOKING_REQUESTS, MockBookingRequest } from '../data/mockData';
 import BookingRequestCard from '../components/BookingRequestCard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 interface BookingRequestsPageProps {
   onBack?: () => void;
@@ -21,11 +22,15 @@ interface BookingRequestsPageProps {
 
 const BookingRequestsPage: React.FC<BookingRequestsPageProps> = ({
   onBack,
-  onNavigate,
+  onNavigate: onNavigateProp,
   projects = [],
   requests: initialRequests,
   onRespond,
 }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+
   const [requests, setRequests] = useState<MockBookingRequest[]>(
     initialRequests || MOCK_BOOKING_REQUESTS
   );
