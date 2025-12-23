@@ -72,6 +72,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     getUserProfilePictures,
     socialLinksRefreshTrigger,
     getMyTeamMembers,
+    logout,
   } = useApi();
   
   // Ensure myTeam is always an array
@@ -1588,7 +1589,17 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         }}
         onLogout={onLogout || (async () => {
           setShowUserMenu(false);
-          // Handle logout
+          try {
+            console.log('🚪 Logging out from ProfileDetailPage...');
+            await logout();
+            console.log('✅ Logout successful');
+            // Navigate to login screen after logout
+            navigateTo('login');
+          } catch (error) {
+            console.error('❌ Logout failed:', error);
+            // Still navigate to login even if logout fails
+            navigateTo('login');
+          }
         })}
         theme="light"
         isGuest={isGuest}

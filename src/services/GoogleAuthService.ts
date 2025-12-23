@@ -180,9 +180,11 @@ export const signInWithGoogle = async (): Promise<string> => {
     let userInfo;
     try {
       // Use a timeout to prevent hanging on iOS
+      // Increased to 60 seconds to give users more time to complete the sign-in flow
+      const SIGN_IN_TIMEOUT_MS = 100000; // 100 seconds
       const signInPromise = GoogleSignin.signIn();
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Google Sign-In timed out after 30 seconds')), 30000);
+        setTimeout(() => reject(new Error(`Google Sign-In timed out after ${SIGN_IN_TIMEOUT_MS / 1000} seconds`)), SIGN_IN_TIMEOUT_MS);
       });
       
       userInfo = await Promise.race([signInPromise, timeoutPromise]) as any;
@@ -205,8 +207,32 @@ export const signInWithGoogle = async (): Promise<string> => {
       throw new Error(errorMessage);
     }
     
-    if (!userInfo || !userInfo.idToken) {
-      throw new Error('No ID token received from Google Sign-In');
+    // Log userInfo for debugging
+    console.log('📋 Google Sign-In userInfo received:', {
+      hasUserInfo: !!userInfo,
+      hasIdToken: !!userInfo?.idToken || !!userInfo?.data?.idToken,
+      hasServerAuthCode: !!userInfo?.serverAuthCode || !!userInfo?.data?.serverAuthCode,
+      userInfoKeys: userInfo ? Object.keys(userInfo) : [],
+      userInfo: userInfo ? JSON.stringify(userInfo, null, 2) : 'null',
+    });
+    
+    // Handle different response structures
+    // Some versions return { idToken, ... } directly, others return { type: "success", data: { idToken, ... } }
+    const idToken = userInfo?.idToken || userInfo?.data?.idToken;
+    const serverAuthCode = userInfo?.serverAuthCode || userInfo?.data?.serverAuthCode;
+    
+    if (!userInfo || !idToken) {
+      // Check if user cancelled (userInfo might be null but no error thrown)
+      if (statusCodes && userInfo?.code === statusCodes.SIGN_IN_CANCELLED) {
+        throw new Error('Sign in was cancelled');
+      }
+      
+      // Provide more helpful error message
+      const errorDetails = userInfo 
+        ? `UserInfo received but missing idToken. Available keys: ${Object.keys(userInfo).join(', ')}`
+        : 'No userInfo received from Google Sign-In';
+      console.error('❌', errorDetails);
+      throw new Error('No ID token received from Google Sign-In. Please try again or check your Google account permissions.');
     }
 
     console.log('✅ Google ID token received, exchanging with Supabase...');
@@ -215,7 +241,7 @@ export const signInWithGoogle = async (): Promise<string> => {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.auth.signInWithIdToken({
       provider: 'google',
-      token: userInfo.idToken,
+      token: idToken,
     });
 
     if (error) {

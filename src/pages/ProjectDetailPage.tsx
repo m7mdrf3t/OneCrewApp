@@ -28,30 +28,38 @@ const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
   // Get route params if available (React Navigation)
   const route = useRoute<RootStackScreenProps<'projectDetail'>['route']>();
   const navigation = useNavigation();
-  const routeParams = route.params;
-  
   const { goBack } = useAppNavigation();
-  const onBack = onBackProp || goBack;
   
   // Get project from route params or prop
-  const project = projectProp || routeParams?.project;
+  const project = projectProp || route.params?.project;
   
+  // Early return if project is not available
   if (!project) {
     return (
       <View style={styles.container}>
-        <Text>Project not found</Text>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBackProp || goBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Project</Text>
+          <View style={styles.placeholder} />
+        </View>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#ef4444" />
+          <Text style={styles.errorText}>Project not found</Text>
+        </View>
       </View>
     );
   }
   
-  const { user } = useApi();
-  const [tasks, setTasks] = useState<TaskWithAssignments[]>(project.tasks || []);
-  const [members, setMembers] = useState<ProjectMember[]>(project.members || []);
+  const { user, getProjectById } = useApi();
+  const [tasks, setTasks] = useState<TaskWithAssignments[]>(project?.tasks || []);
+  const [members, setMembers] = useState<ProjectMember[]>(project?.members || []);
   const [refreshing, setRefreshing] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
 
   const getUserAccessLevel = () => {
-    if (!user) return 'viewer';
+    if (!user || !project) return 'viewer';
     
     // Check if user is the owner (created_by field)
     if (project.created_by === user.id) return 'owner';
@@ -63,6 +71,9 @@ const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
     
     return 'viewer';
   };
+  
+  // Use props if provided, otherwise use navigation hooks
+  const handleBack = onBackProp || goBack;
 
   const accessLevel = getUserAccessLevel();
   const canEdit = accessLevel === 'owner' || accessLevel === 'member';
@@ -176,11 +187,11 @@ const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>
-          {project.title || 'Untitled Project'}
+          {project?.title || 'Untitled Project'}
         </Text>
         <View style={styles.placeholder} />
       </View>
@@ -706,6 +717,18 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginTop: 4,
     textAlign: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#ef4444',
+    textAlign: 'center',
+    marginTop: 16,
   },
 });
 

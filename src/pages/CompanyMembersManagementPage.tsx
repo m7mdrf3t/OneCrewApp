@@ -12,26 +12,47 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { useRoute, useNavigation } from '@react-navigation/native';
+import { RootStackScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import { useApi } from '../contexts/ApiContext';
 import { Company, CompanyMember, CompanyMemberRole, InvitationStatus } from '../types';
 import InvitationModal from '../components/InvitationModal';
 
 interface CompanyMembersManagementPageProps {
-  company: Company;
-  currentUserId: string;
-  currentUserRole: CompanyMemberRole;
-  onBack: () => void;
+  company?: Company;
+  currentUserId?: string;
+  currentUserRole?: CompanyMemberRole;
+  onBack?: () => void;
+  showInviteModal?: boolean;
 }
 
 type TabType = 'active' | 'pending';
 
 const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> = ({
-  company,
-  currentUserId,
-  currentUserRole,
-  onBack,
+  company: companyProp,
+  currentUserId: currentUserIdProp,
+  currentUserRole: currentUserRoleProp,
+  onBack: onBackProp,
+  showInviteModal: showInviteModalProp,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'companyMembersManagement'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  const { goBack } = useAppNavigation();
+  
+  // Use props if provided (for backward compatibility), otherwise use route params or hooks
+  const onBack = onBackProp || goBack;
+  
+  // Get company from props or route params
+  const company = companyProp || routeParams?.company;
+  const currentUserId = currentUserIdProp || routeParams?.currentUserId || user?.id || '';
+  const showInviteModalInitial = showInviteModalProp || routeParams?.showInviteModal || false;
+  
   const {
+    getCompany,
+    user,
     getCompanyMembers,
     getPendingCompanyMembers,
     addCompanyMember,
@@ -41,13 +62,60 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
     getUsersDirect,
     api,
   } = useApi();
+  
+  // Determine user role from props, route params, or by checking members
+  const [currentUserRole, setCurrentUserRole] = useState<CompanyMemberRole>(
+    currentUserRoleProp || routeParams?.currentUserRole || 'member'
+  );
+  
+  // Fetch company if only companyId is provided
+  const [companyData, setCompanyData] = useState<Company | null>(company || null);
+  
+  useEffect(() => {
+    if (!companyData && routeParams?.companyId) {
+      // Fetch company by ID
+      getCompany(routeParams.companyId).then(response => {
+        if (response.success && response.data) {
+          setCompanyData(response.data as Company);
+        }
+      });
+    } else if (company) {
+      setCompanyData(company);
+    }
+  }, [company, routeParams?.companyId]);
+  
+  // Determine user role from members if not provided
+  useEffect(() => {
+    if (companyData && currentUserRole === 'member' && user?.id) {
+      getCompanyMembers(companyData.id, { page: 1, limit: 100 }).then(response => {
+        if (response.success && response.data) {
+          const membersArray = Array.isArray(response.data)
+            ? response.data
+            : response.data?.data || [];
+          const userMember = membersArray.find((m: CompanyMember) => m.user_id === user.id);
+          if (userMember) {
+            setCurrentUserRole(userMember.role);
+          } else if (companyData.owner?.id === user.id) {
+            setCurrentUserRole('owner');
+          }
+        }
+      });
+    }
+  }, [companyData, user?.id]);
+  
+  // Set initial invite modal state
+  useEffect(() => {
+    if (showInviteModalInitial) {
+      setShowInviteModal(true);
+    }
+  }, [showInviteModalInitial]);
 
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [activeMembers, setActiveMembers] = useState<CompanyMember[]>([]);
   const [pendingInvitations, setPendingInvitations] = useState<CompanyMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
-  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(showInviteModalInitial);
   const [editingMember, setEditingMember] = useState<CompanyMember | null>(null);
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [selectedRole, setSelectedRole] = useState<CompanyMemberRole>('member');
@@ -55,6 +123,9 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
   const isOwner = currentUserRole === 'owner';
   const isAdmin = currentUserRole === 'admin' || isOwner;
   const canManage = isAdmin; // Only admins and owners can manage
+  
+  // Use companyData instead of company
+  const activeCompany = companyData;
 
   const roles: { value: CompanyMemberRole; label: string; description: string }[] = [
     { value: 'owner', label: 'Owner', description: 'Full control of the company' },
@@ -64,19 +135,23 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
   ];
 
   useEffect(() => {
-    loadMembers();
-  }, [company.id, activeTab]);
+    if (activeCompany?.id) {
+      loadMembers();
+    }
+  }, [activeCompany?.id, activeTab]);
 
   const loadMembers = async (forceRefresh: boolean = false) => {
     try {
       setLoading(true);
       
+      if (!activeCompany?.id) return;
+      
       // Clear cache if forcing refresh
       if (forceRefresh) {
         try {
           const { rateLimiter } = await import('../utils/rateLimiter');
-          await rateLimiter.clearCacheByPattern(`company-members-${company.id}`);
-          await rateLimiter.clearCacheByPattern(`company-pending-members-${company.id}`);
+          await rateLimiter.clearCacheByPattern(`company-members-${activeCompany.id}`);
+          await rateLimiter.clearCacheByPattern(`company-pending-members-${activeCompany.id}`);
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
         }
@@ -85,14 +160,14 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
       // Load active members and pending members in parallel
       const [activeResponse, pendingResponse] = await Promise.all([
         // Load active members (accepted invitations)
-        getCompanyMembers(company.id, {
+        getCompanyMembers(activeCompany.id, {
           page: 1,
           limit: 100,
           sort: 'joined_at',
           order: 'desc',
         }),
         // Load pending members using the new dedicated method
-        getPendingCompanyMembers(company.id, {
+        getPendingCompanyMembers(activeCompany.id, {
           page: 1,
           limit: 100,
           sort: 'created_at',
@@ -201,7 +276,8 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
           onPress: async () => {
             try {
               setProcessing(member.user_id);
-              const response = await removeCompanyMember(company.id, member.user_id);
+              if (!activeCompany?.id) return;
+              const response = await removeCompanyMember(activeCompany.id, member.user_id);
               if (response.success) {
                 Alert.alert('Success', 'Member removed successfully.');
                 await loadMembers();
@@ -238,7 +314,8 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
             try {
               setProcessing(invitation.user_id);
               // Use the dedicated cancelInvitation method instead of removeCompanyMember
-              const response = await cancelInvitation(company.id, invitation.user_id);
+              if (!activeCompany?.id) return;
+              const response = await cancelInvitation(activeCompany.id, invitation.user_id);
               if (response.success) {
                 Alert.alert('Success', 'Invitation canceled successfully.');
                 await loadMembers(true); // Force refresh to update the list
@@ -294,9 +371,10 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
     }
 
     try {
+      if (!activeCompany?.id) return;
       setProcessing(editingMember.user_id);
       const response = await updateCompanyMemberRole(
-        company.id,
+        activeCompany.id,
         editingMember.user_id,
         selectedRole
       );
@@ -451,6 +529,24 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
     );
   };
 
+  // Show loading if company is not yet loaded
+  if (!activeCompany) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Manage Members</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={{ marginTop: 16, color: '#71717a' }}>Loading company data...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -541,11 +637,11 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
       </ScrollView>
 
       {/* Invitation Modal */}
-      {showInviteModal && (
+      {showInviteModal && activeCompany && (
         <InvitationModal
           visible={showInviteModal}
           onClose={() => setShowInviteModal(false)}
-          company={company}
+          company={activeCompany}
           onInvitationSent={async () => {
             // Clear cache and reload members after invitation is sent
             setShowInviteModal(false);

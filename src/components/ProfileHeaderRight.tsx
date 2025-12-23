@@ -3,6 +3,7 @@ import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
+import { useGlobalModals } from '../contexts/GlobalModalsContext';
 import { spacing } from '../constants/spacing';
 
 interface ProfileHeaderRightProps {
@@ -20,10 +21,20 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
 }) => {
   const { unreadNotificationCount, unreadConversationCount } = useApi();
   const { navigateTo } = useAppNavigation();
+  
+  // Use global modals context if available, otherwise use props
+  let globalModals: ReturnType<typeof useGlobalModals> | null = null;
+  try {
+    globalModals = useGlobalModals();
+  } catch {
+    // Context not available, use props instead
+  }
 
   const handleNotifications = () => {
     if (onShowNotifications) {
       onShowNotifications();
+    } else if (globalModals) {
+      globalModals.setShowNotificationModal(true);
     }
   };
 
@@ -38,12 +49,16 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
   const handleAccountSwitcher = () => {
     if (onShowAccountSwitcher) {
       onShowAccountSwitcher();
+    } else if (globalModals) {
+      globalModals.setShowAccountSwitcher(true);
     }
   };
 
   const handleMenu = () => {
     if (onShowMenu) {
       onShowMenu();
+    } else if (globalModals) {
+      globalModals.setShowUserMenu(true);
     }
   };
 

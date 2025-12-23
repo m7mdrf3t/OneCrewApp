@@ -91,7 +91,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   onNavigate: onNavigateProp,
 }) => {
   // Get route params if available (React Navigation)
-  const route = useRoute<RootStackScreenProps<'sectionServices'>['route']>();
+  // DirectoryPage can be accessed via both 'sectionServices' and 'directory' routes
+  const route = useRoute<any>();
   const navigation = useNavigation();
   const routeParams = route.params;
   
@@ -103,9 +104,78 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const onNavigate = onNavigateProp || navigateTo;
   const onBack = onBackProp || goBack;
 
+  // Handle user selection - use onUserSelect prop if provided, otherwise navigate directly
+  const handleUserSelect = async (user: User) => {
+    // For talent users without complete data, fetch it first
+    if (user.category === 'talent' && !user.about) {
+      const updatedUser = await fetchCompleteUserData(user.id);
+      const userToNavigate = updatedUser || user;
+      if (onUserSelect) {
+        onUserSelect(userToNavigate);
+      } else {
+        // Transform user data to match ProfileDetailPage expectations
+        const transformedProfile = {
+          ...userToNavigate,
+          stats: userToNavigate.stats || {
+            followers: '0',
+            projects: 0,
+            likes: '0'
+          },
+          skills: userToNavigate.skills || [],
+          bio: userToNavigate.bio || 'No bio available',
+          onlineStatus: userToNavigate.onlineStatus || userToNavigate.online_last_seen || 'Last seen recently',
+          about: userToNavigate.about || {
+            gender: 'unknown'
+          }
+        };
+        onNavigate('profile', transformedProfile);
+      }
+    } else {
+      if (onUserSelect) {
+        onUserSelect(user);
+      } else {
+        // Transform user data to match ProfileDetailPage expectations
+        const transformedProfile = {
+          ...user,
+          stats: user.stats || {
+            followers: '0',
+            projects: 0,
+            likes: '0'
+          },
+          skills: user.skills || [],
+          bio: user.bio || 'No bio available',
+          onlineStatus: user.onlineStatus || user.online_last_seen || 'Last seen recently',
+          about: user.about || {
+            gender: 'unknown'
+          }
+        };
+        onNavigate('profile', transformedProfile);
+      }
+    }
+  };
+
   // Get section from route params or prop
-  const sectionKey = routeParams?.sectionKey || sectionProp?.key;
-  const section = sectionProp || (sectionKey ? SECTIONS.find(s => s.key === sectionKey) : undefined);
+  // If route name is 'directory' or sectionKey is 'directory', use 'directory'
+  const routeName = route.name;
+  const sectionKey = routeParams?.sectionKey || (routeName === 'directory' ? 'directory' : null) || sectionProp?.key;
+  
+  // Handle directory section specially (it's dynamically created, not in SECTIONS)
+  let section = sectionProp;
+  if (!section && sectionKey) {
+    if (sectionKey === 'directory') {
+      // Create directory section dynamically
+      section = {
+        key: 'directory',
+        title: 'All Members',
+        items: [
+          { label: 'All Members', users: 0 }
+        ]
+      };
+    } else {
+      // Find section from SECTIONS constant
+      section = SECTIONS.find(s => s.key === sectionKey);
+    }
+  }
   
   // If no section found, show error or return early
   if (!section) {
@@ -1243,15 +1313,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
             <TouchableOpacity
               key={user.id}
               style={styles.userCard}
-              onPress={async () => {
-                // For talent users without complete data, fetch it first
-                if (user.category === 'talent' && !user.about) {
-                  const updatedUser = await fetchCompleteUserData(user.id);
-                  onUserSelect(updatedUser || user);
-                } else {
-                  onUserSelect(user);
-                }
-              }}
+              onPress={() => handleUserSelect(user)}
               activeOpacity={0.7}
             >
               {/* Full card background image */}

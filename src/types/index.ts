@@ -67,14 +67,14 @@ export interface HomePageProps {
 }
 
 export interface ProjectsPageProps {
-  onProjectSelect: (project: any) => void;
-  onAddNewProject: () => void;
-  onAddNewProjectEasy: () => void;
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
-  onBack: () => void;
-  myTeam: any[];
-  onProfileSelect: (profile: any) => void;
+  onProjectSelect?: (project: any) => void;
+  onAddNewProject?: () => void;
+  onAddNewProjectEasy?: () => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
+  onBack?: () => void;
+  myTeam?: any[];
+  onProfileSelect?: (profile: any) => void;
   onNavigateToProjectDetail?: (project: any) => void;
   onRefresh?: () => void;
   onNavigateToSignup?: () => void;
@@ -917,8 +917,8 @@ export interface SendChatMessageRequest {
 
 // Chat UI Component Props
 export interface ConversationsListPageProps {
-  onBack: () => void;
-  onConversationSelect: (conversation: ChatConversation) => void;
+  onBack?: () => void;
+  onConversationSelect?: (conversation: ChatConversation) => void;
 }
 
 export interface ChatPageProps {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
+import ProfileHeaderRight from '../components/ProfileHeaderRight';
 
 // Import all pages
 import HomePage from '../pages/HomePage';
@@ -43,6 +44,19 @@ interface AppNavigatorProps {
 }
 
 export const AppNavigator: React.FC<AppNavigatorProps> = () => {
+  // Default header options with ProfileHeaderRight for screens that show headers
+  const defaultHeaderOptions = {
+    headerBackTitleVisible: false,
+    headerStyle: {
+      backgroundColor: '#ffffff',
+    },
+    headerTintColor: '#000000',
+    headerTitleStyle: {
+      fontWeight: '600' as const,
+    },
+    headerRight: () => <ProfileHeaderRight />,
+  };
+
   return (
     <Stack.Navigator
       screenOptions={{
@@ -56,7 +70,15 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
       {/* Main tabs */}
       <Stack.Screen name="spot" component={SpotPage} />
       <Stack.Screen name="home" component={HomePageWithUsers} />
-      <Stack.Screen name="projects" component={ProjectsPage} />
+      <Stack.Screen 
+        name="projects" 
+        component={ProjectsPage}
+        options={{
+          headerShown: true,
+          title: 'Projects',
+          ...defaultHeaderOptions,
+        }}
+      />
       <Stack.Screen name="wall" component={AgendaPage} />
       
       {/* Service screens */}
@@ -74,14 +96,7 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
         options={({ route }) => ({
           headerShown: true,
           title: route.params?.profile?.name || 'Profile',
-          headerBackTitleVisible: false,
-          headerStyle: {
-            backgroundColor: '#ffffff',
-          },
-          headerTintColor: '#000000',
-          headerTitleStyle: {
-            fontWeight: '600',
-          },
+          ...defaultHeaderOptions,
         })}
       />
       <Stack.Screen 
@@ -90,25 +105,42 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
         options={({ route }) => ({
           headerShown: true,
           title: route.params?.user?.name || 'My Profile',
-          headerBackTitleVisible: false,
-          headerStyle: {
-            backgroundColor: '#ffffff',
-          },
-          headerTintColor: '#000000',
-          headerTitleStyle: {
-            fontWeight: '600',
-          },
+          ...defaultHeaderOptions,
         })}
       />
       <Stack.Screen name="profileCompletion" component={ProfileCompletionPage} />
-      <Stack.Screen name="companyProfile" component={CompanyProfilePage} />
+      <Stack.Screen 
+        name="companyProfile" 
+        component={CompanyProfilePage}
+        options={{
+          headerShown: true,
+          title: 'Company',
+          ...defaultHeaderOptions,
+        }}
+      />
       <Stack.Screen name="companyRegistration" component={CompanyRegistrationPage} />
       <Stack.Screen name="companyEdit" component={CompanyEditPage} />
       <Stack.Screen name="companyMembersManagement" component={CompanyMembersManagementPage} />
       
       {/* Project screens */}
-      <Stack.Screen name="projectDetail" component={ProjectDetailPage} />
-      <Stack.Screen name="newProject" component={NewProjectPage} />
+      <Stack.Screen 
+        name="projectDetail" 
+        component={ProjectDetailPage}
+        options={{
+          headerShown: true,
+          title: 'Project',
+          ...defaultHeaderOptions,
+        }}
+      />
+      <Stack.Screen 
+        name="newProject" 
+        component={NewProjectPage}
+        options={{
+          headerShown: true,
+          title: 'New Project',
+          ...defaultHeaderOptions,
+        }}
+      />
       <Stack.Screen name="newProjectEasy" component={NewProjectPage} />
       
       {/* Course screens */}
@@ -118,20 +150,79 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
       <Stack.Screen name="publicCourses" component={PublicCoursesPage} />
       
       {/* Chat screens */}
-      <Stack.Screen name="chat" component={ChatPage} />
-      <Stack.Screen name="conversations" component={ConversationsListPage} />
+      <Stack.Screen 
+        name="chat" 
+        component={ChatPage}
+        options={{
+          headerShown: true,
+          title: 'Chat',
+          ...defaultHeaderOptions,
+        }}
+      />
+      <Stack.Screen 
+        name="conversations" 
+        component={ConversationsListPage}
+        options={{
+          headerShown: true,
+          title: 'Messages',
+          ...defaultHeaderOptions,
+        }}
+      />
       
       {/* Other screens */}
-      <Stack.Screen name="settings" component={SettingsPage} />
+      <Stack.Screen 
+        name="settings" 
+        component={SettingsPage}
+        options={{
+          headerShown: true,
+          title: 'Settings',
+          ...defaultHeaderOptions,
+        }}
+      />
       <Stack.Screen name="changePassword" component={ChangePasswordPage} />
       <Stack.Screen name="accountDeletion" component={AccountDeletionPage} />
       <Stack.Screen name="privacyPolicy" component={PrivacyPolicyPage} />
-      <Stack.Screen name="support" component={SupportPage} />
-      <Stack.Screen name="agenda" component={AgendaPage} />
+      <Stack.Screen 
+        name="support" 
+        component={SupportPage}
+        options={{
+          headerShown: true,
+          title: 'Support',
+          ...defaultHeaderOptions,
+        }}
+      />
+      <Stack.Screen 
+        name="agenda" 
+        component={AgendaPage}
+        options={{
+          headerShown: true,
+          title: 'Agenda',
+          ...defaultHeaderOptions,
+        }}
+      />
       <Stack.Screen name="allAgenda" component={AllAgendaPage} />
-      <Stack.Screen name="bookingRequests" component={BookingRequestsPage} />
+      <Stack.Screen 
+        name="bookingRequests" 
+        component={BookingRequestsPage}
+        options={{
+          headerShown: true,
+          title: 'Booking Requests',
+          ...defaultHeaderOptions,
+        }}
+      />
       <Stack.Screen name="weeklySchedule" component={WeeklySchedulePage} />
       <Stack.Screen name="performanceTest" component={PerformanceTestPage} />
+      
+      {/* News screens */}
+      <Stack.Screen 
+        name="newsDetail" 
+        component={NewsDetailPage}
+        options={({ route }) => ({
+          headerShown: true,
+          title: route.params?.post?.title || 'News',
+          ...defaultHeaderOptions,
+        })}
+      />
     </Stack.Navigator>
   );
 };

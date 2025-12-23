@@ -22,6 +22,9 @@ export type RootStackParamList = {
   profileCompletion: { user: any };
   companyProfile: { companyId: string };
   companyRegistration: undefined;
+  companyMembersManagement: { company?: Company; companyId?: string; currentUserId?: string; currentUserRole?: CompanyMemberRole; showInviteModal?: boolean };
+  companyEdit: { company: Company };
+  coursesManagement: { companyId: string; readOnly?: boolean };
   
   // Service screens
   details: { serviceData: any };
@@ -51,6 +54,9 @@ export type RootStackParamList = {
   bookingRequests: undefined;
   weeklySchedule: undefined;
   performanceTest: undefined;
+  
+  // News screens
+  newsDetail: { slug: string; post?: any };
 };
 
 export type RootStackScreenProps<T extends keyof RootStackParamList> = NativeStackScreenProps<

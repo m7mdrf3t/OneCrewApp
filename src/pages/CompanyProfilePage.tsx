@@ -451,6 +451,57 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   };
 
+  // Create default handlers that use navigation when callback props aren't provided
+  const handleManageMembers = React.useCallback((company: Company) => {
+    if (onManageMembers) {
+      onManageMembers(company);
+    } else if (onNavigate) {
+      // Navigate to members management page
+      const userMember = members.find(m => m.user_id === user?.id);
+      onNavigate('companyMembersManagement', {
+        company,
+        currentUserId: user?.id || '',
+        currentUserRole: (userMember?.role || 'member') as CompanyMemberRole,
+      });
+    }
+  }, [onManageMembers, onNavigate, members, user]);
+
+  const handleManageCourses = React.useCallback((company: Company) => {
+    if (onManageCourses) {
+      onManageCourses(company);
+    } else if (onNavigate) {
+      // Navigate to courses management page
+      onNavigate('coursesManagement', {
+        companyId: company.id,
+        readOnly: false,
+      });
+    }
+  }, [onManageCourses, onNavigate]);
+
+  const handleInviteMember = React.useCallback((company: Company) => {
+    if (onInviteMember) {
+      onInviteMember(company);
+    } else if (onNavigate) {
+      // Navigate to members management page and show invite modal
+      const userMember = members.find(m => m.user_id === user?.id);
+      onNavigate('companyMembersManagement', {
+        company,
+        currentUserId: user?.id || '',
+        currentUserRole: (userMember?.role || 'member') as CompanyMemberRole,
+        showInviteModal: true,
+      });
+    }
+  }, [onInviteMember, onNavigate, members, user]);
+
+  const handleEditCompany = React.useCallback((company: Company) => {
+    if (onEdit) {
+      onEdit(company);
+    } else if (onNavigate) {
+      // Navigate to company edit page
+      onNavigate('companyEdit', { company });
+    }
+  }, [onEdit, onNavigate]);
+
   const loadDocuments = async (_id: string) => {
     try {
       setDocumentsRequested(true);
@@ -910,8 +961,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Company Profile</Text>
         {/* STRICT READ-ONLY: Edit button completely removed when readOnly is true */}
-        {!readOnly && canEdit() && onEdit && (
-          <TouchableOpacity onPress={() => onEdit(company)} style={styles.editButton}>
+        {!readOnly && canEdit() && (
+          <TouchableOpacity onPress={() => handleEditCompany(company)} style={styles.editButton}>
             <Ionicons name="create-outline" size={24} color="#000" />
           </TouchableOpacity>
         )}
@@ -1138,10 +1189,10 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Team & Metrics</Text>
                 {/* STRICT READ-ONLY: Manage button completely removed when readOnly is true */}
-                {!readOnly && canEdit() && company.approval_status === 'approved' && onManageCourses && (
+                {!readOnly && canEdit() && company.approval_status === 'approved' && (
                   <TouchableOpacity
                     style={styles.manageButton}
-                    onPress={() => onManageCourses(company)}
+                    onPress={() => handleManageCourses(company)}
                   >
                     <Ionicons name="school-outline" size={14} color="#000" />
                     <Text style={styles.manageButtonText}>Manage</Text>
@@ -1193,11 +1244,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     >
                       <Text style={styles.viewAllButtonText}>View All Courses</Text>
                     </TouchableOpacity>
-                  ) : !readOnly && onManageCourses ? (
+                  ) : !readOnly ? (
                     <TouchableOpacity
                       style={styles.viewAllButton}
                       onPress={() => {
-                        onManageCourses(company);
+                        handleManageCourses(company);
                       }}
                     >
                       <Text style={styles.viewAllButtonText}>View All Courses</Text>
@@ -1209,10 +1260,10 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="school-outline" size={48} color="#e4e4e7" />
                   <Text style={styles.emptyStateText}>No courses available yet</Text>
                   {/* STRICT READ-ONLY: Create Course button completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && company.approval_status === 'approved' && onManageCourses && (
+                  {!readOnly && canEdit() && company.approval_status === 'approved' && (
                     <TouchableOpacity
                       style={styles.addButton}
-                      onPress={() => onManageCourses(company)}
+                      onPress={() => handleManageCourses(company)}
                     >
                       <Text style={styles.addButtonText}>Create Course</Text>
                     </TouchableOpacity>
@@ -1248,7 +1299,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             )}
 
             {/* STRICT READ-ONLY: Invite Admin Users Section completely removed when readOnly is true */}
-            {!readOnly && canEdit() && company.subcategory === 'academy' && company.approval_status === 'approved' && onInviteMember && (
+            {!readOnly && canEdit() && company.subcategory === 'academy' && company.approval_status === 'approved' && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Admin Management</Text>
@@ -1257,28 +1308,26 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   Invite users as administrators to help manage your academy. Admin users have full management privileges including the ability to add other admin users, manage courses, and grant certifications.
                 </Text>
                 <View style={styles.adminManagementButtons}>
-                  {onManageMembers && (
-                    <TouchableOpacity
-                      style={[styles.manageRegistrationsButton, { backgroundColor: '#6366f1', marginBottom: 8 }]}
-                      onPress={() => onManageMembers(company)}
-                    >
-                      <Ionicons name="settings-outline" size={18} color="#fff" />
-                      <Text style={styles.manageRegistrationsButtonText}>Manage All Members</Text>
-                    </TouchableOpacity>
-                  )}
-                <TouchableOpacity
-                  style={[styles.manageRegistrationsButton, styles.inviteAdminButton]}
-                  onPress={() => onInviteMember(company)}
-                >
-                  <Ionicons name="person-add-outline" size={18} color="#fff" />
-                  <Text style={styles.manageRegistrationsButtonText}>Invite Admin User</Text>
+                  <TouchableOpacity
+                    style={[styles.manageRegistrationsButton, { backgroundColor: '#6366f1', marginBottom: 8 }]}
+                    onPress={() => handleManageMembers(company)}
+                  >
+                    <Ionicons name="settings-outline" size={18} color="#fff" />
+                    <Text style={styles.manageRegistrationsButtonText}>Manage All Members</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.manageRegistrationsButton, styles.inviteAdminButton]}
+                    onPress={() => handleInviteMember(company)}
+                  >
+                    <Ionicons name="person-add-outline" size={18} color="#fff" />
+                    <Text style={styles.manageRegistrationsButtonText}>Invite Admin User</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
             
             {/* User Management Section - For all company types */}
-            {!readOnly && canEdit() && company.approval_status === 'approved' && onManageMembers && company.subcategory !== 'academy' && (
+            {!readOnly && canEdit() && company.approval_status === 'approved' && company.subcategory !== 'academy' && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>User Management</Text>
@@ -1288,7 +1337,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 </Text>
                 <TouchableOpacity
                   style={[styles.manageRegistrationsButton, { backgroundColor: '#3b82f6' }]}
-                  onPress={() => onManageMembers(company)}
+                  onPress={() => handleManageMembers(company)}
                 >
                   <Ionicons name="people-outline" size={18} color="#fff" />
                   <Text style={styles.manageRegistrationsButtonText}>Manage Members</Text>
@@ -1609,20 +1658,20 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 </Text>
                 <View style={styles.memberActionButtons}>
                   {/* STRICT READ-ONLY: Manage Members button completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && company.approval_status === 'approved' && onManageMembers && (
+                  {!readOnly && canEdit() && company.approval_status === 'approved' && (
                     <TouchableOpacity
                       style={styles.manageButton}
-                      onPress={() => onManageMembers(company)}
+                      onPress={() => handleManageMembers(company)}
                     >
                       <Ionicons name="settings-outline" size={18} color="#000" />
                       <Text style={styles.manageButtonText}>Manage</Text>
                     </TouchableOpacity>
                   )}
                 {/* STRICT READ-ONLY: Invite Member button completely removed when readOnly is true */}
-                {!readOnly && canEdit() && company.approval_status === 'approved' && onInviteMember && (
+                {!readOnly && canEdit() && company.approval_status === 'approved' && (
                   <TouchableOpacity
                     style={styles.manageButton}
-                    onPress={() => onInviteMember(company)}
+                    onPress={() => handleInviteMember(company)}
                   >
                     <Ionicons name="person-add-outline" size={18} color="#000" />
                     <Text style={styles.manageButtonText}>Invite</Text>
@@ -1731,23 +1780,19 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   {/* STRICT READ-ONLY: Management buttons completely removed when readOnly is true */}
                   {!readOnly && canEdit() && company.approval_status === 'approved' && (
                     <View style={styles.emptyStateButtons}>
-                      {onManageMembers && (
-                        <TouchableOpacity
-                          style={[styles.addButton, { backgroundColor: '#3b82f6', marginBottom: 8 }]}
-                          onPress={() => onManageMembers(company)}
-                        >
-                          <Ionicons name="settings-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
-                          <Text style={styles.addButtonText}>Manage Members</Text>
-                        </TouchableOpacity>
-                      )}
-                      {onInviteMember && (
-                    <TouchableOpacity
-                      style={styles.addButton}
-                      onPress={() => onInviteMember(company)}
-                    >
-                      <Text style={styles.addButtonText}>Invite Members</Text>
-                    </TouchableOpacity>
-                      )}
+                      <TouchableOpacity
+                        style={[styles.addButton, { backgroundColor: '#3b82f6', marginBottom: 8 }]}
+                        onPress={() => handleManageMembers(company)}
+                      >
+                        <Ionicons name="settings-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+                        <Text style={styles.addButtonText}>Manage Members</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.addButton}
+                        onPress={() => handleInviteMember(company)}
+                      >
+                        <Text style={styles.addButtonText}>Invite Members</Text>
+                      </TouchableOpacity>
                     </View>
                   )}
                 </View>

@@ -55,6 +55,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'publicCourses': 'publicCourses',
       'companyEdit': 'companyEdit',
       'companyMembersManagement': 'companyMembersManagement',
+      'newsDetail': 'newsDetail',
     };
 
     const routeName = routeMap[pageName] as keyof RootStackParamList;
@@ -67,7 +68,8 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (pageName === 'profile' || pageName === 'myProfile') {
           params = { profile: data, user: data };
         } else if (pageName === 'projectDetail') {
-          params = { project: data };
+          // Handle both { project } and direct project object
+          params = { project: data?.project || data };
         } else if (pageName === 'companyProfile') {
           params = { companyId: typeof data === 'string' ? data : (data?.companyId || data?.id || data) };
         } else if (pageName === 'chat') {
@@ -78,6 +80,8 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           params = { serviceData: data };
         } else if (pageName === 'courseDetail' || pageName === 'courseEdit' || pageName === 'coursesManagement') {
           params = data;
+        } else if (pageName === 'newsDetail') {
+          params = { slug: data?.slug || data, post: data?.post || data };
         } else {
           params = data;
         }

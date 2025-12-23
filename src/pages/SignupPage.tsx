@@ -357,7 +357,15 @@ const SignupPage: React.FC<SignupPageProps> = ({
       }
       
       // Check if error is about category being required
-      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
+      // Check multiple possible error formats
+      const errorMessage = (err?.message || err?.error || '').toLowerCase();
+      const hasCategoryError = 
+        err?.code === 'CATEGORY_REQUIRED' ||
+        errorMessage.includes('category') && errorMessage.includes('required') ||
+        err?.message === 'CATEGORY_REQUIRED';
+      
+      if (hasCategoryError) {
+        console.log('ℹ️ Category required - showing category selection modal');
         // Show category selection modal
         setShowCategoryModal(true);
       } else {
@@ -436,9 +444,36 @@ const SignupPage: React.FC<SignupPageProps> = ({
       }
       
       // Check if error is about category being required
-      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
+      // Check multiple possible error formats
+      const errorMessage = (err?.message || err?.error || '').toLowerCase();
+      const hasCategoryError = 
+        err?.code === 'CATEGORY_REQUIRED' ||
+        errorMessage.includes('category') && errorMessage.includes('required') ||
+        err?.message === 'CATEGORY_REQUIRED';
+      
+      // Check for invalid role error
+      const hasRoleError = 
+        err?.code === 'INVALID_ROLE' ||
+        (errorMessage.includes('foreign key constraint') && 
+         (errorMessage.includes('primary_role') || errorMessage.includes('primary role')));
+      
+      if (hasCategoryError) {
+        console.log('ℹ️ Category required - showing category selection modal');
         // Show category selection modal
         setShowCategoryModal(true);
+      } else if (hasRoleError) {
+        console.log('ℹ️ Invalid role - showing category selection modal to reselect');
+        // Show category selection modal to allow user to select a valid role
+        Alert.alert(
+          'Invalid Role',
+          'The selected role is not valid. Please select a different role.',
+          [
+            {
+              text: 'OK',
+              onPress: () => setShowCategoryModal(true)
+            }
+          ]
+        );
       } else {
         setPendingAuthProvider(null);
         const errorMessage = err?.message || err?.toString() || 'Apple Sign-Up failed. Please try again.';

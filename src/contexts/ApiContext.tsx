@@ -366,8 +366,8 @@ interface ApiProviderProps {
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
    // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
-  //baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
-  baseUrl = 'http://localhost:3000' // Local server
+   baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
+  //baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
     console.log('🔧 Initializing OneCrewApi with baseUrl:', baseUrl);
@@ -1479,17 +1479,65 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Check if the new API client method is available
       if (api.auth && typeof (api.auth as any).signInWithApple === 'function') {
         console.log('📤 Using API client signInWithApple method (v2.26.0+)');
+        console.log('📤 Sign-In params:', { 
+          hasAccessToken: !!accessToken, 
+          category: category || 'not provided', 
+          primaryRole: primaryRole || 'not provided' 
+        });
         try {
           const response = await (api.auth as any).signInWithApple(accessToken, category, primaryRole);
           
-          if (!response.success) {
-            throw new Error(response.message || 'Apple Sign-In failed');
+          console.log('📥 API client response received:', {
+            success: response?.success,
+            hasData: !!response?.data,
+            hasUser: !!response?.user,
+            hasToken: !!response?.token,
+            message: response?.message,
+            error: response?.error,
+            responseKeys: response ? Object.keys(response) : [],
+          });
+          
+          // Handle different response formats:
+          // 1. Wrapped format: { success: true, data: { user, token } }
+          // 2. Direct format: { user, token }
+          // 3. Error format: { success: false, message/error }
+          
+          if (!response) {
+            throw new Error('No response received from Apple Sign-In');
           }
           
+          // Check if it's an error response
+          if (response.success === false || (response.error && !response.user)) {
+            // Extract error message from response
+            const errorMsg = response?.message || response?.error || response?.data?.error || 'Apple Sign-In failed';
+            console.error('❌ API client returned unsuccessful response:', {
+              success: response?.success,
+              message: response?.message,
+              error: response?.error,
+              data: response?.data,
+              fullResponse: JSON.stringify(response, null, 2),
+            });
+            
+            // Create error with full details
+            const error = new Error(errorMsg);
+            (error as any).response = response;
+            (error as any).code = response?.code;
+            (error as any).originalResponse = response;
+            throw error;
+          }
+          
+          // Response is successful - extract data from either format
           authResponse = response;
           
-          // Extract user data and token from API client response
-          if (response.data) {
+          // Check if response has user/token directly (direct format)
+          if (response.user && response.token) {
+            console.log('✅ Using direct response format (user and token at root level)');
+            userData = response.user;
+            token = response.token;
+          } 
+          // Check if response has data wrapper (wrapped format)
+          else if (response.data) {
+            console.log('✅ Using wrapped response format (data wrapper)');
             if (response.data.user) {
               userData = response.data.user;
             } else if (response.data.userData) {
@@ -1504,17 +1552,108 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               token = response.data.accessToken;
             }
           }
+          // Check if response has success: true but data might be at root
+          else if (response.success === true) {
+            console.log('✅ Using success:true format');
+            // Data might be at root level
+            if (response.user) {
+              userData = response.user;
+            }
+            if (response.token) {
+              token = response.token;
+            }
+          }
+          
+          if (!userData || !token) {
+            console.error('❌ Missing user data or token in response:', {
+              hasUserData: !!userData,
+              hasToken: !!token,
+              responseKeys: Object.keys(response),
+            });
+            throw new Error('Invalid response format: missing user data or token');
+          }
+          
+          console.log('✅ Successfully extracted user data and token from Apple Sign-In response');
         } catch (apiError: any) {
+          // Extract error details from various possible error structures
+          const errorDetails: any = {
+            code: apiError?.code,
+            message: apiError?.message,
+            error: apiError?.error,
+            status: apiError?.status,
+            statusCode: apiError?.statusCode,
+            response: apiError?.response,
+          };
+          
+          // Try to extract from ApiError structure (onecrew-api-client)
+          if (apiError?.response) {
+            errorDetails.responseData = apiError.response;
+            if (apiError.response.data) {
+              errorDetails.responseError = apiError.response.data.error || apiError.response.data.message;
+            }
+          }
+          
+          // Try to extract from nested error structures
+          if (apiError?.error) {
+            if (typeof apiError.error === 'string') {
+              errorDetails.errorMessage = apiError.error;
+            } else if (apiError.error?.message) {
+              errorDetails.errorMessage = apiError.error.message;
+            }
+          }
+          
+          console.log('🔍 Apple Sign-In API error details:', errorDetails);
+          
+          // Build comprehensive error message
+          const errorMessage = (
+            errorDetails.responseError ||
+            errorDetails.errorMessage ||
+            apiError?.message ||
+            apiError?.error ||
+            (apiError?.response?.data?.error) ||
+            (apiError?.response?.data?.message) ||
+            'Apple Sign-In failed'
+          ).toLowerCase();
+          
           // If API client method fails, check for category required error
-          if (apiError.code === 'CATEGORY_REQUIRED' || 
-              apiError.message?.toLowerCase().includes('category') && 
-              apiError.message?.toLowerCase().includes('required')) {
+          // Check multiple possible error formats
+          const hasCategoryError = 
+            apiError?.code === 'CATEGORY_REQUIRED' ||
+            errorMessage.includes('category') && errorMessage.includes('required') ||
+            (errorDetails.responseError && 
+             typeof errorDetails.responseError === 'string' && 
+             errorDetails.responseError.toLowerCase().includes('category') &&
+             errorDetails.responseError.toLowerCase().includes('required'));
+          
+          if (hasCategoryError) {
             console.log('⚠️ Category required for new user');
             const categoryError = new Error('CATEGORY_REQUIRED');
             (categoryError as any).code = 'CATEGORY_REQUIRED';
             throw categoryError;
           }
-          throw apiError;
+          
+          // Check for foreign key constraint error on primary_role
+          const hasRoleError = 
+            errorMessage.includes('foreign key constraint') && 
+            (errorMessage.includes('primary_role') || errorMessage.includes('primary role'));
+          
+          if (hasRoleError) {
+            console.log('⚠️ Invalid role code - foreign key constraint violation');
+            const roleError = new Error('INVALID_ROLE');
+            (roleError as any).code = 'INVALID_ROLE';
+            (roleError as any).message = 'The selected role is not valid. Please try selecting a different role or contact support.';
+            throw roleError;
+          }
+          
+          // Re-throw with better error message
+          const finalErrorMessage = errorDetails.responseError || 
+                                   errorDetails.errorMessage || 
+                                   apiError?.message || 
+                                   'Apple Sign-In failed';
+          const finalError = new Error(finalErrorMessage);
+          (finalError as any).code = apiError?.code;
+          (finalError as any).originalError = apiError;
+          throw finalError;
         }
       } else {
         // Fallback to direct fetch for older API client versions
@@ -1551,8 +1690,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           }
           
           // Check if error is about missing category
-          if (errorMessage.toLowerCase().includes('category') && errorMessage.toLowerCase().includes('required')) {
-            console.log('⚠️ Category required for new user');
+          const errorMessageLower = errorMessage.toLowerCase();
+          if (errorMessageLower.includes('category') && errorMessageLower.includes('required')) {
+            console.log('⚠️ Category required for new user (detected in fallback fetch)');
             // Return a special error that can be caught by the UI to show category selection
             const categoryError = new Error('CATEGORY_REQUIRED');
             (categoryError as any).code = 'CATEGORY_REQUIRED';

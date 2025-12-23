@@ -11,6 +11,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 
 // Context
 import { ApiProvider, useApi } from './src/contexts/ApiContext';
+import { GlobalModalsProvider } from './src/contexts/GlobalModalsContext';
 import pushNotificationService from './src/services/PushNotificationService';
 import { queryClient } from './src/services/queryClient';
 
@@ -46,6 +47,7 @@ import NotificationModal from './src/components/NotificationModal';
 import InvitationModal from './src/components/InvitationModal';
 import InvitationListModal from './src/components/InvitationListModal';
 import AccountSwitcherModal from './src/components/AccountSwitcherModal';
+import GlobalModals from './src/components/GlobalModals';
 import ProfileDetailPage from './src/pages/ProfileDetailPage';
 import ProfileCompletionPage from './src/pages/ProfileCompletionPage';
 import SpotPage from './src/pages/SpotPage';
@@ -173,6 +175,7 @@ const AppContent: React.FC = () => {
       'publicCourses': 'publicCourses',
       'companyEdit': 'companyEdit',
       'companyMembersManagement': 'companyMembersManagement',
+      'newsDetail': 'newsDetail',
     };
 
     const routeName = routeMap[pageName] as keyof RootStackParamList;
@@ -196,6 +199,8 @@ const AppContent: React.FC = () => {
           params = { serviceData: data };
         } else if (pageName === 'courseDetail' || pageName === 'courseEdit' || pageName === 'coursesManagement') {
           params = data;
+        } else if (pageName === 'newsDetail') {
+          params = { slug: data?.slug || data, post: data?.post || data };
         } else {
           params = data;
         }
@@ -1250,9 +1255,12 @@ const AppContent: React.FC = () => {
               }
             }}
           >
-            <NavigationProvider>
-              <AppNavigator />
-            </NavigationProvider>
+            <GlobalModalsProvider>
+              <NavigationProvider>
+                <AppNavigator />
+                <GlobalModals />
+              </NavigationProvider>
+            </GlobalModalsProvider>
           </NavigationContainer>
           {shouldShowTabBar && (
             <TabBar 
