@@ -1,8 +1,9 @@
-import { Platform } from 'react-native';
+import { Platform, Linking } from 'react-native';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
 
-// Dynamically import GoogleSignin to handle cases where native module isn't available
+// Keep native Google Sign-In as fallback option
 let GoogleSignin: any;
 let statusCodes: any;
 let isInitialized = false;
@@ -13,10 +14,13 @@ try {
   GoogleSignin = googleSignInModule.GoogleSignin;
   statusCodes = googleSignInModule.statusCodes;
 } catch (error) {
-  console.warn('⚠️ Google Sign-In native module not available. Rebuild the app after installing the package.');
+  console.warn('⚠️ Google Sign-In native module not available. Using Supabase OAuth flow instead.');
   GoogleSignin = null;
   statusCodes = null;
 }
+
+// Complete the web browser authentication session
+WebBrowser.maybeCompleteAuthSession();
 
 // Web Client ID (for backend verification)
 // This is the one provided by the backend team
@@ -118,143 +122,181 @@ const getSupabaseClient = (): SupabaseClient => {
 };
 
 /**
- * Sign in with Google using Supabase OAuth
+ * Sign in with Google using Supabase OAuth (Web Browser flow)
+ * This method uses Supabase's OAuth flow which opens a web browser
+ * that handles phone verification and QR code scanning better than the native SDK
  * @returns Promise<string> - The Supabase access token
  */
 export const signInWithGoogle = async (): Promise<string> => {
   try {
-    // Check if native module is available
-    if (!GoogleSignin) {
-      const errorMsg = 'Google Sign-In native module not available. Please rebuild the app: npx expo run:ios or npx expo run:android';
-      console.error('❌', errorMsg);
-      throw new Error(errorMsg);
-    }
-
-    // Ensure Google Sign-In is initialized
-    if (!isInitialized) {
-      console.warn('⚠️ Google Sign-In not initialized yet. Initializing now...');
-      await initializeGoogleSignIn();
-      if (!isInitialized) {
-        throw new Error('Failed to initialize Google Sign-In. Please try again.');
-      }
-    }
-
-    // Ensure Google Sign-In is configured before attempting sign-in
-    // This is especially important on iOS where configuration might not persist
-    try {
-      // Re-configure to ensure it's set up correctly
-      const config: any = {
-        webClientId: WEB_CLIENT_ID,
-        offlineAccess: true,
-        forceCodeForRefreshToken: true,
-        scopes: ['email', 'profile'],
-      };
-
-      if (Platform.OS === 'ios') {
-        const iosClientIdToUse = IOS_CLIENT_ID.includes('YOUR_IOS_CLIENT_ID_HERE') 
-          ? WEB_CLIENT_ID 
-          : IOS_CLIENT_ID;
-        if (iosClientIdToUse) {
-          config.iosClientId = iosClientIdToUse;
-        }
-      }
-
-      GoogleSignin.configure(config);
-      console.log('✅ Google Sign-In re-configured before sign-in');
-    } catch (configError: any) {
-      console.warn('⚠️ Failed to re-configure Google Sign-In:', configError);
-      // Continue anyway - it might already be configured
-    }
-
-    // Check if Google Play Services are available (Android only)
-    if (Platform.OS === 'android') {
-      try {
-        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      } catch (playServicesError: any) {
-        console.warn('Google Play Services check failed:', playServicesError);
-        // Continue anyway - the sign-in will fail with a clearer error if needed
-      }
-    }
-
-    // Sign in - wrap in try-catch to handle native crashes gracefully
-    let userInfo;
-    try {
-      // Use a timeout to prevent hanging on iOS
-      // Increased to 60 seconds to give users more time to complete the sign-in flow
-      const SIGN_IN_TIMEOUT_MS = 100000; // 100 seconds
-      const signInPromise = GoogleSignin.signIn();
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error(`Google Sign-In timed out after ${SIGN_IN_TIMEOUT_MS / 1000} seconds`)), SIGN_IN_TIMEOUT_MS);
-      });
-      
-      userInfo = await Promise.race([signInPromise, timeoutPromise]) as any;
-    } catch (signInError: any) {
-      console.error('❌ GoogleSignin.signIn() threw error:', signInError);
-      
-      // Handle specific error codes
-      if (statusCodes) {
-        if (signInError?.code === statusCodes.SIGN_IN_CANCELLED) {
-          throw new Error('Sign in was cancelled');
-        } else if (signInError?.code === statusCodes.IN_PROGRESS) {
-          throw new Error('Sign in is already in progress');
-        } else if (signInError?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-          throw new Error('Google Play Services not available or outdated');
-        }
-      }
-      
-      // Re-throw with more context
-      const errorMessage = signInError?.message || signInError?.toString() || 'Google Sign-In failed';
-      throw new Error(errorMessage);
-    }
+    console.log('🔐 Starting Google Sign-In with Supabase OAuth...');
     
-    // Log userInfo for debugging
-    console.log('📋 Google Sign-In userInfo received:', {
-      hasUserInfo: !!userInfo,
-      hasIdToken: !!userInfo?.idToken || !!userInfo?.data?.idToken,
-      hasServerAuthCode: !!userInfo?.serverAuthCode || !!userInfo?.data?.serverAuthCode,
-      userInfoKeys: userInfo ? Object.keys(userInfo) : [],
-      userInfo: userInfo ? JSON.stringify(userInfo, null, 2) : 'null',
-    });
-    
-    // Handle different response structures
-    // Some versions return { idToken, ... } directly, others return { type: "success", data: { idToken, ... } }
-    const idToken = userInfo?.idToken || userInfo?.data?.idToken;
-    const serverAuthCode = userInfo?.serverAuthCode || userInfo?.data?.serverAuthCode;
-    
-    if (!userInfo || !idToken) {
-      // Check if user cancelled (userInfo might be null but no error thrown)
-      if (statusCodes && userInfo?.code === statusCodes.SIGN_IN_CANCELLED) {
-        throw new Error('Sign in was cancelled');
-      }
-      
-      // Provide more helpful error message
-      const errorDetails = userInfo 
-        ? `UserInfo received but missing idToken. Available keys: ${Object.keys(userInfo).join(', ')}`
-        : 'No userInfo received from Google Sign-In';
-      console.error('❌', errorDetails);
-      throw new Error('No ID token received from Google Sign-In. Please try again or check your Google account permissions.');
-    }
-
-    console.log('✅ Google ID token received, exchanging with Supabase...');
-    
-    // Step 2: Exchange Google ID token for Supabase session
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase.auth.signInWithIdToken({
-      provider: 'google',
-      token: idToken,
+    
+    // Get the redirect URL - use a custom URL scheme for the app
+    const redirectUrl = Platform.select({
+      ios: `${Constants.expoConfig?.ios?.bundleIdentifier || 'com.minaezzat.onesteps'}://oauth/callback`,
+      android: `${Constants.expoConfig?.android?.package || 'com.minaezzat.onesteps'}://oauth/callback`,
+      default: 'exp://localhost:8081/--/oauth/callback',
     });
+
+    console.log('📱 Using redirect URL:', redirectUrl);
+
+    // Start the OAuth flow
+    const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: false,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
+      },
+    });
+
+    if (oauthError) {
+      console.error('❌ Supabase OAuth initiation error:', oauthError);
+      throw new Error(oauthError.message || 'Failed to initiate Google Sign-In');
+    }
+
+    if (!data?.url) {
+      throw new Error('No OAuth URL received from Supabase');
+    }
+
+    console.log('🌐 Opening OAuth URL in browser...');
+    
+    // Use WebBrowser.openAuthSessionAsync which handles redirects automatically
+    // This works better than manually handling deep links
+    // On iOS, it uses SFSafariViewController which can handle phone verification
+    // On Android, it uses Chrome Custom Tabs
+    const result = await WebBrowser.openAuthSessionAsync(
+      data.url,
+      redirectUrl,
+      {
+        showInRecents: true, // Show in recent apps for easier switching
+        preferEphemeralSession: false, // Keep session to handle phone verification
+      }
+    );
+    
+    console.log('📋 Browser result:', {
+      type: result.type,
+    });
+
+    // Handle the result
+    if (result.type === 'cancel') {
+      throw new Error('Sign in was cancelled');
+    }
+
+    if (result.type === 'dismiss') {
+      throw new Error('Sign in was dismissed');
+    }
+
+    if (result.type === 'locked') {
+      throw new Error('Browser is locked. Please unlock your device and try again.');
+    }
+
+    // Extract the URL from the result (only available on success)
+    if (result.type !== 'success') {
+      throw new Error('OAuth flow did not complete successfully');
+    }
+
+    // Type guard: result.url is only available when type is 'success'
+    const url = 'url' in result ? result.url : null;
+    if (!url) {
+      throw new Error('No URL returned from OAuth flow');
+    }
+
+    console.log('📋 OAuth redirect URL:', url);
+
+    // Parse the URL to extract the code/token
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch (urlError) {
+      // If URL parsing fails, try to get session directly (Supabase might have handled it)
+      console.log('⚠️ URL parsing failed, checking for existing session...');
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        console.error('❌ Session error:', sessionError);
+        throw new Error(sessionError.message || 'Failed to get session');
+      }
+
+      if (sessionData?.session?.access_token) {
+        console.log('✅ Session found, returning access token');
+        return sessionData.session.access_token;
+      }
+
+      throw new Error('Invalid OAuth redirect URL');
+    }
+
+    const code = parsedUrl.searchParams.get('code');
+    const error = parsedUrl.searchParams.get('error');
+    const errorDescription = parsedUrl.searchParams.get('error_description');
+    const accessToken = parsedUrl.searchParams.get('access_token');
+    const refreshToken = parsedUrl.searchParams.get('refresh_token');
 
     if (error) {
-      console.error('❌ Supabase OAuth error:', error);
-      throw new Error(error.message || 'Failed to authenticate with Supabase');
+      console.error('❌ OAuth error:', error, errorDescription);
+      throw new Error(errorDescription || error || 'OAuth authentication failed');
     }
 
-    if (!data.session || !data.session.access_token) {
-      throw new Error('No access token received from Supabase');
+    // Check if tokens are in the URL (fragment or query params)
+    if (accessToken) {
+      console.log('✅ Access token found in URL');
+      // Set the session manually if we have tokens
+      if (refreshToken) {
+        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+
+        if (sessionError) {
+          console.error('❌ Session set error:', sessionError);
+          throw new Error(sessionError.message || 'Failed to set session');
+        }
+
+        if (sessionData?.session?.access_token) {
+          return sessionData.session.access_token;
+        }
+      }
+      return accessToken;
     }
 
-    console.log('✅ Supabase OAuth successful, access token received');
-    return data.session.access_token;
+    // If we have a code, exchange it for a session
+    if (code) {
+      console.log('🔄 Exchanging authorization code for session...');
+      const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+      if (exchangeError) {
+        console.error('❌ Code exchange error:', exchangeError);
+        throw new Error(exchangeError.message || 'Failed to exchange code for session');
+      }
+
+      if (!exchangeData?.session?.access_token) {
+        throw new Error('No access token received after code exchange');
+      }
+
+      console.log('✅ Supabase OAuth successful, access token received');
+      return exchangeData.session.access_token;
+    }
+
+    // If no code or token, check if Supabase automatically set the session
+    console.log('⚠️ No code or token in URL, checking for existing session...');
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+      console.error('❌ Session error:', sessionError);
+      throw new Error(sessionError.message || 'Failed to get session');
+    }
+
+    if (sessionData?.session?.access_token) {
+      console.log('✅ Session found, returning access token');
+      return sessionData.session.access_token;
+    }
+
+    throw new Error('No authorization code or access token received from OAuth flow');
   } catch (error: any) {
     console.error('❌ Google Sign-In error:', error);
     console.error('Error details:', {
@@ -265,8 +307,8 @@ export const signInWithGoogle = async (): Promise<string> => {
       stack: error?.stack,
     });
 
-    // Don't throw if user cancelled - this is expected behavior
-    if (statusCodes && error?.code === statusCodes.SIGN_IN_CANCELLED) {
+    // Check if user cancelled
+    if (error?.message?.toLowerCase().includes('cancelled') || error?.message?.toLowerCase().includes('dismissed')) {
       throw new Error('Sign in was cancelled');
     }
     

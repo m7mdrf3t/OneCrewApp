@@ -148,13 +148,34 @@ const LoginPage: React.FC<LoginPageProps> = ({
 
     try {
       clearError();
+      setPendingGoogleSignIn(true);
       setPendingAuthProvider('google');
       
-      // Show category selection modal BEFORE OAuth
-      setShowCategoryModal(true);
-    } catch (err: any) {
-      console.error('❌ Error showing category modal:', err);
+      // Try OAuth directly (for existing users - no category needed)
+      await googleSignIn();
       setPendingAuthProvider(null);
+      onLoginSuccess();
+    } catch (err: any) {
+      console.error('❌ Google Sign-In error in LoginPage:', err);
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled Google Sign-In');
+        setPendingAuthProvider(null);
+        return;
+      }
+      
+      // Only show category modal if backend requires it (edge case for new users on login page)
+      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
+        // Show category selection modal as fallback
+        setShowCategoryModal(true);
+      } else {
+        setPendingAuthProvider(null);
+        const errorMessage = err?.message || err?.toString() || 'Google Sign-In failed. Please try again.';
+        Alert.alert('Google Sign-In Failed', errorMessage);
+      }
+    } finally {
+      setPendingGoogleSignIn(false);
     }
   };
 
@@ -227,13 +248,34 @@ const LoginPage: React.FC<LoginPageProps> = ({
 
     try {
       clearError();
+      setPendingAppleSignIn(true);
       setPendingAuthProvider('apple');
       
-      // Show category selection modal BEFORE OAuth
-      setShowCategoryModal(true);
-    } catch (err: any) {
-      console.error('❌ Error showing category modal:', err);
+      // Try OAuth directly (for existing users - no category needed)
+      await appleSignIn();
       setPendingAuthProvider(null);
+      onLoginSuccess();
+    } catch (err: any) {
+      console.error('❌ Apple Sign-In error in LoginPage:', err);
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled Apple Sign-In');
+        setPendingAuthProvider(null);
+        return;
+      }
+      
+      // Only show category modal if backend requires it (edge case for new users on login page)
+      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
+        // Show category selection modal as fallback
+        setShowCategoryModal(true);
+      } else {
+        setPendingAuthProvider(null);
+        const errorMessage = err?.message || err?.toString() || 'Apple Sign-In failed. Please try again.';
+        Alert.alert('Apple Sign-In Failed', errorMessage);
+      }
+    } finally {
+      setPendingAppleSignIn(false);
     }
   };
 

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator, Linking } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
@@ -260,6 +260,39 @@ const AppContent: React.FC = () => {
       console.log('Navigate to:', data.link_url);
     }
   }, [user, getProjectById, navigateTo]);
+
+  // Deep link handler for OAuth callbacks
+  useEffect(() => {
+    // Handle deep links when app is opened from a URL
+    const handleDeepLink = (event: { url: string }) => {
+      console.log('🔗 [App] Deep link received:', event.url);
+      
+      // Check if it's an OAuth callback
+      if (event.url.includes('oauth/callback')) {
+        console.log('✅ [App] OAuth callback detected, forwarding to OAuth handler');
+        // The OAuth service will handle this via its own listener
+        // This is just for logging and potential future handling
+      }
+    };
+
+    // Set up deep link listener
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+
+    // Handle initial URL if app was opened via deep link
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        console.log('🔗 [App] Initial URL:', url);
+        if (url.includes('oauth/callback')) {
+          console.log('✅ [App] Initial OAuth callback detected');
+          handleDeepLink({ url });
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   // Push notification handlers (Firebase FCM)
   const notificationUnsubscribe = useRef<(() => void) | null>(null);
@@ -1245,28 +1278,30 @@ const AppContent: React.FC = () => {
       <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
         <View style={styles.appWrapper}>
-          <NavigationContainer 
-            ref={navigationRef}
-            onStateChange={(state) => {
-              if (state) {
-                const route = state.routes[state.index];
-                if (route?.name) {
-                  setCurrentRoute(route.name);
-                  // Update tab if it's a main tab route
-                  if (mainTabRoutes.includes(route.name)) {
-                    setTab(route.name);
+          <View style={styles.navigationContainer}>
+            <NavigationContainer 
+              ref={navigationRef}
+              onStateChange={(state) => {
+                if (state) {
+                  const route = state.routes[state.index];
+                  if (route?.name) {
+                    setCurrentRoute(route.name);
+                    // Update tab if it's a main tab route
+                    if (mainTabRoutes.includes(route.name)) {
+                      setTab(route.name);
+                    }
                   }
                 }
-              }
-            }}
-          >
-            <GlobalModalsProvider>
-              <NavigationProvider>
-                <AppNavigator />
-                <GlobalModals />
-              </NavigationProvider>
-            </GlobalModalsProvider>
-          </NavigationContainer>
+              }}
+            >
+              <GlobalModalsProvider>
+                <NavigationProvider>
+                  <AppNavigator />
+                  <GlobalModals />
+                </NavigationProvider>
+              </GlobalModalsProvider>
+            </NavigationContainer>
+          </View>
           {shouldShowTabBar && (
             <TabBar 
               active={tab} 
@@ -1292,6 +1327,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#f4f4f5',
   },
   appWrapper: {
+    flex: 1,
+    flexDirection: 'column',
+  },
+  navigationContainer: {
     flex: 1,
   },
   appContainer: {
