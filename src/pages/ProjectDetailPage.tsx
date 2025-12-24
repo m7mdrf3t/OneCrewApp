@@ -9,57 +9,27 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute, useNavigation } from '@react-navigation/native';
 import { ProjectDetailPageProps, TaskWithAssignments, ProjectMember } from '../types';
 import { useApi } from '../contexts/ApiContext';
-import { useAppNavigation } from '../navigation/NavigationContext';
-import { RootStackScreenProps } from '../navigation/types';
 import CreateTaskModal from '../components/CreateTaskModal';
 
 const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
-  project: projectProp,
-  onBack: onBackProp,
+  project,
+  onBack,
   onCreateTask,
   onUpdateTask,
   onDeleteTask,
   onAssignTask,
   onUpdateTaskStatus,
 }) => {
-  // Get route params if available (React Navigation)
-  const route = useRoute<RootStackScreenProps<'projectDetail'>['route']>();
-  const navigation = useNavigation();
-  const { goBack } = useAppNavigation();
-  
-  // Get project from route params or prop
-  const project = projectProp || route.params?.project;
-  
-  // Early return if project is not available
-  if (!project) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBackProp || goBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Project</Text>
-          <View style={styles.placeholder} />
-        </View>
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle" size={48} color="#ef4444" />
-          <Text style={styles.errorText}>Project not found</Text>
-        </View>
-      </View>
-    );
-  }
-  
-  const { user, getProjectById } = useApi();
-  const [tasks, setTasks] = useState<TaskWithAssignments[]>(project?.tasks || []);
-  const [members, setMembers] = useState<ProjectMember[]>(project?.members || []);
+  const { user } = useApi();
+  const [tasks, setTasks] = useState<TaskWithAssignments[]>(project.tasks || []);
+  const [members, setMembers] = useState<ProjectMember[]>(project.members || []);
   const [refreshing, setRefreshing] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
 
   const getUserAccessLevel = () => {
-    if (!user || !project) return 'viewer';
+    if (!user) return 'viewer';
     
     // Check if user is the owner (created_by field)
     if (project.created_by === user.id) return 'owner';
@@ -71,9 +41,6 @@ const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
     
     return 'viewer';
   };
-  
-  // Use props if provided, otherwise use navigation hooks
-  const handleBack = onBackProp || goBack;
 
   const accessLevel = getUserAccessLevel();
   const canEdit = accessLevel === 'owner' || accessLevel === 'member';
@@ -187,11 +154,11 @@ const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>
-          {project?.title || 'Untitled Project'}
+          {project.title || 'Untitled Project'}
         </Text>
         <View style={styles.placeholder} />
       </View>
@@ -717,18 +684,6 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginTop: 4,
     textAlign: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#ef4444',
-    textAlign: 'center',
-    marginTop: 16,
   },
 });
 
