@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { UserRole } from 'onecrew-api-client';
 import { useApi } from '../contexts/ApiContext';
@@ -22,14 +23,16 @@ interface SignupPageProps {
   onNavigateToLogin: () => void;
   onSignupSuccess: (email: string) => void;
   onLoginSuccess?: () => void;
+  onGuestMode?: () => void;
 }
 
 const SignupPage: React.FC<SignupPageProps> = ({
   onNavigateToLogin,
   onSignupSuccess,
   onLoginSuccess,
+  onGuestMode,
 }) => {
-  const { signup, googleSignIn, appleSignIn, isLoading, error, clearError, isAuthenticated, getRoles } = useApi();
+  const { signup, googleSignIn, appleSignIn, isLoading, error, clearError, isAuthenticated, getRoles, createGuestSession } = useApi();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -42,6 +45,8 @@ const SignupPage: React.FC<SignupPageProps> = ({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [nameFocused, setNameFocused] = useState(false);
+  const [emailFocused, setEmailFocused] = useState(false);
   const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
   const [pendingAppleSignIn, setPendingAppleSignIn] = useState(false);
   const [pendingAuthProvider, setPendingAuthProvider] = useState<'google' | 'apple' | null>(null);
@@ -327,6 +332,18 @@ const SignupPage: React.FC<SignupPageProps> = ({
     setFormErrors(prev => ({ ...prev, primaryRole: '' }));
   };
 
+  const handleGuestMode = async () => {
+    try {
+      clearError();
+      await createGuestSession();
+      if (onGuestMode) {
+        onGuestMode();
+      }
+    } catch (err: any) {
+      Alert.alert('Guest Mode Failed', err.message || 'Unable to start guest browsing. Please try again.');
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     // Prevent multiple simultaneous calls
     if (pendingGoogleSignIn || isLoading) {
@@ -435,12 +452,21 @@ const SignupPage: React.FC<SignupPageProps> = ({
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Join cool steps</Text>
-          <Text style={styles.subtitle}>Create your account to get started</Text>
-        </View>
+        {/* Gradient Header */}
+        <LinearGradient
+          colors={['#E0F0F5', '#D5E8F0']}
+          style={styles.gradientHeader}
+        >
+          <View style={styles.gridOverlay} />
+          <View style={styles.headerContent}>
+            <Text style={styles.title}>Sign up</Text>
+            <Text style={styles.subtitle}>to your Account</Text>
+          </View>
+        </LinearGradient>
 
-        <View style={styles.form}>
+        {/* White Card Container */}
+        <View style={styles.cardContainer}>
+          <View style={styles.form}>
           {error && (
             <View style={styles.errorContainer}>
               <Ionicons name="alert-circle" size={20} color="#ef4444" />
@@ -448,16 +474,53 @@ const SignupPage: React.FC<SignupPageProps> = ({
             </View>
           )}
 
+          {/* Social Login Buttons at Top */}
+          <View style={styles.socialButtonsTop}>
+            <TouchableOpacity
+              style={[styles.socialButton, styles.appleButtonTop, (isLoading || pendingAppleSignIn) && styles.socialButtonDisabled]}
+              onPress={handleAppleSignIn}
+              disabled={isLoading || pendingAppleSignIn}
+            >
+              {Platform.OS === 'ios' && (
+                <>
+                  <Ionicons name="logo-apple" size={20} color="#000" />
+                  <Text style={styles.socialButtonText}>
+                    {pendingAppleSignIn ? 'Signing Up...' : 'Apple'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.socialButton, styles.googleButtonTop, (isLoading || pendingGoogleSignIn) && styles.socialButtonDisabled]}
+              onPress={handleGoogleSignIn}
+              disabled={isLoading || pendingGoogleSignIn}
+            >
+              <Ionicons name="logo-google" size={20} color="#4285F4" />
+              <Text style={styles.socialButtonText}>
+                {pendingGoogleSignIn ? 'Signing Up...' : 'Google'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          {/* Full Name with Edge Label */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Full Name</Text>
-            <View style={[styles.inputWrapper, formErrors.name && styles.inputError]}>
-              <Ionicons name="person" size={20} color="#71717a" style={styles.inputIcon} />
+            <View style={[styles.inputWrapper, formErrors.name && styles.inputError, nameFocused && styles.inputFocused]}>
+              <Text style={styles.edgeLabel}>Full Name</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Enter your full name"
-                placeholderTextColor="#9ca3af"
+                placeholder=""
                 value={formData.name}
                 onChangeText={(text) => handleInputChange('name', text)}
+                onFocus={() => setNameFocused(true)}
+                onBlur={() => setNameFocused(false)}
                 autoCapitalize="words"
                 autoCorrect={false}
                 editable={!isLoading}
@@ -468,16 +531,17 @@ const SignupPage: React.FC<SignupPageProps> = ({
             {formErrors.name && <Text style={styles.fieldError}>{formErrors.name}</Text>}
           </View>
 
+          {/* Email with Edge Label */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email</Text>
-            <View style={[styles.inputWrapper, formErrors.email && styles.inputError]}>
-              <Ionicons name="mail" size={20} color="#71717a" style={styles.inputIcon} />
+            <View style={[styles.inputWrapper, formErrors.email && styles.inputError, emailFocused && styles.inputFocused]}>
+              <Text style={styles.edgeLabel}>Email</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Enter your email"
-                placeholderTextColor="#9ca3af"
+                placeholder=""
                 value={formData.email}
                 onChangeText={(text) => handleInputChange('email', text)}
+                onFocus={() => setEmailFocused(true)}
+                onBlur={() => setEmailFocused(false)}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -532,7 +596,6 @@ const SignupPage: React.FC<SignupPageProps> = ({
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Primary Role</Text>
             <View style={[styles.inputWrapper, formErrors.primaryRole && styles.inputError]}>
-              <Ionicons name="briefcase" size={20} color="#71717a" style={styles.inputIcon} />
               {rolesLoading ? (
                 <View style={styles.roleLoadingContainer}>
                   <Text style={styles.roleLoadingText}>Loading roles...</Text>
@@ -633,7 +696,6 @@ const SignupPage: React.FC<SignupPageProps> = ({
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Password</Text>
             <View style={[styles.inputWrapper, formErrors.password && styles.inputError]}>
-              <Ionicons name="lock-closed" size={20} color="#71717a" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Enter your password"
@@ -661,33 +723,34 @@ const SignupPage: React.FC<SignupPageProps> = ({
               </TouchableOpacity>
             </View>
             {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
-            <View style={styles.passwordRequirementsList}>
-              <Text style={styles.requirementsTitle}>Password Requirements:</Text>
-              {getPasswordRequirements().map((req) => {
-                const isMet = req.test(formData.password);
-                return (
-                  <View key={req.key} style={styles.requirementItem}>
-                    <Ionicons
-                      name={isMet ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={14}
-                      color={isMet ? '#10b981' : '#9ca3af'}
-                    />
-                    <Text style={[
-                      styles.requirementText,
-                      isMet && styles.requirementTextMet
-                    ]}>
-                      {req.label}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
+            {formData.password.length > 0 && (
+              <View style={styles.passwordRequirementsList}>
+                <Text style={styles.requirementsTitle}>Password Requirements:</Text>
+                {getPasswordRequirements().map((req) => {
+                  const isMet = req.test(formData.password);
+                  return (
+                    <View key={req.key} style={styles.requirementItem}>
+                      <Ionicons
+                        name={isMet ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={14}
+                        color={isMet ? '#10b981' : '#9ca3af'}
+                      />
+                      <Text style={[
+                        styles.requirementText,
+                        isMet && styles.requirementTextMet
+                      ]}>
+                        {req.label}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Confirm Password</Text>
+            <Text style={styles.label}>Repeat Password</Text>
             <View style={[styles.inputWrapper, formErrors.confirmPassword && styles.inputError]}>
-              <Ionicons name="lock-closed" size={20} color="#71717a" style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 placeholder="Confirm your password"
@@ -718,57 +781,31 @@ const SignupPage: React.FC<SignupPageProps> = ({
           </View>
 
           <TouchableOpacity
-            style={[styles.signupButton, (isLoading || isSubmitting) && styles.signupButtonDisabled]}
+            style={[styles.registerButton, (isLoading || isSubmitting) && styles.registerButtonDisabled]}
             onPress={handleSignup}
             disabled={isLoading || isSubmitting}
           >
-            {isLoading ? (
-              <Text style={styles.signupButtonText}>Creating Account...</Text>
-            ) : (
-              <Text style={styles.signupButtonText}>Create Account</Text>
-            )}
+            <Text style={styles.registerButtonText}>
+              {isLoading ? 'Creating Account...' : 'Register'}
+            </Text>
           </TouchableOpacity>
-
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
-            onPress={handleGoogleSignIn}
-            disabled={isLoading || pendingGoogleSignIn}
-          >
-            <View style={styles.googleButtonContent}>
-              <Ionicons name="logo-google" size={20} color="#4285F4" />
-              <Text style={styles.googleButtonText}>
-                {pendingGoogleSignIn ? 'Signing Up...' : 'Sign up with Google'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-
-          {Platform.OS === 'ios' && (
-            <TouchableOpacity
-              style={[styles.appleButton, (isLoading || pendingAppleSignIn) && styles.appleButtonDisabled]}
-              onPress={handleAppleSignIn}
-              disabled={isLoading || pendingAppleSignIn}
-            >
-              <View style={styles.appleButtonContent}>
-                <Ionicons name="logo-apple" size={20} color="#fff" />
-                <Text style={styles.appleButtonText}>
-                  {pendingAppleSignIn ? 'Signing Up...' : 'Sign up with Apple'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          )}
 
           <View style={styles.loginContainer}>
-            <Text style={styles.loginText}>Already have an account? </Text>
+            <Text style={styles.loginText}>I have account? </Text>
             <TouchableOpacity onPress={onNavigateToLogin} disabled={isLoading}>
-              <Text style={styles.loginLink}>Sign In</Text>
+              <Text style={styles.loginLink}>Log in</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Continue as Guest */}
+          <TouchableOpacity
+            style={styles.guestLink}
+            onPress={handleGuestMode}
+            disabled={isLoading}
+          >
+            <Text style={styles.guestLinkText}>Continue as Guest</Text>
+          </TouchableOpacity>
+        </View>
         </View>
       </ScrollView>
 
@@ -795,27 +832,73 @@ const SignupPage: React.FC<SignupPageProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f4f4f5',
+    backgroundColor: '#f5f5f5',
   },
   scrollContainer: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
   },
-  header: {
+  gradientHeader: {
+    height: 280,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingHorizontal: 24,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  gridOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.15,
+    backgroundColor: 'transparent',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  headerContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   title: {
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: '800',
     color: '#000',
-    marginBottom: 8,
+    marginBottom: 4,
+    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#71717a',
-    textAlign: 'center',
+    fontSize: 18,
+    color: '#000',
+    fontWeight: '400',
+    opacity: 0.8,
+  },
+  cardContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    marginTop: -20,
+    paddingTop: 32,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    minHeight: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
   form: {
     width: '100%',
@@ -826,15 +909,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#fef2f2',
     borderWidth: 1,
     borderColor: '#fecaca',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 24,
   },
   errorText: {
-    color: '#ef4444',
-    fontSize: 14,
-    marginLeft: 8,
+    color: '#dc2626',
+    fontSize: 13,
+    marginLeft: 10,
     flex: 1,
+    lineHeight: 18,
   },
   inputContainer: {
     marginBottom: 20,
@@ -845,34 +929,94 @@ const styles = StyleSheet.create({
     color: '#000',
     marginBottom: 8,
   },
+  socialButtonsTop: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  socialButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#e4e4e7',
+    gap: 8,
+  },
+  socialButtonDisabled: {
+    opacity: 0.5,
+  },
+  appleButtonTop: {
+    backgroundColor: '#fff',
+  },
+  googleButtonTop: {
+    backgroundColor: '#fff',
+  },
+  socialButtonText: {
+    color: '#000',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e4e4e7',
+  },
+  dividerText: {
+    color: '#71717a',
+    fontSize: 14,
+    marginHorizontal: 16,
+    fontWeight: '400',
+  },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
+    borderWidth: 1,
+    borderColor: '#e4e4e7',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
+    minHeight: 52,
+  },
+  inputFocused: {
+    borderColor: '#000',
+    borderWidth: 1.5,
   },
   inputError: {
     borderColor: '#ef4444',
+    backgroundColor: '#fef2f2',
   },
-  inputIcon: {
+  edgeLabel: {
+    fontSize: 14,
+    color: '#71717a',
+    fontWeight: '500',
     marginRight: 12,
+    minWidth: 80,
   },
   input: {
     flex: 1,
     fontSize: 16,
     color: '#000',
+    padding: 0,
   },
   eyeIcon: {
     padding: 4,
+    marginLeft: 8,
   },
   fieldError: {
     color: '#ef4444',
     fontSize: 12,
-    marginTop: 4,
+    marginTop: 6,
+    marginLeft: 2,
   },
   passwordRequirements: {
     color: '#71717a',
@@ -995,40 +1139,35 @@ const styles = StyleSheet.create({
   roleButtonTextActive: {
     color: '#fff',
   },
-  signupButton: {
+  registerButton: {
     backgroundColor: '#000',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 24,
+    marginTop: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  signupButtonDisabled: {
+  registerButtonDisabled: {
     backgroundColor: '#9ca3af',
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  signupButtonText: {
+  registerButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#d4d4d8',
-  },
-  dividerText: {
-    color: '#71717a',
-    fontSize: 14,
-    marginHorizontal: 16,
+    letterSpacing: 0.3,
   },
   loginContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 8,
   },
   loginText: {
     color: '#71717a',
@@ -1039,49 +1178,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  googleButton: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingVertical: 16,
+  guestLink: {
+    paddingVertical: 12,
     alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
+    marginTop: 8,
   },
-  googleButtonDisabled: {
-    opacity: 0.5,
-  },
-  googleButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  googleButtonText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  appleButton: {
-    backgroundColor: '#000',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 2,
-    borderColor: '#000',
-  },
-  appleButtonDisabled: {
-    opacity: 0.5,
-  },
-  appleButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  appleButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+  guestLinkText: {
+    color: '#71717a',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 

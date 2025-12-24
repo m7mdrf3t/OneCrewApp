@@ -218,7 +218,7 @@ interface ApiContextType {
   uploadCompanyLogo: (companyId: string, file: { uri: string; type: string; name: string }) => Promise<any>;
   uploadCoursePoster: (courseId: string, file: { uri: string; type: string; name: string }) => Promise<any>; // v2.16.0
   uploadCertificateImage: (file: { uri: string; type: string; name: string }) => Promise<any>; // v2.16.0
-  getUserCompanies: (userId: string) => Promise<any>;
+  getUserCompanies: (userId: string, forceRefresh?: boolean) => Promise<any>;
   submitCompanyForApproval: (companyId: string) => Promise<any>;
   getCompanies: (params?: { limit?: number; page?: number; /** Alias for `q` */ search?: string; /** onecrew-api-client uses `q` */ q?: string; category?: string; location?: string; subcategory?: string; fields?: string[]; sort?: string; order?: 'asc' | 'desc' }) => Promise<any>;
   // Company services
@@ -6012,10 +6012,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const getUserCompanies = async (userId: string) => {
+  const getUserCompanies = async (userId: string, forceRefresh = false) => {
     const cacheKey = `user-companies-${userId}`;
-    // Use MEDIUM TTL instead of LONG since companies can change frequently when users are creating/managing them
-    // This ensures newly created or updated companies appear within 5 minutes instead of 30 minutes
+    
+    // If force refresh is requested, clear cache first
+    if (forceRefresh) {
+      await rateLimiter.clearCache(cacheKey);
+      console.log('🔄 Force refresh: Cleared cache for user companies');
+    }
+    
+    // Use SHORT TTL for company data to ensure approval status changes are reflected quickly
+    // This reduces the delay from 5 minutes to 30 seconds for critical approval status updates
     return rateLimiter.execute(cacheKey, async () => {
       try {
         const response = await api.getUserCompanies(userId);
@@ -6034,7 +6041,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get user companies:', error);
         throw error;
       }
-    }, { ttl: CacheTTL.MEDIUM, persistent: true }); // User companies change when user joins/leaves - 5min TTL with persistence
+    }, { ttl: CacheTTL.SHORT, persistent: true }); // Use SHORT TTL (30s) to ensure approval status updates appear quickly
   };
 
   const submitCompanyForApproval = async (companyId: string) => {
@@ -7955,6 +7962,140 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     };
   }, [isAuthenticated, user?.id, api.chat]);
 
+  // Track app background time and refresh company data when app comes to foreground
+  const appBackgroundTimeRef = useRef<number | null>(null);
+  const companyPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user || !isAppBootCompleted) return;
+
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        // App is coming to foreground
+        const now = Date.now();
+        const timeInBackground = appBackgroundTimeRef.current 
+          ? now - appBackgroundTimeRef.current 
+          : 0;
+        
+        // If app was in background for more than 1 minute, force refresh company data
+        // This ensures approval status changes are reflected quickly
+        if (timeInBackground > 60000) {
+          console.log(`🔄 App returned to foreground after ${Math.round(timeInBackground / 1000)}s - refreshing company data`);
+          // Refresh company data in background (non-blocking) with force refresh
+          InteractionManager.runAfterInteractions(() => {
+            getUserCompanies(user.id, true).catch(err => {
+              console.warn('Failed to refresh company data on app foreground:', err);
+            });
+          });
+        }
+        
+        appBackgroundTimeRef.current = null;
+      } else if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // App is going to background - record the time
+        appBackgroundTimeRef.current = Date.now();
+      }
+    };
+
+    // Set initial state
+    const currentAppState = AppState.currentState;
+    if (currentAppState === 'active') {
+      appBackgroundTimeRef.current = null;
+    } else {
+      appBackgroundTimeRef.current = Date.now();
+    }
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription.remove();
+    };
+  }, [isAuthenticated, user?.id, isAppBootCompleted]);
+
+  // Poll for pending company approval status changes
+  useEffect(() => {
+    if (!isAuthenticated || !user || !isAppBootCompleted) {
+      if (companyPollingIntervalRef.current) {
+        clearInterval(companyPollingIntervalRef.current);
+        companyPollingIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Check if user has any pending companies
+    const checkAndRefreshPendingCompanies = async () => {
+      try {
+        const response = await getUserCompanies(user.id);
+        if (response.success && response.data) {
+          const companiesList = Array.isArray(response.data)
+            ? response.data
+            : (response.data as any)?.data || [];
+          
+          // Check if any companies are pending approval
+          const hasPendingCompanies = companiesList.some((company: any) => {
+            const approvalStatus = company.approval_status || company.company?.approval_status;
+            return approvalStatus === 'pending';
+          });
+
+          if (hasPendingCompanies) {
+            // Force refresh to get latest approval status
+            await getUserCompanies(user.id, true);
+            console.log('🔄 Refreshed pending company approval status');
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to check pending company status:', error);
+      }
+    };
+
+    // Poll every 30 seconds if app is in foreground
+    const startPolling = () => {
+      if (companyPollingIntervalRef.current) {
+        clearInterval(companyPollingIntervalRef.current);
+      }
+      
+      // Initial check after 5 seconds
+      setTimeout(checkAndRefreshPendingCompanies, 5000);
+      
+      // Then poll every 30 seconds
+      companyPollingIntervalRef.current = setInterval(() => {
+        const currentState = AppState.currentState;
+        if (currentState === 'active') {
+          checkAndRefreshPendingCompanies();
+        }
+      }, 30000);
+    };
+
+    // Handle app state changes for polling
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        // Resume polling when app comes to foreground
+        startPolling();
+      } else {
+        // Stop polling when app goes to background
+        if (companyPollingIntervalRef.current) {
+          clearInterval(companyPollingIntervalRef.current);
+          companyPollingIntervalRef.current = null;
+        }
+      }
+    };
+
+    // Start polling if app is active
+    const currentAppState = AppState.currentState;
+    if (currentAppState === 'active') {
+      startPolling();
+    }
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      if (companyPollingIntervalRef.current) {
+        clearInterval(companyPollingIntervalRef.current);
+        companyPollingIntervalRef.current = null;
+      }
+      subscription.remove();
+    };
+  }, [isAuthenticated, user?.id, isAppBootCompleted]);
+
   // Setup real-time subscription for notifications
   useEffect(() => {
     if (isAuthenticated && user?.id) {
@@ -8002,6 +8143,27 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               // Update unread count if notification is unread and not a message notification
               if (!newNotification.is_read && !isMessageNotification(newNotification)) {
                 setUnreadNotificationCount(prev => prev + 1);
+              }
+
+              // Check if notification is related to company approval and refresh company data
+              const notificationTitle = newNotification.title?.toLowerCase() || '';
+              const notificationMessage = newNotification.message?.toLowerCase() || '';
+              const isCompanyRelated = 
+                notificationTitle.includes('company') || 
+                notificationTitle.includes('approval') ||
+                notificationMessage.includes('company') ||
+                notificationMessage.includes('approval') ||
+                newNotification.type === 'company_invitation' ||
+                newNotification.type === 'company_invitation_accepted';
+              
+              if (isCompanyRelated) {
+                console.log('🔄 Company-related notification received - refreshing company data');
+                // Refresh company data in background (non-blocking)
+                setTimeout(() => {
+                  getUserCompanies(user.id, true).catch(err => {
+                    console.warn('Failed to refresh company data after notification:', err);
+                  });
+                }, 1000);
               }
 
               // Refresh notifications list and count asynchronously to avoid race conditions

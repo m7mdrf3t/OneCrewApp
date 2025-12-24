@@ -1170,6 +1170,7 @@ const AppContent: React.FC = () => {
             onNavigateToLogin={handleNavigateToLogin}
             onSignupSuccess={handleSignupSuccess}
             onLoginSuccess={handleLoginSuccess}
+            onGuestMode={handleGuestMode}
           />
         </SafeAreaView>
       </SafeAreaProvider>

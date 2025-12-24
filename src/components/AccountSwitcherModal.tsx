@@ -66,14 +66,8 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
     try {
       setLoading(true);
       
-      // Clear cache if force refresh is requested
-      if (forceRefresh) {
-        const cacheKey = `user-companies-${user.id}`;
-        await rateLimiter.clearCache(cacheKey);
-        console.log('🔄 Force refresh: Cleared cache for user companies');
-      }
-      
-      const response = await getUserCompanies(user.id);
+      // Use forceRefresh parameter to bypass cache
+      const response = await getUserCompanies(user.id, forceRefresh);
       if (response.success && response.data) {
         const companiesList = Array.isArray(response.data)
           ? response.data
