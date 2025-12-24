@@ -22,17 +22,20 @@ try {
 // Complete the web browser authentication session
 WebBrowser.maybeCompleteAuthSession();
 
-// Web Client ID (for backend verification)
-// This is the one provided by the backend team
+// NOTE: These Client IDs are ONLY used for the native Google Sign-In SDK (fallback method)
+// The main OAuth flow uses Supabase, which gets the Client ID from Supabase Dashboard configuration
+// If you change the Client ID in Supabase Dashboard, you don't need to change it here
+// Only update these if you want the native SDK fallback to use a different Client ID
+
+// Web Client ID (for native SDK fallback and backend verification)
+// This should match the Web Client ID configured in Supabase Dashboard
 const WEB_CLIENT_ID = '309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj.apps.googleusercontent.com';
 
-// iOS Client ID - needs to be created in Google Cloud Console
-// TODO: Replace with actual iOS Client ID once created in Google Cloud Console
+// iOS Client ID - for native SDK fallback only
 // Format: XXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com
 const IOS_CLIENT_ID = '309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj.apps.googleusercontent.com';
 
-// Android Client ID - needs to be created in Google Cloud Console
-// TODO: Replace with actual Android Client ID once created in Google Cloud Console
+// Android Client ID - for native SDK fallback only
 // Format: XXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com
 const ANDROID_CLIENT_ID = 'YOUR_ANDROID_CLIENT_ID_HERE.apps.googleusercontent.com';
 
@@ -141,8 +144,17 @@ export const signInWithGoogle = async (): Promise<string> => {
     });
 
     console.log('📱 Using redirect URL:', redirectUrl);
+    
+    // Log Supabase configuration for debugging
+    const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl || process.env.SUPABASE_URL || '';
+    console.log('🔧 Supabase URL:', supabaseUrl);
+    console.log('🔧 Supabase URL configured:', !!supabaseUrl);
 
     // Start the OAuth flow
+    console.log('🔄 Requesting OAuth URL from Supabase...');
+    
+    // Note: If you see "localhost" in the OAuth page, update the Site URL in Supabase Dashboard:
+    // Settings → API → Site URL (change from localhost to your app URL scheme or a valid URL)
     const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -157,27 +169,103 @@ export const signInWithGoogle = async (): Promise<string> => {
 
     if (oauthError) {
       console.error('❌ Supabase OAuth initiation error:', oauthError);
-      throw new Error(oauthError.message || 'Failed to initiate Google Sign-In');
+      console.error('❌ Error details:', JSON.stringify(oauthError, null, 2));
+      
+      // Provide specific error messages based on error type
+      if (oauthError.message?.includes('provider') || oauthError.message?.includes('not configured')) {
+        throw new Error('Google OAuth is not properly configured in Supabase. Please go to Supabase Dashboard → Authentication → Providers → Google and enable it with Client ID and Secret.');
+      }
+      
+      if (oauthError.message?.includes('redirect') || oauthError.message?.includes('URI')) {
+        throw new Error('Invalid redirect URL. Please add "com.minaezzat.onesteps://oauth/callback" to Supabase redirect URLs.');
+      }
+      
+      throw new Error(oauthError.message || 'Failed to initiate Google Sign-In. Please check your Supabase Google OAuth configuration.');
     }
 
     if (!data?.url) {
-      throw new Error('No OAuth URL received from Supabase');
+      console.error('❌ No OAuth URL received from Supabase');
+      console.error('❌ Data received:', JSON.stringify(data, null, 2));
+      throw new Error('No OAuth URL received from Supabase. This usually means Google OAuth is not enabled or configured. Please check: 1) Google provider is enabled in Supabase, 2) Client ID is added, 3) Client Secret is added.');
     }
 
+    console.log('🌐 OAuth URL received from Supabase:', data.url);
+    
+    // Decode HTML entities if present (Supabase might return HTML-encoded URLs)
+    let decodedUrl = data.url;
+    try {
+      // Replace common HTML entities
+      decodedUrl = decodedUrl
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+      
+      // If URL is wrapped in HTML tags, extract just the URL
+      const urlMatch = decodedUrl.match(/https?:\/\/[^\s"<>]+/);
+      if (urlMatch) {
+        decodedUrl = urlMatch[0];
+      }
+      
+      console.log('🌐 Decoded OAuth URL:', decodedUrl);
+    } catch (decodeError) {
+      console.warn('⚠️ Could not decode URL, using original:', decodeError);
+    }
+    
+    // Validate the URL before opening
+    let oauthUrl: URL;
+    try {
+      oauthUrl = new URL(decodedUrl);
+      console.log('✅ OAuth URL is valid');
+      console.log('✅ OAuth URL hostname:', oauthUrl.hostname);
+      console.log('✅ OAuth URL protocol:', oauthUrl.protocol);
+      
+      // Check if it's an HTTPS URL (required for OAuth)
+      if (oauthUrl.protocol !== 'https:') {
+        throw new Error(`OAuth URL must use HTTPS, but got: ${oauthUrl.protocol}`);
+      }
+      
+      // Check if hostname is valid
+      if (!oauthUrl.hostname || oauthUrl.hostname === '') {
+        throw new Error('OAuth URL has no hostname');
+      }
+    } catch (urlError: any) {
+      console.error('❌ Invalid OAuth URL format:', decodedUrl);
+      console.error('❌ URL parsing error:', urlError.message);
+      throw new Error(`Invalid OAuth URL received from Supabase: ${decodedUrl}. Error: ${urlError.message}`);
+    }
+    
     console.log('🌐 Opening OAuth URL in browser...');
     
     // Use WebBrowser.openAuthSessionAsync which handles redirects automatically
     // This works better than manually handling deep links
     // On iOS, it uses SFSafariViewController which can handle phone verification
     // On Android, it uses Chrome Custom Tabs
-    const result = await WebBrowser.openAuthSessionAsync(
-      data.url,
-      redirectUrl,
-      {
-        showInRecents: true, // Show in recent apps for easier switching
-        preferEphemeralSession: false, // Keep session to handle phone verification
+    let result;
+    try {
+      result = await WebBrowser.openAuthSessionAsync(
+        decodedUrl, // Use decoded URL
+        redirectUrl,
+        {
+          showInRecents: true, // Show in recent apps for easier switching
+          preferEphemeralSession: false, // Keep session to handle phone verification
+        }
+      );
+    } catch (browserError: any) {
+      console.error('❌ Failed to open browser:', browserError);
+      console.error('❌ OAuth URL that failed:', decodedUrl);
+      console.error('❌ Original URL from Supabase:', data.url);
+      
+      // Check if it's a connection error
+      if (browserError?.message?.includes('connect') || 
+          browserError?.message?.includes('server') ||
+          browserError?.message?.includes('network')) {
+        throw new Error('Cannot connect to authentication server. Please check your internet connection and verify that Google OAuth is properly configured in Supabase Dashboard.');
       }
-    );
+      
+      throw new Error(`Failed to open browser: ${browserError?.message || browserError}`);
+    }
     
     console.log('📋 Browser result:', {
       type: result.type,
@@ -210,6 +298,8 @@ export const signInWithGoogle = async (): Promise<string> => {
     console.log('📋 OAuth redirect URL:', url);
 
     // Parse the URL to extract the code/token
+    // Note: Supabase OAuth returns tokens in the URL fragment (#access_token=...) 
+    // or query parameters (?code=...), so we need to check both
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(url);
@@ -231,11 +321,24 @@ export const signInWithGoogle = async (): Promise<string> => {
       throw new Error('Invalid OAuth redirect URL');
     }
 
-    const code = parsedUrl.searchParams.get('code');
-    const error = parsedUrl.searchParams.get('error');
-    const errorDescription = parsedUrl.searchParams.get('error_description');
-    const accessToken = parsedUrl.searchParams.get('access_token');
-    const refreshToken = parsedUrl.searchParams.get('refresh_token');
+    // Extract fragment (hash) if present - Supabase often returns tokens in the fragment
+    const hash = parsedUrl.hash.substring(1); // Remove the '#' character
+    const fragmentParams = new URLSearchParams(hash);
+    
+    // Check both query params and fragment for tokens
+    const code = parsedUrl.searchParams.get('code') || fragmentParams.get('code');
+    const error = parsedUrl.searchParams.get('error') || fragmentParams.get('error');
+    const errorDescription = parsedUrl.searchParams.get('error_description') || fragmentParams.get('error_description');
+    const accessToken = parsedUrl.searchParams.get('access_token') || fragmentParams.get('access_token');
+    const refreshToken = parsedUrl.searchParams.get('refresh_token') || fragmentParams.get('refresh_token');
+    
+    console.log('🔍 Parsed URL params:', {
+      hasFragment: !!hash,
+      hasCode: !!code,
+      hasAccessToken: !!accessToken,
+      hasRefreshToken: !!refreshToken,
+      hasError: !!error,
+    });
 
     if (error) {
       console.error('❌ OAuth error:', error, errorDescription);
@@ -245,8 +348,19 @@ export const signInWithGoogle = async (): Promise<string> => {
     // Check if tokens are in the URL (fragment or query params)
     if (accessToken) {
       console.log('✅ Access token found in URL');
-      // Set the session manually if we have tokens
+      
+      // First, check if Supabase has already set the session automatically
+      // (this can happen when tokens are in the fragment)
+      const { data: existingSession, error: sessionCheckError } = await supabase.auth.getSession();
+      
+      if (!sessionCheckError && existingSession?.session?.access_token) {
+        console.log('✅ Session already set by Supabase, returning access token');
+        return existingSession.session.access_token;
+      }
+      
+      // If no existing session, set it manually if we have both tokens
       if (refreshToken) {
+        console.log('🔄 Setting session manually with tokens from URL...');
         const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
           access_token: accessToken,
           refresh_token: refreshToken,
@@ -258,9 +372,14 @@ export const signInWithGoogle = async (): Promise<string> => {
         }
 
         if (sessionData?.session?.access_token) {
+          console.log('✅ Session set successfully');
           return sessionData.session.access_token;
         }
       }
+      
+      // If we only have access token without refresh token, return it
+      // (though this is less ideal as the session won't persist)
+      console.log('⚠️ Only access token found, no refresh token');
       return accessToken;
     }
 
