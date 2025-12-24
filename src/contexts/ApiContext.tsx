@@ -365,8 +365,8 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-   // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
-   baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
+    baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud
+   ///baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
   //baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
@@ -474,13 +474,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             (api as any).apiClient.setAuthToken(null);
           }
         } catch (err) {
-          console.warn('⚠️ Error clearing API client headers:', err);
+          console.warn('Error clearing API client headers:', err);
         }
       }
 
       console.log('✅ All authentication data cleared');
     } catch (err) {
-      console.error('❌ Error clearing auth data:', err);
+      console.error('Error clearing auth data:', err);
     }
   };
 
@@ -550,7 +550,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
           console.log('✅ Auth state cleared due to token invalidation');
         } catch (err) {
-          console.error('❌ Error during 401 handling:', err);
+          console.error('Error during 401 handling:', err);
         } finally {
           isHandling401Ref.current = false;
         }
@@ -1243,17 +1243,35 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const accessToken = await signInWithGoogle();
       console.log('✅ Supabase access token received');
       
-      // Step 2: Send Supabase access token to backend
+      // Step 2: Retrieve category and role from AsyncStorage (stored before OAuth)
+      let storedCategory: string | null = null;
+      let storedRole: string | null = null;
+      try {
+        storedCategory = await AsyncStorage.getItem('pending_category');
+        storedRole = await AsyncStorage.getItem('pending_role');
+        console.log('📋 Retrieved from AsyncStorage:', {
+          category: storedCategory || 'not found',
+          role: storedRole || 'not found',
+        });
+      } catch (storageErr) {
+        console.warn('⚠️ Failed to retrieve category/role from AsyncStorage:', storageErr);
+      }
+      
+      // Use stored values if available, otherwise fall back to function parameters
+      const finalCategory = (storedCategory as 'crew' | 'talent' | 'company' | null) || category;
+      const finalRole = storedRole || primaryRole;
+      
+      // Step 3: Send Supabase access token to backend
       const requestBody: any = {
         accessToken: accessToken,
-        ...(category && { category }),
-        ...(primaryRole && { primary_role: primaryRole }),
+        ...(finalCategory && { category: finalCategory }),
+        ...(finalRole && { primary_role: finalRole }),
       };
       
       console.log('📤 Sending Google auth request to backend:', {
         hasAccessToken: !!accessToken,
-        category: category || 'not provided',
-        primaryRole: primaryRole || 'not provided',
+        category: finalCategory || 'not provided',
+        primaryRole: finalRole || 'not provided',
       });
       
       const response = await fetch(`${baseUrl}/api/auth/google`, {
@@ -1297,6 +1315,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       console.log('✅ Google Sign-In successful:', authResponse);
+      
+      // Clear AsyncStorage after successful sign-in
+      try {
+        await AsyncStorage.removeItem('pending_category');
+        await AsyncStorage.removeItem('pending_role');
+        console.log('✅ Cleared pending category/role from AsyncStorage');
+      } catch (clearErr) {
+        console.warn('⚠️ Failed to clear AsyncStorage after sign-in:', clearErr);
+      }
       
       // Extract user data and token
       let userData = null;
@@ -1446,6 +1473,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     } catch (err: any) {
       console.error('❌ Google Sign-In failed:', err);
       
+      // Clear AsyncStorage on error (unless it's a cancellation)
+      if (!err?.message?.toLowerCase().includes('cancelled')) {
+        try {
+          await AsyncStorage.removeItem('pending_category');
+          await AsyncStorage.removeItem('pending_role');
+        } catch (clearErr) {
+          console.warn('⚠️ Failed to clear AsyncStorage on error:', clearErr);
+        }
+      }
+      
       // Don't set error state for category required - let UI handle it
       if (err.code === 'CATEGORY_REQUIRED') {
         throw err;
@@ -1471,7 +1508,25 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const accessToken = await signInWithApple();
       console.log('✅ Supabase access token received');
       
-      // Step 2: Use API client method if available (v2.26.0+), otherwise fallback to direct fetch
+      // Step 2: Retrieve category and role from AsyncStorage (stored before OAuth)
+      let storedCategory: string | null = null;
+      let storedRole: string | null = null;
+      try {
+        storedCategory = await AsyncStorage.getItem('pending_category');
+        storedRole = await AsyncStorage.getItem('pending_role');
+        console.log('📋 Retrieved from AsyncStorage:', {
+          category: storedCategory || 'not found',
+          role: storedRole || 'not found',
+        });
+      } catch (storageErr) {
+        console.warn('⚠️ Failed to retrieve category/role from AsyncStorage:', storageErr);
+      }
+      
+      // Use stored values if available, otherwise fall back to function parameters
+      const finalCategory = (storedCategory as 'crew' | 'talent' | 'company' | null) || category;
+      const finalRole = storedRole || primaryRole;
+      
+      // Step 3: Use API client method if available (v2.26.0+), otherwise fallback to direct fetch
       let authResponse: any;
       let userData: any = null;
       let token: string | null = null;
@@ -1481,11 +1536,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.log('📤 Using API client signInWithApple method (v2.26.0+)');
         console.log('📤 Sign-In params:', { 
           hasAccessToken: !!accessToken, 
-          category: category || 'not provided', 
-          primaryRole: primaryRole || 'not provided' 
+          category: finalCategory || 'not provided', 
+          primaryRole: finalRole || 'not provided' 
         });
         try {
-          const response = await (api.auth as any).signInWithApple(accessToken, category, primaryRole);
+          const response = await (api.auth as any).signInWithApple(accessToken, finalCategory, finalRole);
           
           console.log('📥 API client response received:', {
             success: response?.success,
@@ -1660,14 +1715,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.log('📤 Using direct fetch (fallback for older API client versions)');
         const requestBody: any = {
           accessToken: accessToken,
-          ...(category && { category }),
-          ...(primaryRole && { primary_role: primaryRole }),
+          ...(finalCategory && { category: finalCategory }),
+          ...(finalRole && { primary_role: finalRole }),
         };
         
         console.log('📤 Sending Apple auth request to backend:', {
           hasAccessToken: !!accessToken,
-          category: category || 'not provided',
-          primaryRole: primaryRole || 'not provided',
+          category: finalCategory || 'not provided',
+          primaryRole: finalRole || 'not provided',
         });
         
         const response = await fetch(`${baseUrl}/api/auth/apple`, {
@@ -1748,6 +1803,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       console.log('🔑 Storing access token and user data');
+      
+      // Clear AsyncStorage after successful sign-in
+      try {
+        await AsyncStorage.removeItem('pending_category');
+        await AsyncStorage.removeItem('pending_role');
+        console.log('✅ Cleared pending category/role from AsyncStorage');
+      } catch (clearErr) {
+        console.warn('⚠️ Failed to clear AsyncStorage after sign-in:', clearErr);
+      }
       
       // Clear any existing tokens before storing new ones to ensure complete replacement
       console.log('🧹 Clearing old tokens before storing new token...');
@@ -1857,6 +1921,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
     } catch (err: any) {
       console.error('❌ Apple Sign-In failed:', err);
+      
+      // Clear AsyncStorage on error (unless it's a cancellation)
+      if (!err?.message?.toLowerCase().includes('cancelled')) {
+        try {
+          await AsyncStorage.removeItem('pending_category');
+          await AsyncStorage.removeItem('pending_role');
+        } catch (clearErr) {
+          console.warn('⚠️ Failed to clear AsyncStorage on error:', clearErr);
+        }
+      }
       
       // Don't set error state for category required - let UI handle it
       if (err.code === 'CATEGORY_REQUIRED') {
@@ -3676,6 +3750,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       if (response.success && response.data) {
         console.log('✅ User added to personal team:', response.data);
+        // Clear cache to force fresh data on next fetch
+        await rateLimiter.clearCache('my-team-members');
         return {
           success: true,
           data: response.data
@@ -3696,6 +3772,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       if (response.success) {
         console.log('✅ User removed from personal team');
+        // Clear cache to force fresh data on next fetch
+        await rateLimiter.clearCache('my-team-members');
         return {
           success: true,
           data: null
@@ -6895,6 +6973,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Course Management Methods (v2.4.0)
   const getAcademyCourses = async (companyId: string, filters?: { status?: CourseStatus; category?: string }) => {
+    // Validate companyId before making the request - return empty array if invalid instead of throwing
+    if (!companyId || (typeof companyId === 'string' && companyId.trim() === '')) {
+      console.warn('⚠️ getAcademyCourses called with invalid companyId, returning empty array');
+      return [];
+    }
+
     const cacheKey = `academy-courses-${companyId}-${JSON.stringify(filters || {})}`;
     return performanceMonitor.trackApiCall(
       'Get Academy Courses',
@@ -6907,9 +6991,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           const data = response.data as any;
           return Array.isArray(data) ? data : (data.data || []);
         }
+        // Check if it's a "Company not found" error
+        if (response.error?.includes('Company not found') || response.error?.includes('404')) {
+          console.warn(`⚠️ Company not found or not accessible: ${companyId}`);
+          throw new Error(response.error || 'Company not found');
+        }
         throw new Error(response.error || 'Failed to get academy courses');
-      } catch (error) {
-        console.error('Failed to get academy courses:', error);
+      } catch (error: any) {
+        // Log the error with more context
+        if (error?.message?.includes('Company not found') || error?.message?.includes('404')) {
+          console.warn(`⚠️ Company not found when fetching courses: ${companyId}`, error);
+        } else {
+          console.error('Failed to get academy courses:', error);
+        }
         throw error;
       }
     }, { ttl: CacheTTL.SHORT }) // Course lists change when courses are added/updated - 30s TTL
@@ -6917,6 +7011,24 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   const createCourse = async (companyId: string, courseData: CreateCourseRequest) => {
+    // Validate companyId before making the request
+    if (!companyId || (typeof companyId === 'string' && companyId.trim() === '')) {
+      console.warn('⚠️ createCourse called with invalid companyId');
+      return {
+        success: false,
+        error: 'Company ID is required',
+      };
+    }
+
+    // Debug: Log authentication status
+    console.log('🔍 [createCourse] Debug info:', {
+      companyId,
+      isAuthenticated,
+      userId: user?.id,
+      userEmail: user?.email,
+      activeCompanyId: activeCompany?.id,
+    });
+
     try {
       const response = await api.createCourse(companyId, courseData);
       if (response.success && response.data) {
@@ -6927,8 +7039,33 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           data: response.data,
         };
       }
+      
+      // Check for permission errors (403)
+      if (response.error?.includes('Only company owner or admin') || 
+          response.error?.includes('403') ||
+          response.error?.includes('permission') ||
+          response.error?.includes('not authorized')) {
+        console.warn(`⚠️ Permission denied when creating course for company: ${companyId}`);
+        return {
+          success: false,
+          error: 'You do not have permission to create courses. Only company owners and admins can create courses.',
+        };
+      }
+      
       throw new Error(response.error || 'Failed to create course');
     } catch (error: any) {
+      // Handle permission errors from API client
+      if (error?.message?.includes('Only company owner or admin') || 
+          error?.message?.includes('403') ||
+          error?.message?.includes('permission') ||
+          error?.message?.includes('not authorized')) {
+        console.warn(`⚠️ Permission denied when creating course for company: ${companyId}`, error);
+        return {
+          success: false,
+          error: 'You do not have permission to create courses. Only company owners and admins can create courses.',
+        };
+      }
+      
       console.error('Failed to create course:', error);
       return {
         success: false,
@@ -7969,8 +8106,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // =====================================================
+
   // AGENDA METHODS
-  // =====================================================
+  // ====================================================
+
 
   // Initialize agenda service with access token when authenticated
   useEffect(() => {

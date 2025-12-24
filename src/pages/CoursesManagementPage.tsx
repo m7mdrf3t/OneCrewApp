@@ -9,18 +9,56 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { CourseManagementPageProps, CourseWithDetails, CourseStatus } from '../types';
 import CourseCard from '../components/CourseCard';
 import CourseCreationModal from '../components/CourseCreationModal';
 import { CreateCourseRequest } from '../types';
+import { RootStackScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
-  companyId,
-  onBack,
+  companyId: companyIdProp,
+  onBack: onBackProp,
   onCourseSelect,
-  readOnly = false,
+  readOnly: readOnlyProp = false,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'coursesManagement'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  const { goBack, navigateTo } = useAppNavigation();
+  
+  // Use props if provided (for backward compatibility), otherwise use route params or hooks
+  const onBack = onBackProp || goBack;
+  const onNavigate = navigateTo; // Use navigation context for navigation
+  
+  // Get companyId and readOnly from route params or props
+  const companyId = companyIdProp || routeParams?.companyId || '';
+  const readOnly = readOnlyProp || routeParams?.readOnly || false;
+  
+  // If no companyId provided, show error
+  if (!companyId || companyId.trim() === '') {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
+        <Text style={{ fontSize: 18, fontWeight: '600', marginTop: 16, textAlign: 'center' }}>
+          Company ID not provided
+        </Text>
+        <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
+          Please navigate to this page from a company profile.
+        </Text>
+        <TouchableOpacity
+          style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#3b82f6', borderRadius: 8 }}
+          onPress={onBack}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  
   const { getAcademyCourses, createCourse, deleteCourse, completeCourse } = useApi();
   const [courses, setCourses] = useState<CourseWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,19 +68,38 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
   const [completingCourseId, setCompletingCourseId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadCourses();
+    if (companyId && companyId.trim() !== '') {
+      loadCourses();
+    } else {
+      setCourses([]);
+      setLoading(false);
+    }
   }, [companyId, statusFilter]);
 
   const loadCourses = async () => {
+    // Guard against empty companyId
+    if (!companyId || companyId.trim() === '') {
+      setCourses([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       const filters = statusFilter !== 'all' ? { status: statusFilter } : undefined;
       const coursesData = await getAcademyCourses(companyId, filters);
       setCourses(Array.isArray(coursesData) ? coursesData : []);
-    } catch (error) {
-      console.error('Failed to load courses:', error);
-      Alert.alert('Error', 'Failed to load courses. Please try again.');
-      setCourses([]);
+    } catch (error: any) {
+      // Handle "Company not found" errors gracefully
+      if (error?.message?.includes('Company not found') || error?.message?.includes('404')) {
+        console.warn('Company not found or not accessible for courses:', companyId);
+        Alert.alert('Access Denied', 'You do not have access to this company\'s courses, or the company does not exist.');
+        setCourses([]);
+      } else {
+        console.error('Failed to load courses:', error);
+        Alert.alert('Error', error?.message || 'Failed to load courses. Please try again.');
+        setCourses([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -56,11 +113,30 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
         setShowCreateModal(false);
         loadCourses(); // Reload courses
       } else {
-        Alert.alert('Error', response.error || 'Failed to create course');
+        // Show more helpful error messages
+        const errorMessage = response.error || 'Failed to create course';
+        if (errorMessage.includes('permission') || errorMessage.includes('owner or admin')) {
+          Alert.alert(
+            'Permission Denied',
+            errorMessage + '\n\nPlease ensure you are logged in as the company owner or admin.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert('Error', errorMessage);
+        }
       }
     } catch (error: any) {
       console.error('Failed to create course:', error);
-      Alert.alert('Error', error.message || 'Failed to create course');
+      const errorMessage = error.message || 'Failed to create course';
+      if (errorMessage.includes('permission') || errorMessage.includes('owner or admin')) {
+        Alert.alert(
+          'Permission Denied',
+          errorMessage + '\n\nPlease ensure you are logged in as the company owner or admin.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
     }
   };
 
@@ -96,16 +172,55 @@ const CoursesManagementPage: React.FC<CourseManagementPageProps> = ({
   };
 
   const handleEditCourse = (course: CourseWithDetails) => {
-    if (onCourseSelect) {
-      onCourseSelect(course);
+    console.log('🔍 [CoursesManagementPage] handleEditCourse called:', {
+      courseId: course.id,
+      courseTitle: course.title,
+      companyId: companyId,
+      hasOnNavigate: !!onNavigate,
+    });
+    
+    // Navigate to course edit page
+    if (onNavigate) {
+      console.log('📱 [CoursesManagementPage] Navigating to courseEdit:', {
+        courseId: course.id,
+        companyId: companyId,
+      });
+      onNavigate('courseEdit', {
+        courseId: course.id,
+        companyId: companyId,
+      });
+    } else {
+      console.error('❌ [CoursesManagementPage] No navigation method available for edit!');
+      Alert.alert('Error', 'Unable to navigate to course edit page. Please try again.');
     }
   };
 
   const handleViewCourse = (course: CourseWithDetails) => {
+    console.log('🔍 [CoursesManagementPage] handleViewCourse called:', {
+      courseId: course.id,
+      courseTitle: course.title,
+      companyId: companyId,
+      hasOnCourseSelect: !!onCourseSelect,
+      hasOnNavigate: !!onNavigate,
+    });
+    
     // Navigate to course detail page
     if (onCourseSelect) {
-      // For now, navigate to edit, but could navigate to detail
+      console.log('📱 [CoursesManagementPage] Using onCourseSelect callback');
       onCourseSelect(course);
+    } else if (onNavigate) {
+      // Fallback: navigate directly using React Navigation
+      console.log('📱 [CoursesManagementPage] Navigating to courseDetail:', {
+        courseId: course.id,
+        companyId: companyId,
+      });
+      onNavigate('courseDetail', {
+        courseId: course.id,
+        companyId: companyId,
+      });
+    } else {
+      console.error('❌ [CoursesManagementPage] No navigation method available!');
+      Alert.alert('Error', 'Unable to navigate to course details. Please try again.');
     }
   };
 

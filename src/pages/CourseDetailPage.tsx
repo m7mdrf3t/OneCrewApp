@@ -11,19 +11,56 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { CourseDetailPageProps, CourseWithDetails, Company } from '../types';
 import MediaPickerService from '../services/MediaPickerService';
 import UploadProgressBar from '../components/UploadProgressBar';
+import { RootStackScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
-  courseId,
-  companyId,
-  onBack,
+  courseId: courseIdProp,
+  companyId: companyIdProp,
+  onBack: onBackProp,
   onRegister,
   onUnregister,
-  onNavigate,
+  onNavigate: onNavigateProp,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'courseDetail'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  const { goBack, navigateTo } = useAppNavigation();
+  
+  // Use props if provided (for backward compatibility), otherwise use route params or hooks
+  const onBack = onBackProp || goBack;
+  const onNavigate = onNavigateProp || navigateTo;
+  
+  // Get courseId and companyId from route params or props
+  const courseId = courseIdProp || routeParams?.courseId || '';
+  const companyId = companyIdProp || routeParams?.companyId;
+  
+  // If no courseId provided, show error
+  if (!courseId || courseId.trim() === '') {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
+        <Text style={{ fontSize: 18, fontWeight: '600', marginTop: 16, textAlign: 'center' }}>
+          Course ID not provided
+        </Text>
+        <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
+          Please navigate to this page from a course list.
+        </Text>
+        <TouchableOpacity
+          style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#3b82f6', borderRadius: 8 }}
+          onPress={onBack}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
   const { 
     getCourseById, 
     registerForCourse, 

@@ -12,6 +12,7 @@ import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import { getRoleName, filterRolesByCategory } from '../utils/roleCategorizer';
+import { filterAndSortUsers } from '../utils/searchUtils';
 
 interface User {
   id: string;
@@ -146,26 +147,60 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       // Use guest browsing if in guest mode
       if (isGuest) {
         try {
-          console.log('🎭 Browsing users as guest...', params);
-          const response = await browseUsersAsGuest(params);
+          // For search queries, fetch ALL users (without search filter) for fuzzy filtering
+          const guestParams = { ...params };
+          const fetchLimit = 100; // API maximum limit
+          const pagesToFetch = searchQuery && searchQuery.trim().length > 0 && searchQuery.length <= 2 ? 2 : 1;
           
-          if (response.success && response.data) {
-            const data = response.data.data || response.data;
-            const usersArray = Array.isArray(data) ? data : (Array.isArray(data?.users) ? data.users : []);
-            const pagination = response.data.pagination;
-            
-            if (append) {
-              setUsers(prev => [...prev, ...usersArray]);
-            } else {
-              setUsers(usersArray);
-            }
-            
-            setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
-            console.log('✅ Users fetched successfully as guest:', usersArray.length);
-            return;
-          } else {
-            throw new Error(response.error || 'Failed to browse users as guest');
+          if (searchQuery && searchQuery.trim().length > 0) {
+            delete guestParams.search; // Remove search to fetch all users
+            guestParams.limit = fetchLimit;
           }
+          
+          let allUsers: any[] = [];
+          let lastPagination: any = null;
+          
+          // Fetch multiple pages if needed
+          for (let p = 1; p <= pagesToFetch; p++) {
+            const pageParams = { ...guestParams, page: p };
+            console.log('🎭 Browsing users as guest...', pageParams);
+            const response = await browseUsersAsGuest(pageParams);
+            
+            if (response.success && response.data) {
+              const data = response.data.data || response.data;
+              const usersArray = Array.isArray(data) ? data : (Array.isArray(data?.users) ? data.users : []);
+              lastPagination = response.data.pagination;
+              
+              allUsers = [...allUsers, ...usersArray];
+              
+              // Stop if we got fewer results than the limit (last page)
+              if (usersArray.length < fetchLimit) {
+                break;
+              }
+            } else {
+              throw new Error(response.error || 'Failed to browse users as guest');
+            }
+          }
+          
+          // Apply fuzzy search filtering if search query exists
+          if (searchQuery && searchQuery.trim().length > 0) {
+            allUsers = filterAndSortUsers(allUsers, searchQuery);
+            console.log('✅ Users filtered with fuzzy search (guest):', allUsers.length);
+          }
+          
+          // Limit results after filtering
+          const usersArray = allUsers.slice(0, limit * page);
+          
+          if (append) {
+            setUsers(prev => [...prev, ...usersArray]);
+          } else {
+            setUsers(usersArray);
+          }
+          
+          const effectiveLimit = searchQuery && searchQuery.trim().length > 0 ? fetchLimit * pagesToFetch : limit;
+          setHasMoreUsers(lastPagination ? page < lastPagination.totalPages : usersArray.length === effectiveLimit);
+          console.log('✅ Users fetched successfully as guest:', usersArray.length);
+          return;
         } catch (guestErr: any) {
           console.error('❌ Guest browsing failed:', guestErr);
           setError(guestErr.message || 'Failed to browse users as guest');
@@ -177,52 +212,51 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       }
       
       // Authenticated user flow
-      // Try direct fetch first
-      try {
-        const response = await getUsersDirect(params);
-        
-        if (response.success && response.data) {
-          const data = response.data.data || response.data;
-          const usersArray = Array.isArray(data) ? data : [];
-          const pagination = response.data.pagination;
-          
-          if (append) {
-            setUsers(prev => [...prev, ...usersArray]);
-          } else {
-            setUsers(usersArray);
-          }
-          
-          setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
-          console.log('✅ Users fetched successfully with direct fetch:', usersArray.length);
-          return;
-        }
-      } catch (directErr) {
-        console.warn('⚠️ Direct fetch failed, trying API client:', directErr);
+      // For search queries, fetch ALL users (without search filter) and apply client-side fuzzy filtering
+      // This ensures we search across the entire user base, not just API-filtered results
+      const hasSearchQuery = searchQuery && searchQuery.trim().length > 0;
+      const fetchLimit = 100; // API maximum limit
+      const pagesToFetch = hasSearchQuery && searchQuery.length <= 2 ? 2 : 1; // Fetch 2 pages (200 users) for short queries
+      
+      // Remove search from params to fetch all users, then filter client-side
+      const searchParams = { ...params };
+      if (hasSearchQuery) {
+        delete searchParams.search; // Remove search param to fetch all users
+        searchParams.limit = fetchLimit;
       }
       
-      // Fallback to API client - use q for search parameter
-      // Copy all params to apiParams (excluding limit and page which are handled separately)
-      const apiParams: any = {
-        limit,
-        page,
-      };
-      // Copy all filter parameters
-      Object.keys(params).forEach(key => {
-        if (key !== 'limit' && key !== 'page' && params[key] !== undefined && params[key] !== null && params[key] !== '') {
-          if (key === 'search') {
-            apiParams.q = params[key];
-          } else {
-            apiParams[key] = params[key];
+      // Try direct fetch first
+      try {
+        let allUsers: any[] = [];
+        let lastPagination: any = null;
+        
+        // Fetch multiple pages if needed for search
+        for (let p = 1; p <= pagesToFetch; p++) {
+          const pageParams = { ...searchParams, page: p };
+          const response = await getUsersDirect(pageParams);
+          
+          if (response.success && response.data) {
+            const data = response.data.data || response.data;
+            const usersArray = Array.isArray(data) ? data : [];
+            lastPagination = response.data.pagination;
+            
+            allUsers = [...allUsers, ...usersArray];
+            
+            // Stop if we got fewer results than the limit (last page)
+            if (usersArray.length < fetchLimit) {
+              break;
+            }
           }
         }
-      });
-      
-      const response = await api.getUsers(apiParams);
-      
-      if (response.success && response.data) {
-        const data = response.data.data || response.data;
-        const usersArray = Array.isArray(data) ? data : [];
-        const pagination = response.data.pagination;
+        
+        // Apply fuzzy search filtering if search query exists
+        if (hasSearchQuery) {
+          allUsers = filterAndSortUsers(allUsers, searchQuery);
+          console.log('✅ Users filtered with fuzzy search:', allUsers.length);
+        }
+        
+        // Limit results after filtering
+        const usersArray = allUsers.slice(0, limit * page);
         
         if (append) {
           setUsers(prev => [...prev, ...usersArray]);
@@ -230,15 +264,75 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
           setUsers(usersArray);
         }
         
-        setHasMoreUsers(pagination ? page < pagination.totalPages : usersArray.length === limit);
-        console.log('✅ Users fetched successfully with API client:', usersArray.length);
-      } else {
-        console.error('❌ Failed to fetch users:', response.error);
-        setError('Failed to load users');
-        if (!append) {
-          setUsers([]);
+        setHasMoreUsers(lastPagination ? page < lastPagination.totalPages : usersArray.length === fetchLimit * pagesToFetch);
+        console.log('✅ Users fetched successfully with direct fetch:', usersArray.length);
+        return;
+      } catch (directErr) {
+        console.warn('⚠️ Direct fetch failed, trying API client:', directErr);
+      }
+      
+      // Fallback to API client - use q for search parameter
+      // Copy all params to apiParams (excluding limit and page which are handled separately)
+      const apiParams: any = {
+        limit: fetchLimit,
+        page: 1,
+      };
+      // Copy all filter parameters (but exclude search to fetch all users)
+      Object.keys(params).forEach(key => {
+        if (key !== 'limit' && key !== 'page' && key !== 'search' && params[key] !== undefined && params[key] !== null && params[key] !== '') {
+          apiParams[key] = params[key];
+        }
+      });
+      
+      // Fetch multiple pages if needed
+      let allUsers: any[] = [];
+      let lastPagination: any = null;
+      
+      for (let p = 1; p <= pagesToFetch; p++) {
+        apiParams.page = p;
+        const response = await api.getUsers(apiParams);
+        
+        if (response.success && response.data) {
+          const data = response.data.data || response.data;
+          const usersArray = Array.isArray(data) ? data : [];
+          lastPagination = response.data.pagination;
+          
+          allUsers = [...allUsers, ...usersArray];
+          
+          // Stop if we got fewer results than the limit (last page)
+          if (usersArray.length < fetchLimit) {
+            break;
+          }
+        } else {
+          console.error('❌ Failed to fetch users:', response.error);
+          if (p === 1) {
+            // Only set error on first page failure
+            setError('Failed to load users');
+            if (!append) {
+              setUsers([]);
+            }
+          }
+          break;
         }
       }
+      
+      // Apply fuzzy search filtering if search query exists
+      if (hasSearchQuery) {
+        allUsers = filterAndSortUsers(allUsers, searchQuery);
+        console.log('✅ Users filtered with fuzzy search (API client):', allUsers.length);
+      }
+      
+      // Limit results after filtering
+      const usersArray = allUsers.slice(0, limit * page);
+      
+      if (append) {
+        setUsers(prev => [...prev, ...usersArray]);
+      } else {
+        setUsers(usersArray);
+      }
+      
+      setHasMoreUsers(lastPagination ? page < lastPagination.totalPages : usersArray.length === fetchLimit * pagesToFetch);
+      console.log('✅ Users fetched successfully with API client:', usersArray.length);
     } catch (err: any) {
       console.error('❌ Error fetching users:', err);
       setError(err.message || 'Failed to load users');
@@ -434,14 +528,44 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
       // - explicit category 'custom' (future backend support), OR
       // - crew/talent users whose primary_role isn't in the known crew/talent roles lists
       custom: users.filter(u => {
-        if ((u as any).category === 'custom') return true;
+        // Always include users with explicit 'custom' category
+        if ((u as any).category === 'custom') {
+          console.log('✅ Custom user (explicit category):', u.name, u.primary_role);
+          return true;
+        }
+        // Exclude companies
         if (u.category === 'company') return false;
+        // Need a primary_role to classify as custom
         if (!u.primary_role) return false;
-        if (knownRoleSet.size === 0) return false; // avoid misclassifying if roles haven't loaded
+        
+        // If roles haven't loaded yet, we can't determine if user is custom
+        // But we should still try to classify if we have some roles loaded
+        if (knownRoleSet.size === 0) {
+          console.log('⚠️ Roles not loaded yet, cannot classify custom users');
+          return false;
+        }
+        
         const role = normalize(u.primary_role);
-        return role ? !knownRoleSet.has(role) : false;
+        const isCustom = role ? !knownRoleSet.has(role) : false;
+        
+        if (isCustom) {
+          console.log('✅ Custom user (unknown role):', u.name, u.primary_role, 'not in known roles');
+        }
+        
+        return isCustom;
       }),
     };
+    
+    console.log('📊 Users by category:', {
+      talent: categorized.talent.length,
+      crew: categorized.crew.length,
+      company: categorized.company.length,
+      custom: categorized.custom.length,
+      totalUsers: users.length,
+      knownRolesCount: knownRoleSet.size,
+      crewRolesCount: crewRoles.length,
+      talentRolesCount: talentRoles.length,
+    });
     
     return categorized;
   }, [users, crewRoles, talentRoles]);

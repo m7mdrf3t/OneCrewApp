@@ -174,12 +174,26 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
   };
 
   const loadCourses = async () => {
+    // Guard against empty companyId
+    if (!company?.id || company.id.trim() === '') {
+      setCourses([]);
+      setLoadingCourses(false);
+      return;
+    }
+
     try {
       setLoadingCourses(true);
       const coursesData = await getAcademyCourses(company.id);
       setCourses(Array.isArray(coursesData) ? coursesData : []);
-    } catch (error) {
-      console.error('Failed to load courses:', error);
+    } catch (error: any) {
+      // Handle "Company not found" errors gracefully
+      if (error?.message?.includes('Company not found') || error?.message?.includes('404')) {
+        console.warn('Company not found or not accessible for courses:', company.id);
+        setCourses([]);
+      } else {
+        console.error('Failed to load courses:', error);
+        setCourses([]);
+      }
     } finally {
       setLoadingCourses(false);
     }

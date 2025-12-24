@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { UserRole } from 'onecrew-api-client';
 import { useApi } from '../contexts/ApiContext';
 import CategorySelectionModal from '../components/CategorySelectionModal';
@@ -335,65 +336,40 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
     try {
       clearError();
-      setPendingGoogleSignIn(true);
       setPendingAuthProvider('google');
       
-      // Try without category first (for existing users)
-      const authResponse = await googleSignIn();
-      // Google Sign-In succeeded - user is authenticated (Google already verified email)
-      // Both existing and new users go directly to app (no OTP needed for Google Sign In)
-      setPendingAuthProvider(null);
-      if (onLoginSuccess) {
-        onLoginSuccess();
-      }
+      // Show category selection modal BEFORE OAuth
+      setShowCategoryModal(true);
     } catch (err: any) {
-      console.error('❌ Google Sign-In error in SignupPage:', err);
-      
-      // Don't show alert if user cancelled - this is expected behavior
-      if (err?.message?.toLowerCase().includes('cancelled')) {
-        console.log('ℹ️ User cancelled Google Sign-In');
-        setPendingAuthProvider(null);
-        return;
-      }
-      
-      // Check if error is about category being required
-      // Check multiple possible error formats
-      const errorMessage = (err?.message || err?.error || '').toLowerCase();
-      const hasCategoryError = 
-        err?.code === 'CATEGORY_REQUIRED' ||
-        errorMessage.includes('category') && errorMessage.includes('required') ||
-        err?.message === 'CATEGORY_REQUIRED';
-      
-      if (hasCategoryError) {
-        console.log('ℹ️ Category required - showing category selection modal');
-        // Show category selection modal
-        setShowCategoryModal(true);
-      } else {
-        setPendingAuthProvider(null);
-        const errorMessage = err?.message || err?.toString() || 'Google Sign-Up failed. Please try again.';
-        Alert.alert('Google Sign-Up Failed', errorMessage);
-      }
-    } finally {
-      setPendingGoogleSignIn(false);
+      console.error('❌ Error showing category modal:', err);
+      setPendingAuthProvider(null);
     }
   };
 
-  const handleCategorySelect = async (category: 'crew' | 'talent', primaryRole?: string) => {
+  const handleCategorySelect = async (category: 'crew' | 'talent' | 'company', primaryRole?: string) => {
     try {
       setShowCategoryModal(false);
       clearError();
       
-      let authResponse;
+      // Store category and role in AsyncStorage before OAuth
+      if (category) {
+        await AsyncStorage.setItem('pending_category', category);
+      }
+      if (primaryRole) {
+        await AsyncStorage.setItem('pending_role', primaryRole);
+      }
+      
+      // Proceed with OAuth (selections will be retrieved in ApiContext)
       if (pendingAuthProvider === 'google') {
         setPendingGoogleSignIn(true);
-        authResponse = await googleSignIn(category, primaryRole);
+        await googleSignIn();
       } else if (pendingAuthProvider === 'apple') {
         setPendingAppleSignIn(true);
-        authResponse = await appleSignIn(category, primaryRole);
+        await appleSignIn();
       } else {
         // Fallback to Google if provider not set
         setPendingGoogleSignIn(true);
-        authResponse = await googleSignIn(category, primaryRole);
+        await googleSignIn();
       }
       
       // After category selection, user is authenticated - go directly to app
@@ -404,10 +380,31 @@ const SignupPage: React.FC<SignupPageProps> = ({
       }
     } catch (err: any) {
       console.error('Sign-In error in category select:', err);
-      const providerName = pendingAuthProvider === 'apple' ? 'Apple' : 'Google';
-      const errorMessage = err?.message || err?.toString() || `${providerName} Sign-Up failed. Please try again.`;
-      Alert.alert(`${providerName} Sign-Up Failed`, errorMessage);
-      setPendingAuthProvider(null);
+      
+      // Clear AsyncStorage on error
+      try {
+        await AsyncStorage.removeItem('pending_category');
+        await AsyncStorage.removeItem('pending_role');
+      } catch (clearErr) {
+        console.warn('Failed to clear AsyncStorage:', clearErr);
+      }
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled OAuth');
+        setPendingAuthProvider(null);
+        return;
+      }
+      
+      // Fallback: if backend still requires category, show modal again
+      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
+        setShowCategoryModal(true);
+      } else {
+        const providerName = pendingAuthProvider === 'apple' ? 'Apple' : 'Google';
+        const errorMessage = err?.message || err?.toString() || `${providerName} Sign-Up failed. Please try again.`;
+        Alert.alert(`${providerName} Sign-Up Failed`, errorMessage);
+        setPendingAuthProvider(null);
+      }
     } finally {
       setPendingGoogleSignIn(false);
       setPendingAppleSignIn(false);
@@ -422,65 +419,13 @@ const SignupPage: React.FC<SignupPageProps> = ({
 
     try {
       clearError();
-      setPendingAppleSignIn(true);
       setPendingAuthProvider('apple');
       
-      // Try without category first (for existing users)
-      const authResponse = await appleSignIn();
-      // Apple Sign-In succeeded - user is authenticated (Apple already verified email)
-      // Both existing and new users go directly to app (no OTP needed for Apple Sign In)
-      setPendingAuthProvider(null);
-      if (onLoginSuccess) {
-        onLoginSuccess();
-      }
+      // Show category selection modal BEFORE OAuth
+      setShowCategoryModal(true);
     } catch (err: any) {
-      console.error('❌ Apple Sign-In error in SignupPage:', err);
-      
-      // Don't show alert if user cancelled - this is expected behavior
-      if (err?.message?.toLowerCase().includes('cancelled')) {
-        console.log('ℹ️ User cancelled Apple Sign-In');
-        setPendingAuthProvider(null);
-        return;
-      }
-      
-      // Check if error is about category being required
-      // Check multiple possible error formats
-      const errorMessage = (err?.message || err?.error || '').toLowerCase();
-      const hasCategoryError = 
-        err?.code === 'CATEGORY_REQUIRED' ||
-        errorMessage.includes('category') && errorMessage.includes('required') ||
-        err?.message === 'CATEGORY_REQUIRED';
-      
-      // Check for invalid role error
-      const hasRoleError = 
-        err?.code === 'INVALID_ROLE' ||
-        (errorMessage.includes('foreign key constraint') && 
-         (errorMessage.includes('primary_role') || errorMessage.includes('primary role')));
-      
-      if (hasCategoryError) {
-        console.log('ℹ️ Category required - showing category selection modal');
-        // Show category selection modal
-        setShowCategoryModal(true);
-      } else if (hasRoleError) {
-        console.log('ℹ️ Invalid role - showing category selection modal to reselect');
-        // Show category selection modal to allow user to select a valid role
-        Alert.alert(
-          'Invalid Role',
-          'The selected role is not valid. Please select a different role.',
-          [
-            {
-              text: 'OK',
-              onPress: () => setShowCategoryModal(true)
-            }
-          ]
-        );
-      } else {
-        setPendingAuthProvider(null);
-        const errorMessage = err?.message || err?.toString() || 'Apple Sign-Up failed. Please try again.';
-        Alert.alert('Apple Sign-Up Failed', errorMessage);
-      }
-    } finally {
-      setPendingAppleSignIn(false);
+      console.error('❌ Error showing category modal:', err);
+      setPendingAuthProvider(null);
     }
   };
 
@@ -830,9 +775,16 @@ const SignupPage: React.FC<SignupPageProps> = ({
       <CategorySelectionModal
         visible={showCategoryModal}
         onSelect={handleCategorySelect}
-        onCancel={() => {
+        onCancel={async () => {
           setShowCategoryModal(false);
           setPendingAuthProvider(null);
+          // Clear any stored selections on cancel
+          try {
+            await AsyncStorage.removeItem('pending_category');
+            await AsyncStorage.removeItem('pending_role');
+          } catch (err) {
+            console.warn('Failed to clear AsyncStorage on cancel:', err);
+          }
         }}
         isLoading={isLoading || pendingGoogleSignIn || pendingAppleSignIn}
       />

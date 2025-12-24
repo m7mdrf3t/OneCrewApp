@@ -86,10 +86,10 @@ export interface ProfileDetailPageProps {
   profile: any;
   onBack: () => void;
   onAssignToProject: (profile: any) => void;
-  onAddToTeam: (profile: any) => void;
-  myTeam: any[];
-  onStartChat: (profile: any) => void;
-  onMediaSelect: (media: any) => void;
+  onAddToTeam?: (profile: any) => void;
+  myTeam?: any[];
+  onStartChat?: (profile: any) => void;
+  onMediaSelect?: (media: any) => void;
   isCurrentUser?: boolean;
 }
 

@@ -190,7 +190,12 @@ const AppContent: React.FC = () => {
         } else if (pageName === 'projectDetail') {
           params = { project: data };
         } else if (pageName === 'companyProfile') {
-          params = { companyId: typeof data === 'string' ? data : (data?.companyId || data?.id || data) };
+          // Preserve readOnly flag when navigating to company profile
+          const companyId = typeof data === 'string' ? data : (data?.companyId || data?.id || data);
+          params = { 
+            companyId,
+            readOnly: data?.readOnly ?? false
+          };
         } else if (pageName === 'chat') {
           params = data;
         } else if (pageName === 'sectionServices') {

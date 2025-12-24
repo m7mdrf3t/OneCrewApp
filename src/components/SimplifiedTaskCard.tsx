@@ -249,8 +249,27 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   useEffect(() => {
     console.log('👤 preSelectedUser state updated:', preSelectedUser ? { id: preSelectedUser.id, name: preSelectedUser.name } : null);
   }, [preSelectedUser]);
+  // Use ref to persist expanded state across re-renders
+  const isExpandedRef = useRef<boolean>(true); // Card is expanded by default
   const [isExpanded, setIsExpanded] = useState(true); // Card is expanded by default
+  
+  // Sync ref with state
+  const setExpandedState = (expanded: boolean) => {
+    isExpandedRef.current = expanded;
+    setIsExpanded(expanded);
+  };
+  
   const swipeableRefs = useRef<{ [key: string]: Swipeable | null }>({});
+  
+  // Preserve expanded state when task updates (don't collapse on assignment changes)
+  useEffect(() => {
+    // Only initialize expanded state if it hasn't been set yet
+    // Otherwise preserve the current expanded state
+    if (isExpandedRef.current !== isExpanded) {
+      // State and ref are out of sync, sync them
+      setIsExpanded(isExpandedRef.current);
+    }
+  }, [existingTask?.id]); // Only reset if task ID changes, not on assignment updates
 
   useEffect(() => {
     if (taskType) {
@@ -1385,7 +1404,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       {/* Header - Clickable to expand/collapse */}
       <TouchableOpacity
         style={styles.cardHeader}
-        onPress={() => setIsExpanded(!isExpanded)}
+        onPress={() => setExpandedState(!isExpanded)}
         activeOpacity={0.8}
       >
         <View style={styles.cardHeaderLeft}>
@@ -1409,7 +1428,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
             style={styles.expandButton}
             onPress={(e) => {
               e.stopPropagation(); // Prevent card toggle when clicking expand
-              setIsExpanded(!isExpanded);
+              setExpandedState(!isExpanded);
             }}
           >
             <Ionicons 
@@ -2120,47 +2139,40 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
             const userToAutoAssign = preSelectedUser || preSelectedUserRef.current || selectedUser;
             
             if (userToAutoAssign) {
-              console.log('✅ Pre-selected user found, assigning instantly with their role');
+              console.log('✅ Pre-selected user found, checking for role');
               
               // Get user's role from their profile
               const userRole = userToAutoAssign.primary_role || userToAutoAssign.specialty || userToAutoAssign.role;
               
-              if (!userRole) {
-                Alert.alert(
-                  'No Role Found',
-                  'This user does not have a role assigned. Please assign a role to their profile first.',
-                  [{ text: 'OK' }]
-                );
-                return;
+              if (userRole) {
+                // User has a role - assign directly
+                const serviceFromRole = {
+                  id: userRole.toLowerCase().replace(/\s+/g, '_'),
+                  name: userRole,
+                  category: 'Other'
+                };
+                
+                console.log('🎯 Assigning user with role:', {
+                  userId: userToAutoAssign.id,
+                  userName: userToAutoAssign.name,
+                  role: userRole,
+                  service: serviceFromRole
+                });
+                
+                // Directly assign without showing any modals
+                try {
+                  await handleUserSelect(userToAutoAssign, serviceFromRole);
+                  console.log('✅ User assigned successfully');
+                  return; // Exit early - assignment successful
+                } catch (error: any) {
+                  console.error('❌ Failed to assign user:', error);
+                  // Fall through to show service modal if assignment fails
+                }
               }
               
-              // Create service object from user's role
-              const serviceFromRole = {
-                id: userRole.toLowerCase().replace(/\s+/g, '_'),
-                name: userRole,
-                category: 'Other'
-              };
-              
-              console.log('🎯 Assigning user with role:', {
-                userId: userToAutoAssign.id,
-                userName: userToAutoAssign.name,
-                role: userRole,
-                service: serviceFromRole
-              });
-              
-              // Directly assign without showing any modals
-              try {
-                await handleUserSelect(userToAutoAssign, serviceFromRole);
-                console.log('✅ User assigned successfully');
-              } catch (error: any) {
-                console.error('❌ Failed to assign user:', error);
-                Alert.alert(
-                  'Assignment Failed',
-                  error?.message || 'Failed to assign user. Please try again.',
-                  [{ text: 'OK' }]
-                );
-              }
-              return; // Exit early - no modals needed
+              // User doesn't have a role OR assignment failed - show service modal
+              // The selectedUser will be auto-assigned once service is selected
+              console.log('👤 User has no role or assignment failed, opening service modal for manual selection');
             }
             
             // No pre-selected user - show normal service selection flow

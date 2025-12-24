@@ -29,8 +29,9 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
   onCreateCompany,
   onNavigate: onNavigateProp,
 }) => {
-  const { navigateTo } = useAppNavigation();
+  const { navigateTo, replaceTo } = useAppNavigation();
   // Use prop if provided (for backward compatibility), otherwise use hook
+  // For profile switching, use replaceTo to prevent back navigation to previous profile
   const onNavigate = onNavigateProp || navigateTo;
 
   const {
@@ -129,9 +130,12 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
       if (currentProfileType !== 'user') {
         await switchToUserProfile();
       }
-      // Navigate to profile page
-      if (onNavigate) {
-        onNavigate('myProfile');
+      // Replace current screen instead of navigating to prevent back navigation to previous profile
+      if (onNavigateProp) {
+        // If custom navigate function provided, use it (but ideally should also use replace)
+        onNavigateProp('myProfile');
+      } else {
+        replaceTo('myProfile');
       }
       onClose();
     } catch (error) {
@@ -149,9 +153,12 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
     try {
       setSwitching(companyId);
       await switchToCompanyProfile(companyId);
-      // Navigate to company profile page after switching
-      if (onNavigate) {
-        onNavigate('companyProfile', { companyId });
+      // Replace current screen instead of navigating to prevent back navigation to previous profile
+      if (onNavigateProp) {
+        // If custom navigate function provided, use it (but ideally should also use replace)
+        onNavigateProp('companyProfile', { companyId });
+      } else {
+        replaceTo('companyProfile', { companyId });
       }
       onClose();
     } catch (error) {

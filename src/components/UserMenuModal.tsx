@@ -17,6 +17,7 @@ interface UserMenuModalProps {
   isGuest?: boolean;
   onSignUp?: () => void;
   onSignIn?: () => void;
+  currentProfileType?: 'user' | 'company';
 }
 
 const UserMenuModal: React.FC<UserMenuModalProps> = ({
@@ -33,6 +34,7 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
   isGuest = false,
   onSignUp,
   onSignIn,
+  currentProfileType = 'user',
 }) => {
   const isDark = theme === 'dark';
 
@@ -58,8 +60,11 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
       { id: 'signUp', label: 'Sign Up', icon: 'person-add', onPress: onSignUp || (() => {}) },
       { id: 'signIn', label: 'Sign In', icon: 'log-in', onPress: onSignIn || (() => {}) },
     ] : [
-      { id: 'myTeam', label: 'My Team', icon: 'people', onPress: onMyTeam },
-      { id: 'profileEdit', label: 'Profile Edit', icon: 'create', onPress: onProfileEdit },
+      // Only show "My Team" and "Profile Edit" when user profile is active (not company profile)
+      ...(currentProfileType === 'user' ? [
+        { id: 'myTeam', label: 'My Team', icon: 'people', onPress: onMyTeam },
+        { id: 'profileEdit', label: 'Profile Edit', icon: 'create', onPress: onProfileEdit },
+      ] : []),
       { id: 'createCompany', label: 'Create Company', icon: 'business', onPress: onCreateCompany || (() => {}) },
     ]),
     { id: 'settings', label: 'Settings', icon: 'settings', onPress: onSettings },
@@ -96,6 +101,11 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
                   item.isDestructive && styles.destructiveMenuItem
                 ]}
                 onPress={() => {
+                  console.log('🔴 [UserMenuModal] Menu item pressed:', item.id, item.label);
+                  if (item.id === 'myTeam') {
+                    console.log('🔴 [UserMenuModal] My Team item pressed, calling onMyTeam');
+                    console.log('🔴 [UserMenuModal] onMyTeam function:', typeof item.onPress, item.onPress);
+                  }
                   void item.onPress();
                   if (item.shouldCloseOnPress !== false) {
                     onClose();

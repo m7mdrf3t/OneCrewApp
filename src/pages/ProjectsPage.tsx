@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Image, StyleProp, ViewStyle, TextStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { ProjectsPageProps } from '../types';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import ProjectMenuPopup from '../components/ProjectMenuPopup';
 import DeletedProjectsModal from '../components/DeletedProjectsModal';
 import ProjectTypeModal from '../components/ProjectTypeModal';
@@ -25,7 +27,9 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onNavigateToLogin,
   onProjectCreated,
 }) => {
-  const { getAllProjects, getProjectById, user, api, isGuest, checkPendingAssignments, uploadFile, updateProject } = useApi();
+  const navigation = useNavigation();
+  const { navigateTo, goBack } = useAppNavigation();
+  const { getAllProjects, getProjectById, user, api, isGuest, checkPendingAssignments, uploadFile, updateProject, createProject } = useApi();
   const [projects, setProjects] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -176,28 +180,43 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
 
   // Method to add project immediately without reload
   const addProjectToList = React.useCallback(async (newProject: any) => {
+    // Unwrap response if it's wrapped in data property
+    const project = newProject?.data || newProject;
+    
+    // Ensure created_by is set to current user (since they're creating it)
     const projectWithData = {
-      ...newProject,
-      tasks: [],
+      ...project,
+      created_by: project.created_by || user?.id,
+      tasks: project.tasks || [],
+      members: project.members || [],
       isBasicData: true,
     };
     
-    setProjects(prev => [projectWithData, ...prev]);
+    console.log('📦 Adding project to list:', projectWithData.id, projectWithData.title);
     
-    // Also add to appropriate category
-    const accessLevel = getUserAccessLevel(projectWithData);
-    if (accessLevel === 'owner') {
-      setOwnerProjects(prev => [projectWithData, ...prev]);
-    } else if (accessLevel === 'member') {
-      // Check if it has pending assignments
-      const hasPending = await hasPendingAssignments(projectWithData);
-      if (hasPending) {
-        setPendingProjects(prev => [projectWithData, ...prev]);
-      } else {
-        setMemberProjects(prev => [projectWithData, ...prev]);
+    // Add to main projects list
+    setProjects(prev => {
+      // Check if project already exists to avoid duplicates
+      const exists = prev.find(p => p.id === projectWithData.id);
+      if (exists) {
+        console.log('⚠️ Project already exists in list, skipping');
+        return prev;
       }
-    }
-  }, [hasPendingAssignments]);
+      return [projectWithData, ...prev];
+    });
+    
+    // Since the current user is creating it, it should be an owner project
+    // Add to ownerProjects immediately
+    setOwnerProjects(prev => {
+      const exists = prev.find(p => p.id === projectWithData.id);
+      if (exists) {
+        return prev;
+      }
+      return [projectWithData, ...prev];
+    });
+    
+    console.log('✅ Project added to ownerProjects list');
+  }, [user]);
 
   // Expose addProjectToList to parent component via callback
   useEffect(() => {
@@ -206,11 +225,102 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     }
   }, [onProjectCreated, addProjectToList]);
 
+  // Generate next project number by checking existing projects
+  const getNextProjectNumber = useCallback(() => {
+    const allProjects = [...ownerProjects, ...memberProjects, ...pendingProjects];
+    const projectNamePattern = /^Project\s+(\d+)$/i;
+    let maxNumber = 0;
+    
+    allProjects.forEach((project) => {
+      const match = project.title?.match(projectNamePattern);
+      if (match) {
+        const number = parseInt(match[1], 10);
+        if (number > maxNumber) {
+          maxNumber = number;
+        }
+      }
+    });
+    
+    return maxNumber + 1;
+  }, [ownerProjects, memberProjects, pendingProjects]);
+
+  // Direct project creation function
+  const handleCreateProjectDirect = useCallback(async () => {
+    try {
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to create a project');
+        return;
+      }
+
+      if (isGuest) {
+        Alert.alert('Error', 'Guest users cannot create projects. Please sign in.');
+        return;
+      }
+
+      const projectNumber = getNextProjectNumber();
+      const projectTitle = `Project ${projectNumber}`;
+
+      console.log('👤 Creating project directly for user:', user.id, user.name);
+      console.log('📋 Project title:', projectTitle);
+
+      // Create project with minimal parameters
+      const projectRequest = {
+        title: projectTitle,
+        type: 'film',
+        status: 'planning',
+      };
+
+      console.log('📋 Creating project with data:', projectRequest);
+
+      // Create the project using the API
+      const response = await createProject(projectRequest);
+      console.log('✅ Project created successfully:', response);
+      
+      // Unwrap response if needed
+      const createdProject = response?.data || response;
+      
+      // Ensure created_by is set
+      if (!createdProject.created_by && user?.id) {
+        createdProject.created_by = user.id;
+      }
+
+      // Add project immediately to the list
+      await addProjectToList(createdProject);
+      
+      // Switch to owner tab to show the newly created project
+      setActiveTab('owner');
+      
+      console.log('📋 Project added to UI, should be visible now');
+
+      // Show success message
+      Alert.alert('Success', `Project "${projectTitle}" created successfully!`);
+    } catch (error: any) {
+      console.error('Failed to create project:', error);
+      const errorMessage = error?.message || 'Failed to create project. Please try again.';
+      Alert.alert('Error', errorMessage);
+    }
+  }, [user, isGuest, getNextProjectNumber, createProject, addProjectToList]);
+
+  // Use props if provided, otherwise use navigation hooks
+  const handleBack = onBack || goBack;
+  const handleRefresh = onRefresh || loadProjects;
+  // Always use direct project creation (no modal)
+  const handleAddNewProject = handleCreateProjectDirect;
+  const handleAddNewProjectEasy = onAddNewProjectEasy || (() => navigateTo('newProjectEasy'));
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const currentSearchQuery = searchQuery !== undefined ? searchQuery : localSearchQuery;
+  const handleSearchChange = onSearchChange || setLocalSearchQuery;
+  const handleNavigateToSignup = onNavigateToSignup || (() => navigateTo('signup'));
+  const handleNavigateToLogin = onNavigateToLogin || (() => navigateTo('login'));
+
   const handleProjectPress = (project: any) => {
     if (onNavigateToProjectDetail) {
       onNavigateToProjectDetail(project);
-    } else {
+    } else if (onProjectSelect) {
       onProjectSelect(project);
+    } else {
+      // Fallback: use navigation when no props provided
+      navigateTo('projectDetail', { project });
     }
   };
 
@@ -579,11 +689,11 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
           <Text style={styles.title}>Projects</Text>
-          <TouchableOpacity onPress={onRefresh || loadProjects} style={styles.refreshButton}>
+          <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
             <Ionicons name="refresh" size={24} color="#000" />
           </TouchableOpacity>
         </View>
@@ -604,7 +714,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
           <Text style={styles.title}>Projects</Text>
@@ -613,7 +723,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle" size={48} color="#ef4444" />
           <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={onRefresh || loadProjects}>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
           <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
         </View>
@@ -626,7 +736,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#000" />
           </TouchableOpacity>
           <Text style={styles.title}>Projects</Text>
@@ -637,10 +747,10 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
           <Text style={styles.guestTitle}>Sign in to view and manage your projects</Text>
           <Text style={styles.guestSubtitle}>Create, organize, and collaborate on your film projects</Text>
           <View style={styles.guestButtonContainer}>
-            <TouchableOpacity style={styles.guestButton} onPress={onNavigateToSignup}>
+            <TouchableOpacity style={styles.guestButton} onPress={handleNavigateToSignup}>
               <Text style={styles.guestButtonText}>Sign Up</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.guestButton, styles.guestButtonSecondary]} onPress={onNavigateToLogin}>
+            <TouchableOpacity style={[styles.guestButton, styles.guestButtonSecondary]} onPress={handleNavigateToLogin}>
               <Text style={[styles.guestButtonText, styles.guestButtonTextSecondary]}>Sign In</Text>
             </TouchableOpacity>
           </View>
@@ -651,7 +761,13 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
         <Text style={styles.title}>Projects</Text>
+        <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
+          <Ionicons name="refresh" size={24} color="#000" />
+        </TouchableOpacity>
       </View>
       {/* Backend Error Banner */}
       {/* Removed error banner - no longer loading tasks upfront */}
@@ -869,7 +985,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
       {/* Floating Action Button */}
       <TouchableOpacity 
         style={styles.fab} 
-        onPress={onAddNewProject}
+        onPress={handleAddNewProject}
         activeOpacity={0.8}
       >
         <Ionicons name="sparkles" size={28} color="#fff" />

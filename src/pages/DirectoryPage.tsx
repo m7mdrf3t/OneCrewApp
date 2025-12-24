@@ -13,6 +13,7 @@ import FilterModal, { FilterParams } from '../components/FilterModal';
 import SkeletonUserCard from '../components/SkeletonUserCard';
 import { SECTIONS } from '../data/mockData';
 import { RootStackScreenProps } from '../navigation/types';
+import { getRoleName } from '../utils/roleCategorizer';
 
 // NOTE: FlashList runtime supports `estimatedItemSize`, but the shipped TS typings
 // in our current setup don't expose it. We cast to keep the perf optimization without
@@ -186,7 +187,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     );
   }
 
-  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies } = useApi();
+  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies, getRoles } = useApi();
   const queryClient = useQueryClient();
   const isCompaniesSection = section.key === 'onehub' || section.key === 'academy';
   const isDirectorySection = section.key === 'directory';
@@ -203,6 +204,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const [filters, setFilters] = useState<FilterParams>({});
   const [debouncedFilters, setDebouncedFilters] = useState<FilterParams>({});
   const [showSearchBar, setShowSearchBar] = useState(false);
+  const [crewRoles, setCrewRoles] = useState<any[]>([]);
+  const [talentRoles, setTalentRoles] = useState<any[]>([]);
 
   // Local back behavior: close in-page UI (filter/subcategory) before popping navigation history
   const handleBackPress = useCallback(() => {
@@ -232,6 +235,32 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }, 500);
     return () => clearTimeout(timer);
   }, [filters]);
+
+  // Fetch crew and talent roles for custom user identification
+  useEffect(() => {
+    const loadRoles = async () => {
+      try {
+        // Fetch crew roles using backend category filter
+        const crewResponse = await getRoles({ category: 'crew' });
+        if (crewResponse.success && crewResponse.data) {
+          const crewRolesData = Array.isArray(crewResponse.data) ? crewResponse.data : [];
+          setCrewRoles(crewRolesData);
+          console.log('✅ Crew roles loaded for directory page:', crewRolesData.length, 'roles');
+        }
+
+        // Fetch talent roles using backend category filter
+        const talentResponse = await getRoles({ category: 'talent' });
+        if (talentResponse.success && talentResponse.data) {
+          const talentRolesData = Array.isArray(talentResponse.data) ? talentResponse.data : [];
+          setTalentRoles(talentRolesData);
+          console.log('✅ Talent roles loaded for directory page:', talentRolesData.length, 'roles');
+        }
+      } catch (err) {
+        console.error('Failed to load roles in directory page:', err);
+      }
+    };
+    loadRoles();
+  }, [getRoles]);
 
   const directoryUsersQueryKey = useMemo(
     () => [
@@ -837,29 +866,52 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }
 
     // Custom section: allow an "All Custom Users" bucket + role-based buckets.
-    // We infer "custom users" from the section's role items (generated on HomePageWithUsers),
-    // so this works even before the backend supports a true `custom` category.
+    // Use the same logic as HomePageWithUsers to identify ALL custom users:
+    // - explicit category 'custom' (future backend support), OR
+    // - crew/talent users whose primary_role isn't in the known crew/talent roles lists
     if (section.key === 'custom') {
       const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      const roleLabels = section.items
-        .map((i) => i.label)
-        .filter((label) => label !== 'All Custom Users');
-      const roleSet = new Set(roleLabels.map(normalize).filter(Boolean));
 
-      const customUsers = filteredByCriteria.filter((u) => {
+      // Build known role set from crew and talent roles (same as HomePageWithUsers)
+      const knownRoleSet = new Set<string>([
+        ...crewRoles.map((r: any) => normalize(getRoleName(r))),
+        ...talentRoles.map((r: any) => normalize(getRoleName(r))),
+      ].filter(Boolean));
+
+      // Identify ALL custom users using the same logic as HomePageWithUsers
+      const allCustomUsers = filteredByCriteria.filter((u) => {
+        // Always include users with explicit 'custom' category
+        if ((u as any).category === 'custom') {
+          return true;
+        }
+        // Exclude companies
+        if (u.category === 'company') return false;
+        // Need a primary_role to classify as custom
         if (!u.primary_role) return false;
+        
+        // If roles haven't loaded yet, we can't determine if user is custom
+        if (knownRoleSet.size === 0) {
+          return false;
+        }
+        
         const role = normalize(u.primary_role);
-        return roleSet.size > 0 ? roleSet.has(role) : false;
+        const isCustom = role ? !knownRoleSet.has(role) : false;
+        
+        return isCustom;
       });
 
+      // Process section items
       section.items.forEach((item) => {
         if (item.label === 'All Custom Users') {
-          sectionUsers[item.label] = customUsers;
+          // Show ALL custom users, not just those matching role labels
+          sectionUsers[item.label] = allCustomUsers;
           return;
         }
+        // For specific role labels, filter by that role
         const itemLabelNormalized = normalize(item.label);
-        sectionUsers[item.label] = customUsers.filter((u) => {
-          const userRoleNormalized = normalize(u.primary_role || '');
+        sectionUsers[item.label] = allCustomUsers.filter((u) => {
+          if (!u.primary_role) return false;
+          const userRoleNormalized = normalize(u.primary_role);
           // Exact match only to avoid double-counting (e.g. `nurse_2` showing up under `nurse`)
           return userRoleNormalized === itemLabelNormalized;
         });
@@ -893,7 +945,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     });
 
     return sectionUsers;
-  }, [users, section, matchesFilters]);
+  }, [users, section, matchesFilters, crewRoles, talentRoles, isDirectorySection]);
 
   const getInitials = (name: string) => {
     if (!name) return '??';
@@ -967,8 +1019,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         const response = await removeFromMyTeam(user.id);
         
         if (response.success) {
-          // Invalidate and refetch to get fresh data
+          // Optimistically remove from UI
+          queryClient.setQueryData(teamMembersQueryKey, (old: any) => {
+            const prev = Array.isArray(old) ? old : [];
+            return prev.filter((m: any) => (m?.user_id || m?.id) !== user.id);
+          });
+          // Then invalidate and refetch to get fresh data
           queryClient.invalidateQueries({ queryKey: teamMembersQueryKey });
+          // Force refetch to ensure UI updates immediately
+          await queryClient.refetchQueries({ queryKey: teamMembersQueryKey });
         } else {
           console.error('Failed to remove user:', response.error);
         }
@@ -978,25 +1037,32 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         const response = await addToMyTeam(user.id);
         
         if (response.success) {
-          // Invalidate and refetch to get fresh data immediately
-          queryClient.invalidateQueries({ queryKey: teamMembersQueryKey });
-          // Also optimistically update the UI
+          // Optimistically update the UI first to match API response structure
           queryClient.setQueryData(teamMembersQueryKey, (old: any) => {
             const prev = Array.isArray(old) ? old : [];
             const already = prev.some((m: any) => (m?.user_id || m?.id) === user.id);
             if (already) return prev;
-            // Add user with full data structure
+            // Add user with full data structure matching API response (uses 'users' not 'user')
+            // API returns: { user_id, users: {...}, joined_at, role, team_id }
             return [...prev, { 
               user_id: user.id,
-              user: {
+              users: {
                 id: user.id,
                 name: user.name,
                 email: user.email,
                 image_url: user.image_url,
-                specialty: user.primary_role
-              }
+                category: user.category,
+                primary_role: user.primary_role
+              },
+              joined_at: new Date().toISOString(),
+              role: null,
+              team_id: null // Will be set by actual API response
             }];
           });
+          // Then invalidate and refetch to get fresh data from server
+          queryClient.invalidateQueries({ queryKey: teamMembersQueryKey });
+          // Force refetch to ensure UI updates immediately
+          await queryClient.refetchQueries({ queryKey: teamMembersQueryKey });
         } else {
           console.error('Failed to add user:', response.error);
         }

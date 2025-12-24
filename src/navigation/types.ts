@@ -20,11 +20,13 @@ export type RootStackParamList = {
   profile: { profile: any };
   myProfile: { user: any } | undefined;
   profileCompletion: { user: any };
-  companyProfile: { companyId: string };
+  companyProfile: { companyId: string; readOnly?: boolean };
   companyRegistration: undefined;
   companyMembersManagement: { company?: Company; companyId?: string; currentUserId?: string; currentUserRole?: CompanyMemberRole; showInviteModal?: boolean };
   companyEdit: { company: Company };
   coursesManagement: { companyId: string; readOnly?: boolean };
+  courseDetail: { courseId: string; companyId?: string };
+  courseEdit: { courseId: string; companyId: string };
   
   // Service screens
   details: { serviceData: any };

@@ -10,16 +10,73 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { CourseEditPageProps, UpdateCourseRequest, CourseStatus } from '../types';
 import DatePicker from '../components/DatePicker';
+import { RootStackScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 const CourseEditPage: React.FC<CourseEditPageProps> = ({
-  courseId,
-  companyId,
-  onBack,
+  courseId: courseIdProp,
+  companyId: companyIdProp,
+  onBack: onBackProp,
   onCourseUpdated,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'courseEdit'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  const { goBack } = useAppNavigation();
+  
+  // Use props if provided (for backward compatibility), otherwise use route params or hooks
+  const onBack = onBackProp || goBack;
+  
+  // Get courseId and companyId from route params or props
+  const courseId = courseIdProp || routeParams?.courseId || '';
+  const companyId = companyIdProp || routeParams?.companyId || '';
+  
+  // If no courseId provided, show error
+  if (!courseId || courseId.trim() === '') {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
+        <Text style={{ fontSize: 18, fontWeight: '600', marginTop: 16, textAlign: 'center' }}>
+          Course ID not provided
+        </Text>
+        <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
+          Please navigate to this page from a course management page.
+        </Text>
+        <TouchableOpacity
+          style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#3b82f6', borderRadius: 8 }}
+          onPress={onBack}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  
+  // If no companyId provided, show error
+  if (!companyId || companyId.trim() === '') {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
+        <Text style={{ fontSize: 18, fontWeight: '600', marginTop: 16, textAlign: 'center' }}>
+          Company ID not provided
+        </Text>
+        <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
+          Company ID is required to edit a course.
+        </Text>
+        <TouchableOpacity
+          style={{ marginTop: 24, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#3b82f6', borderRadius: 8 }}
+          onPress={onBack}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
   const { getCourseById, updateCourse, deleteCourse } = useApi();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

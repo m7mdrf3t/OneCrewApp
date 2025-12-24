@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { PublicCoursesPageProps, CourseWithDetails } from '../types';
 import CourseCard from '../components/CourseCard';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 const PublicCoursesPage: React.FC<PublicCoursesPageProps> = ({
   onBack,
@@ -19,6 +20,7 @@ const PublicCoursesPage: React.FC<PublicCoursesPageProps> = ({
   filters,
 }) => {
   const { getPublicCourses, getMyRegisteredCourses, user } = useApi();
+  const { navigateTo } = useAppNavigation();
   const [courses, setCourses] = useState<CourseWithDetails[]>([]);
   const [myCourses, setMyCourses] = useState<CourseWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,7 +99,26 @@ const PublicCoursesPage: React.FC<PublicCoursesPageProps> = ({
   }, [searchQuery]);
 
   const handleCourseSelect = (course: CourseWithDetails) => {
-    onCourseSelect(course);
+    console.log('🔍 [PublicCoursesPage] Course selected:', {
+      courseId: course.id,
+      courseTitle: course.title,
+      companyId: course.company_id,
+      hasOnCourseSelect: !!onCourseSelect,
+    });
+    
+    if (onCourseSelect) {
+      onCourseSelect(course);
+    } else {
+      // Fallback: navigate directly using React Navigation
+      console.log('📱 [PublicCoursesPage] Navigating to courseDetail:', {
+        courseId: course.id,
+        companyId: course.company_id,
+      });
+      navigateTo('courseDetail', {
+        courseId: course.id,
+        companyId: course.company_id,
+      });
+    }
   };
 
   return (

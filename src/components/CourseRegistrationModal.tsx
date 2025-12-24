@@ -52,7 +52,12 @@ const CourseRegistrationModal: React.FC<CourseRegistrationModalProps> = ({
 
   useEffect(() => {
     if (visible) {
-      loadCourses();
+      // Only load courses if company.id is valid
+      if (company?.id && company.id.trim() !== '') {
+        loadCourses();
+      } else {
+        setCourses([]);
+      }
       resetForm();
     }
   }, [visible, company.id]);
@@ -109,13 +114,28 @@ const CourseRegistrationModal: React.FC<CourseRegistrationModalProps> = ({
   }, [searchQuery, api, registrations]);
 
   const loadCourses = async () => {
+    // Guard against empty companyId
+    if (!company?.id || company.id.trim() === '') {
+      setCourses([]);
+      setLoadingCourses(false);
+      return;
+    }
+
     try {
       setLoadingCourses(true);
       const coursesData = await getAcademyCourses(company.id);
       setCourses(Array.isArray(coursesData) ? coursesData : []);
-    } catch (error) {
-      console.error('Failed to load courses:', error);
-      Alert.alert('Error', 'Failed to load courses');
+    } catch (error: any) {
+      // Handle "Company not found" errors gracefully
+      if (error?.message?.includes('Company not found') || error?.message?.includes('404')) {
+        console.warn('Company not found or not accessible for courses:', company.id);
+        Alert.alert('Access Denied', 'You do not have access to this company\'s courses, or the company does not exist.');
+        setCourses([]);
+      } else {
+        console.error('Failed to load courses:', error);
+        Alert.alert('Error', error?.message || 'Failed to load courses');
+        setCourses([]);
+      }
     } finally {
       setLoadingCourses(false);
     }

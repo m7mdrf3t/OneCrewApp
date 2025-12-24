@@ -2744,26 +2744,6 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
               </View>
             </>
           )}
-
-          {/* Image URL */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Profile Image URL</Text>
-            <TextInput
-              style={[styles.input, formErrors.imageUrl && styles.inputError]}
-              placeholder="https://example.com/image.jpg"
-              placeholderTextColor="#9ca3af"
-              value={formData.imageUrl}
-              onChangeText={(text) => handleInputChange('imageUrl', text)}
-              keyboardType="url"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!isSubmitting}
-            />
-            {formErrors.imageUrl && <Text style={styles.fieldError}>{formErrors.imageUrl}</Text>}
-            <Text style={styles.helpText}>
-              Enter a valid image URL (JPG, PNG, or GIF format recommended)
-            </Text>
-          </View>
         </CollapsibleSection>
       </ScrollView>
 

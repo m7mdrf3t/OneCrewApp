@@ -24,14 +24,19 @@ interface MyTeamModalProps {
 }
 
 const MyTeamModal: React.FC<MyTeamModalProps> = ({ visible, onClose, onUserSelect }) => {
+  console.log('🟢 [MyTeamModal] Component rendered, visible prop:', visible);
   const { getMyTeamMembers, removeFromMyTeam } = useApi();
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRemoving, setIsRemoving] = useState<string | null>(null);
 
   useEffect(() => {
+    console.log('🟢 [MyTeamModal] useEffect triggered, visible:', visible);
     if (visible) {
+      console.log('🟢 [MyTeamModal] visible is true, calling loadTeamMembers');
       loadTeamMembers();
+    } else {
+      console.log('🟢 [MyTeamModal] visible is false, not loading');
     }
   }, [visible]);
 
@@ -164,12 +169,16 @@ const MyTeamModal: React.FC<MyTeamModalProps> = ({ visible, onClose, onUserSelec
     });
   };
 
+  console.log('🟢 [MyTeamModal] Rendering Modal component, visible:', visible);
   return (
     <Modal
       visible={visible}
       animationType="slide"
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={() => {
+        console.log('🟢 [MyTeamModal] Modal onRequestClose called');
+        onClose();
+      }}
     >
       <View style={styles.overlay}>
         <View style={styles.modalContainer}>

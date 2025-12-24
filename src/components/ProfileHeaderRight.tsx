@@ -69,7 +69,7 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
         onPress={handleNotifications}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <Ionicons name="notifications-outline" size={24} color="#000000" />
+        <Ionicons name="notifications-outline" size={20} color="#000000" />
         {unreadNotificationCount > 0 && (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>
@@ -84,7 +84,7 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
         onPress={handleMessages}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <Ionicons name="mail-outline" size={24} color="#000000" />
+        <Ionicons name="mail-outline" size={20} color="#000000" />
         {unreadConversationCount > 0 && (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>
@@ -99,7 +99,7 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
         onPress={handleAccountSwitcher}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <Ionicons name="swap-horizontal-outline" size={24} color="#000000" />
+        <Ionicons name="swap-horizontal-outline" size={20} color="#000000" />
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -107,7 +107,7 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
         onPress={handleMenu}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <Ionicons name="menu-outline" size={24} color="#000000" />
+        <Ionicons name="menu-outline" size={20} color="#000000" />
       </TouchableOpacity>
     </View>
   );

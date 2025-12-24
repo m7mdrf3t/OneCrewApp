@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useGlobalModals } from '../contexts/GlobalModalsContext';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import NotificationModal from './NotificationModal';
 import AccountSwitcherModal from './AccountSwitcherModal';
 import UserMenuModal from './UserMenuModal';
+import MyTeamModal from './MyTeamModal';
 
 const GlobalModals: React.FC = () => {
   const {
@@ -14,10 +15,17 @@ const GlobalModals: React.FC = () => {
     setShowAccountSwitcher,
     showUserMenu,
     setShowUserMenu,
+    showMyTeam,
+    setShowMyTeam,
   } = useGlobalModals();
 
-  const { logout, isGuest } = useApi();
+  const { logout, isGuest, currentProfileType } = useApi();
   const { navigateTo: navTo } = useAppNavigation();
+
+  // Debug: Log when showMyTeam changes in GlobalModals
+  useEffect(() => {
+    console.log('🔵 [GlobalModals] showMyTeam changed to:', showMyTeam);
+  }, [showMyTeam]);
 
   const handleNotificationPress = (notification: any) => {
     setShowNotificationModal(false);
@@ -68,8 +76,11 @@ const GlobalModals: React.FC = () => {
         visible={showUserMenu}
         onClose={() => setShowUserMenu(false)}
         onMyTeam={() => {
+          console.log('🔵 [GlobalModals] onMyTeam called');
+          console.log('🔵 [GlobalModals] showMyTeam before:', showMyTeam);
           setShowUserMenu(false);
-          // Navigate to team page or show team modal
+          setShowMyTeam(true);
+          console.log('🔵 [GlobalModals] setShowMyTeam(true) called');
         }}
         onSettings={() => {
           setShowUserMenu(false);
@@ -87,6 +98,7 @@ const GlobalModals: React.FC = () => {
         onLogout={handleLogout}
         theme="light"
         isGuest={isGuest}
+        currentProfileType={currentProfileType}
         onSignUp={() => {
           setShowUserMenu(false);
           navTo('signup');
@@ -94,6 +106,15 @@ const GlobalModals: React.FC = () => {
         onSignIn={() => {
           setShowUserMenu(false);
           navTo('login');
+        }}
+      />
+
+      {/* My Team Modal */}
+      <MyTeamModal
+        visible={showMyTeam}
+        onClose={() => {
+          console.log('🔵 [GlobalModals] MyTeamModal onClose called');
+          setShowMyTeam(false);
         }}
       />
     </>

@@ -207,11 +207,7 @@ const AddEventModal: React.FC<AddEventModalProps> = ({
                     setIsTeamPopupOpen(false);
                   }}
                 />
-                <TouchableOpacity
-                  activeOpacity={1}
-                  onPress={(e) => e.stopPropagation()}
-                  style={styles.studioModalContent}
-                >
+                <View style={styles.studioModalContent}>
                   <View style={styles.studioModalHeader}>
                     <Text style={styles.studioModalTitle}>Select from My Team</Text>
                     <TouchableOpacity onPress={() => setIsTeamPopupOpen(false)}>
@@ -241,7 +237,11 @@ const AddEventModal: React.FC<AddEventModalProps> = ({
                     </View>
                   </View>
 
-                  <ScrollView style={styles.studioList}>
+                  <ScrollView 
+                    style={styles.studioList}
+                    contentContainerStyle={styles.studioListContent}
+                    showsVerticalScrollIndicator={true}
+                  >
                     {displayTeam.length > 0 ? (
                       displayTeam.map((member, index) => {
                         const memberId = member.id || member.user_id || `member-${index}`;
@@ -287,7 +287,7 @@ const AddEventModal: React.FC<AddEventModalProps> = ({
                       </View>
                     )}
                   </ScrollView>
-                </TouchableOpacity>
+                </View>
               </View>
             )}
             
@@ -694,6 +694,7 @@ const styles = StyleSheet.create({
     borderColor: '#000',
     width: '90%',
     maxWidth: 320,
+    height: '70%',
     maxHeight: '70%',
     flexDirection: 'column',
     zIndex: 1001,
@@ -702,6 +703,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
+    overflow: 'hidden',
   },
   studioModalHeader: {
     flexDirection: 'row',
@@ -749,8 +751,11 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   studioList: {
-    padding: 12,
     flex: 1,
+    maxHeight: '100%',
+  },
+  studioListContent: {
+    padding: 12,
   },
   studioItem: {
     padding: 8,

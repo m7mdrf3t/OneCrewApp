@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { Company, CompanyMemberRole } from '../types';
+import { filterAndSortUsers } from '../utils/searchUtils';
 
 interface InvitationModalProps {
   visible: boolean;
@@ -50,7 +51,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
     }
   }, [visible]);
 
-  // Search users using getUsersDirect when search query changes
+  // Enhanced search with fuzzy matching
   useEffect(() => {
     const searchUsers = async () => {
       if (!searchQuery.trim()) {
@@ -62,57 +63,93 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
         setSearching(true);
         console.log('🔍 Searching for users with query:', searchQuery);
         
-        // Use getUsersDirect which properly handles search with 'q' parameter
-        const response = await getUsersDirect({
-          search: searchQuery,
-          limit: 20,
-          page: 1,
-        });
-
-        console.log('📥 Search response:', response);
-
-        // Handle different response structures
-        let usersArray: any[] = [];
+        // Strategy: Fetch users without search filter first, then apply client-side fuzzy filtering
+        // This ensures we search across ALL users, not just those matching the first 2 chars
+        // API has max limit of 100, so we'll fetch multiple pages if needed for short queries
+        const fetchLimit = 100; // API maximum limit
+        const pagesToFetch = searchQuery.length <= 2 ? 2 : 1; // Fetch 2 pages (200 users) for short queries
         
-        if (response && response.success !== false) {
-          // Response might be: { success: true, data: [...] } or { data: [...] } or just [...]
-          if (Array.isArray(response)) {
-            usersArray = response;
-          } else if (response.data) {
-            if (Array.isArray(response.data)) {
-              usersArray = response.data;
-            } else if (response.data.data && Array.isArray(response.data.data)) {
-              usersArray = response.data.data;
+        let allUsers: any[] = [];
+        
+        // Fetch multiple pages if needed
+        for (let page = 1; page <= pagesToFetch; page++) {
+          const response = await getUsersDirect({
+            // Don't use search parameter - fetch all users and filter client-side
+            // This ensures we search across the entire user base
+            limit: fetchLimit,
+            page: page,
+          });
+          
+          if (response && response.success !== false) {
+            let usersArray: any[] = [];
+            if (Array.isArray(response)) {
+              usersArray = response;
+            } else if (response.data) {
+              if (Array.isArray(response.data)) {
+                usersArray = response.data;
+              } else if (response.data.data && Array.isArray(response.data.data)) {
+                usersArray = response.data.data;
+              }
+            }
+            allUsers = [...allUsers, ...usersArray];
+            
+            // Stop if we got fewer results than the limit (last page)
+            if (usersArray.length < fetchLimit) {
+              break;
             }
           }
         }
+        
+        console.log('📥 Total users fetched:', allUsers.length);
+        
+        // Apply fuzzy search filtering and sorting on client side
+        const filteredAndSorted = filterAndSortUsers(allUsers, searchQuery);
+        console.log('👥 Found users (after fuzzy filter):', filteredAndSorted.length);
+        setFilteredUsers(filteredAndSorted.slice(0, 15)); // Show top 15 matches
+        setSearching(false);
+        return;
 
-        console.log('👥 Found users:', usersArray.length);
-        setFilteredUsers(usersArray.slice(0, 10)); // Limit to 10 results for display
-      } catch (error) {
+        } catch (error) {
         console.error('❌ Failed to search users with getUsersDirect:', error);
         // Fallback to API client if direct fetch fails
         try {
           console.log('🔄 Trying fallback API client search...');
-          const fallbackResponse = await api.getUsers({
-            q: searchQuery,
-            limit: 20,
-          });
-          console.log('📥 Fallback response:', fallbackResponse);
+          // Fetch without search filter to get all users for client-side filtering
+          const fetchLimit = 100; // API maximum
+          const pagesToFetch = searchQuery.length <= 2 ? 2 : 1;
           
-          if (fallbackResponse && fallbackResponse.success !== false) {
-            let usersArray: any[] = [];
-            if (Array.isArray(fallbackResponse.data)) {
-              usersArray = fallbackResponse.data;
-            } else if (fallbackResponse.data?.data && Array.isArray(fallbackResponse.data.data)) {
-              usersArray = fallbackResponse.data.data;
+          let allUsers: any[] = [];
+          
+          // Fetch multiple pages if needed
+          for (let page = 1; page <= pagesToFetch; page++) {
+            const fallbackResponse = await api.getUsers({
+              // Don't use q parameter - fetch all and filter client-side
+              limit: fetchLimit,
+              page: page,
+            });
+            
+            if (fallbackResponse && fallbackResponse.success !== false) {
+              let usersArray: any[] = [];
+              if (Array.isArray(fallbackResponse.data)) {
+                usersArray = fallbackResponse.data;
+              } else if (fallbackResponse.data?.data && Array.isArray(fallbackResponse.data.data)) {
+                usersArray = fallbackResponse.data.data;
+              }
+              allUsers = [...allUsers, ...usersArray];
+              
+              // Stop if we got fewer results than the limit (last page)
+              if (usersArray.length < fetchLimit) {
+                break;
+              }
             }
-            console.log('👥 Found users (fallback):', usersArray.length);
-            setFilteredUsers(usersArray.slice(0, 10));
-          } else {
-            console.warn('⚠️ Fallback search returned no results');
-            setFilteredUsers([]);
           }
+          
+          console.log('📥 Total users fetched (fallback):', allUsers.length);
+          
+          // Apply fuzzy search filtering
+          const filteredAndSorted = filterAndSortUsers(allUsers, searchQuery);
+          console.log('👥 Found users (fallback, after fuzzy filter):', filteredAndSorted.length);
+          setFilteredUsers(filteredAndSorted.slice(0, 15));
         } catch (fallbackError) {
           console.error('❌ Fallback search also failed:', fallbackError);
           setFilteredUsers([]);
@@ -263,10 +300,12 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
               <Ionicons name="search" size={20} color="#9ca3af" style={styles.searchIcon} />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Search by name, email, or role..."
+                placeholder="Search by name, email, role, or any keyword..."
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholderTextColor="#9ca3af"
+                autoCapitalize="none"
+                autoCorrect={false}
               />
             </View>
 
@@ -309,56 +348,61 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
               </View>
             )}
 
-            {/* Search Results */}
-            {searching ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#3b82f6" />
-                <Text style={styles.loadingText}>Searching...</Text>
-              </View>
-            ) : searchQuery.trim() && filteredUsers.length === 0 && !selectedUser ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="search-outline" size={32} color="#d1d5db" />
-                <Text style={styles.emptyStateText}>No users found</Text>
-                <Text style={styles.emptyStateSubtext}>
-                  Try a different search term
-                </Text>
-              </View>
-            ) : filteredUsers.length > 0 && !selectedUser ? (
-              <View style={styles.resultsContainer}>
-                {filteredUsers.map((user) => (
-                  <TouchableOpacity
-                    key={user.id}
-                    style={styles.userItem}
-                    onPress={() => handleSelectUser(user)}
-                  >
-                    {user.image_url ? (
-                      <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} />
-                    ) : (
-                      <View style={[styles.userItemAvatar, styles.userItemAvatarPlaceholder]}>
-                        <Text style={styles.userItemAvatarText}>
-                          {(user.name || user.email || 'U').charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={styles.userItemInfo}>
-                      <Text style={styles.userItemName}>
-                        {user.name || user.email || 'Unknown User'}
-                      </Text>
-                      {user.primary_role && (
-                        <Text style={styles.userItemRole}>
-                          {user.primary_role.replace(/_/g, ' ')}
-                        </Text>
-                      )}
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            ) : null}
+            {/* Search Results - Only show when no user is selected */}
+            {!selectedUser && (
+              <>
+                {searching ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#3b82f6" />
+                    <Text style={styles.loadingText}>Searching...</Text>
+                  </View>
+                ) : searchQuery.trim() && filteredUsers.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="search-outline" size={32} color="#d1d5db" />
+                    <Text style={styles.emptyStateText}>No users found</Text>
+                    <Text style={styles.emptyStateSubtext}>
+                      Try a different search term
+                    </Text>
+                  </View>
+                ) : filteredUsers.length > 0 ? (
+                  <View style={styles.resultsContainer}>
+                    {filteredUsers.map((user) => (
+                      <TouchableOpacity
+                        key={user.id}
+                        style={styles.userItem}
+                        onPress={() => handleSelectUser(user)}
+                      >
+                        {user.image_url ? (
+                          <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} />
+                        ) : (
+                          <View style={[styles.userItemAvatar, styles.userItemAvatarPlaceholder]}>
+                            <Text style={styles.userItemAvatarText}>
+                              {(user.name || user.email || 'U').charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={styles.userItemInfo}>
+                          <Text style={styles.userItemName}>
+                            {user.name || user.email || 'Unknown User'}
+                          </Text>
+                          {user.primary_role && (
+                            <Text style={styles.userItemRole}>
+                              {user.primary_role.replace(/_/g, ' ')}
+                            </Text>
+                          )}
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+              </>
+            )}
           </View>
 
-          {/* Role Selection */}
-          <View style={styles.section}>
+          {/* Role Selection - Only show when user is selected */}
+          {selectedUser && (
+            <View style={styles.section}>
             <Text style={styles.sectionTitle}>Role</Text>
             <View style={styles.roleContainer}>
               {roles.map((role) => (
@@ -381,7 +425,8 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
                 </TouchableOpacity>
               ))}
             </View>
-          </View>
+            </View>
+          )}
         </ScrollView>
 
         {/* Footer */}
@@ -450,6 +495,7 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 24,
+    marginTop: 0,
   },
   sectionTitle: {
     fontSize: 16,
@@ -483,6 +529,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     marginTop: 12,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#3b82f6',
   },
@@ -556,7 +603,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    maxHeight: 300,
+    maxHeight: 400,
+    marginBottom: 8,
   },
   userItem: {
     flexDirection: 'row',
