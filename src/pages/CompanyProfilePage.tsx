@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,8 @@ import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { RootStackScreenProps } from '../navigation/types';
 import SkeletonProfilePage from '../components/SkeletonProfilePage';
+import SkeletonServiceCard from '../components/SkeletonServiceCard';
+import SkeletonMemberCard from '../components/SkeletonMemberCard';
 import {
   Company,
   CompanyMember,
@@ -151,19 +153,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   // Use readOnly from route params (takes precedence over prop for navigation consistency)
   const isReadOnly = readOnlyFromRoute;
 
-  // In read-only mode (public browsing), avoid heavy relationship fetches unless the user asks for them.
-  const [servicesRequested, setServicesRequested] = useState(!isReadOnly);
-  const [membersRequested, setMembersRequested] = useState(!isReadOnly);
-  const [documentsRequested, setDocumentsRequested] = useState(!isReadOnly);
-  const [certificationsRequested, setCertificationsRequested] = useState(!isReadOnly);
-
-  useEffect(() => {
-    // Reset lazy-load toggles when switching companies or mode.
-    setServicesRequested(!isReadOnly);
-    setMembersRequested(!isReadOnly);
-    setDocumentsRequested(!isReadOnly);
-    setCertificationsRequested(!isReadOnly);
-  }, [companyId, isReadOnly]);
+  // Auto-load all data - no lazy loading needed with skeleton screens
+  // Removed lazy loading toggles for better UX with skeleton loading states
 
   const companyCoreQuery = useQuery({
     queryKey: ['company', companyId, 'core', refreshKey],
@@ -209,36 +200,10 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const isAcademy = (companyCoreQuery.data?.subcategory || company?.subcategory) === 'academy';
 
-  const servicesQuery = useQuery<CompanyService[]>({
-    queryKey: ['companyServices', companyId, refreshKey],
-    enabled: !!companyId && (!isReadOnly || servicesRequested),
-    queryFn: async () => {
-      const response = await getCompanyServices(companyId);
-      if (!response?.success) {
-        throw new Error(response?.error || 'Failed to load services');
-      }
-      const payload = response.data?.data ?? response.data;
-      const servicesArray = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.services)
-          ? payload.services
-          : Array.isArray(payload?.data)
-            ? payload.data
-            : [];
-      return servicesArray;
-    },
-  });
-
-  useEffect(() => {
-    if (servicesQuery.data) {
-      setServices(servicesQuery.data);
-    }
-  }, [servicesQuery.data]);
-
-  // Query for active (accepted) members
+  // Query for active (accepted) members - must be defined before helper functions that use it
   const membersQuery = useQuery<CompanyMember[]>({
     queryKey: ['companyMembers', companyId, refreshKey],
-    enabled: !!companyId && (!isReadOnly || membersRequested),
+    enabled: !!companyId,
     queryFn: async () => {
       let response = await getCompanyMembers(companyId, {
         page: 1,
@@ -272,10 +237,81 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     },
   });
 
-  // Query for pending members using the dedicated endpoint
+  // Helper to check if user is owner/admin (works in both read-only and edit mode)
+  // First check owner from company data (available immediately), then check members list
+  const isOwnerOrAdmin = useMemo(() => {
+    if (!user || !company) return false;
+    // Check if user is owner (available from company data immediately)
+    if (company.owner?.id === user.id) return true;
+    // Wait for members query to finish loading before checking admin status
+    if (membersQuery.isLoading || !membersQuery.isSuccess) return false; // Don't enable queries until members load successfully
+    // Use membersQuery.data directly (more reliable than members state)
+    const membersData = membersQuery.data || [];
+    const userMember = membersData.find(m => m.user_id === user.id);
+    return userMember && (userMember.role === 'owner' || userMember.role === 'admin');
+  }, [user, company, membersQuery.isLoading, membersQuery.isSuccess, membersQuery.data]);
+
+  // Helper to check if user is a company member (for read-only mode optimization)
+  const isCompanyMember = useMemo(() => {
+    if (!isReadOnly || !user || !company) return true; // In edit mode, assume access
+    // Check if user is owner (available from company data immediately)
+    if (company.owner?.id === user.id) return true;
+    // Wait for members query to finish loading before checking membership
+    if (membersQuery.isLoading || !membersQuery.isSuccess) return false; // Don't enable queries until members load successfully
+    // Use membersQuery.data directly (more reliable than members state)
+    const membersData = membersQuery.data || [];
+    return membersData.some(m => m.user_id === user.id);
+  }, [isReadOnly, user, company, membersQuery.isLoading, membersQuery.isSuccess, membersQuery.data]);
+
+  // Determine if services query should be enabled
+  const shouldLoadServices = useMemo(() => {
+    if (!companyId) return false;
+    // Always enable in edit mode (not read-only)
+    if (!isReadOnly) return true;
+    // In read-only mode, only enable if user is a member and members query has succeeded
+    return isCompanyMember && membersQuery.isSuccess;
+  }, [companyId, isReadOnly, isCompanyMember, membersQuery.isSuccess]);
+
+  const servicesQuery = useQuery<CompanyService[]>({
+    queryKey: ['companyServices', companyId, refreshKey],
+    enabled: shouldLoadServices,
+    queryFn: async () => {
+      console.log('🔍 Fetching company services for:', companyId, { isReadOnly, isCompanyMember, membersQuerySuccess: membersQuery.isSuccess });
+      const response = await getCompanyServices(companyId);
+      if (!response?.success) {
+        // Should not happen if enabled correctly, but handle gracefully
+        console.warn('⚠️ Failed to load services:', response?.error);
+        return [];
+      }
+      const payload = response.data?.data ?? response.data;
+      const servicesArray = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.services)
+          ? payload.services
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+      console.log('✅ Company services loaded:', servicesArray.length, 'services', servicesArray);
+      return servicesArray;
+    },
+  });
+
+  useEffect(() => {
+    if (servicesQuery.data !== undefined) {
+      console.log('📦 Updating services state:', servicesQuery.data.length, 'services');
+      setServices(servicesQuery.data);
+    } else if (servicesQuery.isSuccess) {
+      // Query succeeded but returned no data - clear services
+      console.log('📦 Clearing services (query succeeded but no data)');
+      setServices([]);
+    }
+  }, [servicesQuery.data, servicesQuery.isSuccess]);
+
+
+  // Query for pending members using the dedicated endpoint (only for owners/admins)
   const pendingMembersQuery = useQuery<CompanyMember[]>({
     queryKey: ['companyPendingMembers', companyId, refreshKey],
-    enabled: !!companyId && (!isReadOnly || membersRequested),
+    enabled: !!companyId && (!isReadOnly || (isOwnerOrAdmin && membersQuery.isSuccess)),
     queryFn: async () => {
       try {
         const response = await getPendingCompanyMembers(companyId, {
@@ -296,9 +332,20 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           return [];
         }
 
+        // Handle 403 errors gracefully (only owner/admin can view pending members)
+        if (response?.error?.includes('403') || response?.error?.includes('owner or admin')) {
+          console.log('ℹ️ Pending members not accessible (requires owner/admin access)');
+          return [];
+        }
+
         // Graceful fallback: show empty list
         return [];
-      } catch (error) {
+      } catch (error: any) {
+        // Handle 403 errors gracefully (only owner/admin can view pending members)
+        if (error?.status === 403 || error?.statusCode === 403 || error?.message?.includes('403') || error?.message?.includes('owner or admin')) {
+          console.log('ℹ️ Pending members not accessible (requires owner/admin access)');
+          return [];
+        }
         console.warn('⚠️ Failed to load pending members, falling back to empty list:', error);
         return [];
       }
@@ -314,11 +361,13 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const documentsQuery = useQuery<CompanyDocument[]>({
     queryKey: ['companyDocuments', companyId, refreshKey],
-    enabled: !!companyId && (!isReadOnly || documentsRequested),
+    enabled: !!companyId && (!isReadOnly || (isCompanyMember && membersQuery.isSuccess)),
     queryFn: async () => {
       const response = await getCompanyDocuments(companyId);
       if (!response?.success) {
-        throw new Error(response?.error || 'Failed to load documents');
+        // Should not happen if enabled correctly, but handle gracefully
+        console.warn('⚠️ Failed to load documents:', response?.error);
+        return [];
       }
       const docsArray = Array.isArray(response.data) ? response.data : (response.data?.data || []);
       return docsArray.filter((doc: CompanyDocument) => !doc?.deleted_at);
@@ -362,7 +411,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const certificationsQuery = useQuery<UserCertification[]>({
     queryKey: ['companyCertifications', companyId, refreshKey],
-    enabled: !!companyId && isAcademy && (!isReadOnly || certificationsRequested),
+    enabled: !!companyId && isAcademy,
     queryFn: async () => {
       const certs = await getCompanyCertifications(companyId);
       return Array.isArray(certs) ? certs : [];
@@ -440,11 +489,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       // Backwards-compatible helper for existing call sites (retry/upload flows).
       // With TanStack Query, the page's UI state is driven by the cached query data.
       await companyCoreQuery.refetch();
-      if (!isReadOnly || servicesRequested) await servicesQuery.refetch();
-      if (!isReadOnly || membersRequested) await membersQuery.refetch();
-      if (!isReadOnly || documentsRequested) await documentsQuery.refetch();
+      await servicesQuery.refetch();
+      await membersQuery.refetch();
+      await documentsQuery.refetch();
       if (isAcademy) await coursesQuery.refetch();
-      if (isAcademy && (!isReadOnly || certificationsRequested)) await certificationsQuery.refetch();
+      if (isAcademy) await certificationsQuery.refetch();
     } catch (err: any) {
       console.error('Failed to load company data:', err);
       Alert.alert('Error', err.message || 'Failed to load company profile');
@@ -455,7 +504,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const loadMembers = async (_id: string) => {
     try {
-      setMembersRequested(true);
       await membersQuery.refetch();
     } catch (err) {
       console.warn('⚠️ Failed to refresh members:', err);
@@ -464,7 +512,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const loadCertifications = async (_id: string) => {
     try {
-      setCertificationsRequested(true);
       await certificationsQuery.refetch();
     } catch (err) {
       console.warn('⚠️ Failed to refresh certifications:', err);
@@ -537,7 +584,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const loadDocuments = async (_id: string) => {
     try {
-      setDocumentsRequested(true);
       await documentsQuery.refetch();
     } catch (err) {
       console.warn('⚠️ Failed to refresh documents:', err);
@@ -660,7 +706,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const loadServices = async (_id: string) => {
     try {
-      setServicesRequested(true);
       await servicesQuery.refetch();
     } catch (err) {
       console.warn('⚠️ Failed to refresh services:', err);
@@ -1203,7 +1248,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="people-outline" size={18} color="#000" />
                   <Text style={styles.metricLabel}>Active Users</Text>
                   <Text style={styles.metricValue}>
-                    {(!isReadOnly || membersRequested) ? (loadingMembers ? '...' : `${members.length}+`) : '—'}
+                    {loadingMembers ? '...' : `${members.length}+`}
                   </Text>
                 </View>
 
@@ -1211,7 +1256,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="bar-chart-outline" size={18} color="#000" />
                   <Text style={styles.metricLabel}>Active</Text>
                   <Text style={styles.metricValue}>
-                    {(!isReadOnly || membersRequested) ? (loadingMembers ? '...' : `${members.length}+`) : '—'}
+                    {loadingMembers ? '...' : `${members.length}+`}
                   </Text>
                 </View>
               </View>
@@ -1619,7 +1664,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>
-                  Services We Provide {((!isReadOnly || servicesRequested) && services.length > 0) ? `(${services.length})` : ''}
+                  Services We Provide {services.length > 0 ? `(${services.length})` : ''}
                 </Text>
                 {/* STRICT READ-ONLY: Manage Services button completely removed when readOnly is true */}
                 {!isReadOnly && canEdit() && onManageServices && (
@@ -1631,24 +1676,26 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     <Text style={styles.manageButtonText}>Manage</Text>
                   </TouchableOpacity>
                 )}
-                {isReadOnly && !servicesRequested && (
-                  <TouchableOpacity
-                    style={styles.manageButton}
-                    onPress={() => loadServices(company.id)}
-                  >
-                    <Ionicons name="download-outline" size={18} color="#000" />
-                    <Text style={styles.manageButtonText}>Load</Text>
-                  </TouchableOpacity>
-                )}
               </View>
 
               {loadingServices ? (
-                <ActivityIndicator size="small" color="#000" />
-              ) : (!isReadOnly || servicesRequested) && services.length > 0 ? (
                 <View style={styles.servicesGrid}>
-                  {services.map((companyService) => {
-                    const service = companyService.service;
-                    if (!service) return null;
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <SkeletonServiceCard key={index} isDark={false} />
+                  ))}
+                </View>
+              ) : services.length > 0 ? (
+                <View style={styles.servicesGrid}>
+                  {services
+                    .filter((companyService) => {
+                      const hasService = !!companyService.service;
+                      if (!hasService) {
+                        console.warn('⚠️ Filtering out service without nested service object:', companyService.service_id);
+                      }
+                      return hasService;
+                    })
+                    .map((companyService) => {
+                    const service = companyService.service!; // Safe to use ! here since we filtered
 
                     return (
                       <View key={companyService.service_id} style={styles.serviceCard}>
@@ -1672,9 +1719,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="briefcase-outline" size={48} color="#e4e4e7" />
-                  <Text style={styles.emptyStateText}>
-                    {isReadOnly && !servicesRequested ? 'Tap "Load" to view services' : 'No services added yet'}
-                  </Text>
+                  <Text style={styles.emptyStateText}>No services added yet</Text>
                   {/* STRICT READ-ONLY: Add Services button completely removed when readOnly is true */}
                   {!isReadOnly && canEdit() && onManageServices && (
                     <TouchableOpacity
@@ -1716,20 +1761,15 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   </TouchableOpacity>
                 )}
                 </View>
-                {isReadOnly && !membersRequested && (
-                  <TouchableOpacity
-                    style={styles.manageButton}
-                    onPress={() => loadMembers(company.id)}
-                  >
-                    <Ionicons name="download-outline" size={18} color="#000" />
-                    <Text style={styles.manageButtonText}>Load</Text>
-                  </TouchableOpacity>
-                )}
               </View>
 
               {loadingMembers ? (
-                <ActivityIndicator size="small" color="#000" />
-              ) : (!isReadOnly || membersRequested) && members.length > 0 ? (
+                <View style={styles.membersList}>
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <SkeletonMemberCard key={index} isDark={false} />
+                  ))}
+                </View>
+              ) : members.length > 0 ? (
                 <View style={styles.membersList}>
                   {members.map((member) => (
                       <View key={member.user_id} style={styles.memberCard}>
@@ -1812,9 +1852,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="people-outline" size={48} color="#e4e4e7" />
-                  <Text style={styles.emptyStateText}>
-                    {isReadOnly && !membersRequested ? 'Tap "Load" to view team members' : 'No members yet'}
-                  </Text>
+                  <Text style={styles.emptyStateText}>No members yet</Text>
                   {/* STRICT READ-ONLY: Management buttons completely removed when readOnly is true */}
                   {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
                     <View style={styles.emptyStateButtons}>

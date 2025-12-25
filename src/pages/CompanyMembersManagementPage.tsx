@@ -629,8 +629,7 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
             <Ionicons name="mail-outline" size={64} color="#d1d5db" />
             <Text style={styles.emptyStateText}>No pending invitations</Text>
             <Text style={styles.emptyStateSubtext}>
-              When you invite members, they are immediately added to the company. 
-              If you need pending invitations, the backend needs to be configured to create them as pending.
+              All invitations have been processed. New invitations will appear here once sent.
             </Text>
           </View>
         )}

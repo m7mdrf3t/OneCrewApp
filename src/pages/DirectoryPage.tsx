@@ -214,11 +214,17 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       return;
     }
     if (selectedSubcategory) {
+      // For Academy/onehub sections, go back directly instead of clearing selection
+      // (since we auto-select the subcategory when there's only one item)
+      if (isCompaniesSection) {
+        onBack();
+        return;
+      }
       setSelectedSubcategory(null);
       return;
     }
     onBack();
-  }, [showFilterModal, selectedSubcategory, onBack]);
+  }, [showFilterModal, selectedSubcategory, onBack, isCompaniesSection]);
 
   // Debounce search query (500ms)
   useEffect(() => {
@@ -625,6 +631,13 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     // For other sections, use original items
     return section.items;
   }, [section.items, section.key, filteredCompaniesByType]);
+
+  // Auto-select subcategory for Academy/onehub sections when there's only one item
+  useEffect(() => {
+    if (isCompaniesSection && sectionItems.length === 1 && !selectedSubcategory) {
+      setSelectedSubcategory(sectionItems[0].label);
+    }
+  }, [isCompaniesSection, sectionItems, selectedSubcategory]);
 
   // Helper function to check if a user matches the filter criteria
   // Note: Search is handled server-side, so we don't need to filter by searchQuery here

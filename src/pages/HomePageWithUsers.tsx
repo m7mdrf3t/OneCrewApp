@@ -585,8 +585,9 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     return counts;
   }, [usersByCategory?.crew]);
 
-  // Filter sections to only show: talent, individuals (Crew), onehub (Studios & Agencies), academy, custom, directory
-  const allowedSectionKeys = ['talent', 'individuals', 'onehub', 'academy', 'custom', 'directory'];
+  // Filter sections to only show: onehub (Studios & Agencies), academy, directory
+  // Note: 'talent', 'individuals' (Crew), and 'custom' are hidden but functionality remains intact
+  const allowedSectionKeys = ['onehub', 'academy', 'directory'];
   
   const filteredSections = useMemo(() => {
     // Add "All Members" directory section dynamically
