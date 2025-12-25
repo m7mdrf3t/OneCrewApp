@@ -113,7 +113,8 @@ export type TaskAssignmentStatus = 'pending' | 'accepted' | 'rejected';
 export interface TaskAssignment {
   id: string;
   task_id: string;
-  user_id: string;
+  user_id: string | null;
+  company_id: string | null;
   service_role: string;
   assigned_at: string;
   assigned_by: string;
@@ -126,6 +127,12 @@ export interface TaskAssignment {
     image_url?: string;
     primary_role?: string;
   };
+  company?: {
+    id: string;
+    name: string;
+    logo_url?: string;
+  };
+  assignment_type?: 'user' | 'company';
 }
 
 export interface TaskWithAssignments extends Task {
@@ -246,7 +253,8 @@ export interface UpdateTaskRequest {
 }
 
 export interface AssignTaskServiceRequest {
-  user_id: string;
+  user_id?: string;
+  company_id?: string;
   service_role: string;
 }
 

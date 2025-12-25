@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // @ts-ignore - expo-constants types may not be available in all environments
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
-import OneCrewApi, { User, AuthResponse, LoginRequest, SignupRequest, ApiError } from 'onecrew-api-client';
+import OneCrewApi, { User, AuthResponse, LoginRequest, SignupRequest, ApiError, AssignTaskServiceRequest as ApiAssignTaskServiceRequest } from 'onecrew-api-client';
 import { 
   GuestSessionData, 
   ConvertGuestToUserRequest, 
@@ -105,6 +105,7 @@ interface ApiContextType {
   getCategories: () => Promise<any>;
   getRolesWithDescriptions: (options?: { category?: 'crew' | 'talent' | 'company' | 'guest' | 'custom'; active?: boolean }) => Promise<any>;
   getCategoriesWithDescriptions: () => Promise<any>;
+  createCustomRole: (data: { label: string; description?: string }) => Promise<any>;
   // User filtering methods
   getUsersByRole: (role: string) => Promise<any>;
   getUsersByCategory: (category: string) => Promise<any>;
@@ -116,8 +117,14 @@ interface ApiContextType {
   getMyTeamMembers: () => Promise<any>;
   // Teams (shared teams, not the personal "my team" list)
   getTeams: (params?: { page?: number; limit?: number; search?: string }) => Promise<any>;
+  getTeamById: (teamId: string) => Promise<any>;
   createTeam: (teamData: any) => Promise<any>;
+  updateTeam: (teamId: string, updates: any) => Promise<any>;
+  deleteTeam: (teamId: string) => Promise<any>;
+  joinTeam: (teamData: { team_id: string; role?: string }) => Promise<any>;
+  leaveTeam: (teamId: string) => Promise<any>;
   addTeamMember: (teamId: string, memberData: { user_id: string; role?: string }) => Promise<any>;
+  getTeamMembers: (teamId: string) => Promise<any>;
   // New skill management methods
   getAvailableSkillsNew: () => Promise<any>;
   getUserSkills: () => Promise<any>;
@@ -160,18 +167,40 @@ interface ApiContextType {
     limit?: number;
   }) => Promise<any[]>;
   getDeletedProjects: () => Promise<any[]>;
+  getMyProjects: (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    include_deleted?: boolean;
+    minimal?: boolean;
+    role?: 'owner' | 'member' | 'viewer';
+    access_level?: 'owner' | 'member' | 'viewer';
+    is_owner?: boolean;
+    search?: string;
+    type?: string;
+    sort_by?: 'created_at' | 'updated_at' | 'title';
+    sort?: string;
+    order?: 'asc' | 'desc';
+    fields?: string[];
+  }) => Promise<any[]>;
+  getProjectStats: (projectId: string) => Promise<any>;
+  restoreProject: (projectId: string) => Promise<any>;
   getProjectTasks: (projectId: string) => Promise<TaskWithAssignments[]>;
   getProjectById: (projectId: string) => Promise<ProjectWithDetails>;
   getProjectMembers: (projectId: string) => Promise<ProjectMember[]>;
+  getProjectMembersWithRoles: (projectId: string) => Promise<ProjectMember[]>;
+  getProjectRoles: (projectId: string) => Promise<any>;
   checkPendingAssignments: (projectId: string, userId: string) => Promise<{ hasPending: boolean; count?: number }>;
   // Task management methods
   createTask: (projectId: string, taskData: CreateTaskRequest) => Promise<any>;
   updateTask: (taskId: string, updates: UpdateTaskRequest) => Promise<any>;
   deleteTask: (taskId: string) => Promise<void>;
   assignTaskService: (projectId: string, taskId: string, assignment: AssignTaskServiceRequest) => Promise<any>;
+  unassignTaskService: (projectId: string, taskId: string, assignmentId: string) => Promise<any>;
   deleteTaskAssignment: (projectId: string, taskId: string, assignmentId: string) => Promise<any>;
   updateTaskAssignmentStatus: (projectId: string, taskId: string, assignmentId: string, status: 'accepted' | 'rejected') => Promise<any>;
   updateTaskStatus: (taskId: string, status: UpdateTaskStatusRequest) => Promise<any>;
+  getTaskById: (taskId: string) => Promise<any>;
   getTaskAssignments: (projectId: string, taskId: string) => Promise<any>;
   // Debug methods
   debugAuthState: () => any;
@@ -213,6 +242,7 @@ interface ApiContextType {
   getCompanyType: (code: string) => Promise<any>;
   getCompanyTypeServices: (code: string) => Promise<any>;
   createCompany: (companyData: any) => Promise<any>;
+  quickCreateCompany: (companyData: any) => Promise<any>;
   getCompany: (companyId: string, params?: { include?: ('members' | 'services' | 'documents' | 'certifications' | 'courses')[]; membersLimit?: number; membersPage?: number; fields?: string[] }) => Promise<any>;
   updateCompany: (companyId: string, updates: any) => Promise<any>;
   uploadCompanyLogo: (companyId: string, file: { uri: string; type: string; name: string }) => Promise<any>;
@@ -296,6 +326,16 @@ interface ApiContextType {
   getNewsPostBySlug: (slug: string) => Promise<any>;
   getNewsCategories: () => Promise<any>;
   getNewsTags: () => Promise<any>;
+  // News Admin methods (admin only)
+  getAdminNewsPosts: (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest'; status?: 'draft' | 'published' }) => Promise<any>;
+  getAdminNewsPostById: (id: string) => Promise<any>;
+  createNewsPost: (data: any) => Promise<any>;
+  updateNewsPost: (id: string, data: any) => Promise<any>;
+  deleteNewsPost: (id: string) => Promise<any>;
+  publishNewsPost: (id: string) => Promise<any>;
+  unpublishNewsPost: (id: string) => Promise<any>;
+  uploadNewsPhoto: (file: any, filename?: string) => Promise<any>;
+  uploadNewsThumbnail: (file: any, filename?: string) => Promise<any>;
   // Chat/Messaging methods (v2.5.0)
   getConversations: (params?: {
     page?: number;
@@ -336,6 +376,9 @@ interface ApiContextType {
   editMessage: (messageId: string, content: string) => Promise<any>;
   deleteMessage: (messageId: string) => Promise<any>;
   readMessage: (conversationId: string, messageId?: string, messageIds?: string[]) => Promise<any>;
+  leaveConversation: (conversationId: string) => Promise<any>;
+  muteConversation: (conversationId: string, mutedUntil?: string) => Promise<any>;
+  sendTypingIndicator: (conversationId: string, isTyping: boolean) => Promise<any>;
   // Online status methods (Redis-powered)
   getOnlineStatus: (userId: string) => Promise<any>;
   getOnlineStatuses: (userIds: string[]) => Promise<any>;
@@ -366,8 +409,8 @@ interface ApiProviderProps {
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
    // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud
-   baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
-  //baseUrl = 'http://localhost:3000' // Local server
+   // baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
+    baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
     console.log('🔧 Initializing OneCrewApi with baseUrl:', baseUrl);
@@ -3586,6 +3629,26 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const createCustomRole = async (data: { label: string; description?: string }) => {
+    try {
+      console.log('🔧 Creating custom role:', data);
+      const response = await api.createCustomRole(data);
+      
+      if (response.success && response.data) {
+        // Invalidate roles cache
+        await rateLimiter.clearCacheByPattern('roles');
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      throw new Error(response.error || 'Failed to create custom role');
+    } catch (error: any) {
+      console.error('❌ Failed to create custom role:', error);
+      throw error;
+    }
+  };
+
   const getCategoriesWithDescriptions = async () => {
     try {
       console.log('🔍 Fetching categories with descriptions using API client...');
@@ -3826,6 +3889,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const getTeamById = async (teamId: string) => {
+    try {
+      const response = await api.getTeamById(teamId);
+      return response;
+    } catch (error) {
+      console.error('Failed to get team:', error);
+      throw error;
+    }
+  };
+
   const createTeam = async (teamData: any) => {
     try {
       const response = await api.createTeam(teamData);
@@ -3836,12 +3909,62 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const updateTeam = async (teamId: string, updates: any) => {
+    try {
+      const response = await api.updateTeam(teamId, updates);
+      return response;
+    } catch (error) {
+      console.error('Failed to update team:', error);
+      throw error;
+    }
+  };
+
+  const deleteTeam = async (teamId: string) => {
+    try {
+      const response = await api.deleteTeam(teamId);
+      return response;
+    } catch (error) {
+      console.error('Failed to delete team:', error);
+      throw error;
+    }
+  };
+
+  const joinTeam = async (teamData: { team_id: string; role?: string }) => {
+    try {
+      const response = await api.joinTeam(teamData);
+      return response;
+    } catch (error) {
+      console.error('Failed to join team:', error);
+      throw error;
+    }
+  };
+
+  const leaveTeam = async (teamId: string) => {
+    try {
+      const response = await api.leaveTeam(teamId);
+      return response;
+    } catch (error) {
+      console.error('Failed to leave team:', error);
+      throw error;
+    }
+  };
+
   const addTeamMember = async (teamId: string, memberData: { user_id: string; role?: string }) => {
     try {
       const response = await api.addTeamMember(teamId, memberData);
       return response;
     } catch (error) {
       console.error('Failed to add team member:', error);
+      throw error;
+    }
+  };
+
+  const getTeamMembers = async (teamId: string) => {
+    try {
+      const response = await api.getTeamMembers(teamId);
+      return response;
+    } catch (error) {
+      console.error('Failed to get team members:', error);
       throw error;
     }
   };
@@ -4812,6 +4935,64 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     );
   };
 
+  const getMyProjects = async (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    include_deleted?: boolean;
+    minimal?: boolean;
+    role?: 'owner' | 'member' | 'viewer';
+    access_level?: 'owner' | 'member' | 'viewer';
+    is_owner?: boolean;
+    search?: string;
+    type?: string;
+    sort_by?: 'created_at' | 'updated_at' | 'title';
+    sort?: string;
+    order?: 'asc' | 'desc';
+    fields?: string[];
+  }): Promise<any[]> => {
+    return performanceMonitor.trackApiCall(
+      'Get My Projects',
+      `${baseUrl}/api/projects/my`,
+      'GET',
+      async () => {
+        try {
+          const response = await api.getMyProjects(params);
+          
+          if (response.success && response.data) {
+            let projects: any[] = [];
+            
+            // Handle paginated response structure
+            if (Array.isArray(response.data)) {
+              projects = response.data;
+            } else if (response.data.data && Array.isArray(response.data.data)) {
+              projects = response.data.data;
+            } else if ((response.data as any).items && Array.isArray((response.data as any).items)) {
+              projects = (response.data as any).items;
+            } else {
+              console.warn('⚠️ Unexpected response structure from getMyProjects:', Object.keys(response.data));
+              return [];
+            }
+            
+            // Map project_members to members for consistency
+            projects = projects.map((project: any) => ({
+              ...project,
+              members: project.project_members || project.members || [],
+            }));
+            
+            return projects;
+          } else {
+            console.warn('⚠️ Backend returned unsuccessful response or no data');
+            return [];
+          }
+        } catch (error) {
+          console.error('❌ Failed to get my projects:', error);
+          return [];
+        }
+      }
+    );
+  };
+
   const getAllProjects = async (filters?: {
     minimal?: boolean;
     role?: 'owner' | 'member' | 'viewer';
@@ -5125,6 +5306,46 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     );
   };
 
+  const getProjectStats = async (projectId: string) => {
+    try {
+      console.log('📊 Getting project stats:', projectId);
+      const response = await api.getProjectStats(projectId);
+      
+      if (response.success && response.data) {
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      throw new Error(response.error || 'Failed to get project stats');
+    } catch (error: any) {
+      console.error('❌ Failed to get project stats:', error);
+      throw error;
+    }
+  };
+
+  const restoreProject = async (projectId: string) => {
+    try {
+      console.log('♻️ Restoring project:', projectId);
+      const response = await api.restoreProject(projectId);
+      
+      if (response.success && response.data) {
+        // Invalidate related caches
+        await rateLimiter.clearCacheByPattern(`project-${projectId}`);
+        await rateLimiter.clearCacheByPattern('projects');
+        await rateLimiter.clearCacheByPattern('deleted-projects');
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      throw new Error(response.error || 'Failed to restore project');
+    } catch (error: any) {
+      console.error('❌ Failed to restore project:', error);
+      throw error;
+    }
+  };
+
   const getProjectMembers = async (projectId: string): Promise<ProjectMember[]> => {
     try {
       const response = await api.getProjectMembers(projectId);
@@ -5136,6 +5357,37 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
     } catch (error) {
       console.error('Failed to get project members:', error);
+      throw error;
+    }
+  };
+
+  const getProjectMembersWithRoles = async (projectId: string): Promise<ProjectMember[]> => {
+    try {
+      const response = await api.getProjectMembersWithRoles(projectId);
+      if (response.success && response.data) {
+        // Handle both array and paginated response
+        return Array.isArray(response.data) ? response.data : (response.data as any).data || [];
+      } else {
+        throw new Error(response.error || 'Failed to get project members with roles');
+      }
+    } catch (error) {
+      console.error('Failed to get project members with roles:', error);
+      throw error;
+    }
+  };
+
+  const getProjectRoles = async (projectId: string) => {
+    try {
+      const response = await api.getProjectRoles(projectId);
+      if (response.success && response.data) {
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      throw new Error(response.error || 'Failed to get project roles');
+    } catch (error: any) {
+      console.error('❌ Failed to get project roles:', error);
       throw error;
     }
   };
@@ -5295,18 +5547,23 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const assignTaskService = async (projectId: string, taskId: string, assignment: AssignTaskServiceRequest) => {
+  const assignTaskService = async (projectId: string, taskId: string, assignment: AssignTaskServiceRequest | ApiAssignTaskServiceRequest) => {
     try {
       console.log('📋 Assigning task service:', {
         projectId,
         taskId,
         service_role: assignment.service_role,
-        user_id: assignment.user_id
+        user_id: assignment.user_id,
+        company_id: assignment.company_id
       });
       
       // Validate required fields
-      if (!assignment.user_id) {
-        throw new Error('user_id is required for task assignment');
+      // According to v2.27.0 library: either user_id OR company_id must be provided (not both)
+      if (!assignment.user_id && !assignment.company_id) {
+        throw new Error('Either user_id or company_id is required for task assignment');
+      }
+      if (assignment.user_id && assignment.company_id) {
+        throw new Error('Cannot assign both user_id and company_id. Provide either user_id OR company_id');
       }
       if (!assignment.service_role) {
         throw new Error('service_role is required for task assignment');
@@ -5545,6 +5802,45 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const unassignTaskService = async (projectId: string, taskId: string, assignmentId: string) => {
+    try {
+      console.log('📋 Unassigning task service:', projectId, taskId, assignmentId);
+      const response = await api.unassignTaskService(projectId, taskId, assignmentId);
+      
+      if (response.success) {
+        // Invalidate related caches
+        await rateLimiter.clearCacheByPattern(`project-${projectId}`);
+        await rateLimiter.clearCacheByPattern(`task-${taskId}`);
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      throw new Error(response.error || 'Failed to unassign task service');
+    } catch (error: any) {
+      console.error('❌ Failed to unassign task service:', error);
+      throw error;
+    }
+  };
+
+  const getTaskById = async (taskId: string) => {
+    try {
+      console.log('📋 Getting task by ID:', taskId);
+      const response = await api.getTaskById(taskId);
+      
+      if (response.success && response.data) {
+        return {
+          success: true,
+          data: response.data
+        };
+      }
+      throw new Error(response.error || 'Failed to get task');
+    } catch (error: any) {
+      console.error('❌ Failed to get task:', error);
+      throw error;
+    }
+  };
+
   const getTaskAssignments = async (projectId: string, taskId: string) => {
     try {
       console.log('📋 Getting task assignments:', projectId, taskId);
@@ -5765,6 +6061,96 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Handle other error types
       const errorMessage = error?.message || String(error) || 'Failed to create company';
+      
+      // Check for endpoint not found in error message (fallback)
+      if (errorMessage.includes('404') || 
+          (errorMessage.includes('Route') && errorMessage.includes('not found')) ||
+          errorMessage.includes('not found')) {
+        return {
+          success: false,
+          error: 'Company profile creation endpoint is not yet available on the backend. Please try again later or contact support.',
+          data: null
+        };
+      }
+      
+      // Generic error response
+      return {
+        success: false,
+        error: errorMessage,
+        data: null
+      };
+    }
+  };
+
+  const quickCreateCompany = async (companyData: any) => {
+    try {
+      console.log('🏢 Quick creating company (bypasses profile completeness):', companyData);
+      
+      // Ensure required fields are present
+      if (!companyData.name || !companyData.subcategory) {
+        return {
+          success: false,
+          error: 'Company name and subcategory are required',
+          data: null
+        };
+      }
+      
+      // Use quickCreateCompany to bypass profile completeness requirement
+      const response = await api.quickCreateCompany(companyData);
+      
+      // Handle successful response
+      if (response && response.success && response.data) {
+        console.log('✅ Company quick created successfully:', response.data);
+        
+        // Clear the user companies cache so the new company appears immediately
+        if (user?.id) {
+          const cacheKey = `user-companies-${user.id}`;
+          await rateLimiter.clearCache(cacheKey);
+          console.log('🗑️ Cleared cache for user companies to show newly created company');
+        }
+        
+        return response;
+      }
+      
+      // Handle response with success: false
+      if (response && response.success === false) {
+        console.error('Company quick creation failed:', response.error);
+        return {
+          success: false,
+          error: response.error || 'Failed to quick create company',
+          data: null
+        };
+      }
+      
+      // Unexpected response format
+      console.warn('⚠️ Unexpected response format:', response);
+      return {
+        success: false,
+        error: 'Unexpected response from server',
+        data: null
+      };
+    } catch (error: any) {
+      console.error('Failed to quick create company:', error);
+      
+      // Handle ApiError from the library
+      if (error instanceof ApiError) {
+        if (error.statusCode === 404) {
+          return {
+            success: false,
+            error: 'Company profile creation endpoint is not yet available on the backend. Please try again later or contact support.',
+            data: null
+          };
+        }
+        
+        return {
+          success: false,
+          error: error.message || `Server error (${error.statusCode || 'unknown'})`,
+          data: null
+        };
+      }
+      
+      // Handle other error types
+      const errorMessage = error?.message || String(error) || 'Failed to quick create company';
       
       // Check for endpoint not found in error message (fallback)
       if (errorMessage.includes('404') || 
@@ -7398,6 +7784,157 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }, { ttl: CacheTTL.VERY_LONG, persistent: true }); // News tags are static reference data - 1hr TTL with persistence
   };
 
+  // News Admin methods (admin only)
+  const getAdminNewsPosts = async (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest'; status?: 'draft' | 'published' }) => {
+    const cacheKey = `admin-news-${JSON.stringify(filters || {})}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('📰 [Admin] Fetching news posts...', filters);
+        const response = await api.getAdminNewsPosts(filters);
+        console.log('✅ [Admin] News posts fetched successfully');
+        return response;
+      } catch (error: any) {
+        console.error('❌ [Admin] Failed to fetch news posts:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT, persistent: false });
+  };
+
+  const getAdminNewsPostById = async (id: string) => {
+    const cacheKey = `admin-news-${id}`;
+    return rateLimiter.execute(cacheKey, async () => {
+      try {
+        console.log('📰 [Admin] Fetching news post by ID:', id);
+        const response = await api.getAdminNewsPostById(id);
+        console.log('✅ [Admin] News post fetched successfully');
+        return response;
+      } catch (error: any) {
+        console.error('❌ [Admin] Failed to fetch news post:', error);
+        throw error;
+      }
+    }, { ttl: CacheTTL.SHORT, persistent: false });
+  };
+
+  const createNewsPost = async (data: any) => {
+    try {
+      console.log('📰 [Admin] Creating news post...');
+      const response = await api.createNewsPost(data);
+      if (response.success) {
+        // Invalidate news caches
+        await rateLimiter.clearCacheByPattern('published-news');
+        await rateLimiter.clearCacheByPattern('admin-news');
+        console.log('✅ [Admin] News post created successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to create news post');
+    } catch (error: any) {
+      console.error('❌ [Admin] Failed to create news post:', error);
+      throw error;
+    }
+  };
+
+  const updateNewsPost = async (id: string, data: any) => {
+    try {
+      console.log('📰 [Admin] Updating news post:', id);
+      const response = await api.updateNewsPost(id, data);
+      if (response.success) {
+        // Invalidate news caches
+        await rateLimiter.clearCacheByPattern('published-news');
+        await rateLimiter.clearCacheByPattern(`admin-news-${id}`);
+        console.log('✅ [Admin] News post updated successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to update news post');
+    } catch (error: any) {
+      console.error('❌ [Admin] Failed to update news post:', error);
+      throw error;
+    }
+  };
+
+  const deleteNewsPost = async (id: string) => {
+    try {
+      console.log('📰 [Admin] Deleting news post:', id);
+      const response = await api.deleteNewsPost(id);
+      if (response.success) {
+        // Invalidate news caches
+        await rateLimiter.clearCacheByPattern('published-news');
+        await rateLimiter.clearCacheByPattern(`admin-news-${id}`);
+        console.log('✅ [Admin] News post deleted successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to delete news post');
+    } catch (error: any) {
+      console.error('❌ [Admin] Failed to delete news post:', error);
+      throw error;
+    }
+  };
+
+  const publishNewsPost = async (id: string) => {
+    try {
+      console.log('📰 [Admin] Publishing news post:', id);
+      const response = await api.publishNewsPost(id);
+      if (response.success) {
+        // Invalidate news caches
+        await rateLimiter.clearCacheByPattern('published-news');
+        await rateLimiter.clearCacheByPattern(`admin-news-${id}`);
+        console.log('✅ [Admin] News post published successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to publish news post');
+    } catch (error: any) {
+      console.error('❌ [Admin] Failed to publish news post:', error);
+      throw error;
+    }
+  };
+
+  const unpublishNewsPost = async (id: string) => {
+    try {
+      console.log('📰 [Admin] Unpublishing news post:', id);
+      const response = await api.unpublishNewsPost(id);
+      if (response.success) {
+        // Invalidate news caches
+        await rateLimiter.clearCacheByPattern('published-news');
+        await rateLimiter.clearCacheByPattern(`admin-news-${id}`);
+        console.log('✅ [Admin] News post unpublished successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to unpublish news post');
+    } catch (error: any) {
+      console.error('❌ [Admin] Failed to unpublish news post:', error);
+      throw error;
+    }
+  };
+
+  const uploadNewsPhoto = async (file: any, filename?: string) => {
+    try {
+      console.log('📰 [Admin] Uploading news photo...');
+      const response = await api.uploadNewsPhoto(file, filename);
+      if (response.success) {
+        console.log('✅ [Admin] News photo uploaded successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to upload news photo');
+    } catch (error: any) {
+      console.error('❌ [Admin] Failed to upload news photo:', error);
+      throw error;
+    }
+  };
+
+  const uploadNewsThumbnail = async (file: any, filename?: string) => {
+    try {
+      console.log('📰 [Admin] Uploading news thumbnail...');
+      const response = await api.uploadNewsThumbnail(file, filename);
+      if (response.success) {
+        console.log('✅ [Admin] News thumbnail uploaded successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to upload news thumbnail');
+    } catch (error: any) {
+      console.error('❌ [Admin] Failed to upload news thumbnail:', error);
+      throw error;
+    }
+  };
+
   // Chat/Messaging methods (v2.5.0)
   // Real-time data - caching disabled for immediate updates
   const getConversations = async (params?: {
@@ -7673,6 +8210,58 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       throw new Error(response.error || 'Failed to mark message as read');
     } catch (error: any) {
       console.error('❌ Failed to mark message as read:', error);
+      throw error;
+    }
+  };
+
+  const leaveConversation = async (conversationId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Leaving conversation:', conversationId);
+      const response = await api.chat.leaveConversation(conversationId);
+      if (response.success) {
+        console.log('✅ Left conversation successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to leave conversation');
+    } catch (error: any) {
+      console.error('❌ Failed to leave conversation:', error);
+      throw error;
+    }
+  };
+
+  const muteConversation = async (conversationId: string, mutedUntil?: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Muting conversation:', conversationId, mutedUntil ? `until ${mutedUntil}` : 'indefinitely');
+      const response = await api.chat.muteConversation(conversationId, mutedUntil);
+      if (response.success) {
+        console.log('✅ Conversation muted successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to mute conversation');
+    } catch (error: any) {
+      console.error('❌ Failed to mute conversation:', error);
+      throw error;
+    }
+  };
+
+  const sendTypingIndicator = async (conversationId: string, isTyping: boolean) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      const response = await api.chat.sendTypingIndicator(conversationId, isTyping);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to send typing indicator');
+    } catch (error: any) {
+      console.error('❌ Failed to send typing indicator:', error);
       throw error;
     }
   };
@@ -8460,6 +9049,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getCategories,
     getRolesWithDescriptions,
     getCategoriesWithDescriptions,
+    createCustomRole,
     // User filtering methods
     getUsersByRole,
     getUsersByCategory,
@@ -8471,8 +9061,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getMyTeamMembers,
     // Teams (shared teams list)
     getTeams,
+    getTeamById,
     createTeam,
+    updateTeam,
+    deleteTeam,
+    joinTeam,
+    leaveTeam,
     addTeamMember,
+    getTeamMembers,
     // New skill management methods
     getAvailableSkillsNew,
     getUserSkills,
@@ -8489,18 +9085,25 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getAllProjects,
     getMyOwnerProjects,
     getDeletedProjects,
+    getMyProjects,
+    getProjectStats,
+    restoreProject,
     // Task management methods
     getProjectTasks,
     getProjectById,
     getProjectMembers,
+    getProjectMembersWithRoles,
+    getProjectRoles,
     checkPendingAssignments,
     createTask,
     updateTask,
     deleteTask,
     assignTaskService,
+    unassignTaskService,
     deleteTaskAssignment,
     updateTaskAssignmentStatus,
     updateTaskStatus,
+    getTaskById,
     getTaskAssignments,
     // Debug methods
     debugAuthState,
@@ -8541,6 +9144,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getCompanyType,
     getCompanyTypeServices,
     createCompany,
+    quickCreateCompany,
     getCompany,
     updateCompany,
     uploadCompanyLogo,
@@ -8622,6 +9226,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     getNewsPostBySlug,
     getNewsCategories,
     getNewsTags,
+    // News Admin methods (admin only)
+    getAdminNewsPosts,
+    getAdminNewsPostById,
+    createNewsPost,
+    updateNewsPost,
+    deleteNewsPost,
+    publishNewsPost,
+    unpublishNewsPost,
+    uploadNewsPhoto,
+    uploadNewsThumbnail,
     // Chat/Messaging methods (v2.5.0)
     getConversations,
     getConversationById,
@@ -8631,6 +9245,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     editMessage,
     deleteMessage,
     readMessage,
+    leaveConversation,
+    muteConversation,
+    sendTypingIndicator,
     // Online status methods
     getOnlineStatus,
     getOnlineStatuses,

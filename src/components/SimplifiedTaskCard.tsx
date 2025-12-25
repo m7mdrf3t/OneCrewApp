@@ -15,6 +15,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { useApi } from '../contexts/ApiContext';
 import DatePicker from './DatePicker';
 import { spacing, semanticSpacing } from '../constants/spacing';
+import { categorizeRole, getRoleName } from '../utils/roleCategorizer';
 
 interface SimplifiedTaskCardProps {
   projectId: string;
@@ -222,6 +223,9 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   const [isLoadingServices, setIsLoadingServices] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'crew' | 'talent' | 'custom' | null>(null);
+  const [crewRoles, setCrewRoles] = useState<any[]>([]);
+  const [talentRoles, setTalentRoles] = useState<any[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
   const [savedTaskId, setSavedTaskId] = useState<string | null>(existingTask?.id || null);
@@ -283,8 +287,29 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       // Always reload services when modal opens to ensure fresh data
       console.log('🔄 Service modal opened, reloading services...');
       loadServices();
+      // Load crew and talent roles for category filtering
+      loadRolesForFiltering();
     }
   }, [showServiceModal]);
+
+  // Load crew and talent roles for custom role identification
+  const loadRolesForFiltering = async () => {
+    try {
+      const [crewResponse, talentResponse] = await Promise.all([
+        getRoles({ category: 'crew' }),
+        getRoles({ category: 'talent' }),
+      ]);
+      
+      if (crewResponse.success && crewResponse.data) {
+        setCrewRoles(Array.isArray(crewResponse.data) ? crewResponse.data : []);
+      }
+      if (talentResponse.success && talentResponse.data) {
+        setTalentRoles(Array.isArray(talentResponse.data) ? talentResponse.data : []);
+      }
+    } catch (error) {
+      console.error('Failed to load roles for filtering:', error);
+    }
+  };
 
   useEffect(() => {
     if (selectedService) {
@@ -1302,9 +1327,58 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
     return taskTypes.find(t => t.id === type)?.icon || 'create';
   };
 
-  const filteredServices = availableServices.filter(service =>
-    service.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Build known role sets for custom role identification
+  const knownRoleSet = React.useMemo(() => {
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const crewRoleNames = crewRoles.map((r: any) => normalize(getRoleName(r))).filter(Boolean);
+    const talentRoleNames = talentRoles.map((r: any) => normalize(getRoleName(r))).filter(Boolean);
+    return new Set([...crewRoleNames, ...talentRoleNames]);
+  }, [crewRoles, talentRoles]);
+
+  const knownCrewRoleSet = React.useMemo(() => {
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const crewRoleNames = crewRoles.map((r: any) => normalize(getRoleName(r))).filter(Boolean);
+    return new Set(crewRoleNames);
+  }, [crewRoles]);
+
+  const knownTalentRoleSet = React.useMemo(() => {
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const talentRoleNames = talentRoles.map((r: any) => normalize(getRoleName(r))).filter(Boolean);
+    return new Set(talentRoleNames);
+  }, [talentRoles]);
+
+  const filteredServices = availableServices.filter(service => {
+    // Filter by search term
+    const matchesSearch = service.name?.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+
+    // Filter by category if a category is selected
+    if (!selectedCategoryFilter) return true;
+
+    const serviceName = getRoleName(service);
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const normalizedServiceName = normalize(serviceName);
+
+    // Determine if role is custom (not in known crew or talent sets)
+    const isInCrewSet = knownCrewRoleSet.has(normalizedServiceName);
+    const isInTalentSet = knownTalentRoleSet.has(normalizedServiceName);
+    const isCustomRole = !isInCrewSet && !isInTalentSet;
+
+    if (selectedCategoryFilter === 'crew') {
+      // Only show roles that are explicitly in the crew set
+      // Exclude custom roles and roles only in talent set
+      return isInCrewSet;
+    } else if (selectedCategoryFilter === 'talent') {
+      // Only show roles that are explicitly in the talent set
+      // Exclude custom roles and roles only in crew set
+      return isInTalentSet;
+    } else if (selectedCategoryFilter === 'custom') {
+      // Custom roles are those not in known crew/talent roles
+      return isCustomRole;
+    }
+
+    return true;
+  });
 
   // Filter users and ensure pre-selected user is at the top
   const preSelectedUserForList = preSelectedUser || preSelectedUserRef.current || selectedUser;
@@ -2241,6 +2315,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         onRequestClose={() => {
           setShowServiceModal(false);
           setSearchTerm(''); // Clear search when closing
+          setSelectedCategoryFilter(null); // Clear category filter when closing
         }}
       >
         <View style={styles.modalOverlay}>
@@ -2250,6 +2325,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
               <TouchableOpacity onPress={() => {
                 setShowServiceModal(false);
                 setSearchTerm(''); // Clear search when closing
+                setSelectedCategoryFilter(null); // Clear category filter when closing
               }}>
                 <Ionicons name="close" size={24} color="#000" />
               </TouchableOpacity>
@@ -2263,6 +2339,66 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                 placeholder="Search services..."
                 placeholderTextColor="#9ca3af"
               />
+            </View>
+            
+            {/* Category Filter Buttons */}
+            <View style={styles.categoryFilterContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.categoryFilterButton,
+                  selectedCategoryFilter === null && styles.categoryFilterButtonActive
+                ]}
+                onPress={() => setSelectedCategoryFilter(null)}
+              >
+                <Text style={[
+                  styles.categoryFilterText,
+                  selectedCategoryFilter === null && styles.categoryFilterTextActive
+                ]}>
+                  All
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.categoryFilterButton,
+                  selectedCategoryFilter === 'crew' && styles.categoryFilterButtonActive
+                ]}
+                onPress={() => setSelectedCategoryFilter('crew')}
+              >
+                <Text style={[
+                  styles.categoryFilterText,
+                  selectedCategoryFilter === 'crew' && styles.categoryFilterTextActive
+                ]}>
+                  Crew
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.categoryFilterButton,
+                  selectedCategoryFilter === 'talent' && styles.categoryFilterButtonActive
+                ]}
+                onPress={() => setSelectedCategoryFilter('talent')}
+              >
+                <Text style={[
+                  styles.categoryFilterText,
+                  selectedCategoryFilter === 'talent' && styles.categoryFilterTextActive
+                ]}>
+                  Talent
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.categoryFilterButton,
+                  selectedCategoryFilter === 'custom' && styles.categoryFilterButtonActive
+                ]}
+                onPress={() => setSelectedCategoryFilter('custom')}
+              >
+                <Text style={[
+                  styles.categoryFilterText,
+                  selectedCategoryFilter === 'custom' && styles.categoryFilterTextActive
+                ]}>
+                  Custom
+                </Text>
+              </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalContent}>
               {isLoadingServices ? (
@@ -2891,6 +3027,36 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     maxHeight: 400,
+  },
+  categoryFilterContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: semanticSpacing.sectionGapLarge,
+    marginBottom: semanticSpacing.containerPadding,
+    gap: 8,
+  },
+  categoryFilterButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  categoryFilterButtonActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  categoryFilterText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6b7280',
+  },
+  categoryFilterTextActive: {
+    color: '#fff',
+    fontWeight: '600',
   },
   modalItem: {
     flexDirection: 'row',
