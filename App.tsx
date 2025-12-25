@@ -132,7 +132,20 @@ const AppContent: React.FC = () => {
   // Track current route to update tab and show/hide TabBar
   const [currentRoute, setCurrentRoute] = useState<string>('spot');
   const mainTabRoutes = ['home', 'projects', 'spot', 'wall'];
+  // Always show TabBar on main tab routes (spot is included in mainTabRoutes)
+  // Ensure tab bar is always visible on spot page
   const shouldShowTabBar = mainTabRoutes.includes(currentRoute);
+
+  // Additional safeguard: Ensure tab bar is visible when on spot page
+  useEffect(() => {
+    // If we're on spot page (or route is not set), ensure tab bar visibility
+    if (currentRoute === 'spot' || (!currentRoute && tab === 'spot')) {
+      // Force update to ensure tab bar shows
+      if (!mainTabRoutes.includes(currentRoute || 'spot')) {
+        setCurrentRoute('spot');
+      }
+    }
+  }, [currentRoute, tab]);
 
   // Navigation function - uses React Navigation
   const navigateTo = useCallback((pageName: string, data: any = null) => {
@@ -1286,11 +1299,25 @@ const AppContent: React.FC = () => {
                 if (state) {
                   const route = state.routes[state.index];
                   if (route?.name) {
-                    setCurrentRoute(route.name);
+                    const routeName = route.name;
+                    setCurrentRoute(routeName);
                     // Update tab if it's a main tab route
-                    if (mainTabRoutes.includes(route.name)) {
-                      setTab(route.name);
+                    if (mainTabRoutes.includes(routeName)) {
+                      setTab(routeName);
                     }
+                  } else {
+                    // Fallback: if no route name detected, ensure we're tracking spot as default
+                    // This ensures tab bar is visible even if route tracking fails
+                    if (!currentRoute || currentRoute === '') {
+                      setCurrentRoute('spot');
+                      setTab('spot');
+                    }
+                  }
+                } else {
+                  // If state is null/undefined, ensure spot is set as fallback
+                  if (!currentRoute || currentRoute === '') {
+                    setCurrentRoute('spot');
+                    setTab('spot');
                   }
                 }
               }}

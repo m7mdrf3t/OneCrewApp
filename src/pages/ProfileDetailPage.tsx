@@ -67,6 +67,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     getBaseUrl,
     getMyOwnerProjects,
     getUserProfilePictures,
+    getUserPortfolio,
     socialLinksRefreshTrigger,
     getMyTeamMembers,
     addToMyTeam,
@@ -392,9 +393,12 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       setLoadingSocialLinks(true);
       setLoadingProfilePictures(true);
 
+      // Only load portfolio if viewing current user's profile (getUserPortfolio doesn't accept userId)
+      const isViewingOwnProfile = computedIsCurrentUser && userIdToFetch === currentUser?.id;
+
       try {
         // Run all independent API calls in parallel for better performance
-        const [certsResult, socialLinksResult, picturesResult] = await Promise.allSettled([
+        const apiCalls = [
           getUserCertifications(userIdToFetch).catch((err) => {
             console.error('Failed to load certifications:', err);
             return [];
@@ -407,7 +411,20 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             console.error('Failed to load profile pictures:', error);
             return { success: false, data: [] };
           }),
-        ]);
+        ];
+
+        // Only add portfolio call if viewing own profile
+        if (isViewingOwnProfile) {
+          apiCalls.push(
+            getUserPortfolio().catch((error) => {
+              console.error('❌ [ProfileDetailPage] Failed to load portfolio:', error);
+              return { success: false, data: [] };
+            })
+          );
+        }
+
+        const results = await Promise.allSettled(apiCalls);
+        const [certsResult, socialLinksResult, picturesResult, portfolioResult] = results;
 
         // Handle certifications
         if (certsResult.status === 'fulfilled') {
@@ -449,6 +466,36 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             console.log('🖼️ Profile pictures loaded:', sortedPictures.length, 'pictures');
           }
         }
+
+        // Handle portfolio items (only if viewing own profile)
+        if (isViewingOwnProfile && portfolioResult) {
+          if (portfolioResult.status === 'fulfilled') {
+            const response = portfolioResult.value;
+            if (response && (response as any).success && (response as any).data) {
+              // Handle both array and paginated response formats
+              const portfolioItems = Array.isArray((response as any).data) 
+                ? (response as any).data 
+                : ((response as any).data.data || (response as any).data.items || []);
+              
+              // Sort by sort_order
+              const sortedPortfolio = portfolioItems.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+              
+              console.log('🖼️ [ProfileDetailPage] Portfolio loaded:', sortedPortfolio.length, 'items');
+              
+              // Update userProfile with portfolio items
+              setUserProfile((prev: any) => ({
+                ...prev,
+                portfolio: sortedPortfolio,
+              }));
+            } else {
+              // If portfolio fetch fails, keep existing portfolio from userProfile if available
+              console.warn('🖼️ [ProfileDetailPage] Portfolio response missing data, keeping existing portfolio');
+            }
+          } else {
+            // If portfolio fetch fails, keep existing portfolio from userProfile if available
+            console.warn('🖼️ [ProfileDetailPage] Portfolio fetch failed, keeping existing portfolio');
+          }
+        }
       } catch (error) {
         console.error('Error loading profile data:', error);
       } finally {
@@ -459,7 +506,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
 
     loadAllProfileData();
-  }, [profile?.id, userProfile?.id, computedIsCurrentUser, currentUser?.id, getUserCertifications, getUserSocialLinks, getUserProfilePictures, isGuest, socialLinksRefreshTrigger]);
+  }, [profile?.id, userProfile?.id, computedIsCurrentUser, currentUser?.id, getUserCertifications, getUserSocialLinks, getUserProfilePictures, getUserPortfolio, isGuest, socialLinksRefreshTrigger]);
 
   const isInTeam = Array.isArray(myTeam) && myTeam.length > 0 && myTeam.some(member => member?.id === userProfile?.id);
 

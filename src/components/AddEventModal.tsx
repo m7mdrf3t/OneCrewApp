@@ -57,6 +57,15 @@ const AddEventModal: React.FC<AddEventModalProps> = ({
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
   const [startTimeDate, setStartTimeDate] = useState(new Date());
   const [endTimeDate, setEndTimeDate] = useState(new Date());
+
+  // Debug: Log time picker state changes
+  useEffect(() => {
+    console.log('showStartTimePicker changed to:', showStartTimePicker);
+  }, [showStartTimePicker]);
+
+  useEffect(() => {
+    console.log('showEndTimePicker changed to:', showEndTimePicker);
+  }, [showEndTimePicker]);
   const [location, setLocation] = useState('');
   const [showLocationOptions, setShowLocationOptions] = useState(false);
   const [isStudioSelectionOpen, setIsStudioSelectionOpen] = useState(false);
@@ -100,11 +109,11 @@ const AddEventModal: React.FC<AddEventModalProps> = ({
     if (!isOpen) {
       setIsTeamPopupOpen(false);
       setSearchQuery('');
+      setShowStartTimePicker(false);
+      setShowEndTimePicker(false);
+      setShowLocationOptions(false);
+      setIsStudioSelectionOpen(false);
     }
-    setShowStartTimePicker(false);
-    setShowEndTimePicker(false);
-    setShowLocationOptions(false);
-    setIsStudioSelectionOpen(false);
   }, [isOpen, eventToEdit]);
 
   const handleSave = () => {
@@ -136,22 +145,26 @@ const AddEventModal: React.FC<AddEventModalProps> = ({
   };
 
   const handleStartTimeChange = (event: any, selectedDate?: Date) => {
-    setShowStartTimePicker(Platform.OS === 'ios');
-    if (selectedDate) {
-      setStartTimeDate(selectedDate);
-      const hours = selectedDate.getHours().toString().padStart(2, '0');
-      const minutes = selectedDate.getMinutes().toString().padStart(2, '0');
-      setInTime(`${hours}:${minutes}`);
+    if (Platform.OS === 'android') {
+      setShowStartTimePicker(false);
+      if (selectedDate) {
+        setStartTimeDate(selectedDate);
+        const hours = selectedDate.getHours().toString().padStart(2, '0');
+        const minutes = selectedDate.getMinutes().toString().padStart(2, '0');
+        setInTime(`${hours}:${minutes}`);
+      }
     }
   };
 
   const handleEndTimeChange = (event: any, selectedDate?: Date) => {
-    setShowEndTimePicker(Platform.OS === 'ios');
-    if (selectedDate) {
-      setEndTimeDate(selectedDate);
-      const hours = selectedDate.getHours().toString().padStart(2, '0');
-      const minutes = selectedDate.getMinutes().toString().padStart(2, '0');
-      setOutTime(`${hours}:${minutes}`);
+    if (Platform.OS === 'android') {
+      setShowEndTimePicker(false);
+      if (selectedDate) {
+        setEndTimeDate(selectedDate);
+        const hours = selectedDate.getHours().toString().padStart(2, '0');
+        const minutes = selectedDate.getMinutes().toString().padStart(2, '0');
+        setOutTime(`${hours}:${minutes}`);
+      }
     }
   };
 
@@ -190,11 +203,12 @@ const AddEventModal: React.FC<AddEventModalProps> = ({
         animationType="fade"
         onRequestClose={onClose}
       >
-        <TouchableOpacity
-          style={styles.overlay}
-          activeOpacity={1}
-          onPress={onClose}
-        >
+        <View style={styles.overlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={onClose}
+          />
           <View style={styles.modalContent}>
             {/* Team Member Selection Overlay - positioned absolutely within modal */}
             {isTeamPopupOpen && (
@@ -394,16 +408,24 @@ const AddEventModal: React.FC<AddEventModalProps> = ({
               {/* Time Pickers */}
               <View style={styles.timeContainer}>
                 <TouchableOpacity
-                  onPress={() => setShowStartTimePicker(true)}
+                  onPress={() => {
+                    console.log('Start time button pressed, setting showStartTimePicker to true');
+                    setShowStartTimePicker(true);
+                  }}
                   style={styles.timeButton}
+                  activeOpacity={0.7}
                 >
                   <Text style={styles.timeButtonText}>
                     {inTime ? formatDisplayTime(inTime) : 'Start'}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => setShowEndTimePicker(true)}
+                  onPress={() => {
+                    console.log('End time button pressed, setting showEndTimePicker to true');
+                    setShowEndTimePicker(true);
+                  }}
                   style={styles.timeButton}
+                  activeOpacity={0.7}
                 >
                   <Text style={styles.timeButtonText}>
                     {outTime ? formatDisplayTime(outTime) : 'End'}
@@ -426,28 +448,139 @@ const AddEventModal: React.FC<AddEventModalProps> = ({
               )}
             </ScrollView>
           </View>
-        </TouchableOpacity>
+
+          {/* Time Pickers - Positioned absolutely inside the main modal overlay */}
+          {Platform.OS === 'ios' && showStartTimePicker && (
+            <View style={styles.timePickerAbsoluteOverlay}>
+              <TouchableOpacity
+                style={styles.timePickerBackdrop}
+                activeOpacity={1}
+                onPress={() => {
+                  console.log('Start time picker backdrop pressed');
+                  setShowStartTimePicker(false);
+                }}
+              />
+              <View 
+                style={styles.timePickerContainer} 
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+              >
+                <View style={styles.timePickerHeader}>
+                  <TouchableOpacity
+                    onPress={() => setShowStartTimePicker(false)}
+                    style={styles.timePickerButton}
+                  >
+                    <Text style={styles.timePickerButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.timePickerTitle}>Select Time</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const hours = startTimeDate.getHours().toString().padStart(2, '0');
+                      const minutes = startTimeDate.getMinutes().toString().padStart(2, '0');
+                      setInTime(`${hours}:${minutes}`);
+                      setShowStartTimePicker(false);
+                    }}
+                    style={styles.timePickerButton}
+                  >
+                    <Text style={[styles.timePickerButtonText, styles.timePickerButtonTextDone]}>
+                      Done
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={startTimeDate}
+                  mode="time"
+                  is24Hour={false}
+                  display="spinner"
+                  onChange={(event, selectedDate) => {
+                    if (selectedDate) {
+                      setStartTimeDate(selectedDate);
+                    }
+                  }}
+                  style={styles.timePicker}
+                />
+              </View>
+            </View>
+          )}
+
+          {Platform.OS === 'ios' && showEndTimePicker && (
+            <View style={styles.timePickerAbsoluteOverlay}>
+              <TouchableOpacity
+                style={styles.timePickerBackdrop}
+                activeOpacity={1}
+                onPress={() => {
+                  console.log('End time picker backdrop pressed');
+                  setShowEndTimePicker(false);
+                }}
+              />
+              <View 
+                style={styles.timePickerContainer} 
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+              >
+                <View style={styles.timePickerHeader}>
+                  <TouchableOpacity
+                    onPress={() => setShowEndTimePicker(false)}
+                    style={styles.timePickerButton}
+                  >
+                    <Text style={styles.timePickerButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.timePickerTitle}>Select Time</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const hours = endTimeDate.getHours().toString().padStart(2, '0');
+                      const minutes = endTimeDate.getMinutes().toString().padStart(2, '0');
+                      setOutTime(`${hours}:${minutes}`);
+                      setShowEndTimePicker(false);
+                    }}
+                    style={styles.timePickerButton}
+                  >
+                    <Text style={[styles.timePickerButtonText, styles.timePickerButtonTextDone]}>
+                      Done
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={endTimeDate}
+                  mode="time"
+                  is24Hour={false}
+                  display="spinner"
+                  onChange={(event, selectedDate) => {
+                    if (selectedDate) {
+                      setEndTimeDate(selectedDate);
+                    }
+                  }}
+                  style={styles.timePicker}
+                />
+              </View>
+            </View>
+          )}
+        </View>
       </Modal>
 
-      {/* Time Pickers */}
-      {showStartTimePicker && (
-        <DateTimePicker
-          value={startTimeDate}
-          mode="time"
-          is24Hour={false}
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={handleStartTimeChange}
-        />
-      )}
+      {/* Android Time Pickers */}
+      {Platform.OS === 'android' && (
+        <>
+          {showStartTimePicker && (
+            <DateTimePicker
+              value={startTimeDate}
+              mode="time"
+              is24Hour={false}
+              display="default"
+              onChange={handleStartTimeChange}
+            />
+          )}
 
-      {showEndTimePicker && (
-        <DateTimePicker
-          value={endTimeDate}
-          mode="time"
-          is24Hour={false}
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={handleEndTimeChange}
-        />
+          {showEndTimePicker && (
+            <DateTimePicker
+              value={endTimeDate}
+              mode="time"
+              is24Hour={false}
+              display="default"
+              onChange={handleEndTimeChange}
+            />
+          )}
+        </>
       )}
 
       {/* Studio Selection Modal */}
@@ -816,6 +949,70 @@ const styles = StyleSheet.create({
     color: '#a1a1aa',
     textAlign: 'center',
     paddingHorizontal: 16,
+  },
+  timePickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  timePickerAbsoluteOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2000,
+    justifyContent: 'flex-end',
+    pointerEvents: 'box-none',
+  },
+  timePickerBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  timePickerContainer: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    zIndex: 10001,
+  },
+  timePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  timePickerButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  timePickerButtonText: {
+    fontSize: 16,
+    color: '#6b7280',
+  },
+  timePickerButtonTextDone: {
+    color: '#3b82f6',
+    fontWeight: '600',
+  },
+  timePickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  timePicker: {
+    height: 200,
   },
 });
 

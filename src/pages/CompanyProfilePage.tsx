@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { RootStackScreenProps } from '../navigation/types';
@@ -194,6 +194,18 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       setCompany(companyCoreQuery.data);
     }
   }, [companyCoreQuery.data]);
+
+  // Refetch company data when screen comes into focus to ensure fresh data after approval
+  useFocusEffect(
+    React.useCallback(() => {
+      // Invalidate and refetch company data when screen is focused
+      // This ensures that after approval, the page shows the updated status and management tools
+      if (companyId) {
+        queryClient.invalidateQueries({ queryKey: ['company', companyId, 'core'] });
+        queryClient.refetchQueries({ queryKey: ['company', companyId, 'core'] });
+      }
+    }, [companyId, queryClient])
+  );
 
   const isAcademy = (companyCoreQuery.data?.subcategory || company?.subcategory) === 'academy';
 

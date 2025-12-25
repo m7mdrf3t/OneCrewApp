@@ -171,3 +171,4 @@ Make sure `app.json` has the correct Supabase URL:
   - Invalid Supabase URL
   - Network connectivity issue
 
+

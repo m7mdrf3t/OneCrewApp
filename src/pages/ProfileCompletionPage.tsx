@@ -12,6 +12,7 @@ import {
   Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import MediaPickerService, { MediaPickerResult } from '../services/MediaPickerService';
 import DatePicker from '../components/DatePicker';
@@ -214,13 +215,21 @@ interface ProfileCompletionPageProps {
 
 const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   navigation,
-  user,
+  user: userProp,
   onProfileUpdated,
   visible = true,
   onClose,
   initialSection,
 }) => {
-  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, getRoles, uploadFile, getAccessToken, getBaseUrl, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, getUserProfilePictures, uploadProfilePicture, setMainProfilePicture, deleteProfilePicture, user: currentUser, isAuthenticated, isGuest } = useApi();
+  // Get route params if available (when used as a screen)
+  const route = useRoute();
+  const routeParams = (route.params as any) || {};
+  
+  const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, getRoles, uploadFile, getAccessToken, getBaseUrl, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, getUserProfilePictures, uploadProfilePicture, setMainProfilePicture, deleteProfilePicture, getUserPortfolio, user: currentUser, isAuthenticated, isGuest } = useApi();
+  
+  // Merge user from multiple sources: currentUser (most up-to-date) > route params > prop
+  // This ensures we always have the latest user data
+  const user = currentUser || routeParams.user || userProp;
   
   // Check if user is a talent - only show talent-specific fields if category is 'talent'
   const isTalent = user?.category === 'talent' || user?.category === 'Talent';
@@ -351,10 +360,107 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       }
     };
 
-    if (visible && user?.id) {
+    // Load social links when component mounts or when visible (for modal) or when user changes
+    // Note: visible can be undefined when used as navigation screen, so check for user?.id instead
+    if (user?.id && (visible !== false)) {
       loadSocialLinks();
     }
   }, [visible, user?.id, getUserSocialLinks, isGuest, isAuthenticated]);
+
+  // Load portfolio items from API
+  useEffect(() => {
+    const loadPortfolio = async () => {
+      if (!user?.id || isGuest || !isAuthenticated) return;
+      try {
+        console.log('🖼️ [ProfileCompletionPage] Loading portfolio for user:', user?.id);
+        const response = await getUserPortfolio();
+        console.log('🖼️ [ProfileCompletionPage] Portfolio response:', JSON.stringify(response, null, 2));
+        
+        if (response.success && response.data) {
+          // Handle both array and paginated response formats
+          const portfolioItems = Array.isArray(response.data) 
+            ? response.data 
+            : (response.data.data || response.data.items || []);
+          
+          console.log('🖼️ [ProfileCompletionPage] Portfolio items extracted:', portfolioItems.length, 'items');
+          
+          // Map backend portfolio items to form format
+          const mappedPortfolio = portfolioItems.map((item: any) => {
+            const mapped = {
+              kind: item.kind || 'image',
+              url: item.url,
+              caption: item.caption || '',
+              sort_order: item.sort_order || 0,
+              id: item.id, // Store backend ID for updates/deletes
+            };
+            console.log('🖼️ [ProfileCompletionPage] Mapped portfolio item:', mapped);
+            return mapped;
+          });
+          
+          // Sort portfolio items by sort_order
+          const sortedPortfolio = mappedPortfolio.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+          
+          console.log('🖼️ [ProfileCompletionPage] Setting portfolio in form data:', sortedPortfolio.length, 'items');
+          setFormData(prev => ({
+            ...prev,
+            portfolio: sortedPortfolio,
+          }));
+          
+          // Auto-expand portfolio section if items are loaded
+          if (sortedPortfolio.length > 0) {
+            setExpandedSections(prev => new Set(prev).add('portfolio'));
+          }
+        } else {
+          console.warn('🖼️ [ProfileCompletionPage] Portfolio response missing data:', response);
+        }
+      } catch (error) {
+        console.error('❌ [ProfileCompletionPage] Failed to load portfolio:', error);
+        // Don't throw - just log, user can still add portfolio items
+      }
+    };
+
+    // Load portfolio when component mounts or when visible (for modal) or when user changes
+    // Note: visible can be undefined when used as navigation screen, so check for user?.id instead
+    if (user?.id && (visible !== false)) {
+      loadPortfolio();
+    }
+  }, [visible, user?.id, getUserPortfolio, isGuest, isAuthenticated]);
+
+  // Helper function to refresh profile pictures (with cache busting)
+  const refreshProfilePictures = async (userIdToFetch?: string) => {
+    const userId = userIdToFetch || currentUser?.id || user?.id;
+    if (!userId || isGuest || !isAuthenticated) return;
+    
+    try {
+      // Wait a bit to ensure cache is cleared
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      const response = await getUserProfilePictures(userId);
+      if (response.success && response.data) {
+        const pictures = Array.isArray(response.data) ? response.data : [];
+        setProfilePictures(pictures);
+        
+        // Set main image URL from the main picture
+        const mainPicture = pictures.find((p: any) => p.is_main);
+        if (mainPicture) {
+          setFormData(prev => ({
+            ...prev,
+            imageUrl: mainPicture.image_url,
+          }));
+        } else {
+          // If no main picture, clear imageUrl
+          setFormData(prev => ({
+            ...prev,
+            imageUrl: '',
+          }));
+        }
+        return pictures;
+      }
+    } catch (error) {
+      console.error('Failed to refresh profile pictures:', error);
+      throw error;
+    }
+  };
 
   // Load profile pictures from API
   useEffect(() => {
@@ -364,20 +470,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       
       try {
         setLoadingProfilePictures(true);
-        const response = await getUserProfilePictures(userIdToFetch);
-        if (response.success && response.data) {
-          const pictures = Array.isArray(response.data) ? response.data : [];
-          setProfilePictures(pictures);
-          
-          // Set main image URL from the main picture
-          const mainPicture = pictures.find((p: any) => p.is_main);
-          if (mainPicture) {
-            setFormData(prev => ({
-              ...prev,
-              imageUrl: mainPicture.image_url,
-            }));
-          }
-        }
+        await refreshProfilePictures(userIdToFetch);
       } catch (error) {
         console.error('Failed to load profile pictures:', error);
         // Don't throw - just log, user can still add pictures
@@ -386,70 +479,105 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       }
     };
 
-    if (visible && (currentUser?.id || user?.id)) {
+    // Load profile pictures when component mounts or when visible (for modal) or when user changes
+    // Note: visible can be undefined when used as a navigation screen, so check for user?.id instead
+    if ((currentUser?.id || user?.id) && (visible !== false)) {
       loadProfilePictures();
     }
   }, [visible, currentUser?.id, user?.id, getUserProfilePictures, isGuest, isAuthenticated]);
 
+  // Track last user data hash to detect updates
+  const lastUserDataHashRef = useRef<string>('');
+  const lastVisibleRef = useRef<boolean>(false);
+  
   // Initialize form data when user changes
   useEffect(() => {
-    if (user) {
-      
-      // The user object is already the direct user data (not nested under 'data')
-      const aboutData = user.about || {};
-      
-      // Check if user has separate user details (age, gender, nationality)
-      const userDetails = user.userDetails || {};
-      
-      // Handle skills - they might be stored as IDs or names
-      let userSkills = user.skills || user.user_skills || [];
-      
-      // If skills are stored as objects with skill_name, extract the names
-      // Otherwise, use them as-is (could be names or IDs)
-      const normalizedSkills = userSkills.map((skill: any) => {
-        if (typeof skill === 'string') {
-          return skill; // Already a string (name or ID)
-        } else if (skill?.skill_name) {
-          return skill.skill_name; // Extract name from object
-        } else if (skill?.name) {
-          return skill.name; // Extract name from object
-        }
-        return String(skill); // Fallback to string conversion
+    const userToUse = currentUser || routeParams.user || userProp;
+    if (userToUse) {
+      // Create a hash of key user fields to detect changes
+      const userDataHash = JSON.stringify({
+        id: userToUse.id,
+        bio: userToUse.bio,
+        specialty: userToUse.specialty,
+        skills: userToUse.skills || userToUse.user_skills,
+        about: userToUse.about,
+        imageUrl: userToUse.imageUrl || userToUse.image_url,
       });
       
+      // Force update when modal becomes visible (to catch any data updates)
+      const justBecameVisible = visible && !lastVisibleRef.current;
+      lastVisibleRef.current = visible;
       
-      const newFormData = {
-        bio: user.bio || '',
-        skills: normalizedSkills,
-        portfolio: user.portfolio || user.user_portfolios || [],
-        socialLinks: [], // Will be loaded separately from API
-        about: {
-          gender: aboutData.gender || userDetails.gender || '',
-          birthday: aboutData.birthday || userDetails.birthday || null,
-          nationality: aboutData.nationality || userDetails.nationality || '',
-          location: aboutData.location || aboutData.location_text || user.location_text || userDetails.location || userDetails.location_text || '',
-          height: aboutData.height_cm?.toString() || userDetails.height_cm?.toString() || '',
-          weight: aboutData.weight_kg?.toString() || userDetails.weight_kg?.toString() || '',
-          skinTone: aboutData.skin_tone_id || aboutData.skin_tone || userDetails.skin_tone_id || userDetails.skin_tone || '',
-          hairColor: aboutData.hair_color_id || aboutData.hair_color || userDetails.hair_color_id || userDetails.hair_color || '',
-          eyeColor: aboutData.eye_color || userDetails.eye_color || '',
-          chestCm: aboutData.chest_cm?.toString() || '',
-          waistCm: aboutData.waist_cm?.toString() || '',
-          hipsCm: aboutData.hips_cm?.toString() || '',
-          shoeSizeEu: aboutData.shoe_size_eu?.toString() || '',
-          reelUrl: aboutData.reel_url || '',
-          unionMember: aboutData.union_member || false,
-          dialects: aboutData.dialects || [],
-          willingToTravel: aboutData.travel_ready || aboutData.willing_to_travel || userDetails.willing_to_travel || false,
-        },
-        specialty: user.specialty || '',
-        imageUrl: user.imageUrl || user.image_url || '',
-      };
-      
-      
-      setFormData(newFormData);
+      // Update if user data has changed OR if modal just became visible
+      if (lastUserDataHashRef.current !== userDataHash || justBecameVisible) {
+        lastUserDataHashRef.current = userDataHash;
+        
+        // The user object is already the direct user data (not nested under 'data')
+        const aboutData = userToUse.about || {};
+        
+        // Check if user has separate user details (age, gender, nationality)
+        const userDetails = userToUse.userDetails || {};
+        
+        // Handle skills - they might be stored as IDs or names
+        let userSkills = userToUse.skills || userToUse.user_skills || [];
+        
+        // If skills are stored as objects with skill_name, extract the names
+        // Otherwise, use them as-is (could be names or IDs)
+        const normalizedSkills = userSkills.map((skill: any) => {
+          if (typeof skill === 'string') {
+            return skill; // Already a string (name or ID)
+          } else if (skill?.skill_name) {
+            return skill.skill_name; // Extract name from object
+          } else if (skill?.name) {
+            return skill.name; // Extract name from object
+          }
+          return String(skill); // Fallback to string conversion
+        });
+        
+        
+        // Preserve portfolio if it has been loaded from API (items with IDs), otherwise use user data
+        const hasApiLoadedPortfolio = formData.portfolio.length > 0 && formData.portfolio.some((item: any) => item.id);
+        const portfolioToUse = hasApiLoadedPortfolio 
+          ? formData.portfolio 
+          : (userToUse.portfolio || userToUse.user_portfolios || []);
+        
+        // Preserve social links if already loaded from API
+        const hasApiLoadedSocialLinks = formData.socialLinks.length > 0 && formData.socialLinks.some((link: any) => link.id);
+        const socialLinksToUse = hasApiLoadedSocialLinks ? formData.socialLinks : [];
+        
+        const newFormData = {
+          bio: userToUse.bio || '',
+          skills: normalizedSkills,
+          portfolio: portfolioToUse,
+          socialLinks: socialLinksToUse,
+          about: {
+            gender: aboutData.gender || userDetails.gender || '',
+            birthday: aboutData.birthday || userDetails.birthday || null,
+            nationality: aboutData.nationality || userDetails.nationality || '',
+            location: aboutData.location || aboutData.location_text || userToUse.location_text || userDetails.location || userDetails.location_text || '',
+            height: aboutData.height_cm?.toString() || userDetails.height_cm?.toString() || '',
+            weight: aboutData.weight_kg?.toString() || userDetails.weight_kg?.toString() || '',
+            skinTone: aboutData.skin_tone_id || aboutData.skin_tone || userDetails.skin_tone_id || userDetails.skin_tone || '',
+            hairColor: aboutData.hair_color_id || aboutData.hair_color || userDetails.hair_color_id || userDetails.hair_color || '',
+            eyeColor: aboutData.eye_color || userDetails.eye_color || '',
+            chestCm: aboutData.chest_cm?.toString() || '',
+            waistCm: aboutData.waist_cm?.toString() || '',
+            hipsCm: aboutData.hips_cm?.toString() || '',
+            shoeSizeEu: aboutData.shoe_size_eu?.toString() || '',
+            reelUrl: aboutData.reel_url || '',
+            unionMember: aboutData.union_member || false,
+            dialects: aboutData.dialects || [],
+            willingToTravel: aboutData.travel_ready || aboutData.willing_to_travel || userDetails.willing_to_travel || false,
+          },
+          specialty: userToUse.specialty || '',
+          imageUrl: userToUse.imageUrl || userToUse.image_url || '',
+        };
+        
+        
+        setFormData(newFormData);
+      }
     }
-  }, [user]);
+  }, [currentUser, routeParams.user, userProp, visible]);
 
   // Auto-expand section when initialSection is provided
   useEffect(() => {
@@ -1373,17 +1501,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         setUploadingImage({ type: null });
         
         if (uploadResult.success && uploadResult.data) {
-          // Reload profile pictures
+          // Refresh profile pictures gallery
           try {
-            const response = await getUserProfilePictures(userId);
-            if (response.success && response.data) {
-              const pictures = Array.isArray(response.data) ? response.data : [];
-              setProfilePictures(pictures);
-              const mainPicture = pictures.find((p: any) => p.is_main);
-              if (mainPicture && mainPicture.image_url) {
-                handleInputChange('imageUrl', mainPicture.image_url);
-              }
-            }
+            await refreshProfilePictures(userId);
           } catch (reloadError) {
             console.error('Failed to reload profile pictures:', reloadError);
             // Don't show error - image was uploaded successfully
@@ -1450,16 +1570,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           
           setUploadingImage({ type: null });
           if (uploadResult.success) {
-            // Reload profile pictures
-            const response = await getUserProfilePictures(userId);
-            if (response.success && response.data) {
-              const pictures = Array.isArray(response.data) ? response.data : [];
-              setProfilePictures(pictures);
-              const mainPicture = pictures.find((p: any) => p.is_main);
-              if (mainPicture) {
-                handleInputChange('imageUrl', mainPicture.image_url);
-              }
-            }
+            // Refresh profile pictures gallery
+            await refreshProfilePictures(userId);
             Alert.alert('Success', 'Profile photo uploaded and updated!');
           } else {
             throw new Error(uploadResult.error || 'Upload failed');
@@ -1650,10 +1762,22 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         }
       };
 
+      // Refresh user data and profile pictures after update
+      try {
+        const userId = currentUser?.id || user?.id;
+        if (userId) {
+          // Refresh profile pictures to show updated gallery
+          await refreshProfilePictures(userId);
+        }
+      } catch (refreshError) {
+        console.error('Failed to refresh profile pictures after update:', refreshError);
+        // Don't block success message if refresh fails
+      }
+
       Alert.alert(
         'Success',
         'Your profile has been updated successfully!',
-        [{ text: 'OK', onPress: onClose || (() => navigation?.goBack()) }]
+        [{ text: 'OK' }] // Stay on the same page - don't navigate away
       );
       onProfileUpdated?.(combinedData);
       
@@ -1830,24 +1954,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                               const userId = currentUser?.id || user?.id;
                               if (!userId) return;
                               await deleteProfilePicture(userId, picture.id);
-                              // Reload profile pictures
-                              const response = await getUserProfilePictures(userId);
-                              if (response.success && response.data) {
-                                const pictures = Array.isArray(response.data) ? response.data : [];
-                                setProfilePictures(pictures);
-                                const mainPicture = pictures.find((p: any) => p.is_main);
-                                if (mainPicture) {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    imageUrl: mainPicture.image_url,
-                                  }));
-                                } else {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    imageUrl: '',
-                                  }));
-                                }
-                              }
+                              // Refresh profile pictures gallery
+                              await refreshProfilePictures(userId);
                               Alert.alert('Success', 'Profile picture deleted!');
                             } catch (error: any) {
                               console.error('Failed to delete picture:', error);
@@ -1885,34 +1993,18 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                                 // Call the API
                                 await setMainProfilePicture(userId, picture.id);
                                 
-                                // Wait a bit to ensure cache is cleared, then reload
-                                await new Promise(resolve => setTimeout(resolve, 300));
-                                
-                                // Reload profile pictures to get fresh data
-                                const response = await getUserProfilePictures(userId);
-                                if (response.success && response.data) {
-                                  const pictures = Array.isArray(response.data) ? response.data : [];
-                                  setProfilePictures(pictures);
-                                  const mainPicture = pictures.find((p: any) => p.is_main);
-                                  if (mainPicture) {
-                                    setFormData(prev => ({
-                                      ...prev,
-                                      imageUrl: mainPicture.image_url,
-                                    }));
-                                  }
-                                } else {
-                                  // If fetch fails, revert to previous state
-                                  setProfilePictures(previousPictures);
-                                }
+                                // Refresh profile pictures gallery
+                                await refreshProfilePictures(userId);
                                 
                                 Alert.alert('Success', 'Main profile picture updated!');
                               } catch (error: any) {
                                 console.error('Failed to set main picture:', error);
                                 // Revert optimistic update on error
-                                const response = await getUserProfilePictures(currentUser?.id || user?.id);
-                                if (response.success && response.data) {
-                                  const pictures = Array.isArray(response.data) ? response.data : [];
-                                  setProfilePictures(pictures);
+                                try {
+                                  await refreshProfilePictures(userId);
+                                } catch (refreshError) {
+                                  // If refresh fails, revert to previous state
+                                  setProfilePictures(previousPictures);
                                 }
                                 Alert.alert('Error', error.message || 'Failed to set main picture.');
                               }
@@ -1989,19 +2081,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                             
                             setUploadingImage({ type: null });
                             if (uploadResult.success) {
-                              // Reload profile pictures
-                              const response = await getUserProfilePictures(userId);
-                              if (response.success && response.data) {
-                                const pictures = Array.isArray(response.data) ? response.data : [];
-                                setProfilePictures(pictures);
-                                const mainPicture = pictures.find((p: any) => p.is_main);
-                                if (mainPicture) {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    imageUrl: mainPicture.image_url,
-                                  }));
-                                }
-                              }
+                              // Refresh profile pictures gallery
+                              await refreshProfilePictures(userId);
                               Alert.alert('Success', 'Cover image uploaded!');
                             } else {
                               throw new Error(uploadResult.error || 'Upload failed');
@@ -2065,19 +2146,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                             
                             setUploadingImage({ type: null });
                             if (uploadResult.success) {
-                              // Reload profile pictures
-                              const response = await getUserProfilePictures(userId);
-                              if (response.success && response.data) {
-                                const pictures = Array.isArray(response.data) ? response.data : [];
-                                setProfilePictures(pictures);
-                                const mainPicture = pictures.find((p: any) => p.is_main);
-                                if (mainPicture) {
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    imageUrl: mainPicture.image_url,
-                                  }));
-                                }
-                              }
+                              // Refresh profile pictures gallery
+                              await refreshProfilePictures(userId);
                               Alert.alert('Success', 'Cover photo uploaded!');
                             } else {
                               throw new Error(uploadResult.error || 'Upload failed');
