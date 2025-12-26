@@ -742,10 +742,24 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               {tasks.map((task) => {
                 const assignments = (task.assignments || []).map((assignment: any) => {
                   const status = assignment.status || 'pending';
+                  
+                  // Extract company with proper name handling
+                  let company = null;
+                  if (assignment.company) {
+                    company = {
+                      ...assignment.company,
+                      id: assignment.company.id || assignment.company_id,
+                      name: assignment.company.name || 'Unknown Company',
+                    };
+                  } else if (assignment.company_id) {
+                    company = { id: assignment.company_id, name: 'Unknown Company' };
+                  }
+                  
                   return {
                     id: assignment.id || Date.now().toString(),
                     service: assignment.service || { name: assignment.service_role },
-                    user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+                    user: assignment.user || (assignment.user_id ? { id: assignment.user_id, name: assignment.user?.name || 'Unknown' } : null),
+                    company: company,
                     status: status,
                   };
                 });

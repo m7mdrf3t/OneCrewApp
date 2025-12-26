@@ -100,8 +100,21 @@ const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
       setCurrentProject(refreshedProject);
       
       // Update route params if using React Navigation
-      if (navigation && route.params) {
-        navigation.setParams({ project: refreshedProject });
+      // Only update params if navigation is available and supports setParams
+      try {
+        if (navigation && route.params && typeof (navigation as any).setParams === 'function') {
+          const nav = navigation as any;
+          // Check if route is focused before updating params
+          if (nav.isFocused && nav.isFocused()) {
+            nav.setParams({ project: refreshedProject });
+          } else if (!nav.isFocused) {
+            // If isFocused doesn't exist, try to set params anyway (for some navigators)
+            nav.setParams({ project: refreshedProject });
+          }
+        }
+      } catch (error) {
+        // Silently fail if navigation is not available or doesn't support setParams
+        console.warn('Could not update navigation params:', error);
       }
     } catch (error) {
       console.error('Failed to refresh project:', error);
@@ -222,8 +235,21 @@ const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
         setCurrentProject(refreshedProject);
         
         // Update route params if using React Navigation
-        if (navigation && route.params) {
-          navigation.setParams({ project: refreshedProject });
+        // Only update params if navigation is available and supports setParams
+        try {
+          if (navigation && route.params && typeof (navigation as any).setParams === 'function') {
+            const nav = navigation as any;
+            // Check if route is focused before updating params
+            if (nav.isFocused && nav.isFocused()) {
+              nav.setParams({ project: refreshedProject });
+            } else if (!nav.isFocused) {
+              // If isFocused doesn't exist, try to set params anyway (for some navigators)
+              nav.setParams({ project: refreshedProject });
+            }
+          }
+        } catch (error) {
+          // Silently fail if navigation is not available or doesn't support setParams
+          console.warn('Could not update navigation params:', error);
         }
         
         Alert.alert('Success', 'Project details updated successfully');

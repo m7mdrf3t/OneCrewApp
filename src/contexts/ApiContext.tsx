@@ -1281,8 +1281,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     setError(null);
     
     try {
-      // Step 1: Get Supabase access token via Google OAuth
-      console.log('📱 Requesting Google Sign-In via Supabase OAuth...');
+      // Step 1: Get Supabase access token via native Google Sign-In
+      // (Native SDK gets Google ID token, then exchanges it with Supabase)
+      console.log('📱 Requesting Google Sign-In via native SDK...');
       const accessToken = await signInWithGoogle();
       console.log('✅ Supabase access token received');
       
@@ -1306,7 +1307,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Step 3: Send Supabase access token to backend
       const requestBody: any = {
-        accessToken: accessToken,
+        accessToken: accessToken, // Backend expects Supabase access token
         ...(finalCategory && { category: finalCategory }),
         ...(finalRole && { primary_role: finalRole }),
       };
