@@ -407,8 +407,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   });
 
   const directoryCompaniesQueryKey = useMemo(
-    () => ['directoryCompanies', { sectionKey: section.key }],
-    [section.key]
+    () => ['directoryCompanies', { sectionKey: section.key, search: debouncedSearchQuery }],
+    [section.key, debouncedSearchQuery]
   );
 
   const directoryCompaniesQuery = useQuery<Company[]>({
@@ -429,6 +429,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         subcategory: subcategoryFilter,
         sort: 'name',
         order: 'asc',
+        search: debouncedSearchQuery || undefined,
       });
 
       if (!response.success) {
@@ -1101,37 +1102,37 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           <Text style={styles.title}>
             {selectedSubcategory ? capitalizeRole(selectedSubcategory) : section.title}
           </Text>
-          <View style={styles.headerRight}>
-            {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
-              <TouchableOpacity 
-                onPress={() => setShowSearchBar(!showSearchBar)} 
-                style={styles.searchToggleButton}
-              >
-                <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
-              </TouchableOpacity>
-            )}
-            {selectedSubcategory ? (
-              <TouchableOpacity
-                onPress={() => setSelectedSubcategory(null)}
-                style={styles.backButton}
-              >
-                <Ionicons name="close" size={24} color="#000" />
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.placeholder} />
-            )}
-          </View>
+        <View style={styles.headerRight}>
+          {selectedSubcategory && (
+            <TouchableOpacity 
+              onPress={() => setShowSearchBar(!showSearchBar)} 
+              style={styles.searchToggleButton}
+            >
+              <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
+            </TouchableOpacity>
+          )}
+          {selectedSubcategory ? (
+            <TouchableOpacity 
+              onPress={() => setSelectedSubcategory(null)} 
+              style={styles.backButton}
+            >
+              <Ionicons name="close" size={24} color="#000" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.placeholder} />
+          )}
         </View>
+      </View>
 
-        {/* Search and Filter Bar - Expandable */}
-        {showSearchBar && selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+      {/* Search and Filter Bar - Expandable */}
+        {showSearchBar && selectedSubcategory && (
           <View style={styles.searchContainer}>
             <SearchBar
               value={searchQuery}
               onChange={setSearchQuery}
-              onOpenFilter={() => setShowFilterModal(true)}
-              filters={filters}
-              onClearFilters={handleClearFilters}
+              onOpenFilter={section.key !== 'academy' ? () => setShowFilterModal(true) : undefined}
+              filters={section.key !== 'academy' ? filters : undefined}
+              onClearFilters={section.key !== 'academy' ? handleClearFilters : undefined}
             />
           </View>
         )}
@@ -1167,7 +1168,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           {selectedSubcategory ? capitalizeRole(selectedSubcategory) : section.title}
         </Text>
         <View style={styles.headerRight}>
-          {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+          {selectedSubcategory && (
             <TouchableOpacity 
               onPress={() => setShowSearchBar(!showSearchBar)} 
               style={styles.searchToggleButton}
@@ -1187,14 +1188,14 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       </View>
 
       {/* Search and Filter Bar - Expandable */}
-      {showSearchBar && selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+      {showSearchBar && selectedSubcategory && (
         <View style={styles.searchContainer}>
           <SearchBar
             value={searchQuery}
             onChange={setSearchQuery}
-            onOpenFilter={() => setShowFilterModal(true)}
-            filters={filters}
-            onClearFilters={handleClearFilters}
+            onOpenFilter={section.key !== 'academy' ? () => setShowFilterModal(true) : undefined}
+            filters={section.key !== 'academy' ? filters : undefined}
+            onClearFilters={section.key !== 'academy' ? handleClearFilters : undefined}
           />
         </View>
       )}

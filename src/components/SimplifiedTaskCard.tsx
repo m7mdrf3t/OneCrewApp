@@ -139,6 +139,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         console.log(`📋 Initial state: Assignment ${assignment.id}: status="${status}" (from assignment.status="${assignment.status}")`);
         
         // Extract company with proper name handling
+        // Prioritize company_id - if it exists, this is a company assignment
         let company = null;
         if (assignment.company) {
           company = {
@@ -148,8 +149,10 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
           };
           console.log(`🏢 Assignment ${assignment.id}: Company extracted:`, { id: company.id, name: company.name, hasName: !!company.name });
         } else if (assignment.company_id) {
+          // Company ID exists but no company object - create placeholder
+          // The display logic will prioritize this over user
           company = { id: assignment.company_id, name: 'Unknown Company' };
-          console.log(`🏢 Assignment ${assignment.id}: Company ID only, no company object`);
+          console.log(`🏢 Assignment ${assignment.id}: Company ID only (${assignment.company_id}), no company object - will show as company assignment`);
         }
         
         return {
@@ -158,7 +161,9 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
           user: assignment.user || (assignment.user_id ? { id: assignment.user_id, name: assignment.user?.name || 'Unknown' } : null),
           company: company,
           status: status, // CRITICAL: Preserve status from existingTask
-        };
+          // Preserve company_id for display logic (so we can check it even if company object is missing)
+          company_id: assignment.company_id || (company ? company.id : null),
+        } as any;
       });
       console.log('📋 Initial assignments state:', initialAssignments.map((a: Assignment) => ({ id: a.id, status: a.status })));
       return initialAssignments;
@@ -186,6 +191,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         console.log(`📋 Extracting assignment ${assignment.id}: status="${status}" (from assignment.status="${assignment.status}")`);
         
         // Extract company with proper name handling
+        // Prioritize company_id - if it exists, this is a company assignment
         let company = null;
         if (assignment.company) {
           company = {
@@ -195,8 +201,10 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
           };
           console.log(`🏢 Assignment ${assignment.id}: Company extracted:`, { id: company.id, name: company.name, hasName: !!company.name });
         } else if (assignment.company_id) {
+          // Company ID exists but no company object - create placeholder
+          // The display logic will prioritize this over user
           company = { id: assignment.company_id, name: 'Unknown Company' };
-          console.log(`🏢 Assignment ${assignment.id}: Company ID only, no company object`);
+          console.log(`🏢 Assignment ${assignment.id}: Company ID only (${assignment.company_id}), no company object - will show as company assignment`);
         }
         
         return {
@@ -205,7 +213,9 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
           user: assignment.user || (assignment.user_id ? { id: assignment.user_id, name: assignment.user?.name || 'Unknown' } : null),
           company: company,
           status: status, // CRITICAL: Preserve status from backend
-        };
+          // Preserve company_id for display logic (so we can check it even if company object is missing)
+          company_id: assignment.company_id || (company ? company.id : null),
+        } as any;
       });
       
       // Check if assignments have changed (by comparing IDs and statuses)
@@ -555,9 +565,12 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
     }
     
     try {
+      // For company assignments, only send company_id (not user_id)
+      // The backend will use the authenticated user as assigned_by automatically
       const response = await assignTaskService(projectId, taskId, {
         service_role: service?.name,
         company_id: company.id,
+        // Do NOT send user_id for company assignments - backend will ignore company_id if user_id is present
       } as any);
       
       console.log('📋 assignTaskService response for company:', JSON.stringify(response, null, 2));
@@ -1813,7 +1826,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
               <View style={styles.assignmentLeft}>
                     <Ionicons name="briefcase" size={14} color="#000" />
                 <Text style={styles.assignmentText}>{assignment.service?.name}</Text>
-                {assignment.company ? (
+                {/* Prioritize company display if company_id exists, even if user_id also exists */}
+                {(assignment.company || (assignment as any).company_id) ? (
                   // Company assignment
                   <>
                     <View style={styles.userBadge}>
@@ -2071,13 +2085,22 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                         : (assignmentsResponse.data.assignments || []);
                                       
                                       // Map fetched assignments with status
-                                      const assignmentsWithStatus = fetchedAssignments.map((a: any) => ({
-                                        id: a.id,
-                                        service: a.service || { name: a.service_role },
-                                        user: a.user || (a.user_id ? { id: a.user_id, name: a.user?.name || 'Unknown' } : null),
-                                        company: a.company ? { ...a.company, id: a.company.id || a.company_id, name: a.company.name || 'Unknown Company' } : (a.company_id ? { id: a.company_id, name: 'Unknown Company' } : null),
-                                        status: a.status || 'pending', // Status included from getTaskAssignments
-                                      }));
+                                      // Prioritize company_id - if it exists, this is a company assignment
+                                      const assignmentsWithStatus = fetchedAssignments.map((a: any) => {
+                                        const company = a.company 
+                                          ? { ...a.company, id: a.company.id || a.company_id, name: a.company.name || 'Unknown Company' }
+                                          : (a.company_id ? { id: a.company_id, name: 'Unknown Company' } : null);
+                                        
+                                        return {
+                                          id: a.id,
+                                          service: a.service || { name: a.service_role },
+                                          user: a.user || (a.user_id ? { id: a.user_id, name: a.user?.name || 'Unknown' } : null),
+                                          company: company,
+                                          status: a.status || 'pending', // Status included from getTaskAssignments
+                                          // Preserve company_id for display logic (so we can check it even if company object is missing)
+                                          company_id: a.company_id || (company ? company.id : null),
+                                        } as any;
+                                      });
                                       
                                       const updatedTask = {
                                         ...existingTask,

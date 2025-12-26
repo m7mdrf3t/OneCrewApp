@@ -46,6 +46,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [selectedUsers, setSelectedUsers] = useState<any[]>([]); // For multi-select
   const [authorizedTemplates, setAuthorizedTemplates] = useState<CertificationTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<CertificationTemplate | null>(null);
   const [expirationDate, setExpirationDate] = useState<string>('');
@@ -56,6 +57,11 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
   const [searching, setSearching] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [granting, setGranting] = useState(false);
+  const [grantingProgress, setGrantingProgress] = useState<{
+    current: number;
+    total: number;
+    currentUserName?: string;
+  } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadingCertificateImage, setUploadingCertificateImage] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
@@ -89,6 +95,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
       if (preselectedUserId) {
         loadPreselectedUser(preselectedUserId);
         setUserSelectionMethod('search');
+        // Note: preselected user will be in selectedUser, not selectedUsers array
       }
     }
   }, [visible, company.id, preselectedUserId]);
@@ -108,6 +115,8 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
       if (response?.success && response.data) {
         const userData = response.data;
         setSelectedUser(userData);
+        // Also add to selectedUsers for consistency
+        setSelectedUsers([userData]);
         setSearchQuery(userData.name || userData.email || '');
         setFilteredUsers([]); // Clear search results since we have a preselected user
       }
@@ -162,6 +171,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
   const resetForm = () => {
     setSearchQuery('');
     setSelectedUser(null);
+    setSelectedUsers([]);
     setSelectedTemplate(null);
     setExpirationDate('');
     setNotes('');
@@ -171,6 +181,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     setSelectedCourse(null);
     setCourseRegistrations([]);
     setUserSelectionMethod('course');
+    setGrantingProgress(null);
   };
 
   const loadCourses = async () => {
@@ -296,6 +307,30 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
     setFilteredUsers([]);
   };
 
+  const handleToggleUserSelection = (user: any) => {
+    setSelectedUsers((prev) => {
+      const isSelected = prev.some((u) => u.id === user.id);
+      if (isSelected) {
+        return prev.filter((u) => u.id !== user.id);
+      } else {
+        return [...prev, user];
+      }
+    });
+  };
+
+  const handleSelectAllUsers = () => {
+    if (userSelectionMethod === 'course' && courseRegistrations.length > 0) {
+      const allUsers = courseRegistrations.map((reg) => reg.user).filter(Boolean);
+      setSelectedUsers(allUsers);
+    } else if (userSelectionMethod === 'search' && filteredUsers.length > 0) {
+      setSelectedUsers(filteredUsers);
+    }
+  };
+
+  const handleClearAllUsers = () => {
+    setSelectedUsers([]);
+  };
+
   const handleSelectTemplate = (template: CertificationTemplate) => {
     setSelectedTemplate(template);
     // Auto-set expiration date if template has default_expiration_days
@@ -404,8 +439,11 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
   };
 
   const handleGrantCertification = async () => {
-    if (!selectedUser) {
-      Alert.alert('Error', 'Please select a user to certify');
+    // Determine which users to grant to
+    const usersToGrant = selectedUsers.length > 0 ? selectedUsers : (selectedUser ? [selectedUser] : []);
+    
+    if (usersToGrant.length === 0) {
+      Alert.alert('Error', 'Please select at least one user to certify');
       return;
     }
 
@@ -416,31 +454,70 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
 
     try {
       setGranting(true);
-      const certificationData: CreateCertificationRequest = {
-        user_id: selectedUser.id,
-        certification_template_id: selectedTemplate.id,
-        expiration_date: expirationDate || undefined,
-        notes: notes || undefined,
-        certificate_url: certificateUrl || undefined,
-        certificate_image_url: certificateImageUrl || undefined,
-      };
+      setGrantingProgress({ current: 0, total: usersToGrant.length });
 
-      const response = await grantCertification(company.id, certificationData);
+      const results: { success: boolean; user: any; error?: string }[] = [];
+      
+      for (let i = 0; i < usersToGrant.length; i++) {
+        const user = usersToGrant[i];
+        setGrantingProgress({
+          current: i + 1,
+          total: usersToGrant.length,
+          currentUserName: user.name || user.email,
+        });
 
-      if (response) {
-        Alert.alert('Success', `Certification granted to ${selectedUser.name || selectedUser.email}`);
-        resetForm();
-        // Call the callback BEFORE closing to ensure refresh happens
-        if (onCertificationGranted) {
-          onCertificationGranted();
+        try {
+          const certificationData: CreateCertificationRequest = {
+            user_id: user.id,
+            certification_template_id: selectedTemplate.id,
+            expiration_date: expirationDate || undefined,
+            notes: notes || undefined,
+            certificate_url: certificateUrl || undefined,
+            certificate_image_url: certificateImageUrl || undefined,
+          };
+
+          const response = await grantCertification(company.id, certificationData);
+          
+          if (response) {
+            results.push({ success: true, user });
+          } else {
+            results.push({ success: false, user, error: 'Failed to grant certification' });
+          }
+        } catch (error: any) {
+          console.error(`Failed to grant certification to ${user.name || user.email}:`, error);
+          results.push({ success: false, user, error: error.message || 'Failed to grant certification' });
         }
-        onClose();
-      } else {
-        throw new Error('Failed to grant certification');
       }
+
+      setGrantingProgress(null);
+      
+      const successCount = results.filter((r) => r.success).length;
+      const failureCount = results.filter((r) => !r.success).length;
+
+      if (successCount === usersToGrant.length) {
+        Alert.alert(
+          'Success',
+          `Certification granted to ${successCount} user${successCount > 1 ? 's' : ''}`
+        );
+      } else if (successCount > 0) {
+        Alert.alert(
+          'Partial Success',
+          `Certification granted to ${successCount} user${successCount > 1 ? 's' : ''}, but ${failureCount} failed.`
+        );
+      } else {
+        Alert.alert('Error', `Failed to grant certification to all ${usersToGrant.length} user${usersToGrant.length > 1 ? 's' : ''}`);
+      }
+
+      resetForm();
+      // Call the callback BEFORE closing to ensure refresh happens
+      if (onCertificationGranted) {
+        onCertificationGranted();
+      }
+      onClose();
     } catch (error: any) {
-      console.error('Failed to grant certification:', error);
-      Alert.alert('Error', error.message || 'Failed to grant certification. Please try again.');
+      console.error('Failed to grant certifications:', error);
+      setGrantingProgress(null);
+      Alert.alert('Error', error.message || 'Failed to grant certifications. Please try again.');
     } finally {
       setGranting(false);
     }
@@ -484,6 +561,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                   onPress={() => {
                     setUserSelectionMethod('course');
                     setSelectedUser(null);
+                    setSelectedUsers([]);
                     setSearchQuery('');
                     setFilteredUsers([]);
                   }}
@@ -512,6 +590,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                     setSelectedCourse(null);
                     setCourseRegistrations([]);
                     setSelectedUser(null);
+                    setSelectedUsers([]);
                   }}
                 >
                   <Ionicons 
@@ -575,9 +654,36 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
           {/* Course Registrations (if course selected) */}
           {userSelectionMethod === 'course' && selectedCourse && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                Registered Users ({courseRegistrations.length})
-              </Text>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>
+                  Registered Users ({courseRegistrations.length})
+                </Text>
+                {courseRegistrations.length > 0 && (
+                  <View style={styles.selectAllContainer}>
+                    <TouchableOpacity
+                      style={styles.selectAllButton}
+                      onPress={handleSelectAllUsers}
+                    >
+                      <Text style={styles.selectAllButtonText}>Select All</Text>
+                    </TouchableOpacity>
+                    {selectedUsers.length > 0 && (
+                      <TouchableOpacity
+                        style={styles.clearAllButton}
+                        onPress={handleClearAllUsers}
+                      >
+                        <Text style={styles.clearAllButtonText}>Clear</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+              </View>
+              {selectedUsers.length > 0 && (
+                <View style={styles.selectedCountBadge}>
+                  <Text style={styles.selectedCountText}>
+                    {selectedUsers.length} user{selectedUsers.length > 1 ? 's' : ''} selected
+                  </Text>
+                </View>
+              )}
               {loadingRegistrations ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="small" color="#3b82f6" />
@@ -591,7 +697,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                 <View style={styles.registrationsList}>
                   {courseRegistrations.map((registration) => {
                     const user = registration.user;
-                    const isSelected = selectedUser?.id === user?.id;
+                    const isSelected = selectedUsers.some((u) => u.id === user?.id);
                     return (
                       <TouchableOpacity
                         key={registration.id}
@@ -599,8 +705,20 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                           styles.registrationItem,
                           isSelected && styles.registrationItemSelected,
                         ]}
-                        onPress={() => handleSelectUser(user)}
+                        onPress={() => handleToggleUserSelection(user)}
                       >
+                        <View style={styles.checkboxContainer}>
+                          <View
+                            style={[
+                              styles.checkbox,
+                              isSelected && styles.checkboxChecked,
+                            ]}
+                          >
+                            {isSelected && (
+                              <Ionicons name="checkmark" size={16} color="#fff" />
+                            )}
+                          </View>
+                        </View>
                         <View style={styles.userInfo}>
                           {user?.image_url ? (
                             <Image
@@ -629,9 +747,6 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                             )}
                           </View>
                         </View>
-                        {isSelected && (
-                          <Ionicons name="checkmark-circle" size={24} color="#3b82f6" />
-                        )}
                       </TouchableOpacity>
                     );
                   })}
@@ -660,43 +775,132 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="small" color="#3b82f6" />
                 </View>
-              ) : filteredUsers.length > 0 && !selectedUser ? (
-                <View style={styles.resultsContainer}>
-                  {filteredUsers.map((user) => (
-                    <TouchableOpacity
-                      key={user.id}
-                      style={styles.userItem}
-                      onPress={() => handleSelectUser(user)}
-                    >
-                      {user.image_url ? (
-                        <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} />
-                      ) : (
-                        <View style={[styles.userItemAvatar, styles.userItemAvatarPlaceholder]}>
-                          <Text style={styles.userItemAvatarText}>
-                            {(user.name || user.email || 'U').charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
+              ) : filteredUsers.length > 0 ? (
+                <>
+                  {filteredUsers.length > 0 && (
+                    <View style={styles.selectAllContainer}>
+                      <TouchableOpacity
+                        style={styles.selectAllButton}
+                        onPress={handleSelectAllUsers}
+                      >
+                        <Text style={styles.selectAllButtonText}>Select All</Text>
+                      </TouchableOpacity>
+                      {selectedUsers.length > 0 && (
+                        <TouchableOpacity
+                          style={styles.clearAllButton}
+                          onPress={handleClearAllUsers}
+                        >
+                          <Text style={styles.clearAllButtonText}>Clear</Text>
+                        </TouchableOpacity>
                       )}
-                      <View style={styles.userItemInfo}>
-                        <Text style={styles.userItemName}>
-                          {user.name || user.email || 'Unknown User'}
-                        </Text>
-                        {user.primary_role && (
-                          <Text style={styles.userItemRole}>
-                            {user.primary_role.replace(/_/g, ' ')}
-                          </Text>
-                        )}
-                      </View>
-                      <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                    </View>
+                  )}
+                  {selectedUsers.length > 0 && (
+                    <View style={styles.selectedCountBadge}>
+                      <Text style={styles.selectedCountText}>
+                        {selectedUsers.length} user{selectedUsers.length > 1 ? 's' : ''} selected
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.resultsContainer}>
+                    {filteredUsers.map((user) => {
+                      const isSelected = selectedUsers.some((u) => u.id === user.id);
+                      return (
+                        <TouchableOpacity
+                          key={user.id}
+                          style={[
+                            styles.userItem,
+                            isSelected && styles.userItemSelected,
+                          ]}
+                          onPress={() => handleToggleUserSelection(user)}
+                        >
+                          <View style={styles.checkboxContainer}>
+                            <View
+                              style={[
+                                styles.checkbox,
+                                isSelected && styles.checkboxChecked,
+                              ]}
+                            >
+                              {isSelected && (
+                                <Ionicons name="checkmark" size={16} color="#fff" />
+                              )}
+                            </View>
+                          </View>
+                          {user.image_url ? (
+                            <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} />
+                          ) : (
+                            <View style={[styles.userItemAvatar, styles.userItemAvatarPlaceholder]}>
+                              <Text style={styles.userItemAvatarText}>
+                                {(user.name || user.email || 'U').charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={styles.userItemInfo}>
+                            <Text style={styles.userItemName}>
+                              {user.name || user.email || 'Unknown User'}
+                            </Text>
+                            {user.primary_role && (
+                              <Text style={styles.userItemRole}>
+                                {user.primary_role.replace(/_/g, ' ')}
+                              </Text>
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
               ) : null}
             </View>
           )}
 
-          {/* Selected User Display (common for both methods) */}
-          {selectedUser && (
+          {/* Selected Users Display (common for both methods) */}
+          {selectedUsers.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>
+                  Selected Users ({selectedUsers.length})
+                </Text>
+                <TouchableOpacity
+                  onPress={handleClearAllUsers}
+                  style={styles.clearButton}
+                >
+                  <Text style={styles.clearButtonText}>Clear All</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.selectedUsersList}>
+                {selectedUsers.map((user) => (
+                  <View key={user.id} style={styles.selectedUserChip}>
+                    <View style={styles.selectedUserInfo}>
+                      {user.image_url ? (
+                        <Image
+                          source={{ uri: user.image_url }}
+                          style={styles.chipAvatar}
+                        />
+                      ) : (
+                        <View style={[styles.chipAvatar, styles.userAvatarPlaceholder]}>
+                          <Text style={styles.userAvatarText}>
+                            {(user.name || user.email || 'U').charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      <Text style={styles.chipName} numberOfLines={1}>
+                        {user.name || user.email || 'Unknown User'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => handleToggleUserSelection(user)}
+                      style={styles.removeChipButton}
+                    >
+                      <Ionicons name="close-circle" size={18} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+          {/* Legacy single user display (for backward compatibility) */}
+          {selectedUser && selectedUsers.length === 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Selected User</Text>
               <View style={styles.selectedUserContainer}>
@@ -897,17 +1101,27 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
           <TouchableOpacity
             style={[
               styles.grantButton,
-              (!selectedUser || !selectedTemplate || granting) && styles.grantButtonDisabled,
+              ((selectedUsers.length === 0 && !selectedUser) || !selectedTemplate || granting) && styles.grantButtonDisabled,
             ]}
             onPress={handleGrantCertification}
-            disabled={!selectedUser || !selectedTemplate || granting}
+            disabled={(selectedUsers.length === 0 && !selectedUser) || !selectedTemplate || granting}
           >
             {granting ? (
-              <ActivityIndicator size="small" color="#ffffff" />
+              <View style={styles.grantingProgressContainer}>
+                <ActivityIndicator size="small" color="#ffffff" />
+                {grantingProgress && (
+                  <Text style={styles.grantingProgressText}>
+                    {grantingProgress.current} / {grantingProgress.total}
+                    {grantingProgress.currentUserName && ` - ${grantingProgress.currentUserName}`}
+                  </Text>
+                )}
+              </View>
             ) : (
               <>
                 <Ionicons name="trophy" size={18} color="#ffffff" />
-                <Text style={styles.grantButtonText}>Grant Certification</Text>
+                <Text style={styles.grantButtonText}>
+                  Grant to {selectedUsers.length > 0 ? `${selectedUsers.length} User${selectedUsers.length > 1 ? 's' : ''}` : 'User'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
@@ -1341,6 +1555,120 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#3b82f6',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  selectAllContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  selectAllButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: '#eff6ff',
+  },
+  selectAllButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#3b82f6',
+  },
+  clearAllButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: '#fee2e2',
+  },
+  clearAllButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#ef4444',
+  },
+  selectedCountBadge: {
+    backgroundColor: '#eff6ff',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
+  selectedCountText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3b82f6',
+    textAlign: 'center',
+  },
+  checkboxContainer: {
+    marginRight: 12,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  userItemSelected: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#3b82f6',
+  },
+  selectedUsersList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  selectedUserChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+    gap: 6,
+  },
+  chipAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  chipName: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#3b82f6',
+    maxWidth: 120,
+  },
+  removeChipButton: {
+    padding: 2,
+  },
+  clearButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#ef4444',
+  },
+  grantingProgressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  grantingProgressText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '500',
   },
 });
 

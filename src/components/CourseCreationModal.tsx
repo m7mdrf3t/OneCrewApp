@@ -47,7 +47,7 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     title: '',
     description: '',
     price: undefined,
-    total_seats: 0,
+    total_seats: 100, // Default to 100 seats if user doesn't enter a value
     poster_url: '',
     start_date: '',
     end_date: '',
@@ -114,7 +114,7 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
         title: '',
         description: '',
         price: undefined,
-        total_seats: 0,
+        total_seats: 100, // Default to 100 seats if user doesn't enter a value
         poster_url: '',
         start_date: '',
         end_date: '',
@@ -305,6 +305,10 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
       Alert.alert('Error', 'Course title is required');
       return false;
     }
+    if (!formData.description || !formData.description.trim()) {
+      Alert.alert('Error', 'Course description is required');
+      return false;
+    }
     if (!formData.certification_template.name.trim()) {
       Alert.alert('Error', 'Certification template name is required');
       return false;
@@ -320,6 +324,16 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     return true;
   };
 
+  const isFormValid = (): boolean => {
+    return (
+      formData.title.trim() !== '' &&
+      formData.description && formData.description.trim() !== '' &&
+      formData.certification_template.name.trim() !== '' &&
+      formData.total_seats >= 0 &&
+      (formData.price === undefined || formData.price >= 0)
+    );
+  };
+
   const handleSubmit = async () => {
     if (!validateForm()) {
       return;
@@ -328,12 +342,22 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     setIsLoading(true);
     try {
       // Convert dates to ISO format if they exist
+      // Ensure description is trimmed and not empty (backend doesn't allow empty strings)
+      const trimmedDescription = formData.description ? formData.description.trim() : '';
+      if (!trimmedDescription) {
+        Alert.alert('Error', 'Course description is required');
+        setIsLoading(false);
+        return;
+      }
+
       const courseData: CreateCourseRequest = {
         ...formData,
+        description: trimmedDescription, // Send trimmed, non-empty description
         start_date: formData.start_date ? new Date(formData.start_date).toISOString() : undefined,
         end_date: formData.end_date ? new Date(formData.end_date).toISOString() : undefined,
         price: formData.price === undefined || formData.price === 0 ? undefined : formData.price,
-        total_seats: formData.total_seats || 0,
+        // Default to 100 if user didn't enter a value or entered 0 (backend requires >= 1)
+        total_seats: formData.total_seats && formData.total_seats > 0 ? formData.total_seats : 100,
       };
 
       await onSubmit(courseData);
@@ -375,12 +399,18 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Course Title *</Text>
               <TextInput
-                style={styles.textInput}
+                style={[
+                  styles.textInput,
+                  !formData.title.trim() && styles.textInputError,
+                ]}
                 value={formData.title}
                 onChangeText={(value) => handleInputChange('title', value)}
                 placeholder="Enter course title"
                 placeholderTextColor="#9ca3af"
               />
+              {!formData.title.trim() && (
+                <Text style={styles.errorText}>Course title is required</Text>
+              )}
             </View>
 
             <View style={styles.inputGroup}>
@@ -425,7 +455,10 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
               <View style={[styles.inputGroup, styles.halfWidth]}>
                 <Text style={styles.label}>Total Seats *</Text>
                 <TextInput
-                  style={styles.textInput}
+                  style={[
+                    styles.textInput,
+                    formData.total_seats < 0 && styles.textInputError,
+                  ]}
                   value={formData.total_seats?.toString() || '0'}
                   onChangeText={(value) => {
                     const numValue = parseInt(value) || 0;
@@ -436,6 +469,9 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
                   keyboardType="number-pad"
                 />
                 <Text style={styles.hint}>0 = unlimited</Text>
+                {formData.total_seats < 0 && (
+                  <Text style={styles.errorText}>Total seats must be 0 or greater</Text>
+                )}
               </View>
             </View>
           </CollapsibleSection>
@@ -720,7 +756,10 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Certification Name *</Text>
               <TextInput
-                style={styles.textInput}
+                style={[
+                  styles.textInput,
+                  !formData.certification_template.name.trim() && styles.textInputError,
+                ]}
                 value={formData.certification_template.name}
                 onChangeText={(value) =>
                   handleInputChange('certification_template', {
@@ -731,6 +770,9 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
                 placeholder="e.g., Acting Fundamentals Certificate"
                 placeholderTextColor="#9ca3af"
               />
+              {!formData.certification_template.name.trim() && (
+                <Text style={styles.errorText}>Certification name is required</Text>
+              )}
             </View>
 
             <View style={styles.inputGroup}>
@@ -861,9 +903,12 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
+            style={[
+              styles.submitButton,
+              (isLoading || !isFormValid()) && styles.submitButtonDisabled,
+            ]}
             onPress={handleSubmit}
-            disabled={isLoading}
+            disabled={isLoading || !isFormValid()}
           >
             <Text style={styles.submitButtonText}>
               {isLoading ? 'Creating...' : 'Create Course'}
@@ -1250,6 +1295,15 @@ const styles = StyleSheet.create({
   },
   designOptionTextSelected: {
     color: '#fff',
+  },
+  textInputError: {
+    borderColor: '#ef4444',
+    borderWidth: 1.5,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#ef4444',
+    marginTop: 4,
   },
 });
 

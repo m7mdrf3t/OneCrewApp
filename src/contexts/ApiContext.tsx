@@ -409,8 +409,8 @@ interface ApiProviderProps {
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
    // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud
-   // baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
-    baseUrl = 'http://localhost:3000' // Local server
+    baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
+   // baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
     console.log('🔧 Initializing OneCrewApi with baseUrl:', baseUrl);
@@ -5559,22 +5559,35 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       });
       
       // Validate required fields
-      // According to v2.27.0 library: either user_id OR company_id must be provided (not both)
+      // Either user_id OR company_id must be provided (not both)
       if (!assignment.user_id && !assignment.company_id) {
         throw new Error('Either user_id or company_id is required for task assignment');
-      }
-      if (assignment.user_id && assignment.company_id) {
-        throw new Error('Cannot assign both user_id and company_id. Provide either user_id OR company_id');
       }
       if (!assignment.service_role) {
         throw new Error('service_role is required for task assignment');
       }
       
-      // Convert service_role to UserRole type
-      const apiAssignment = {
-        ...assignment,
-        service_role: assignment.service_role as any, // Type assertion for now
+      // Build clean assignment object - remove undefined values and ensure XOR condition
+      // Joi's .xor() requires exactly one of user_id or company_id, and undefined values break it
+      const apiAssignment: any = {
+        service_role: assignment.service_role as any,
       };
+      
+      // Only include user_id OR company_id (not both, and not undefined)
+      if (assignment.company_id) {
+        // Company assignment - only send company_id
+        apiAssignment.company_id = assignment.company_id;
+      } else if (assignment.user_id) {
+        // User assignment - only send user_id
+        apiAssignment.user_id = assignment.user_id;
+      }
+      
+      // Log what we're sending
+      console.log('📤 Sending assignment request:', {
+        service_role: apiAssignment.service_role,
+        user_id: apiAssignment.user_id || 'NOT INCLUDED',
+        company_id: apiAssignment.company_id || 'NOT INCLUDED',
+      });
       
       const response = await api.assignTaskService(projectId, taskId, apiAssignment);
       

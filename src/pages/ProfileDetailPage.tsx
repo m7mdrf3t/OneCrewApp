@@ -1485,9 +1485,20 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   // Get certification name
                   const certName = certification.certification_template?.name || 'Certification';
                   
+                  // Check if certificate image is available
+                  const hasImage = !!certification.certificate_image_url;
+                  
                   return (
                     <View key={certification.id} style={styles.certificateCard}>
-                      <Ionicons name={iconName} size={24} color="#fff" />
+                      {hasImage ? (
+                        <Image
+                          source={{ uri: certification.certificate_image_url! }}
+                          style={styles.certificateCardImage}
+                          contentFit="cover"
+                        />
+                      ) : (
+                        <Ionicons name={iconName} size={24} color="#fff" />
+                      )}
                       <Text style={styles.certificateTitle}>{certName}</Text>
                       <Text style={styles.certificateYear}>{year}</Text>
                     </View>
@@ -2720,6 +2731,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 100,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  certificateCardImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginBottom: 8,
   },
   certificateTitle: {
     fontSize: 14,

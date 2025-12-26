@@ -53,7 +53,7 @@ const CertificationCard: React.FC<CertificationCardProps> = ({
         activeOpacity={0.7}
       >
       {/* Certificate Image (v2.16.0) */}
-      {certification.certificate_image_url && (
+      {certification.certificate_image_url ? (
         <TouchableOpacity
           onPress={handleImagePress}
           style={styles.certificateImageContainer}
@@ -69,6 +69,15 @@ const CertificationCard: React.FC<CertificationCardProps> = ({
             <Text style={styles.imageOverlayText}>Tap to view full size</Text>
           </View>
         </TouchableOpacity>
+      ) : (
+        <View style={styles.certificateImagePlaceholder}>
+          <Ionicons
+            name="trophy"
+            size={48}
+            color={expired ? '#ef4444' : expiringSoon ? '#f59e0b' : '#10b981'}
+          />
+          <Text style={styles.placeholderText}>Certificate Image</Text>
+        </View>
       )}
 
       <View style={styles.header}>
@@ -337,6 +346,24 @@ const styles = StyleSheet.create({
   certificateImage: {
     width: '100%',
     height: '100%',
+  },
+  certificateImagePlaceholder: {
+    width: '100%',
+    height: 150,
+    borderRadius: 8,
+    marginBottom: 12,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  placeholderText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '500',
   },
   imageOverlay: {
     position: 'absolute',
