@@ -408,9 +408,9 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-   // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud
+    baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud
    // baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
-      baseUrl = 'http://localhost:3000' // Local server
+    //  baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
     console.log('🔧 Initializing OneCrewApi with baseUrl:', baseUrl);
@@ -6348,6 +6348,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Invalidate course cache
       await rateLimiter.clearCacheByPattern(`academy-courses-`);
+      await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+      // Also clear company cache since course data affects company display
+      await rateLimiter.clearCacheByPattern(`companies-`);
       
       return {
         success: true,
@@ -7510,6 +7513,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Invalidate courses cache
         await rateLimiter.clearCacheByPattern(`academy-courses-${companyId}`);
         await rateLimiter.clearCacheByPattern(`course-${courseId}`);
+        // Also clear company cache since course data affects company display
+        await rateLimiter.clearCacheByPattern(`company-${companyId}`);
+        await rateLimiter.clearCacheByPattern(`companies-`);
         return {
           success: true,
           data: response.data,

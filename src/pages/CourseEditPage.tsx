@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -16,6 +17,7 @@ import { CourseEditPageProps, UpdateCourseRequest, CourseStatus } from '../types
 import DatePicker from '../components/DatePicker';
 import { RootStackScreenProps } from '../navigation/types';
 import { useAppNavigation } from '../navigation/NavigationContext';
+import MediaPickerService from '../services/MediaPickerService';
 
 const CourseEditPage: React.FC<CourseEditPageProps> = ({
   courseId: courseIdProp,
@@ -77,10 +79,12 @@ const CourseEditPage: React.FC<CourseEditPageProps> = ({
       </View>
     );
   }
-  const { getCourseById, updateCourse, deleteCourse } = useApi();
+  const { getCourseById, updateCourse, deleteCourse, uploadCoursePoster } = useApi();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [uploadingPoster, setUploadingPoster] = useState(false);
+  const mediaPicker = MediaPickerService.getInstance();
   const [formData, setFormData] = useState<UpdateCourseRequest>({
     title: '',
     description: '',
@@ -210,6 +214,96 @@ const CourseEditPage: React.FC<CourseEditPageProps> = ({
         },
       ]
     );
+  };
+
+  const handleUploadPoster = async () => {
+    try {
+      // Request permissions
+      const hasPermission = await mediaPicker.requestPermissions();
+      if (!hasPermission) {
+        Alert.alert('Permission Required', 'Camera and media library permissions are required to upload a poster.');
+        return;
+      }
+
+      // Show action sheet to choose between camera and gallery
+      Alert.alert(
+        'Upload Course Poster',
+        'Choose an option',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Choose from Gallery',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.pickImage({
+                  allowsEditing: true,
+                  quality: 0.8,
+                  aspect: [16, 9],
+                  maxWidth: 1920,
+                  maxHeight: 1080,
+                });
+
+                if (result) {
+                  await uploadPosterFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error picking image:', error);
+                Alert.alert('Error', error.message || 'Failed to pick image.');
+              }
+            },
+          },
+          {
+            text: 'Take Photo',
+            onPress: async () => {
+              try {
+                const result = await mediaPicker.takePhoto({
+                  allowsEditing: true,
+                  quality: 0.8,
+                  aspect: [16, 9],
+                });
+
+                if (result) {
+                  await uploadPosterFile(result);
+                }
+              } catch (error: any) {
+                console.error('Error taking photo:', error);
+                Alert.alert('Error', error.message || 'Failed to take photo.');
+              }
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error in handleUploadPoster:', error);
+      Alert.alert('Error', error.message || 'Failed to upload poster.');
+    }
+  };
+
+  const uploadPosterFile = async (imageResult: any) => {
+    try {
+      setUploadingPoster(true);
+
+      const file = {
+        uri: imageResult.uri,
+        type: 'image/jpeg',
+        name: imageResult.fileName || `course_poster_${Date.now()}.jpg`,
+      };
+
+      const response = await uploadCoursePoster(courseId, file);
+
+      if (response.success && response.data?.url) {
+        // Update form data with uploaded URL
+        handleInputChange('poster_url', response.data.url);
+        Alert.alert('Success', 'Course poster uploaded successfully!');
+      } else {
+        throw new Error(response.error || 'Failed to upload poster');
+      }
+    } catch (error: any) {
+      console.error('Failed to upload poster:', error);
+      Alert.alert('Error', error.message || 'Failed to upload course poster.');
+    } finally {
+      setUploadingPoster(false);
+    }
   };
 
   const statusOptions: { value: CourseStatus; label: string }[] = [
@@ -373,17 +467,59 @@ const CourseEditPage: React.FC<CourseEditPageProps> = ({
           </View>
         </View>
 
-        {/* Poster URL */}
+        {/* Poster Image Upload */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Poster URL</Text>
-          <TextInput
-            style={styles.textInput}
-            value={formData.poster_url}
-            onChangeText={(value) => handleInputChange('poster_url', value)}
-            placeholder="https://example.com/poster.jpg"
-            placeholderTextColor="#9ca3af"
-          />
-          <Text style={styles.hint}>Optional image URL for course poster</Text>
+          <Text style={styles.label}>Course Poster</Text>
+          {formData.poster_url ? (
+            <View style={styles.posterPreviewContainer}>
+              <Image
+                source={{ uri: formData.poster_url }}
+                style={styles.posterPreview}
+                resizeMode="cover"
+              />
+              <View style={styles.posterActions}>
+                <TouchableOpacity
+                  style={styles.changePosterButton}
+                  onPress={handleUploadPoster}
+                  disabled={uploadingPoster}
+                >
+                  {uploadingPoster ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="camera" size={18} color="#fff" />
+                      <Text style={styles.changePosterButtonText}>Change</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.removePosterButton}
+                  onPress={() => handleInputChange('poster_url', '')}
+                  disabled={uploadingPoster}
+                >
+                  <Ionicons name="trash" size={18} color="#ef4444" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View>
+              <TouchableOpacity
+                style={styles.uploadPosterButtonLarge}
+                onPress={handleUploadPoster}
+                disabled={uploadingPoster}
+              >
+                {uploadingPoster ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="camera" size={24} color="#fff" />
+                    <Text style={styles.uploadPosterButtonText}>Upload Poster Image</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <Text style={styles.hint}>Optional: Upload a poster image for your course</Text>
+            </View>
+          )}
         </View>
 
         {/* Status */}
@@ -584,6 +720,75 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: '#fff',
+  },
+  posterPreviewContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  posterPreview: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#f3f4f6',
+  },
+  posterActions: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 12,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  changePosterButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#3b82f6',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  changePosterButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  removePosterButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#ef4444',
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  uploadPosterButtonLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#3b82f6',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    shadowColor: '#3b82f6',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  uploadPosterButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
   },
 });
 

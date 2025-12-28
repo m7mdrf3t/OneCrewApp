@@ -18,6 +18,7 @@ import DatePicker from './DatePicker';
 import MediaPickerService from '../services/MediaPickerService';
 import UploadProgressBar from './UploadProgressBar';
 import CollapsibleSection from './CollapsibleSection';
+import { filterAndSortUsers } from '../utils/searchUtils';
 
 const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
   visible,
@@ -25,7 +26,7 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
   onClose,
   onSubmit,
 }) => {
-  const { api, getCompany, uploadFile } = useApi();
+  const { api, getCompany, uploadFile, getUsersDirect } = useApi();
   const [isLoading, setIsLoading] = useState(false);
   const [lecturerSearchQuery, setLecturerSearchQuery] = useState('');
   const [filteredLecturers, setFilteredLecturers] = useState<User[]>([]);
@@ -148,6 +149,7 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
   }, [visible, companyDefaultDesign]);
 
   // Search lecturers when search query changes
+  // Uses enhanced search strategy: for short queries, fetch users and filter client-side
   useEffect(() => {
     const searchLecturers = async () => {
       if (!lecturerSearchQuery.trim()) {
@@ -157,18 +159,88 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
 
       try {
         setSearchingLecturer(true);
-        const response = await api.getUsers({
-          search: lecturerSearchQuery,
-          limit: 20,
-        });
-
-        if (response.success && response.data) {
-          const usersArray = Array.isArray(response.data)
-            ? response.data
-            : response.data.data || [];
-          setFilteredLecturers(usersArray.slice(0, 10));
+        console.log('🔍 [CourseCreationModal] Searching for lecturers:', lecturerSearchQuery);
+        
+        // Strategy: For short queries (2 chars or less), fetch users without search filter
+        // and apply client-side fuzzy filtering. For longer queries, use backend search.
+        const queryLength = lecturerSearchQuery.trim().length;
+        const useClientSideFilter = queryLength <= 2;
+        
+        let allUsers: User[] = [];
+        
+        if (useClientSideFilter) {
+          // Fetch multiple pages for short queries to get more users to search through
+          const fetchLimit = 100; // API maximum limit
+          const pagesToFetch = 2; // Fetch 2 pages (200 users) for short queries
+          
+          for (let page = 1; page <= pagesToFetch; page++) {
+            const response = await getUsersDirect({
+              // Don't use search parameter - fetch all users and filter client-side
+              limit: fetchLimit,
+              page: page,
+            });
+            
+            if (response && response.success !== false) {
+              let usersArray: User[] = [];
+              if (Array.isArray(response)) {
+                usersArray = response;
+              } else if (response.data) {
+                if (Array.isArray(response.data)) {
+                  usersArray = response.data;
+                } else if (response.data.data && Array.isArray(response.data.data)) {
+                  usersArray = response.data.data;
+                }
+              }
+              allUsers = [...allUsers, ...usersArray];
+              
+              // Stop if we got fewer results than the limit (last page)
+              if (usersArray.length < fetchLimit) {
+                break;
+              }
+            }
+          }
+          
+          console.log('📥 [CourseCreationModal] Total users fetched for client-side filter:', allUsers.length);
+          
+          // Apply fuzzy search filtering and sorting on client side
+          const filteredAndSorted = filterAndSortUsers(allUsers, lecturerSearchQuery);
+          console.log('👥 [CourseCreationModal] Found users (after fuzzy filter):', filteredAndSorted.length);
+          setFilteredLecturers(filteredAndSorted.slice(0, 10));
         } else {
-          setFilteredLecturers([]);
+          // For longer queries, use backend search
+          const response = await getUsersDirect({
+            search: lecturerSearchQuery,
+            limit: 20,
+          });
+
+          // Handle different response formats
+          let usersArray: User[] = [];
+          
+          // Direct array response
+          if (Array.isArray(response)) {
+            usersArray = response;
+          } 
+          // Object response - check for data property
+          else if (response && typeof response === 'object') {
+            // Most common: { data: [...], success: true, pagination: {...} }
+            if (response.data !== undefined) {
+              if (Array.isArray(response.data)) {
+                usersArray = response.data;
+              } 
+              // Nested: { data: { data: [...] } }
+              else if (response.data && typeof response.data === 'object' && Array.isArray(response.data.data)) {
+                usersArray = response.data.data;
+              }
+            }
+          }
+
+          console.log('👥 [CourseCreationModal] Search results (backend search):', {
+            query: lecturerSearchQuery,
+            usersFound: usersArray.length,
+            firstUser: usersArray[0]?.name,
+          });
+
+          setFilteredLecturers(usersArray.slice(0, 10));
         }
       } catch (error) {
         console.error('Failed to search lecturers:', error);
@@ -183,7 +255,7 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
     }, 300);
 
     return () => clearTimeout(timeoutId);
-  }, [lecturerSearchQuery, api]);
+  }, [lecturerSearchQuery, getUsersDirect]);
 
   const handleInputChange = (field: keyof CreateCourseRequest, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -641,41 +713,47 @@ const CourseCreationModal: React.FC<CourseCreationModalProps> = ({
                     <ActivityIndicator size="small" color="#3b82f6" style={styles.loader} />
                   )}
                   {filteredLecturers.length > 0 && (
-                    <View style={styles.lecturersList}>
-                      {filteredLecturers.map((lecturer) => (
-                        <TouchableOpacity
-                          key={lecturer.id}
-                          style={styles.lecturerItem}
-                          onPress={() => handleSelectLecturer(lecturer)}
-                        >
-                          <View style={styles.lecturerInfo}>
-                            {lecturer.image_url ? (
-                              <Image
-                                source={{ uri: lecturer.image_url }}
-                                style={styles.lecturerAvatar}
-                              />
-                            ) : (
-                              <View style={styles.lecturerAvatarPlaceholder}>
-                                <Text style={styles.lecturerAvatarText}>
-                                  {lecturer.name?.charAt(0).toUpperCase() || '?'}
-                                </Text>
+                    <View style={styles.lecturersListContainer}>
+                      <ScrollView 
+                        style={styles.lecturersList}
+                        nestedScrollEnabled={true}
+                        showsVerticalScrollIndicator={true}
+                      >
+                        {filteredLecturers.map((lecturer) => (
+                          <TouchableOpacity
+                            key={lecturer.id}
+                            style={styles.lecturerItem}
+                            onPress={() => handleSelectLecturer(lecturer)}
+                          >
+                            <View style={styles.lecturerInfo}>
+                              {lecturer.image_url ? (
+                                <Image
+                                  source={{ uri: lecturer.image_url }}
+                                  style={styles.lecturerAvatar}
+                                />
+                              ) : (
+                                <View style={styles.lecturerAvatarPlaceholder}>
+                                  <Text style={styles.lecturerAvatarText}>
+                                    {lecturer.name?.charAt(0).toUpperCase() || '?'}
+                                  </Text>
+                                </View>
+                              )}
+                              <View style={styles.lecturerDetails}>
+                                <Text style={styles.lecturerName}>{lecturer.name}</Text>
+                                {lecturer.email && (
+                                  <Text style={styles.lecturerEmail}>{lecturer.email}</Text>
+                                )}
+                                {lecturer.primary_role && (
+                                  <Text style={styles.lecturerRole}>
+                                    {lecturer.primary_role.replace(/_/g, ' ')}
+                                  </Text>
+                                )}
                               </View>
-                            )}
-                            <View style={styles.lecturerDetails}>
-                              <Text style={styles.lecturerName}>{lecturer.name}</Text>
-                              {lecturer.email && (
-                                <Text style={styles.lecturerEmail}>{lecturer.email}</Text>
-                              )}
-                              {lecturer.primary_role && (
-                                <Text style={styles.lecturerRole}>
-                                  {lecturer.primary_role.replace(/_/g, ' ')}
-                                </Text>
-                              )}
                             </View>
-                          </View>
-                          <Ionicons name="chevron-forward" size={20} color="#71717a" />
-                        </TouchableOpacity>
-                      ))}
+                            <Ionicons name="chevron-forward" size={20} color="#71717a" />
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
                     </View>
                   )}
                 </>
@@ -1184,14 +1262,15 @@ const styles = StyleSheet.create({
   clearLecturerButton: {
     padding: 4,
   },
-  lecturersList: {
+  lecturersListContainer: {
     marginTop: 8,
-    maxHeight: 200,
+  },
+  lecturersList: {
+    maxHeight: 300,
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderRadius: 10,
     backgroundColor: '#fff',
-    overflow: 'hidden',
   },
   lecturerItem: {
     flexDirection: 'row',
