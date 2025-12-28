@@ -20,6 +20,7 @@ import AgendaTopBar from '../components/AgendaTopBar';
 import AddEventModal from '../components/AddEventModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 interface AgendaPageProps {
   onBack?: () => void;
@@ -31,9 +32,13 @@ interface AgendaPageProps {
 const AgendaPage: React.FC<AgendaPageProps> = ({
   onBack,
   onProfileSelect,
-  onNavigate,
+  onNavigate: onNavigateProp,
   myTeam: propMyTeam,
 }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+
   const { getMyTeamMembers, isGuest } = useApi();
   const [myTeam, setMyTeam] = useState<any[]>(propMyTeam || []);
   

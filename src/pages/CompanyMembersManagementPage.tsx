@@ -12,27 +12,49 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { useRoute, useNavigation } from '@react-navigation/native';
+import { RootStackScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import { useApi } from '../contexts/ApiContext';
 import { Company, CompanyMember, CompanyMemberRole, InvitationStatus } from '../types';
 import InvitationModal from '../components/InvitationModal';
 
 interface CompanyMembersManagementPageProps {
-  company: Company;
-  currentUserId: string;
-  currentUserRole: CompanyMemberRole;
-  onBack: () => void;
+  company?: Company;
+  currentUserId?: string;
+  currentUserRole?: CompanyMemberRole;
+  onBack?: () => void;
+  showInviteModal?: boolean;
 }
 
 type TabType = 'active' | 'pending';
 
 const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> = ({
-  company,
-  currentUserId,
-  currentUserRole,
-  onBack,
+  company: companyProp,
+  currentUserId: currentUserIdProp,
+  currentUserRole: currentUserRoleProp,
+  onBack: onBackProp,
+  showInviteModal: showInviteModalProp,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'companyMembersManagement'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  const { goBack } = useAppNavigation();
+  
+  // Use props if provided (for backward compatibility), otherwise use route params or hooks
+  const onBack = onBackProp || goBack;
+  
+  // Get company from props or route params
+  const company = companyProp || routeParams?.company;
+  const currentUserId = currentUserIdProp || routeParams?.currentUserId || user?.id || '';
+  const showInviteModalInitial = showInviteModalProp || routeParams?.showInviteModal || false;
+  
   const {
+    getCompany,
+    user,
     getCompanyMembers,
+    getPendingCompanyMembers,
     addCompanyMember,
     removeCompanyMember,
     updateCompanyMemberRole,
@@ -40,13 +62,60 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
     getUsersDirect,
     api,
   } = useApi();
+  
+  // Determine user role from props, route params, or by checking members
+  const [currentUserRole, setCurrentUserRole] = useState<CompanyMemberRole>(
+    currentUserRoleProp || routeParams?.currentUserRole || 'member'
+  );
+  
+  // Fetch company if only companyId is provided
+  const [companyData, setCompanyData] = useState<Company | null>(company || null);
+  
+  useEffect(() => {
+    if (!companyData && routeParams?.companyId) {
+      // Fetch company by ID
+      getCompany(routeParams.companyId).then(response => {
+        if (response.success && response.data) {
+          setCompanyData(response.data as Company);
+        }
+      });
+    } else if (company) {
+      setCompanyData(company);
+    }
+  }, [company, routeParams?.companyId]);
+  
+  // Determine user role from members if not provided
+  useEffect(() => {
+    if (companyData && currentUserRole === 'member' && user?.id) {
+      getCompanyMembers(companyData.id, { page: 1, limit: 100 }).then(response => {
+        if (response.success && response.data) {
+          const membersArray = Array.isArray(response.data)
+            ? response.data
+            : response.data?.data || [];
+          const userMember = membersArray.find((m: CompanyMember) => m.user_id === user.id);
+          if (userMember) {
+            setCurrentUserRole(userMember.role);
+          } else if (companyData.owner?.id === user.id) {
+            setCurrentUserRole('owner');
+          }
+        }
+      });
+    }
+  }, [companyData, user?.id]);
+  
+  // Set initial invite modal state
+  useEffect(() => {
+    if (showInviteModalInitial) {
+      setShowInviteModal(true);
+    }
+  }, [showInviteModalInitial]);
 
   const [activeTab, setActiveTab] = useState<TabType>('active');
   const [activeMembers, setActiveMembers] = useState<CompanyMember[]>([]);
   const [pendingInvitations, setPendingInvitations] = useState<CompanyMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
-  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(showInviteModalInitial);
   const [editingMember, setEditingMember] = useState<CompanyMember | null>(null);
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [selectedRole, setSelectedRole] = useState<CompanyMemberRole>('member');
@@ -54,6 +123,9 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
   const isOwner = currentUserRole === 'owner';
   const isAdmin = currentUserRole === 'admin' || isOwner;
   const canManage = isAdmin; // Only admins and owners can manage
+  
+  // Use companyData instead of company
+  const activeCompany = companyData;
 
   const roles: { value: CompanyMemberRole; label: string; description: string }[] = [
     { value: 'owner', label: 'Owner', description: 'Full control of the company' },
@@ -63,126 +135,109 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
   ];
 
   useEffect(() => {
-    loadMembers();
-  }, [company.id, activeTab]);
+    if (activeCompany?.id) {
+      loadMembers();
+    }
+  }, [activeCompany?.id, activeTab]);
 
   const loadMembers = async (forceRefresh: boolean = false) => {
     try {
       setLoading(true);
       
+      if (!activeCompany?.id) return;
+      
       // Clear cache if forcing refresh
       if (forceRefresh) {
         try {
           const { rateLimiter } = await import('../utils/rateLimiter');
-          await rateLimiter.clearCacheByPattern(`company-members-${company.id}`);
-          console.log('🔄 Cleared cache for company members');
+          await rateLimiter.clearCacheByPattern(`company-members-${activeCompany.id}`);
+          await rateLimiter.clearCacheByPattern(`company-pending-members-${activeCompany.id}`);
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
         }
       }
       
-      // Backend filters by invitation_status='accepted' by default
-      // Try to get all members including pending by using different parameters
-      const response = await getCompanyMembers(company.id, {
-        page: 1,
-        limit: 100,
-        sort: 'joined_at',
-        order: 'desc',
-        // Try different parameter names the backend might support
-        include_pending: true,
-        status: 'all',
-        invitation_status: 'all',
-      });
-      
-      console.log('🔍 Requesting members with params:', {
-        include_pending: true,
-        status: 'all',
-        invitation_status: 'all',
-      });
+      // Load active members and pending members in parallel
+      const [activeResponse, pendingResponse] = await Promise.all([
+        // Load active members (accepted invitations)
+        getCompanyMembers(activeCompany.id, {
+          page: 1,
+          limit: 100,
+          sort: 'joined_at',
+          order: 'desc',
+        }),
+        // Load pending members using the new dedicated method
+        getPendingCompanyMembers(activeCompany.id, {
+          page: 1,
+          limit: 100,
+          sort: 'created_at',
+          order: 'desc',
+        }),
+      ]);
 
-      console.log('📋 Load members response:', {
-        success: response.success,
-        hasData: !!response.data,
-        dataType: typeof response.data,
-        isArray: Array.isArray(response.data),
-      });
+      // Removed verbose logging to prevent rate limiting
 
-      if (response.success && response.data) {
-        const membersArray = Array.isArray(response.data)
-          ? response.data
-          : response.data.data || response.data.members || [];
+      // Process active members
+      if (activeResponse.success && activeResponse.data) {
+        const membersArray = Array.isArray(activeResponse.data)
+          ? activeResponse.data
+          : activeResponse.data.data || activeResponse.data.members || [];
 
-        console.log('👥 Total members found:', membersArray.length);
-        console.log('📊 Members breakdown:', {
-          total: membersArray.length,
-          withStatus: membersArray.filter((m: any) => m.invitation_status).length,
-          pending: membersArray.filter((m: any) => m.invitation_status === 'pending').length,
-          accepted: membersArray.filter((m: any) => m.invitation_status === 'accepted').length,
-          noStatus: membersArray.filter((m: any) => !m.invitation_status).length,
-        });
-        
-        // Log the raw response to see what backend is actually returning
-        console.log('📦 Raw response data:', JSON.stringify(response.data, null, 2));
-        console.log('📦 Members array:', JSON.stringify(membersArray, null, 2));
-
-        // Log each member's status for debugging
-        membersArray.forEach((m: any, index: number) => {
-          console.log(`Member ${index + 1}:`, {
-            user_id: m.user_id,
-            user_name: m.user?.name || 'Unknown',
-            invitation_status: m.invitation_status || 'MISSING',
-            accepted_at: m.accepted_at || 'none',
-            rejected_at: m.rejected_at || 'none',
-            invited_at: m.invited_at || 'none',
-            joined_at: m.joined_at || 'none',
-            deleted_at: m.deleted_at || 'none',
-            role: m.role || 'MISSING',
-          });
-        });
-
-        // Filter members - handle cases where invitation_status might be missing
-        // If status is missing but there's no accepted_at, consider it pending
-        // IMPORTANT: Don't filter by role - show ALL members regardless of role
+        // Filter for accepted members only
         const accepted = membersArray.filter((m: CompanyMember) => {
           const hasAcceptedStatus = m.invitation_status === 'accepted';
           const hasAcceptedAt = !!m.accepted_at;
           const isNotDeleted = !m.deleted_at;
-          const isAccepted = (hasAcceptedStatus || hasAcceptedAt) && isNotDeleted;
-          
-          // Log if member is being filtered out
-          if (!isAccepted) {
-            console.log('⚠️ Member filtered out from accepted:', {
-              user_id: m.user_id,
-              user_name: m.user?.name || 'Unknown',
-              invitation_status: m.invitation_status,
-              accepted_at: m.accepted_at,
-              deleted_at: m.deleted_at,
-            });
-          }
-          
-          return isAccepted;
+          return (hasAcceptedStatus || hasAcceptedAt) && isNotDeleted;
         });
 
-        const pending = membersArray.filter((m: CompanyMember) => {
-          const hasPendingStatus = m.invitation_status === 'pending';
-          const hasNoAcceptedAt = !m.accepted_at;
-          const hasNoRejectedAt = !m.rejected_at;
-          const isNotDeleted = !m.deleted_at;
-          // Include if status is pending, OR if status is missing but no accepted_at/rejected_at
-          return (hasPendingStatus || (!m.invitation_status && hasNoAcceptedAt && hasNoRejectedAt)) && isNotDeleted;
-        });
-
-        console.log('✅ Filtered results:', {
-          accepted: accepted.length,
-          pending: pending.length,
-        });
-
+        // Active members loaded
         setActiveMembers(accepted);
-        setPendingInvitations(pending);
+        } else {
+          setActiveMembers([]);
+        }
+
+      // Process pending members
+      if (pendingResponse.success && pendingResponse.data) {
+        // The API returns data as an array directly in response.data, not response.data.data
+        // Check if data is an array or if it's nested in a data property
+        let pendingData: CompanyMember[] = [];
+        
+        if (Array.isArray(pendingResponse.data)) {
+          // Data is directly an array
+          pendingData = pendingResponse.data;
+        } else if (pendingResponse.data.data && Array.isArray(pendingResponse.data.data)) {
+          // Data is nested in a data property
+          pendingData = pendingResponse.data.data;
+        } else {
+          // Fallback: try to extract from any structure
+          pendingData = [];
+        }
+
+        // Set the pending invitations
+        setPendingInvitations(pendingData);
       } else {
-        console.warn('⚠️ No data in response:', response);
-        setActiveMembers([]);
-        setPendingInvitations([]);
+        // If the new endpoint is not available (404) or unauthorized (403), 
+        // fall back to filtering from getCompanyMembers
+        
+        if (activeResponse.success && activeResponse.data) {
+          const membersArray = Array.isArray(activeResponse.data)
+            ? activeResponse.data
+            : activeResponse.data.data || activeResponse.data.members || [];
+
+          const pending = membersArray.filter((m: CompanyMember) => {
+            const hasPendingStatus = m.invitation_status === 'pending';
+            const hasNoAcceptedAt = !m.accepted_at;
+            const hasNoRejectedAt = !m.rejected_at;
+            const isNotDeleted = !m.deleted_at;
+            return (hasPendingStatus || (!m.invitation_status && hasNoAcceptedAt && hasNoRejectedAt)) && isNotDeleted;
+          });
+
+          // Fallback: Pending members filtered
+          setPendingInvitations(pending);
+        } else {
+          setPendingInvitations([]);
+        }
       }
     } catch (error) {
       console.error('❌ Failed to load members:', error);
@@ -221,7 +276,8 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
           onPress: async () => {
             try {
               setProcessing(member.user_id);
-              const response = await removeCompanyMember(company.id, member.user_id);
+              if (!activeCompany?.id) return;
+              const response = await removeCompanyMember(activeCompany.id, member.user_id);
               if (response.success) {
                 Alert.alert('Success', 'Member removed successfully.');
                 await loadMembers();
@@ -257,10 +313,12 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
           onPress: async () => {
             try {
               setProcessing(invitation.user_id);
-              const response = await removeCompanyMember(company.id, invitation.user_id);
+              // Use the dedicated cancelInvitation method instead of removeCompanyMember
+              if (!activeCompany?.id) return;
+              const response = await cancelInvitation(activeCompany.id, invitation.user_id);
               if (response.success) {
                 Alert.alert('Success', 'Invitation canceled successfully.');
-                await loadMembers();
+                await loadMembers(true); // Force refresh to update the list
               } else {
                 throw new Error(response.error || 'Failed to cancel invitation');
               }
@@ -313,9 +371,10 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
     }
 
     try {
+      if (!activeCompany?.id) return;
       setProcessing(editingMember.user_id);
       const response = await updateCompanyMemberRole(
-        company.id,
+        activeCompany.id,
         editingMember.user_id,
         selectedRole
       );
@@ -470,6 +529,24 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
     );
   };
 
+  // Show loading if company is not yet loaded
+  if (!activeCompany) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Manage Members</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={{ marginTop: 16, color: '#71717a' }}>Loading company data...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -552,19 +629,18 @@ const CompanyMembersManagementPage: React.FC<CompanyMembersManagementPageProps> 
             <Ionicons name="mail-outline" size={64} color="#d1d5db" />
             <Text style={styles.emptyStateText}>No pending invitations</Text>
             <Text style={styles.emptyStateSubtext}>
-              When you invite members, they are immediately added to the company. 
-              If you need pending invitations, the backend needs to be configured to create them as pending.
+              All invitations have been processed. New invitations will appear here once sent.
             </Text>
           </View>
         )}
       </ScrollView>
 
       {/* Invitation Modal */}
-      {showInviteModal && (
+      {showInviteModal && activeCompany && (
         <InvitationModal
           visible={showInviteModal}
           onClose={() => setShowInviteModal(false)}
-          company={company}
+          company={activeCompany}
           onInvitationSent={async () => {
             // Clear cache and reload members after invitation is sent
             setShowInviteModal(false);

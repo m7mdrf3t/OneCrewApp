@@ -9,27 +9,71 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { ProjectDetailPageProps, TaskWithAssignments, ProjectMember } from '../types';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
+import { RootStackScreenProps } from '../navigation/types';
 import CreateTaskModal from '../components/CreateTaskModal';
+import ProjectDashboard from '../components/ProjectDashboard';
+import ProjectDetailsModal from '../components/ProjectDetailsModal';
 
 const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
-  project,
-  onBack,
+  project: projectProp,
+  onBack: onBackProp,
   onCreateTask,
   onUpdateTask,
   onDeleteTask,
   onAssignTask,
   onUpdateTaskStatus,
 }) => {
-  const { user } = useApi();
-  const [tasks, setTasks] = useState<TaskWithAssignments[]>(project.tasks || []);
-  const [members, setMembers] = useState<ProjectMember[]>(project.members || []);
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'projectDetail'>['route']>();
+  const navigation = useNavigation();
+  const { goBack } = useAppNavigation();
+  
+  // Get project from route params or prop
+  const project = projectProp || route.params?.project;
+  
+  // Early return if project is not available
+  if (!project) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBackProp || goBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.title}>Project</Text>
+          <View style={styles.placeholder} />
+        </View>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color="#ef4444" />
+          <Text style={styles.errorText}>Project not found</Text>
+        </View>
+      </View>
+    );
+  }
+  
+  const { user, updateProject, getProjectById } = useApi();
+  const [tasks, setTasks] = useState<TaskWithAssignments[]>(project?.tasks || []);
+  const [members, setMembers] = useState<ProjectMember[]>(project?.members || []);
+  const [currentProject, setCurrentProject] = useState(project);
+  const [showEditProjectModal, setShowEditProjectModal] = useState(false);
+  
+  // Use props if provided, otherwise use navigation hooks
+  const handleBack = onBackProp || goBack;
   const [refreshing, setRefreshing] = useState(false);
   const [showCreateTask, setShowCreateTask] = useState(false);
+  
+  // Update currentProject when project prop changes
+  useEffect(() => {
+    if (project) {
+      setCurrentProject(project);
+    }
+  }, [project]);
 
   const getUserAccessLevel = () => {
-    if (!user) return 'viewer';
+    if (!user || !project) return 'viewer';
     
     // Check if user is the owner (created_by field)
     if (project.created_by === user.id) return 'owner';
@@ -47,13 +91,34 @@ const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
   const canManage = accessLevel === 'owner';
 
   const handleRefresh = async () => {
+    if (!project?.id) return;
+    
     setRefreshing(true);
     try {
-      // Refresh project data would be handled by parent component
-      // For now, we'll just simulate a refresh
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Refresh project data from API
+      const refreshedProject = await getProjectById(project.id);
+      setCurrentProject(refreshedProject);
+      
+      // Update route params if using React Navigation
+      // Only update params if navigation is available and supports setParams
+      try {
+        if (navigation && route.params && typeof (navigation as any).setParams === 'function') {
+          const nav = navigation as any;
+          // Check if route is focused before updating params
+          if (nav.isFocused && nav.isFocused()) {
+            nav.setParams({ project: refreshedProject });
+          } else if (!nav.isFocused) {
+            // If isFocused doesn't exist, try to set params anyway (for some navigators)
+            nav.setParams({ project: refreshedProject });
+          }
+        }
+      } catch (error) {
+        // Silently fail if navigation is not available or doesn't support setParams
+        console.warn('Could not update navigation params:', error);
+      }
     } catch (error) {
       console.error('Failed to refresh project:', error);
+      Alert.alert('Error', 'Failed to refresh project data');
     } finally {
       setRefreshing(false);
     }
@@ -150,241 +215,74 @@ const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
     }
   };
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.title} numberOfLines={1}>
-          {project.title || 'Untitled Project'}
-        </Text>
-        <View style={styles.placeholder} />
-      </View>
+  // Get selectedUser and addUserToTask from route params if available
+  const routeParams = route.params as any;
+  const selectedUser = routeParams?.selectedUser;
+  const addUserToTask = routeParams?.addUserToTask || false;
 
-      <ScrollView
-        style={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+  const handleEditProjectDetails = () => {
+    setShowEditProjectModal(true);
+  };
+
+  const handleSaveProject = async (updatedProject: any) => {
+    try {
+      console.log('💾 Saving project updates:', updatedProject);
+      const response = await updateProject(updatedProject.id, updatedProject);
+      
+      if (response.success) {
+        // Update local project state
+        const refreshedProject = await getProjectById(updatedProject.id);
+        setCurrentProject(refreshedProject);
+        
+        // Update route params if using React Navigation
+        // Only update params if navigation is available and supports setParams
+        try {
+          if (navigation && route.params && typeof (navigation as any).setParams === 'function') {
+            const nav = navigation as any;
+            // Check if route is focused before updating params
+            if (nav.isFocused && nav.isFocused()) {
+              nav.setParams({ project: refreshedProject });
+            } else if (!nav.isFocused) {
+              // If isFocused doesn't exist, try to set params anyway (for some navigators)
+              nav.setParams({ project: refreshedProject });
+            }
+          }
+        } catch (error) {
+          // Silently fail if navigation is not available or doesn't support setParams
+          console.warn('Could not update navigation params:', error);
         }
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Project Info */}
-        <View style={styles.projectInfo}>
-          <View style={styles.projectHeader}>
-            <Text style={styles.projectTitle}>
-              {project.title || 'Untitled Project'}
-            </Text>
-            <View style={styles.projectBadges}>
-              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(project.status) }]}>
-                <Text style={styles.statusText}>{project.status.replace('_', ' ').toUpperCase()}</Text>
-              </View>
-              <View style={[styles.accessBadge, { backgroundColor: getAccessLevelColor(accessLevel) }]}>
-                <Text style={styles.accessText}>{getAccessLevelText(accessLevel)}</Text>
-              </View>
-            </View>
-          </View>
+        
+        Alert.alert('Success', 'Project details updated successfully');
+      } else {
+        throw new Error(response.error || 'Failed to update project');
+      }
+    } catch (error: any) {
+      console.error('❌ Failed to save project:', error);
+      Alert.alert('Error', error.message || 'Failed to update project details');
+      throw error; // Re-throw to let modal handle it
+    }
+  };
 
-          {project.description && (
-            <Text style={styles.projectDescription}>{project.description}</Text>
-          )}
-
-          <View style={styles.projectMeta}>
-            <View style={styles.metaItem}>
-              <Ionicons name="trending-up" size={16} color="#71717a" />
-              <Text style={styles.metaText}>{project.progress}% Complete</Text>
-            </View>
-            {project.start_date && (
-              <View style={styles.metaItem}>
-                <Ionicons name="calendar" size={16} color="#71717a" />
-                <Text style={styles.metaText}>
-                  {new Date(project.start_date).toLocaleDateString()}
-                </Text>
-              </View>
-            )}
-            {project.type && (
-              <View style={styles.metaItem}>
-                <Ionicons name="film" size={16} color="#71717a" />
-                <Text style={styles.metaText}>{project.type}</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Progress Bar */}
-          <View style={styles.progressContainer}>
-            <View style={styles.progressBar}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${project.progress}%` }
-                ]}
-              />
-            </View>
-            <Text style={styles.progressText}>{project.progress}%</Text>
-          </View>
-        </View>
-
-        {/* Members Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Team Members</Text>
-            <Text style={styles.sectionCount}>({members.length})</Text>
-          </View>
-          <View style={styles.membersList}>
-            {members.length > 0 ? (
-              members.map((member, index) => (
-                <View key={member.user_id} style={styles.memberItem}>
-                  <View style={styles.memberAvatar}>
-                    <Text style={styles.memberInitial}>
-                      {member.user_id.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                  <Text style={styles.memberName}>Member {index + 1}</Text>
-                </View>
-              ))
-            ) : (
-              <Text style={styles.emptyText}>No team members yet</Text>
-            )}
-          </View>
-        </View>
-
-        {/* Tasks Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Tasks</Text>
-            <Text style={styles.sectionCount}>({tasks.length})</Text>
-            {canManage && (
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => setShowCreateTask(true)}
-              >
-                <Ionicons name="add" size={20} color="#fff" />
-                <Text style={styles.addButtonText}>Add Task</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {tasks.length > 0 ? (
-            <View style={styles.tasksList}>
-              {tasks.map((task) => (
-                <View key={task.id} style={styles.taskCard}>
-                  <View style={styles.taskHeader}>
-                    <Text style={styles.taskTitle}>{task.title}</Text>
-                    <View style={[styles.taskStatus, { backgroundColor: getStatusColor(task.status) }]}>
-                      <Ionicons
-                        name={getStatusIcon(task.status)}
-                        size={12}
-                        color="#fff"
-                      />
-                      <Text style={styles.taskStatusText}>
-                        {task.status.replace('_', ' ').toUpperCase()}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {task.service && (
-                    <Text style={styles.taskService}>Service: {task.service}</Text>
-                  )}
-
-                  {task.timeline_text && (
-                    <Text style={styles.taskTimeline}>{task.timeline_text}</Text>
-                  )}
-
-                  {task.assigned_users && task.assigned_users.length > 0 && (
-                    <View style={styles.assignedUsers}>
-                      <Text style={styles.assignedLabel}>Assigned to:</Text>
-                      {task.assigned_users.map((assignment, index) => (
-                        <View key={index} style={styles.assignedUser}>
-                          <View style={styles.assignedAvatar}>
-                            <Text style={styles.assignedInitial}>
-                              {assignment.user.name.charAt(0).toUpperCase()}
-                            </Text>
-                          </View>
-                          <Text style={styles.assignedName}>{assignment.user.name}</Text>
-                          <Text style={styles.assignedRole}>({assignment.service_role})</Text>
-                        </View>
-                      ))}
-                    </View>
-                  )}
-
-                  {canManage && (
-                    <View style={styles.taskActions}>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => {/* Edit task */}}
-                      >
-                        <Ionicons name="create" size={16} color="#3b82f6" />
-                        <Text style={styles.actionText}>Edit</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => {
-                          Alert.alert(
-                            'Delete Task',
-                            `Are you sure you want to delete "${task.title}"?`,
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Delete',
-                                style: 'destructive',
-                                onPress: async () => {
-                                  try {
-                                    console.log('🗑️ Attempting to delete task:', task.id);
-                                    console.log('🔍 Task details:', {
-                                      id: task.id,
-                                      title: task.title,
-                                      projectId: project.id,
-                                      userId: user?.id,
-                                      userRole: getUserAccessLevel()
-                                    });
-                                    await onDeleteTask(task.id);
-                                    setTasks(tasks.filter(t => t.id !== task.id));
-                                    console.log('✅ Task deleted successfully');
-                                  } catch (error) {
-                                    console.error('❌ Delete task error:', error);
-                                    Alert.alert(
-                                      'Delete Failed',
-                                      `Unable to delete task "${task.title}". This appears to be a backend permission issue. As the project owner, you should be able to delete any task. Please try again or contact support.`,
-                                      [{ text: 'OK' }]
-                                    );
-                                  }
-                                },
-                              },
-                            ]
-                          );
-                        }}
-                      >
-                        <Ionicons name="trash" size={16} color="#ef4444" />
-                        <Text style={styles.actionText}>Delete</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.emptyTasks}>
-              <Ionicons name="list" size={48} color="#d4d4d8" />
-              <Text style={styles.emptyText}>No tasks yet</Text>
-              <Text style={styles.emptySubtext}>
-                {canManage ? 'Add your first task to get started' : 'Tasks will appear here when added'}
-              </Text>
-            </View>
-          )}
-        </View>
-      </ScrollView>
-
-      {/* Create Task Modal */}
-    <CreateTaskModal
-      visible={showCreateTask}
-      onClose={() => setShowCreateTask(false)}
-      onSubmit={handleCreateTask}
-      projectMembers={members}
-      editingTask={undefined}
-      projectId={project.id}
-    />
-    </View>
+  // Use ProjectDashboard component to render the project details
+  return (
+    <>
+      <ProjectDashboard
+        project={currentProject || project}
+        onBack={handleBack}
+        onEditProjectDetails={handleEditProjectDetails}
+        onRefreshProject={handleRefresh}
+        selectedUser={selectedUser}
+        addUserToTask={addUserToTask}
+      />
+      
+      {/* Edit Project Details Modal */}
+      <ProjectDetailsModal
+        visible={showEditProjectModal}
+        onClose={() => setShowEditProjectModal(false)}
+        project={currentProject || project}
+        onSave={handleSaveProject}
+      />
+    </>
   );
 };
 
@@ -684,6 +582,18 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     marginTop: 4,
     textAlign: 'center',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#ef4444',
+    textAlign: 'center',
+    marginTop: 16,
   },
 });
 

@@ -1,31 +1,34 @@
 import { Platform } from 'react-native';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
 
-// Dynamically import GoogleSignin to handle cases where native module isn't available
+// Native Google Sign-In SDK
 let GoogleSignin: any;
 let statusCodes: any;
 let isInitialized = false;
+let supabaseClient: SupabaseClient | null = null;
 
 try {
   const googleSignInModule = require('@react-native-google-signin/google-signin');
   GoogleSignin = googleSignInModule.GoogleSignin;
   statusCodes = googleSignInModule.statusCodes;
 } catch (error) {
-  console.warn('⚠️ Google Sign-In native module not available. Rebuild the app after installing the package.');
+  console.warn('⚠️ Google Sign-In native module not available.');
   GoogleSignin = null;
   statusCodes = null;
 }
 
-// Web Client ID (for backend verification)
-// This is the one provided by the backend team
+// NOTE: These Client IDs are used for the native Google Sign-In SDK
+
+// Web Client ID (required for backend verification and Android)
+// This should match the Web Client ID configured in your backend
 const WEB_CLIENT_ID = '309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj.apps.googleusercontent.com';
 
-// iOS Client ID - needs to be created in Google Cloud Console
-// TODO: Replace with actual iOS Client ID once created in Google Cloud Console
+// iOS Client ID - for native SDK on iOS
 // Format: XXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com
 const IOS_CLIENT_ID = '309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj.apps.googleusercontent.com';
 
-// Android Client ID - needs to be created in Google Cloud Console
-// TODO: Replace with actual Android Client ID once created in Google Cloud Console
+// Android Client ID - for native SDK on Android
 // Format: XXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com
 const ANDROID_CLIENT_ID = 'YOUR_ANDROID_CLIENT_ID_HERE.apps.googleusercontent.com';
 
@@ -90,99 +93,112 @@ export const initializeGoogleSignIn = async () => {
 };
 
 /**
- * Sign in with Google and return the ID token
- * @returns Promise<string> - The Google ID token
+ * Initialize Supabase client for token exchange
+ */
+const getSupabaseClient = (): SupabaseClient => {
+  if (supabaseClient) {
+    return supabaseClient;
+  }
+
+  const supabaseUrl = 
+    Constants.expoConfig?.extra?.supabaseUrl || 
+    process.env.SUPABASE_URL || 
+    '';
+  const supabaseAnonKey = 
+    Constants.expoConfig?.extra?.supabaseAnonKey || 
+    process.env.SUPABASE_ANON_KEY || 
+    '';
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Supabase URL or Anon Key not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY in app.json or environment variables.');
+  }
+
+  supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+  return supabaseClient;
+};
+
+/**
+ * Sign in with Google using native SDK (in-app authentication)
+ * This method uses the native Google Sign-In SDK which provides in-app authentication,
+ * then exchanges the Google ID token with Supabase to get a Supabase access token
+ * @returns Promise<string> - The Supabase access token
  */
 export const signInWithGoogle = async (): Promise<string> => {
   try {
+    console.log('🔐 Starting Google Sign-In with native SDK...');
+    
     // Check if native module is available
     if (!GoogleSignin) {
-      const errorMsg = 'Google Sign-In native module not available. Please rebuild the app: npx expo run:ios or npx expo run:android';
-      console.error('❌', errorMsg);
-      throw new Error(errorMsg);
+      throw new Error('Google Sign-In native module not available. Please rebuild the app using "npx expo run:ios" or "npx expo run:android".');
     }
 
-    // Ensure Google Sign-In is initialized
+    // Check if initialized
     if (!isInitialized) {
-      console.warn('⚠️ Google Sign-In not initialized yet. Initializing now...');
+      console.warn('⚠️ Google Sign-In not initialized, initializing now...');
       await initializeGoogleSignIn();
       if (!isInitialized) {
-        throw new Error('Failed to initialize Google Sign-In. Please try again.');
+        throw new Error('Failed to initialize Google Sign-In. Please check your configuration.');
       }
     }
 
-    // Ensure Google Sign-In is configured before attempting sign-in
-    // This is especially important on iOS where configuration might not persist
+    // Check if user is already signed in (using getCurrentUser instead of isSignedIn)
     try {
-      // Re-configure to ensure it's set up correctly
-      const config: any = {
-        webClientId: WEB_CLIENT_ID,
-        offlineAccess: true,
-        forceCodeForRefreshToken: true,
-        scopes: ['email', 'profile'],
-      };
-
-      if (Platform.OS === 'ios') {
-        const iosClientIdToUse = IOS_CLIENT_ID.includes('YOUR_IOS_CLIENT_ID_HERE') 
-          ? WEB_CLIENT_ID 
-          : IOS_CLIENT_ID;
-        if (iosClientIdToUse) {
-          config.iosClientId = iosClientIdToUse;
+      const currentUser = await GoogleSignin.getCurrentUser();
+      if (currentUser) {
+        console.log('📋 User already signed in, signing out first...');
+        try {
+          await GoogleSignin.signOut(); // Sign out first to ensure fresh sign-in
+        } catch (signOutError) {
+          console.warn('⚠️ Error signing out previous session:', signOutError);
         }
       }
-
-      GoogleSignin.configure(config);
-      console.log('✅ Google Sign-In re-configured before sign-in');
-    } catch (configError: any) {
-      console.warn('⚠️ Failed to re-configure Google Sign-In:', configError);
-      // Continue anyway - it might already be configured
+    } catch (checkError) {
+      // If getCurrentUser fails, it means no user is signed in - that's fine, continue
+      console.log('📋 No existing Google session found, proceeding with sign-in...');
     }
 
-    // Check if Google Play Services are available (Android only)
-    if (Platform.OS === 'android') {
-      try {
-        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      } catch (playServicesError: any) {
-        console.warn('Google Play Services check failed:', playServicesError);
-        // Continue anyway - the sign-in will fail with a clearer error if needed
-      }
-    }
+    // Step 1: Sign in with Google using native SDK (in-app)
+    console.log('🔄 Requesting Google Sign-In via native SDK...');
+    const userInfo = await GoogleSignin.signIn();
 
-    // Sign in - wrap in try-catch to handle native crashes gracefully
-    let userInfo;
-    try {
-      // Use a timeout to prevent hanging on iOS
-      const signInPromise = GoogleSignin.signIn();
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Google Sign-In timed out after 30 seconds')), 30000);
-      });
-      
-      userInfo = await Promise.race([signInPromise, timeoutPromise]) as any;
-    } catch (signInError: any) {
-      console.error('❌ GoogleSignin.signIn() threw error:', signInError);
-      
-      // Handle specific error codes
-      if (statusCodes) {
-        if (signInError?.code === statusCodes.SIGN_IN_CANCELLED) {
-          throw new Error('Sign in was cancelled');
-        } else if (signInError?.code === statusCodes.IN_PROGRESS) {
-          throw new Error('Sign in is already in progress');
-        } else if (signInError?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-          throw new Error('Google Play Services not available or outdated');
-        }
-      }
-      
-      // Re-throw with more context
-      const errorMessage = signInError?.message || signInError?.toString() || 'Google Sign-In failed';
-      throw new Error(errorMessage);
-    }
-    
-    if (!userInfo || !userInfo.idToken) {
-      throw new Error('No ID token received from Google Sign-In');
+    if (!userInfo) {
+      throw new Error('No user info returned from Google Sign-In');
     }
 
     console.log('✅ Google Sign-In successful');
-    return userInfo.idToken;
+    console.log('📋 User info:', {
+      id: userInfo.data?.user?.id,
+      email: userInfo.data?.user?.email,
+      name: userInfo.data?.user?.name,
+      hasIdToken: !!userInfo.data?.idToken,
+    });
+
+    // Get the ID token
+    const idToken = userInfo.data?.idToken;
+    if (!idToken) {
+      throw new Error('No ID token received from Google Sign-In. Please ensure the Google Sign-In SDK is properly configured.');
+    }
+
+    console.log('✅ Google ID token received, exchanging with Supabase...');
+    
+    // Step 2: Exchange Google ID token for Supabase access token
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.auth.signInWithIdToken({
+      provider: 'google',
+      token: idToken,
+    });
+
+    if (error) {
+      console.error('❌ Supabase token exchange error:', error);
+      throw new Error(error.message || 'Failed to authenticate with Supabase');
+    }
+
+    if (!data.session || !data.session.access_token) {
+      throw new Error('No access token received from Supabase');
+    }
+
+    console.log('✅ Supabase authentication successful, access token received');
+    return data.session.access_token;
   } catch (error: any) {
     console.error('❌ Google Sign-In error:', error);
     console.error('Error details:', {
@@ -193,8 +209,23 @@ export const signInWithGoogle = async (): Promise<string> => {
       stack: error?.stack,
     });
 
-    // Don't throw if user cancelled - this is expected behavior
-    if (statusCodes && error?.code === statusCodes.SIGN_IN_CANCELLED) {
+    // Handle specific error codes
+    if (statusCodes) {
+      if (error?.code === statusCodes.SIGN_IN_CANCELLED) {
+        throw new Error('Sign in was cancelled');
+      }
+      if (error?.code === statusCodes.IN_PROGRESS) {
+        throw new Error('Sign in is already in progress');
+      }
+      if (error?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        throw new Error('Google Play Services is not available. Please install Google Play Services on your device.');
+      }
+    }
+
+    // Check if user cancelled
+    if (error?.message?.toLowerCase().includes('cancelled') || 
+        error?.message?.toLowerCase().includes('canceled') ||
+        error?.code === 'SIGN_IN_CANCELLED') {
       throw new Error('Sign in was cancelled');
     }
     
@@ -229,7 +260,9 @@ export const isSignedIn = async (): Promise<boolean> => {
     if (!GoogleSignin) {
       return false;
     }
-    return await GoogleSignin.isSignedIn();
+    // Use getCurrentUser to check if signed in (more reliable than isSignedIn method)
+    const currentUser = await GoogleSignin.getCurrentUser();
+    return currentUser !== null;
   } catch (error) {
     console.error('❌ Error checking Google Sign-In status:', error);
     return false;

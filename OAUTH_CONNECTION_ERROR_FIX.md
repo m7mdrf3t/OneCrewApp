@@ -1,0 +1,174 @@
+# OAuth Connection Error Fix
+
+## Error: "Safari can't open the page because it couldn't connect to the server"
+
+This error occurs when Safari cannot connect to the OAuth server. This is usually a configuration issue in Supabase.
+
+## Common Causes
+
+1. **Google OAuth not enabled in Supabase**
+2. **Missing Client Secret in Supabase**
+3. **Invalid Supabase URL**
+4. **Network connectivity issues**
+5. **Supabase project is paused or unavailable**
+
+## Step-by-Step Fix
+
+### 1. Verify Supabase Project Status
+
+1. Go to [Supabase Dashboard](https://supabase.com/dashboard)
+2. Check if your project `uwdzkrferlogqasrxcve` is active
+3. If paused, click "Restore" to reactivate it
+4. Wait a few minutes for the project to be fully available
+
+### 2. Verify Supabase URL
+
+Check that your Supabase URL is correct in `app.json`:
+```json
+"supabaseUrl": "https://uwdzkrferlogqasrxcve.supabase.co"
+```
+
+Test the URL in a browser:
+- Open: `https://uwdzkrferlogqasrxcve.supabase.co`
+- You should see a Supabase API response (not an error)
+
+### 3. Verify Google OAuth Configuration
+
+1. Go to Supabase Dashboard → **Authentication** → **Providers** → **Google**
+2. Verify:
+   - ✅ **Enable Google provider** is ON (green toggle)
+   - ✅ **Client ID** is filled: `309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj.apps.googleusercontent.com`
+   - ✅ **Client Secret** is filled (shows as "••••••••")
+3. If any are missing, see `SUPABASE_GOOGLE_OAUTH_SETUP.md`
+
+### 4. Check Supabase Logs
+
+1. Go to Supabase Dashboard → **Logs** → **API Logs**
+2. Look for errors when you try to sign in
+3. Common errors:
+   - "Unsupported provider: missing OAuth secret" → Add Client Secret
+   - "Invalid redirect URI" → Add redirect URLs
+   - "Provider not enabled" → Enable Google provider
+
+### 5. Test OAuth URL Manually
+
+The OAuth URL should look like:
+```
+https://uwdzkrferlogqasrxcve.supabase.co/auth/v1/authorize?provider=google&...
+```
+
+If you see this URL in the logs, try opening it manually in Safari to see the exact error.
+
+### 6. Verify Network Connectivity
+
+1. Check your device's internet connection
+2. Try opening `https://accounts.google.com` in Safari
+3. If Google is unreachable, it's a network issue
+
+### 7. Check Console Logs
+
+When you try to sign in, check the console logs for:
+- `🔧 Supabase URL:` - Should show the correct URL
+- `🌐 OAuth URL received from Supabase:` - Should show a valid URL
+- `✅ OAuth URL is valid:` - Should show the hostname
+
+If any of these are missing or show errors, that's the issue.
+
+## Quick Checklist
+
+- [ ] Supabase project is active (not paused)
+- [ ] Supabase URL is correct in `app.json`
+- [ ] Supabase URL is accessible (test in browser)
+- [ ] Google OAuth provider is enabled in Supabase
+- [ ] Client ID is configured in Supabase
+- [ ] Client Secret is configured in Supabase
+- [ ] Redirect URLs are added in Supabase
+- [ ] Device has internet connection
+- [ ] Checked Supabase API logs for errors
+- [ ] Checked console logs for OAuth URL
+
+## Debugging Steps
+
+### Step 1: Check Console Logs
+
+When you try to sign in, look for these logs:
+```
+🔐 Starting Google Sign-In with Supabase OAuth...
+🔧 Supabase URL: https://uwdzkrferlogqasrxcve.supabase.co
+📱 Using redirect URL: com.minaezzat.onesteps://oauth/callback
+🌐 OAuth URL received from Supabase: [URL]
+✅ OAuth URL is valid: [hostname]
+🌐 Opening OAuth URL in browser...
+```
+
+If any step fails, that's where the issue is.
+
+### Step 2: Test Supabase Connection
+
+Run this in your terminal to test Supabase:
+```bash
+curl https://uwdzkrferlogqasrxcve.supabase.co/auth/v1/health
+```
+
+Should return a health check response.
+
+### Step 3: Test OAuth Endpoint
+
+Try accessing the OAuth endpoint directly:
+```bash
+curl "https://uwdzkrferlogqasrxcve.supabase.co/auth/v1/authorize?provider=google"
+```
+
+Should redirect or show an error message (not connection error).
+
+## Common Solutions
+
+### Solution 1: Re-enable Google OAuth
+
+1. Go to Supabase Dashboard → Authentication → Providers → Google
+2. Toggle OFF, then ON again
+3. Save
+4. Wait 10 seconds
+5. Try again
+
+### Solution 2: Re-add Client Secret
+
+1. Get Client Secret from Google Cloud Console
+2. Go to Supabase Dashboard → Authentication → Providers → Google
+3. Delete the existing Client Secret
+4. Add it again
+5. Save
+6. Try again
+
+### Solution 3: Check Supabase Project Status
+
+1. Go to Supabase Dashboard
+2. Check project status
+3. If paused, restore it
+4. Wait for project to be fully available
+
+### Solution 4: Verify URL in Code
+
+Make sure `app.json` has the correct Supabase URL:
+```json
+"supabaseUrl": "https://uwdzkrferlogqasrxcve.supabase.co"
+```
+
+## Still Having Issues?
+
+1. **Check Supabase Status Page**: https://status.supabase.com/
+2. **Check Supabase Logs**: Dashboard → Logs → API Logs
+3. **Try from a different network**: Might be a firewall issue
+4. **Contact Supabase Support**: If project is inaccessible
+
+## Important Notes
+
+- The OAuth URL is generated by Supabase, not your app
+- If Supabase can't generate the URL, it's a Supabase configuration issue
+- The error "couldn't connect to the server" usually means:
+  - Supabase project is paused
+  - Google OAuth is not configured
+  - Invalid Supabase URL
+  - Network connectivity issue
+
+

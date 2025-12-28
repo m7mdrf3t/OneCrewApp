@@ -67,14 +67,14 @@ export interface HomePageProps {
 }
 
 export interface ProjectsPageProps {
-  onProjectSelect: (project: any) => void;
-  onAddNewProject: () => void;
-  onAddNewProjectEasy: () => void;
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
-  onBack: () => void;
-  myTeam: any[];
-  onProfileSelect: (profile: any) => void;
+  onProjectSelect?: (project: any) => void;
+  onAddNewProject?: () => void;
+  onAddNewProjectEasy?: () => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
+  onBack?: () => void;
+  myTeam?: any[];
+  onProfileSelect?: (profile: any) => void;
   onNavigateToProjectDetail?: (project: any) => void;
   onRefresh?: () => void;
   onNavigateToSignup?: () => void;
@@ -86,10 +86,10 @@ export interface ProfileDetailPageProps {
   profile: any;
   onBack: () => void;
   onAssignToProject: (profile: any) => void;
-  onAddToTeam: (profile: any) => void;
-  myTeam: any[];
-  onStartChat: (profile: any) => void;
-  onMediaSelect: (media: any) => void;
+  onAddToTeam?: (profile: any) => void;
+  myTeam?: any[];
+  onStartChat?: (profile: any) => void;
+  onMediaSelect?: (media: any) => void;
   isCurrentUser?: boolean;
 }
 
@@ -113,7 +113,8 @@ export type TaskAssignmentStatus = 'pending' | 'accepted' | 'rejected';
 export interface TaskAssignment {
   id: string;
   task_id: string;
-  user_id: string;
+  user_id: string | null;
+  company_id: string | null;
   service_role: string;
   assigned_at: string;
   assigned_by: string;
@@ -126,6 +127,12 @@ export interface TaskAssignment {
     image_url?: string;
     primary_role?: string;
   };
+  company?: {
+    id: string;
+    name: string;
+    logo_url?: string;
+  };
+  assignment_type?: 'user' | 'company';
 }
 
 export interface TaskWithAssignments extends Task {
@@ -192,7 +199,7 @@ export interface ConvertGuestToUserRequest {
 }
 
 export interface GoogleAuthRequest {
-  idToken: string;
+  accessToken: string; // Supabase access token (changed from idToken)
   category?: 'crew' | 'talent' | 'company';
   primary_role?: string;
 }
@@ -246,7 +253,8 @@ export interface UpdateTaskRequest {
 }
 
 export interface AssignTaskServiceRequest {
-  user_id: string;
+  user_id?: string;
+  company_id?: string;
   service_role: string;
 }
 
@@ -917,8 +925,8 @@ export interface SendChatMessageRequest {
 
 // Chat UI Component Props
 export interface ConversationsListPageProps {
-  onBack: () => void;
-  onConversationSelect: (conversation: ChatConversation) => void;
+  onBack?: () => void;
+  onConversationSelect?: (conversation: ChatConversation) => void;
 }
 
 export interface ChatPageProps {

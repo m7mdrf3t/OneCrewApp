@@ -35,6 +35,9 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
   const [customRoleInput, setCustomRoleInput] = useState('');
   const [isCustomRoleMode, setIsCustomRoleMode] = useState(false);
   const [rolesLoading, setRolesLoading] = useState(true);
+  // Store role objects to access code field
+  const [crewRolesData, setCrewRolesData] = useState<any[]>([]);
+  const [talentRolesData, setTalentRolesData] = useState<any[]>([]);
 
   const categories = [
     { key: 'crew', label: 'Crew Member', icon: 'people' },
@@ -77,6 +80,16 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
           return Array.from(new Set(normalized)).sort();
         };
 
+        // Store full role objects to access code field
+        const storeRolesData = (data: any, category: 'crew' | 'talent') => {
+          const rolesData = Array.isArray(data) ? data : [];
+          if (category === 'crew') {
+            setCrewRolesData(rolesData);
+          } else {
+            setTalentRolesData(rolesData);
+          }
+        };
+
         // Prefer server-driven categories (dynamic)
         // Use allSettled so a missing `custom` endpoint doesn't break crew/talent loads.
         const [crewResResult, talentResResult, customResResult] = await Promise.allSettled([
@@ -93,6 +106,14 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
         const talentFromApi = talentRes?.success ? normalizeRoles(talentRes.data) : [];
         const customFromApi = customRes?.success ? normalizeRoles(customRes.data) : [];
         setCustomRoles(customFromApi);
+
+        // Store full role objects to access code field
+        if (crewRes?.success && Array.isArray(crewRes.data)) {
+          storeRolesData(crewRes.data, 'crew');
+        }
+        if (talentRes?.success && Array.isArray(talentRes.data)) {
+          storeRolesData(talentRes.data, 'talent');
+        }
 
         // If backend returns anything for the category calls, trust it (this is what makes roles truly dynamic)
         if (crewFromApi.length > 0 || talentFromApi.length > 0) {
@@ -166,14 +187,36 @@ const CategorySelectionModal: React.FC<CategorySelectionModalProps> = ({
     : Boolean(selectedRole);
 
   const handleContinue = () => {
-    const roleToSubmit = isCustomRoleMode
-      ? (normalizeRoleInput(customRoleInput) || selectedRole)
-      : selectedRole;
+    let roleToSubmit: string | undefined;
+    
+    if (isCustomRoleMode) {
+      roleToSubmit = normalizeRoleInput(customRoleInput) || selectedRole;
+    } else {
+      // Try to find the role code from stored role data
+      const rolesData = selectedCategory === 'crew' ? crewRolesData : talentRolesData;
+      const roleObj = rolesData.find((r: any) => {
+        const roleName = typeof r === 'string' ? r : (r?.name || '');
+        const normalized = roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        return normalized === selectedRole;
+      });
+      
+      // Use code if available, otherwise fall back to normalized name
+      if (roleObj && typeof roleObj === 'object' && roleObj.code) {
+        roleToSubmit = roleObj.code;
+      } else if (roleObj && typeof roleObj === 'object' && roleObj.name) {
+        // Fallback: normalize the name
+        roleToSubmit = roleObj.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      } else {
+        roleToSubmit = selectedRole;
+      }
+    }
 
     if (!roleToSubmit) {
       Alert.alert('Role Required', 'Please select your primary role to continue.');
       return;
     }
+    
+    console.log('📋 Submitting role:', { selectedRole, roleToSubmit, selectedCategory });
     onSelect(selectedCategory, roleToSubmit);
   };
 

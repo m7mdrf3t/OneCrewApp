@@ -11,6 +11,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useRoute, useNavigation } from '@react-navigation/native';
+import { RootStackScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import { useApi } from '../contexts/ApiContext';
 import { ConversationsListPageProps, ChatConversation, ChatParticipant } from '../types';
 import supabaseService from '../services/SupabaseService';
@@ -21,9 +24,27 @@ import SkeletonConversationItem from '../components/SkeletonConversationItem';
 const FlashListUnsafe: React.ComponentType<any> = FlashList as any;
 
 const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
-  onBack,
-  onConversationSelect,
+  onBack: onBackProp,
+  onConversationSelect: onConversationSelectProp,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'conversations'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  const { navigateTo, goBack } = useAppNavigation();
+  
+  // Use props if provided (for backward compatibility), otherwise use navigation hooks
+  const onBack = onBackProp || goBack;
+  
+  // Create default handler that navigates to chat page when onConversationSelect is not provided
+  const handleConversationSelect = useCallback((conversation: ChatConversation) => {
+    if (onConversationSelectProp) {
+      onConversationSelectProp(conversation);
+    } else if (navigateTo) {
+      // Navigate to chat page with conversation ID
+      navigateTo('chat', { conversationId: conversation.id });
+    }
+  }, [onConversationSelectProp, navigateTo]);
   const { getConversations, getConversationById, user, currentProfileType, activeCompany } = useApi();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
@@ -416,7 +437,11 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     return (
       <TouchableOpacity
         style={styles.conversationItem}
-        onPress={() => onSelect(conversationData)}
+        onPress={() => {
+          if (onSelect) {
+            onSelect(conversationData);
+          }
+        }}
         activeOpacity={0.7}
       >
         <View style={styles.avatarContainer}>
@@ -503,8 +528,8 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   });
 
   const renderConversationItem = useCallback(({ item }: { item: ChatConversation }) => {
-    return <ConversationItem item={item} onSelect={onConversationSelect} />;
-  }, [onConversationSelect]);
+    return <ConversationItem item={item} onSelect={handleConversationSelect} />;
+  }, [handleConversationSelect]);
 
   const renderEmptyState = () => {
     if (loading) return null;

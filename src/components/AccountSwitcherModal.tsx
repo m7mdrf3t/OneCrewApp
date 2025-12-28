@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import { rateLimiter } from '../utils/rateLimiter';
 import { spacing, semanticSpacing } from '../constants/spacing';
 
@@ -26,8 +27,13 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
   visible,
   onClose,
   onCreateCompany,
-  onNavigate,
+  onNavigate: onNavigateProp,
 }) => {
+  const { navigateTo, replaceTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  // For profile switching, use replaceTo to prevent back navigation to previous profile
+  const onNavigate = onNavigateProp || navigateTo;
+
   const {
     user,
     activeCompany,
@@ -60,14 +66,8 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
     try {
       setLoading(true);
       
-      // Clear cache if force refresh is requested
-      if (forceRefresh) {
-        const cacheKey = `user-companies-${user.id}`;
-        await rateLimiter.clearCache(cacheKey);
-        console.log('🔄 Force refresh: Cleared cache for user companies');
-      }
-      
-      const response = await getUserCompanies(user.id);
+      // Use forceRefresh parameter to bypass cache
+      const response = await getUserCompanies(user.id, forceRefresh);
       if (response.success && response.data) {
         const companiesList = Array.isArray(response.data)
           ? response.data
@@ -124,9 +124,12 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
       if (currentProfileType !== 'user') {
         await switchToUserProfile();
       }
-      // Navigate to profile page
-      if (onNavigate) {
-        onNavigate('myProfile');
+      // Replace current screen instead of navigating to prevent back navigation to previous profile
+      if (onNavigateProp) {
+        // If custom navigate function provided, use it (but ideally should also use replace)
+        onNavigateProp('myProfile');
+      } else {
+        replaceTo('myProfile');
       }
       onClose();
     } catch (error) {
@@ -144,9 +147,12 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
     try {
       setSwitching(companyId);
       await switchToCompanyProfile(companyId);
-      // Navigate to company profile page after switching
-      if (onNavigate) {
-        onNavigate('companyProfile', { companyId });
+      // Replace current screen instead of navigating to prevent back navigation to previous profile
+      if (onNavigateProp) {
+        // If custom navigate function provided, use it (but ideally should also use replace)
+        onNavigateProp('companyProfile', { companyId });
+      } else {
+        replaceTo('companyProfile', { companyId });
       }
       onClose();
     } catch (error) {

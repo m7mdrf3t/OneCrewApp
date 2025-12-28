@@ -11,10 +11,13 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { useApi } from '../contexts/ApiContext';
 import ProfileCompletionGate from '../components/ProfileCompletionGate';
 import { getMimeTypeFromFileName, isHeicFile } from '../utils/fileUtils';
+import { RootStackScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import {
   CompanySubcategory,
   CompanyDocumentType,
@@ -24,7 +27,7 @@ import {
 } from '../types';
 
 interface CompanyRegistrationPageProps {
-  onBack: () => void;
+  onBack?: () => void;
   onSuccess?: (companyId: string) => void;
   onNavigateToProfile?: () => void;
 }
@@ -54,10 +57,18 @@ interface DocumentUpload {
 }
 
 const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
-  onBack,
+  onBack: onBackProp,
   onSuccess,
   onNavigateToProfile,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'companyRegistration'>['route']>();
+  const navigation = useNavigation();
+  const { goBack } = useAppNavigation();
+  
+  // Use prop if provided (for backward compatibility), otherwise use navigation hook
+  const onBack = onBackProp || goBack;
+
   const {
     getCompanyTypes,
     getCompanyType,

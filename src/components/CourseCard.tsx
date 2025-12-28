@@ -112,7 +112,14 @@ const CourseCard: React.FC<CourseCardProps> = ({
   return (
     <TouchableOpacity
       style={getContainerStyle()}
-      onPress={onSelect}
+      onPress={() => {
+        console.log('🔍 [CourseCard] Card pressed, onSelect:', typeof onSelect);
+        if (onSelect) {
+          onSelect();
+        } else {
+          console.warn('⚠️ [CourseCard] onSelect is not defined!');
+        }
+      }}
       activeOpacity={0.8}
     >
       {/* Background - Image or Category Acronym */}

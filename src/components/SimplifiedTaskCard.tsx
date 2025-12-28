@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { useApi } from '../contexts/ApiContext';
 import DatePicker from './DatePicker';
 import { spacing, semanticSpacing } from '../constants/spacing';
+import { categorizeRole, getRoleName } from '../utils/roleCategorizer';
 
 interface SimplifiedTaskCardProps {
   projectId: string;
@@ -31,6 +32,7 @@ interface Assignment {
   id: string;
   service: any;
   user: any;
+  company?: any;
   status?: 'pending' | 'accepted' | 'rejected';
 }
 
@@ -51,7 +53,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
     existingTaskId: existingTask?.id
   });
   
-  const { user, getRoles, getUsersByRole, createTask, assignTaskService, deleteTaskAssignment, updateTaskAssignmentStatus, updateTask, deleteTask, getProjectTasks, getProjectById, getTaskAssignments } = useApi();
+  const { user, getRoles, getUsersByRole, getCompanies, createTask, assignTaskService, deleteTaskAssignment, updateTaskAssignmentStatus, updateTask, deleteTask, getProjectTasks, getProjectById, getTaskAssignments } = useApi();
   
   // Check if current user is project owner
   const isProjectOwner = project?.created_by === user?.id;
@@ -135,12 +137,33 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       const initialAssignments = existingTask.assignments.map((assignment: any) => {
         const status = assignment.status || 'pending';
         console.log(`📋 Initial state: Assignment ${assignment.id}: status="${status}" (from assignment.status="${assignment.status}")`);
+        
+        // Extract company with proper name handling
+        // Prioritize company_id - if it exists, this is a company assignment
+        let company = null;
+        if (assignment.company) {
+          company = {
+            ...assignment.company,
+            id: assignment.company.id || assignment.company_id,
+            name: assignment.company.name || 'Unknown Company',
+          };
+          console.log(`🏢 Assignment ${assignment.id}: Company extracted:`, { id: company.id, name: company.name, hasName: !!company.name });
+        } else if (assignment.company_id) {
+          // Company ID exists but no company object - create placeholder
+          // The display logic will prioritize this over user
+          company = { id: assignment.company_id, name: 'Unknown Company' };
+          console.log(`🏢 Assignment ${assignment.id}: Company ID only (${assignment.company_id}), no company object - will show as company assignment`);
+        }
+        
         return {
           id: assignment.id || Date.now().toString(),
           service: assignment.service || { name: assignment.service_role || 'Unknown' },
-          user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+          user: assignment.user || (assignment.user_id ? { id: assignment.user_id, name: assignment.user?.name || 'Unknown' } : null),
+          company: company,
           status: status, // CRITICAL: Preserve status from existingTask
-        };
+          // Preserve company_id for display logic (so we can check it even if company object is missing)
+          company_id: assignment.company_id || (company ? company.id : null),
+        } as any;
       });
       console.log('📋 Initial assignments state:', initialAssignments.map((a: Assignment) => ({ id: a.id, status: a.status })));
       return initialAssignments;
@@ -166,12 +189,33 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       const syncedAssignments = existingTask.assignments.map((assignment: any) => {
         const status = assignment.status || 'pending';
         console.log(`📋 Extracting assignment ${assignment.id}: status="${status}" (from assignment.status="${assignment.status}")`);
+        
+        // Extract company with proper name handling
+        // Prioritize company_id - if it exists, this is a company assignment
+        let company = null;
+        if (assignment.company) {
+          company = {
+            ...assignment.company,
+            id: assignment.company.id || assignment.company_id,
+            name: assignment.company.name || 'Unknown Company',
+          };
+          console.log(`🏢 Assignment ${assignment.id}: Company extracted:`, { id: company.id, name: company.name, hasName: !!company.name });
+        } else if (assignment.company_id) {
+          // Company ID exists but no company object - create placeholder
+          // The display logic will prioritize this over user
+          company = { id: assignment.company_id, name: 'Unknown Company' };
+          console.log(`🏢 Assignment ${assignment.id}: Company ID only (${assignment.company_id}), no company object - will show as company assignment`);
+        }
+        
         return {
           id: assignment.id || Date.now().toString(),
           service: assignment.service || { name: assignment.service_role || 'Unknown' },
-          user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+          user: assignment.user || (assignment.user_id ? { id: assignment.user_id, name: assignment.user?.name || 'Unknown' } : null),
+          company: company,
           status: status, // CRITICAL: Preserve status from backend
-        };
+          // Preserve company_id for display logic (so we can check it even if company object is missing)
+          company_id: assignment.company_id || (company ? company.id : null),
+        } as any;
       });
       
       // Check if assignments have changed (by comparing IDs and statuses)
@@ -217,11 +261,18 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   const [taskStartDate, setTaskStartDate] = useState<string>('');
   const [taskEndDate, setTaskEndDate] = useState<string>('');
   const [selectedService, setSelectedService] = useState<any>(null);
+  const [selectedCompany, setSelectedCompany] = useState<any>(null);
   const [availableServices, setAvailableServices] = useState<any[]>([]);
   const [availableUsers, setAvailableUsers] = useState<any[]>([]);
+  const [availableCompanies, setAvailableCompanies] = useState<any[]>([]);
   const [isLoadingServices, setIsLoadingServices] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [isLoadingCompanies, setIsLoadingCompanies] = useState(false);
+  const [showCompaniesInServiceList, setShowCompaniesInServiceList] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<'crew' | 'talent' | 'custom' | null>(null);
+  const [crewRoles, setCrewRoles] = useState<any[]>([]);
+  const [talentRoles, setTalentRoles] = useState<any[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null);
   const [savedTaskId, setSavedTaskId] = useState<string | null>(existingTask?.id || null);
@@ -249,8 +300,27 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   useEffect(() => {
     console.log('👤 preSelectedUser state updated:', preSelectedUser ? { id: preSelectedUser.id, name: preSelectedUser.name } : null);
   }, [preSelectedUser]);
+  // Use ref to persist expanded state across re-renders
+  const isExpandedRef = useRef<boolean>(true); // Card is expanded by default
   const [isExpanded, setIsExpanded] = useState(true); // Card is expanded by default
+  
+  // Sync ref with state
+  const setExpandedState = (expanded: boolean) => {
+    isExpandedRef.current = expanded;
+    setIsExpanded(expanded);
+  };
+  
   const swipeableRefs = useRef<{ [key: string]: Swipeable | null }>({});
+  
+  // Preserve expanded state when task updates (don't collapse on assignment changes)
+  useEffect(() => {
+    // Only initialize expanded state if it hasn't been set yet
+    // Otherwise preserve the current expanded state
+    if (isExpandedRef.current !== isExpanded) {
+      // State and ref are out of sync, sync them
+      setIsExpanded(isExpandedRef.current);
+    }
+  }, [existingTask?.id]); // Only reset if task ID changes, not on assignment updates
 
   useEffect(() => {
     if (taskType) {
@@ -264,8 +334,53 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       // Always reload services when modal opens to ensure fresh data
       console.log('🔄 Service modal opened, reloading services...');
       loadServices();
+      loadCompanies(); // Load companies when modal opens
+      // Load crew and talent roles for category filtering
+      loadRolesForFiltering();
     }
   }, [showServiceModal]);
+
+  const loadCompanies = async () => {
+    setIsLoadingCompanies(true);
+    try {
+      console.log('Loading companies for task assignment...');
+      const response = await getCompanies({ limit: 100, page: 1 });
+      if (response.success && response.data) {
+        // Handle paginated response
+        const companies = Array.isArray(response.data) 
+          ? response.data 
+          : (response.data as any).data || [];
+        console.log('Companies loaded:', companies.length);
+        setAvailableCompanies(companies);
+      } else {
+        setAvailableCompanies([]);
+      }
+    } catch (error) {
+      console.error('Failed to load companies:', error);
+      setAvailableCompanies([]);
+    } finally {
+      setIsLoadingCompanies(false);
+    }
+  };
+
+  // Load crew and talent roles for custom role identification
+  const loadRolesForFiltering = async () => {
+    try {
+      const [crewResponse, talentResponse] = await Promise.all([
+        getRoles({ category: 'crew' }),
+        getRoles({ category: 'talent' }),
+      ]);
+      
+      if (crewResponse.success && crewResponse.data) {
+        setCrewRoles(Array.isArray(crewResponse.data) ? crewResponse.data : []);
+      }
+      if (talentResponse.success && talentResponse.data) {
+        setTalentRoles(Array.isArray(talentResponse.data) ? talentResponse.data : []);
+      }
+    } catch (error) {
+      console.error('Failed to load roles for filtering:', error);
+    }
+  };
 
   useEffect(() => {
     if (selectedService) {
@@ -371,6 +486,16 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
   const handleServiceSelect = async (service: any) => {
     console.log('🔍 handleServiceSelect called with service:', service?.name);
     
+    // Check if we're assigning a company (company was selected first)
+    if (selectedCompany) {
+      console.log('🏢 Company assignment flow: assigning company with service role');
+      await handleCompanyAssignment(selectedCompany, service);
+      setSelectedCompany(null); // Clear selected company
+      setSelectedService(null);
+      setShowServiceModal(false);
+      return;
+    }
+    
     // Close service modal first
     setSelectedService(service);
     setShowServiceModal(false);
@@ -402,6 +527,106 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       console.log('👤 No pre-selected user, showing user selection modal');
       // No pre-selected user, show user selection modal
       setShowUserModal(true);
+    }
+  };
+
+  const handleCompanySelect = async (company: any) => {
+    console.log('🏢 handleCompanySelect called with company:', company?.name);
+    
+    // Store selected company and switch to service selection for role
+    setSelectedCompany(company);
+    setShowCompaniesInServiceList(false);
+    // Keep service modal open to select role
+  };
+
+  const handleCompanyAssignment = async (company: any, service: any) => {
+    console.log('🏢 handleCompanyAssignment called:', { company: company.name, service: service.name });
+    
+    const taskId = savedTaskId || existingTask?.id;
+    
+    if (!taskId) {
+      Alert.alert('Error', 'Task must be created before assigning companies.');
+      return;
+    }
+    
+    // Check if company is already assigned to this task with this service role
+    const isAlreadyAssigned = assignments.some(a => 
+      (a.company?.id === company.id || (a as any).company_id === company.id) &&
+      (a.service?.name === service?.name || (a as any).service_role === service?.name)
+    );
+    
+    if (isAlreadyAssigned) {
+      Alert.alert(
+        'Already Assigned',
+        'This company is already assigned to this task with this service role.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    try {
+      // For company assignments, only send company_id (not user_id)
+      // The backend will use the authenticated user as assigned_by automatically
+      const response = await assignTaskService(projectId, taskId, {
+        service_role: service?.name,
+        company_id: company.id,
+        // Do NOT send user_id for company assignments - backend will ignore company_id if user_id is present
+      } as any);
+      
+      console.log('📋 assignTaskService response for company:', JSON.stringify(response, null, 2));
+      
+      // Get UUID from response
+      let assignmentId: string;
+      let assignmentStatus: 'pending' | 'accepted' | 'rejected' = 'pending';
+      
+      if (Array.isArray(response) && response.length > 0) {
+        assignmentId = response[0].id;
+        assignmentStatus = response[0].status || 'pending';
+      } else if (response && typeof response === 'object' && 'id' in response) {
+        assignmentId = response.id;
+        assignmentStatus = (response as any).status || 'pending';
+      } else if ((response as any)?.data) {
+        const data = (response as any).data;
+        if (Array.isArray(data) && data.length > 0) {
+          assignmentId = data[0].id;
+          assignmentStatus = data[0].status || 'pending';
+        } else if (data && typeof data === 'object' && 'id' in data) {
+          assignmentId = data.id;
+          assignmentStatus = data.status || 'pending';
+        } else {
+          throw new Error('Invalid response format from assignTaskService');
+        }
+      } else {
+        throw new Error('Invalid response format from assignTaskService');
+      }
+      
+      // Create assignment object for UI
+      const newAssignment: Assignment = {
+        id: assignmentId,
+        service: service,
+        user: null, // Company assignment, no user
+        company: company,
+        status: assignmentStatus,
+      };
+      
+      // Add to assignments list
+      setAssignments([...assignments, newAssignment]);
+      
+      // Update task if editing
+      if (existingTask) {
+        const updatedTask = {
+          ...existingTask,
+          assignments: [...assignments, newAssignment],
+        };
+        onTaskCreated(updatedTask);
+      }
+      
+      setSelectedCompany(null);
+      setSelectedService(null);
+      console.log('✅ Company assigned successfully:', newAssignment);
+    } catch (error: any) {
+      console.error('❌ Failed to assign company:', error);
+      Alert.alert('Error', error.message || 'Failed to assign company to task.');
     }
   };
 
@@ -455,10 +680,25 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                 // Assignment exists in backend but not in UI - sync it
                 console.log('⚠️ Assignment exists in backend but not in UI, syncing...', backendAssignment);
                 const backendAssignmentAny = backendAssignment as any;
+                
+                // Extract company with proper name handling
+                let company = null;
+                if (backendAssignmentAny.company) {
+                  company = {
+                    ...backendAssignmentAny.company,
+                    id: backendAssignmentAny.company.id || backendAssignmentAny.company_id,
+                    name: backendAssignmentAny.company.name || 'Unknown Company',
+                  };
+                  console.log(`🏢 Backend sync Assignment ${backendAssignmentAny.id}: Company extracted:`, { id: company.id, name: company.name });
+                } else if (backendAssignmentAny.company_id) {
+                  company = { id: backendAssignmentAny.company_id, name: 'Unknown Company' };
+                }
+                
                 const syncedAssignment: Assignment = {
                   id: backendAssignmentAny.id,
                   service: backendAssignmentAny.service || { name: backendAssignmentAny.service_role || 'Unknown' },
-                  user: backendAssignmentAny.user || { id: backendAssignmentAny.user_id, name: backendAssignmentAny.user?.name || 'Unknown' },
+                  user: backendAssignmentAny.user || (backendAssignmentAny.user_id ? { id: backendAssignmentAny.user_id, name: backendAssignmentAny.user?.name || 'Unknown' } : null),
+                  company: company,
                   status: backendAssignmentAny.status || 'pending',
                 };
               setAssignments([...assignments, syncedAssignment]);
@@ -887,7 +1127,14 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
             const refreshedAssignments = (refreshedTask.assignments || []).map((assignment: any) => ({
               id: assignment.id || Date.now().toString(),
               service: assignment.service || { name: assignment.service_role || 'Unknown' },
-              user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
+              user: assignment.user || (assignment.user_id ? { id: assignment.user_id, name: assignment.user?.name || 'Unknown' } : null),
+              company: assignment.company 
+            ? { 
+                ...assignment.company,
+                id: assignment.company.id || assignment.company_id, 
+                name: assignment.company.name || 'Unknown Company',
+              }
+            : (assignment.company_id ? { id: assignment.company_id, name: 'Unknown Company' } : null),
               status: assignment.status || 'pending',
             }));
             
@@ -1125,15 +1372,16 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         // Add new assignments (will be created with 'pending' status by backend)
         for (const assignment of newAssignments) {
           try {
-            if (!assignment.service?.name || !assignment.user?.id) {
+            if (!assignment.service?.name || (!assignment.user?.id && !assignment.company?.id)) {
               console.error('⚠️ Invalid assignment data:', assignment);
               continue;
             }
             
             const response = await assignTaskService(projectId, currentTaskId, {
               service_role: assignment.service.name,
-              user_id: assignment.user.id,
-            });
+              user_id: assignment.user?.id,
+              company_id: assignment.company?.id,
+            } as any);
             
             // Update assignment status from response if available
             if (response && Array.isArray(response) && response.length > 0) {
@@ -1186,15 +1434,16 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
           // Assign all services and users (will be created with 'pending' status by backend)
           for (const assignment of assignmentsToSave) {
             try {
-              if (!assignment.service?.name || !assignment.user?.id) {
+              if (!assignment.service?.name || (!assignment.user?.id && !assignment.company?.id)) {
                 console.error('⚠️ Invalid assignment data:', assignment);
                 continue;
               }
               
               const response = await assignTaskService(projectId, newTaskId, {
                 service_role: assignment.service.name,
-                user_id: assignment.user.id,
-              });
+                user_id: assignment.user?.id,
+                company_id: assignment.company?.id,
+              } as any);
               
               // Update assignment status from response if available
               if (response && Array.isArray(response) && response.length > 0) {
@@ -1283,9 +1532,97 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
     return taskTypes.find(t => t.id === type)?.icon || 'create';
   };
 
-  const filteredServices = availableServices.filter(service =>
-    service.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Build known role sets for custom role identification
+  const knownRoleSet = React.useMemo(() => {
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const crewRoleNames = crewRoles.map((r: any) => normalize(getRoleName(r))).filter(Boolean);
+    const talentRoleNames = talentRoles.map((r: any) => normalize(getRoleName(r))).filter(Boolean);
+    return new Set([...crewRoleNames, ...talentRoleNames]);
+  }, [crewRoles, talentRoles]);
+
+  const knownCrewRoleSet = React.useMemo(() => {
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const crewRoleNames = crewRoles.map((r: any) => normalize(getRoleName(r))).filter(Boolean);
+    return new Set(crewRoleNames);
+  }, [crewRoles]);
+
+  const knownTalentRoleSet = React.useMemo(() => {
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const talentRoleNames = talentRoles.map((r: any) => normalize(getRoleName(r))).filter(Boolean);
+    return new Set(talentRoleNames);
+  }, [talentRoles]);
+
+  // Valid service roles for company assignments (from backend validation)
+  const validCompanyServiceRoles = [
+    'actor',
+    'voice_actor',
+    'director',
+    'dop',
+    'editor',
+    'producer',
+    'scriptwriter',
+    'gaffer',
+    'grip',
+    'sound_engineer',
+    'makeup_artist',
+    'stylist',
+    'vfx',
+    'colorist'
+  ];
+
+  // Normalize role names for comparison (same as roleCategorizer)
+  const normalizeRoleForComparison = (roleName: string): string => {
+    return roleName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  };
+
+  // Create normalized set of valid company roles for fast lookup
+  const validCompanyServiceRolesNormalized = useMemo(() => {
+    return new Set(validCompanyServiceRoles.map(role => normalizeRoleForComparison(role)));
+  }, []);
+
+  const filteredServices = availableServices.filter(service => {
+    // Filter by search term
+    const matchesSearch = service.name?.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+
+    // If a company is selected, only show valid backend-accepted roles
+    if (selectedCompany) {
+      const serviceName = getRoleName(service);
+      const normalizedServiceName = normalizeRoleForComparison(serviceName);
+      const isValidForCompany = validCompanyServiceRolesNormalized.has(normalizedServiceName);
+      if (!isValidForCompany) {
+        console.log(`🚫 Filtered out service "${serviceName}" (normalized: "${normalizedServiceName}") - not valid for company assignment`);
+        return false;
+      }
+    }
+
+    // Filter by category if a category is selected
+    if (!selectedCategoryFilter) return true;
+
+    const serviceName = getRoleName(service);
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const normalizedServiceName = normalize(serviceName);
+
+    // Determine if role is custom (not in known crew or talent sets)
+    const isInCrewSet = knownCrewRoleSet.has(normalizedServiceName);
+    const isInTalentSet = knownTalentRoleSet.has(normalizedServiceName);
+    const isCustomRole = !isInCrewSet && !isInTalentSet;
+
+    if (selectedCategoryFilter === 'crew') {
+      // Only show roles that are explicitly in the crew set
+      // Exclude custom roles and roles only in talent set
+      return isInCrewSet;
+    } else if (selectedCategoryFilter === 'talent') {
+      // Only show roles that are explicitly in the talent set
+      // Exclude custom roles and roles only in crew set
+      return isInTalentSet;
+    } else if (selectedCategoryFilter === 'custom') {
+      // Custom roles are those not in known crew/talent roles
+      return isCustomRole;
+    }
+
+    return true;
+  });
 
   // Filter users and ensure pre-selected user is at the top
   const preSelectedUserForList = preSelectedUser || preSelectedUserRef.current || selectedUser;
@@ -1385,7 +1722,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
       {/* Header - Clickable to expand/collapse */}
       <TouchableOpacity
         style={styles.cardHeader}
-        onPress={() => setIsExpanded(!isExpanded)}
+        onPress={() => setExpandedState(!isExpanded)}
         activeOpacity={0.8}
       >
         <View style={styles.cardHeaderLeft}>
@@ -1409,7 +1746,7 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
             style={styles.expandButton}
             onPress={(e) => {
               e.stopPropagation(); // Prevent card toggle when clicking expand
-              setIsExpanded(!isExpanded);
+              setExpandedState(!isExpanded);
             }}
           >
             <Ionicons 
@@ -1489,12 +1826,50 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
               <View style={styles.assignmentLeft}>
                     <Ionicons name="briefcase" size={14} color="#000" />
                 <Text style={styles.assignmentText}>{assignment.service?.name}</Text>
-                <View style={styles.userBadge}>
-                  <Text style={styles.userInitials}>
-                    {(assignment.user?.name || 'U').charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <TouchableOpacity
+                {/* Prioritize company display if company_id exists, even if user_id also exists */}
+                {(assignment.company || (assignment as any).company_id) ? (
+                  // Company assignment
+                  <>
+                    <View style={styles.userBadge}>
+                      <Ionicons name="business" size={14} color="#3b82f6" />
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        // Allow editing if status is not 'accepted'
+                        if (canEdit) {
+                          handleEditAssignment(assignment.id);
+                        } else {
+                          Alert.alert(
+                            'Cannot Edit',
+                            'Accepted assignments cannot be edited. Please remove the assignment and create a new one if needed.',
+                            [{ text: 'OK' }]
+                          );
+                        }
+                      }}
+                      disabled={!canEdit}
+                      style={styles.userNameContainer}
+                    >
+                      <Text 
+                        style={[
+                          styles.userName,
+                          canEdit && styles.userNameEditable
+                        ]}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
+                        {assignment.company?.name || 'Unknown Company'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  // User assignment
+                  <>
+                    <View style={styles.userBadge}>
+                      <Text style={styles.userInitials}>
+                        {(assignment.user?.name || 'U').charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
                       onPress={() => {
                         // Allow editing if status is not 'accepted'
                         if (canEdit) {
@@ -1521,6 +1896,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                         {assignment.user?.name || 'Unknown'}
                       </Text>
                     </TouchableOpacity>
+                  </>
+                )}
               </View>
               <View style={styles.assignmentRight}>
                   
@@ -1708,12 +2085,22 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                         : (assignmentsResponse.data.assignments || []);
                                       
                                       // Map fetched assignments with status
-                                      const assignmentsWithStatus = fetchedAssignments.map((a: any) => ({
-                                        id: a.id,
-                                        service: a.service || { name: a.service_role },
-                                        user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
-                                        status: a.status || 'pending', // Status included from getTaskAssignments
-                                      }));
+                                      // Prioritize company_id - if it exists, this is a company assignment
+                                      const assignmentsWithStatus = fetchedAssignments.map((a: any) => {
+                                        const company = a.company 
+                                          ? { ...a.company, id: a.company.id || a.company_id, name: a.company.name || 'Unknown Company' }
+                                          : (a.company_id ? { id: a.company_id, name: 'Unknown Company' } : null);
+                                        
+                                        return {
+                                          id: a.id,
+                                          service: a.service || { name: a.service_role },
+                                          user: a.user || (a.user_id ? { id: a.user_id, name: a.user?.name || 'Unknown' } : null),
+                                          company: company,
+                                          status: a.status || 'pending', // Status included from getTaskAssignments
+                                          // Preserve company_id for display logic (so we can check it even if company object is missing)
+                                          company_id: a.company_id || (company ? company.id : null),
+                                        } as any;
+                                      });
                                       
                                       const updatedTask = {
                                         ...existingTask,
@@ -1728,7 +2115,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                         const assignmentsWithStatus = (task.assignments || []).map((a: any) => ({
                                           id: a.id,
                                           service: a.service || { name: a.service_role },
-                                          user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                          user: a.user || (a.user_id ? { id: a.user_id, name: a.user?.name || 'Unknown' } : null),
+                                          company: a.company ? { ...a.company, id: a.company.id || a.company_id, name: a.company.name || 'Unknown Company' } : (a.company_id ? { id: a.company_id, name: 'Unknown Company' } : null),
                                           status: a.id === assignmentIdToUpdate ? responseStatus : (a.status || 'pending'),
                                         }));
                                         const updatedTask = {
@@ -1767,7 +2155,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                         const assignmentsWithStatus = fetchedAssignments.map((a: any) => ({
                                           id: a.id,
                                           service: a.service || { name: a.service_role },
-                                          user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                          user: a.user || (a.user_id ? { id: a.user_id, name: a.user?.name || 'Unknown' } : null),
+                                          company: a.company ? { ...a.company, id: a.company.id || a.company_id, name: a.company.name || 'Unknown Company' } : (a.company_id ? { id: a.company_id, name: 'Unknown Company' } : null),
                                           status: a.status || 'pending', // Status included from getTaskAssignments
                                         }));
                                         
@@ -1804,7 +2193,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                       const assignmentsWithStatus = (task.assignments || []).map((a: any) => ({
                                         id: a.id,
                                         service: a.service || { name: a.service_role },
-                                        user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                        user: a.user || (a.user_id ? { id: a.user_id, name: a.user?.name || 'Unknown' } : null),
+                                        company: a.company ? { ...a.company, id: a.company.id || a.company_id, name: a.company.name || 'Unknown Company' } : (a.company_id ? { id: a.company_id, name: 'Unknown Company' } : null),
                                         status: a.status || 'pending', // CRITICAL: Include status
                                       }));
                                       const updatedTask = {
@@ -1848,7 +2238,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                       const assignmentsWithStatus = (task.assignments || []).map((a: any) => ({
                                         id: a.id,
                                         service: a.service || { name: a.service_role },
-                                        user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                        user: a.user || (a.user_id ? { id: a.user_id, name: a.user?.name || 'Unknown' } : null),
+                                        company: a.company ? { ...a.company, id: a.company.id || a.company_id, name: a.company.name || 'Unknown Company' } : (a.company_id ? { id: a.company_id, name: 'Unknown Company' } : null),
                                         status: a.status || 'pending', // CRITICAL: Include status
                                       }));
                                       const updatedTask = {
@@ -1917,7 +2308,8 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                                       const assignmentsWithStatus = (task.assignments || []).map((a: any) => ({
                                         id: a.id,
                                         service: a.service || { name: a.service_role },
-                                        user: a.user || { id: a.user_id, name: a.user?.name || 'Unknown' },
+                                        user: a.user || (a.user_id ? { id: a.user_id, name: a.user?.name || 'Unknown' } : null),
+                                        company: a.company ? { ...a.company, id: a.company.id || a.company_id, name: a.company.name || 'Unknown Company' } : (a.company_id ? { id: a.company_id, name: 'Unknown Company' } : null),
                                         status: a.status || 'pending', // CRITICAL: Include status
                                       }));
                                       const updatedTask = {
@@ -2120,47 +2512,40 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
             const userToAutoAssign = preSelectedUser || preSelectedUserRef.current || selectedUser;
             
             if (userToAutoAssign) {
-              console.log('✅ Pre-selected user found, assigning instantly with their role');
+              console.log('✅ Pre-selected user found, checking for role');
               
               // Get user's role from their profile
               const userRole = userToAutoAssign.primary_role || userToAutoAssign.specialty || userToAutoAssign.role;
               
-              if (!userRole) {
-                Alert.alert(
-                  'No Role Found',
-                  'This user does not have a role assigned. Please assign a role to their profile first.',
-                  [{ text: 'OK' }]
-                );
-                return;
+              if (userRole) {
+                // User has a role - assign directly
+                const serviceFromRole = {
+                  id: userRole.toLowerCase().replace(/\s+/g, '_'),
+                  name: userRole,
+                  category: 'Other'
+                };
+                
+                console.log('🎯 Assigning user with role:', {
+                  userId: userToAutoAssign.id,
+                  userName: userToAutoAssign.name,
+                  role: userRole,
+                  service: serviceFromRole
+                });
+                
+                // Directly assign without showing any modals
+                try {
+                  await handleUserSelect(userToAutoAssign, serviceFromRole);
+                  console.log('✅ User assigned successfully');
+                  return; // Exit early - assignment successful
+                } catch (error: any) {
+                  console.error('❌ Failed to assign user:', error);
+                  // Fall through to show service modal if assignment fails
+                }
               }
               
-              // Create service object from user's role
-              const serviceFromRole = {
-                id: userRole.toLowerCase().replace(/\s+/g, '_'),
-                name: userRole,
-                category: 'Other'
-              };
-              
-              console.log('🎯 Assigning user with role:', {
-                userId: userToAutoAssign.id,
-                userName: userToAutoAssign.name,
-                role: userRole,
-                service: serviceFromRole
-              });
-              
-              // Directly assign without showing any modals
-              try {
-                await handleUserSelect(userToAutoAssign, serviceFromRole);
-                console.log('✅ User assigned successfully');
-              } catch (error: any) {
-                console.error('❌ Failed to assign user:', error);
-                Alert.alert(
-                  'Assignment Failed',
-                  error?.message || 'Failed to assign user. Please try again.',
-                  [{ text: 'OK' }]
-                );
-              }
-              return; // Exit early - no modals needed
+              // User doesn't have a role OR assignment failed - show service modal
+              // The selectedUser will be auto-assigned once service is selected
+              console.log('👤 User has no role or assignment failed, opening service modal for manual selection');
             }
             
             // No pre-selected user - show normal service selection flow
@@ -2229,18 +2614,50 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
         onRequestClose={() => {
           setShowServiceModal(false);
           setSearchTerm(''); // Clear search when closing
+          setSelectedCategoryFilter(null); // Clear category filter when closing
         }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Service</Text>
-              <TouchableOpacity onPress={() => {
-                setShowServiceModal(false);
-                setSearchTerm(''); // Clear search when closing
-              }}>
-                <Ionicons name="close" size={24} color="#000" />
-              </TouchableOpacity>
+              <Text style={[styles.modalTitle, { flex: 1 }]}>
+                {showCompaniesInServiceList ? 'Select Company' : selectedCompany ? 'Select Role for Company' : 'Select Service'}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {!selectedCompany && (
+                  <TouchableOpacity
+                    style={[
+                      styles.toggleButton,
+                      showCompaniesInServiceList && styles.toggleButtonActive
+                    ]}
+                    onPress={() => {
+                      console.log('🏢 Toggling companies view:', !showCompaniesInServiceList);
+                      setShowCompaniesInServiceList(!showCompaniesInServiceList);
+                    }}
+                  >
+                    <Ionicons 
+                      name="business" 
+                      size={16} 
+                      color={showCompaniesInServiceList ? "#fff" : "#000"} 
+                    />
+                    <Text style={[
+                      styles.toggleButtonText,
+                      showCompaniesInServiceList && styles.toggleButtonTextActive
+                    ]}>
+                      Companies
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => {
+                  setShowServiceModal(false);
+                  setSearchTerm(''); // Clear search when closing
+                  setSelectedCategoryFilter(null); // Clear category filter when closing
+                  setShowCompaniesInServiceList(false); // Reset companies toggle
+                  setSelectedCompany(null); // Clear selected company
+                }}>
+                  <Ionicons name="close" size={24} color="#000" />
+                </TouchableOpacity>
+              </View>
             </View>
             <View style={styles.searchContainer}>
               <Ionicons name="search" size={20} color="#9ca3af" />
@@ -2248,39 +2665,177 @@ const SimplifiedTaskCard: React.FC<SimplifiedTaskCardProps> = ({
                 style={styles.searchInput}
                 value={searchTerm}
                 onChangeText={setSearchTerm}
-                placeholder="Search services..."
+                placeholder={showCompaniesInServiceList ? "Search companies..." : "Search services..."}
                 placeholderTextColor="#9ca3af"
               />
             </View>
+            
+            {/* Category Filter Buttons - Only show for services, not companies */}
+            {!showCompaniesInServiceList && !selectedCompany && (
+            <View style={styles.categoryFilterContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.categoryFilterButton,
+                  selectedCategoryFilter === null && styles.categoryFilterButtonActive
+                ]}
+                onPress={() => setSelectedCategoryFilter(null)}
+              >
+                <Text style={[
+                  styles.categoryFilterText,
+                  selectedCategoryFilter === null && styles.categoryFilterTextActive
+                ]}>
+                  All
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.categoryFilterButton,
+                  selectedCategoryFilter === 'crew' && styles.categoryFilterButtonActive
+                ]}
+                onPress={() => setSelectedCategoryFilter('crew')}
+              >
+                <Text style={[
+                  styles.categoryFilterText,
+                  selectedCategoryFilter === 'crew' && styles.categoryFilterTextActive
+                ]}>
+                  Crew
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.categoryFilterButton,
+                  selectedCategoryFilter === 'talent' && styles.categoryFilterButtonActive
+                ]}
+                onPress={() => setSelectedCategoryFilter('talent')}
+              >
+                <Text style={[
+                  styles.categoryFilterText,
+                  selectedCategoryFilter === 'talent' && styles.categoryFilterTextActive
+                ]}>
+                  Talent
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.categoryFilterButton,
+                  selectedCategoryFilter === 'custom' && styles.categoryFilterButtonActive
+                ]}
+                onPress={() => setSelectedCategoryFilter('custom')}
+              >
+                <Text style={[
+                  styles.categoryFilterText,
+                  selectedCategoryFilter === 'custom' && styles.categoryFilterTextActive
+                ]}>
+                  Custom
+                </Text>
+              </TouchableOpacity>
+            </View>
+            )}
             <ScrollView style={styles.modalContent}>
-              {isLoadingServices ? (
+              {isLoadingServices || isLoadingCompanies ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="small" color="#3b82f6" />
-                  <Text style={styles.loadingText}>Loading services...</Text>
+                  <Text style={styles.loadingText}>
+                    {showCompaniesInServiceList ? 'Loading companies...' : 'Loading services...'}
+                  </Text>
                 </View>
-              ) : filteredServices.length > 0 ? (
-                filteredServices.map((service) => (
-                  <TouchableOpacity
-                    key={service.id}
-                    style={styles.modalItem}
-                    onPress={() => {
-                      console.log('🎯 Service tapped in modal:', service.name, service.id);
-                      console.log('🎯 About to call handleServiceSelect with:', { id: service.id, name: service.name });
-                      handleServiceSelect(service);
-                    }}
-                  >
-                    <Text style={styles.modalItemText}>{service.name}</Text>
-                  </TouchableOpacity>
-                ))
+              ) : showCompaniesInServiceList ? (
+                // Show companies
+                availableCompanies.length > 0 ? (
+                  availableCompanies
+                    .filter((company: any) => 
+                      company.name?.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
+                    .map((company: any) => (
+                      <TouchableOpacity
+                        key={company.id}
+                        style={styles.modalItem}
+                        onPress={() => {
+                          console.log('🏢 Company tapped in modal:', company.name, company.id);
+                          handleCompanySelect(company);
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Ionicons name="business" size={20} color="#3b82f6" />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.modalItemText}>{company.name}</Text>
+                            {company.subcategory && (
+                              <Text style={styles.modalItemSubtext}>{company.subcategory}</Text>
+                            )}
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ))
+                ) : (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>No companies available</Text>
+                  </View>
+                )
               ) : (
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyText}>No services available</Text>
-                  {taskType && (
-                    <Text style={styles.emptySubtext}>
-                      Try refreshing or check if task type "{taskTypes.find(t => t.id === taskType)?.name}" has available services
-                    </Text>
+                // Show services AND companies together in the same list
+                <>
+                  {filteredServices.length > 0 && (
+                    <>
+                      {filteredServices.map((service) => (
+                        <TouchableOpacity
+                          key={service.id}
+                          style={styles.modalItem}
+                          onPress={() => {
+                            console.log('🎯 Service tapped in modal:', service.name, service.id);
+                            console.log('🎯 About to call handleServiceSelect with:', { id: service.id, name: service.name });
+                            handleServiceSelect(service);
+                          }}
+                        >
+                          <Text style={styles.modalItemText}>{service.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </>
                   )}
-                </View>
+                  {/* Companies section */}
+                  {availableCompanies.length > 0 && (
+                    <>
+                      <View style={{ paddingVertical: 12, paddingHorizontal: 16 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#6b7280', marginBottom: 8 }}>
+                          Companies
+                        </Text>
+                      </View>
+                      {availableCompanies
+                        .filter((company: any) => 
+                          company.name?.toLowerCase().includes(searchTerm.toLowerCase())
+                        )
+                        .map((company: any) => (
+                          <TouchableOpacity
+                            key={`company-${company.id}`}
+                            style={styles.modalItem}
+                            onPress={() => {
+                              console.log('🏢 Company tapped in modal:', company.name, company.id);
+                              handleCompanySelect(company);
+                            }}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                              <Ionicons name="business" size={20} color="#3b82f6" />
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.modalItemText}>{company.name}</Text>
+                                {company.subcategory && (
+                                  <Text style={styles.modalItemSubtext}>{company.subcategory}</Text>
+                                )}
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                    </>
+                  )}
+                  {filteredServices.length === 0 && availableCompanies.length === 0 && (
+                    <View style={styles.emptyContainer}>
+                      <Text style={styles.emptyText}>No services or companies available</Text>
+                      {taskType && (
+                        <Text style={styles.emptySubtext}>
+                          Try refreshing or check if task type "{taskTypes.find(t => t.id === taskType)?.name}" has available services
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                </>
               )}
             </ScrollView>
           </View>
@@ -2880,6 +3435,36 @@ const styles = StyleSheet.create({
   modalContent: {
     maxHeight: 400,
   },
+  categoryFilterContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: semanticSpacing.sectionGapLarge,
+    marginBottom: semanticSpacing.containerPadding,
+    gap: 8,
+  },
+  categoryFilterButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  categoryFilterButtonActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  categoryFilterText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6b7280',
+  },
+  categoryFilterTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
   modalItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3044,6 +3629,34 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  toggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+  },
+  toggleButtonActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  toggleButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#000',
+  },
+  toggleButtonTextActive: {
+    color: '#fff',
+  },
+  modalItemSubtext: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
   },
 });
 

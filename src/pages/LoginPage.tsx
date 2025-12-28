@@ -10,6 +10,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApi } from '../contexts/ApiContext';
 import CategorySelectionModal from '../components/CategorySelectionModal';
 
@@ -26,13 +28,16 @@ const LoginPage: React.FC<LoginPageProps> = ({
   onLoginSuccess,
   onGuestMode,
 }) => {
-  const { login, googleSignIn, isLoading, error, clearError, createGuestSession } = useApi();
+  const { login, googleSignIn, appleSignIn, isLoading, error, clearError, createGuestSession } = useApi();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [pendingGoogleSignIn, setPendingGoogleSignIn] = useState(false);
+  const [pendingAppleSignIn, setPendingAppleSignIn] = useState(false);
+  const [pendingAuthProvider, setPendingAuthProvider] = useState<'google' | 'apple' | null>(null);
 
   const validateForm = () => {
     const errors: { [key: string]: string } = {};
@@ -91,6 +96,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
         );
       } else {
         // Clear only the password field on authentication errors
+        // Email is preserved to improve UX - user doesn't need to retype it
         setPassword('');
         
         // Provide a user-friendly error message
@@ -145,9 +151,11 @@ const LoginPage: React.FC<LoginPageProps> = ({
     try {
       clearError();
       setPendingGoogleSignIn(true);
+      setPendingAuthProvider('google');
       
-      // Try without category first (for existing users)
+      // Try OAuth directly (for existing users - no category needed)
       await googleSignIn();
+      setPendingAuthProvider(null);
       onLoginSuccess();
     } catch (err: any) {
       console.error('❌ Google Sign-In error in LoginPage:', err);
@@ -155,14 +163,16 @@ const LoginPage: React.FC<LoginPageProps> = ({
       // Don't show alert if user cancelled - this is expected behavior
       if (err?.message?.toLowerCase().includes('cancelled')) {
         console.log('ℹ️ User cancelled Google Sign-In');
+        setPendingAuthProvider(null);
         return;
       }
       
-      // Check if error is about category being required
+      // Only show category modal if backend requires it (edge case for new users on login page)
       if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
-        // Show category selection modal
+        // Show category selection modal as fallback
         setShowCategoryModal(true);
       } else {
+        setPendingAuthProvider(null);
         const errorMessage = err?.message || err?.toString() || 'Google Sign-In failed. Please try again.';
         Alert.alert('Google Sign-In Failed', errorMessage);
       }
@@ -175,15 +185,99 @@ const LoginPage: React.FC<LoginPageProps> = ({
     try {
       setShowCategoryModal(false);
       clearError();
-      setPendingGoogleSignIn(true);
-      await googleSignIn(category, primaryRole);
+      
+      // Store category and role in AsyncStorage before OAuth
+      if (category) {
+        await AsyncStorage.setItem('pending_category', category);
+      }
+      if (primaryRole) {
+        await AsyncStorage.setItem('pending_role', primaryRole);
+      }
+      
+      // Proceed with OAuth (selections will be retrieved in ApiContext)
+      if (pendingAuthProvider === 'google') {
+        setPendingGoogleSignIn(true);
+        await googleSignIn();
+      } else if (pendingAuthProvider === 'apple') {
+        setPendingAppleSignIn(true);
+        await appleSignIn();
+      } else {
+        // Fallback to Google if provider not set
+        setPendingGoogleSignIn(true);
+        await googleSignIn();
+      }
+      
+      setPendingAuthProvider(null);
       onLoginSuccess();
     } catch (err: any) {
-      console.error('Google Sign-In error in category select:', err);
-      const errorMessage = err?.message || err?.toString() || 'Google Sign-In failed. Please try again.';
-      Alert.alert('Google Sign-In Failed', errorMessage);
+      console.error('Sign-In error in category select:', err);
+      
+      // Clear AsyncStorage on error
+      try {
+        await AsyncStorage.removeItem('pending_category');
+        await AsyncStorage.removeItem('pending_role');
+      } catch (clearErr) {
+        console.warn('Failed to clear AsyncStorage:', clearErr);
+      }
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled OAuth');
+        setPendingAuthProvider(null);
+        return;
+      }
+      
+      // Fallback: if backend still requires category, show modal again
+      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
+        setShowCategoryModal(true);
+      } else {
+        const providerName = pendingAuthProvider === 'apple' ? 'Apple' : 'Google';
+        const errorMessage = err?.message || err?.toString() || `${providerName} Sign-In failed. Please try again.`;
+        Alert.alert(`${providerName} Sign-In Failed`, errorMessage);
+        setPendingAuthProvider(null);
+      }
     } finally {
       setPendingGoogleSignIn(false);
+      setPendingAppleSignIn(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    if (pendingAppleSignIn || isLoading) {
+      console.log('⚠️ Apple Sign-In already in progress, ignoring duplicate call');
+      return;
+    }
+
+    try {
+      clearError();
+      setPendingAppleSignIn(true);
+      setPendingAuthProvider('apple');
+      
+      // Try OAuth directly (for existing users - no category needed)
+      await appleSignIn();
+      setPendingAuthProvider(null);
+      onLoginSuccess();
+    } catch (err: any) {
+      console.error('❌ Apple Sign-In error in LoginPage:', err);
+      
+      // Don't show alert if user cancelled - this is expected behavior
+      if (err?.message?.toLowerCase().includes('cancelled')) {
+        console.log('ℹ️ User cancelled Apple Sign-In');
+        setPendingAuthProvider(null);
+        return;
+      }
+      
+      // Only show category modal if backend requires it (edge case for new users on login page)
+      if (err?.code === 'CATEGORY_REQUIRED' || err?.message?.includes('Category') || err?.message?.includes('category')) {
+        // Show category selection modal as fallback
+        setShowCategoryModal(true);
+      } else {
+        setPendingAuthProvider(null);
+        const errorMessage = err?.message || err?.toString() || 'Apple Sign-In failed. Please try again.';
+        Alert.alert('Apple Sign-In Failed', errorMessage);
+      }
+    } finally {
+      setPendingAppleSignIn(false);
     }
   };
 
@@ -193,141 +287,166 @@ const LoginPage: React.FC<LoginPageProps> = ({
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Welcome Back</Text>
-          <Text style={styles.subtitle}>Sign in to your cool steps account</Text>
-        </View>
-
-        <View style={styles.form}>
-          {error && (
-            <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle" size={20} color="#ef4444" />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email</Text>
-            <View style={[styles.inputWrapper, formErrors.email && styles.inputError]}>
-              <Ionicons name="mail" size={20} color="#71717a" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your email"
-                placeholderTextColor="#9ca3af"
-                value={email}
-                onChangeText={handleEmailChange}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-                textContentType="emailAddress"
-                autoComplete="email"
-                onFocus={() => {
-                  // Clear any errors when user focuses on input
-                  if (formErrors.email) {
-                    setFormErrors(prev => ({ ...prev, email: '' }));
-                  }
-                }}
-              />
-            </View>
-            {formErrors.email && <Text style={styles.fieldError}>{formErrors.email}</Text>}
+        {/* Gradient Header */}
+        <LinearGradient
+          colors={['#E8E0F5', '#E0D5F0']}
+          style={styles.gradientHeader}
+        >
+          <View style={styles.gridOverlay} />
+          <View style={styles.headerContent}>
+            <Text style={styles.title}>Sign in</Text>
+            <Text style={styles.subtitle}>to your Account</Text>
           </View>
+        </LinearGradient>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
-            <View style={[styles.inputWrapper, formErrors.password && styles.inputError]}>
-              <Ionicons name="lock-closed" size={20} color="#71717a" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your password"
-                placeholderTextColor="#9ca3af"
-                value={password}
-                onChangeText={handlePasswordChange}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!isLoading}
-                textContentType="password"
-                autoComplete="password"
-                onFocus={() => {
-                  // Clear any errors when user focuses on input
-                  if (formErrors.password) {
-                    setFormErrors(prev => ({ ...prev, password: '' }));
-                  }
-                }}
-              />
+        {/* White Card Container */}
+        <View style={styles.cardContainer}>
+          <View style={styles.form}>
+            {error && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={18} color="#ef4444" />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+
+            <View style={styles.inputSection}>
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Email</Text>
+                <View style={[styles.inputWrapper, formErrors.email && styles.inputError]}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your email"
+                    placeholderTextColor="#9ca3af"
+                    value={email}
+                    onChangeText={handleEmailChange}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!isLoading}
+                    textContentType="emailAddress"
+                    autoComplete="email"
+                    onFocus={() => {
+                      if (formErrors.email) {
+                        setFormErrors(prev => ({ ...prev, email: '' }));
+                      }
+                    }}
+                  />
+                </View>
+                {formErrors.email && <Text style={styles.fieldError}>{formErrors.email}</Text>}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Password</Text>
+                <View style={[styles.inputWrapper, formErrors.password && styles.inputError]}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your password"
+                    placeholderTextColor="#9ca3af"
+                    value={password}
+                    onChangeText={handlePasswordChange}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!isLoading}
+                    textContentType="password"
+                    autoComplete="password"
+                    onFocus={() => {
+                      if (formErrors.password) {
+                        setFormErrors(prev => ({ ...prev, password: '' }));
+                      }
+                    }}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeIcon}
+                    disabled={isLoading}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off' : 'eye'}
+                      size={20}
+                      color="#71717a"
+                    />
+                  </TouchableOpacity>
+                </View>
+                {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
+              </View>
+            </View>
+
+            {/* Remember Me and Forgot Password */}
+            <View style={styles.optionsRow}>
               <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeIcon}
+                style={styles.rememberMeContainer}
+                onPress={() => setRememberMe(!rememberMe)}
                 disabled={isLoading}
               >
-                <Ionicons
-                  name={showPassword ? 'eye-off' : 'eye'}
-                  size={20}
-                  color="#71717a"
-                />
+                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                  {rememberMe && <Ionicons name="checkmark" size={14} color="#fff" />}
+                </View>
+                <Text style={styles.rememberMeText}>Remember Me</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={onNavigateToForgotPassword}
+                disabled={isLoading}
+              >
+                <Text style={styles.forgotPasswordText}>Forget Password</Text>
               </TouchableOpacity>
             </View>
-            {formErrors.password && <Text style={styles.fieldError}>{formErrors.password}</Text>}
-            <Text style={styles.passwordRequirements}>
-              Password must be at least 8 characters long
-            </Text>
-          </View>
 
-          <TouchableOpacity
-            onPress={onNavigateToForgotPassword}
-            style={styles.forgotPassword}
-            disabled={isLoading}
-          >
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
-            onPress={handleLogin}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <Text style={styles.loginButtonText}>Signing In...</Text>
-            ) : (
-              <Text style={styles.loginButtonText}>Sign In</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.guestButton, isLoading && styles.guestButtonDisabled]}
-            onPress={handleGuestMode}
-            disabled={isLoading}
-          >
-            <Ionicons name="eye" size={20} color="#fff" style={styles.guestButtonIcon} />
-            <Text style={styles.guestButtonText}>Browse as Guest</Text>
-          </TouchableOpacity>
-
-          {/* Google Sign-In temporarily hidden */}
-          {/* <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.googleButtonDisabled]}
-            onPress={handleGoogleSignIn}
-            disabled={isLoading || pendingGoogleSignIn}
-          >
-            <View style={styles.googleButtonContent}>
-              <Ionicons name="logo-google" size={20} color="#4285F4" />
-              <Text style={styles.googleButtonText}>
-                {pendingGoogleSignIn ? 'Signing In...' : 'Sign in with Google'}
+            {/* Login Button */}
+            <TouchableOpacity
+              style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
+              onPress={handleLogin}
+              disabled={isLoading}
+            >
+              <Text style={styles.loginButtonText}>
+                {isLoading ? 'Logging in...' : 'Log in'}
               </Text>
-            </View>
-          </TouchableOpacity> */}
-
-          <View style={styles.signupContainer}>
-            <Text style={styles.signupText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={onNavigateToSignup} disabled={isLoading}>
-              <Text style={styles.signupLink}>Sign Up</Text>
             </TouchableOpacity>
+
+            {/* Or divider */}
+            <View style={styles.divider}>
+              <Text style={styles.dividerText}>Or log in with</Text>
+            </View>
+
+            {/* Social Login Buttons - Side by Side */}
+            <View style={styles.socialButtons}>
+              <TouchableOpacity
+                style={[styles.socialButton, styles.appleButton, (isLoading || pendingAppleSignIn) && styles.socialButtonDisabled]}
+                onPress={handleAppleSignIn}
+                disabled={isLoading || pendingAppleSignIn}
+              >
+                {Platform.OS === 'ios' && (
+                  <>
+                    <Ionicons name="logo-apple" size={20} color="#000" />
+                    <Text style={styles.socialButtonText}>
+                      {pendingAppleSignIn ? 'Signing In...' : 'Apple'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.socialButton, styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.socialButtonDisabled]}
+                onPress={handleGoogleSignIn}
+                disabled={isLoading || pendingGoogleSignIn}
+              >
+                <Ionicons name="logo-google" size={20} color="#4285F4" />
+                <Text style={styles.socialButtonText}>
+                  {pendingGoogleSignIn ? 'Signing In...' : 'Google'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Register Link */}
+            <View style={styles.registerContainer}>
+              <Text style={styles.registerText}>Don't have account? </Text>
+              <TouchableOpacity
+                onPress={onNavigateToSignup}
+                disabled={isLoading}
+              >
+                <Text style={styles.registerLink}>Register</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -335,8 +454,17 @@ const LoginPage: React.FC<LoginPageProps> = ({
       <CategorySelectionModal
         visible={showCategoryModal}
         onSelect={handleCategorySelect}
-        onCancel={() => setShowCategoryModal(false)}
-        isLoading={isLoading || pendingGoogleSignIn}
+        onCancel={async () => {
+          setShowCategoryModal(false);
+          setPendingAuthProvider(null);
+          try {
+            await AsyncStorage.removeItem('pending_category');
+            await AsyncStorage.removeItem('pending_role');
+          } catch (err) {
+            console.warn('Failed to clear AsyncStorage on cancel:', err);
+          }
+        }}
+        isLoading={isLoading || pendingGoogleSignIn || pendingAppleSignIn}
       />
     </KeyboardAvoidingView>
   );

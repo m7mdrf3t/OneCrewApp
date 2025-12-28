@@ -61,6 +61,19 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     loadTasks(true); // Replace existing tasks on initial load
   }, [project.id]);
 
+  // Automatically create a new task card when addUserToTask is true and selectedUser is provided
+  useEffect(() => {
+    if (addUserToTask && selectedUser && newTaskCards.length === 0) {
+      console.log('🎯 Auto-creating task card for selected user:', {
+        userId: selectedUser.id,
+        userName: selectedUser.name,
+        addUserToTask
+      });
+      // Create a new task card automatically
+      setNewTaskCards([{ id: Date.now() }]);
+    }
+  }, [addUserToTask, selectedUser]);
+
   const loadProjectData = async () => {
     try {
       await getProjectById(project.id);
@@ -604,33 +617,154 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* All tasks displayed as SimplifiedTaskCard components - no separate list */}
+        {/* Project Stages - Group tasks by stage */}
+        {getStagesWithTasks().length > 0 ? (
+          <View style={styles.stagesSection}>
+            {getStagesWithTasks().map((stage) => {
+              const stageTasks = getStageTasks(stage.id);
+              const isExpanded = expandedStages.has(stage.id);
+              
+              return (
+                <View key={stage.id} style={styles.stageContainer}>
+                  {/* Stage Header - Clickable to expand/collapse */}
+                  <TouchableOpacity 
+                    style={[styles.stageHeader, { backgroundColor: '#000' }]}
+                    onPress={() => handleToggleStageExpanded(stage.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.stageHeaderLeft}>
+                      <Ionicons name="checkbox" size={20} color="#fff" />
+                      <Text style={styles.stageName}>{stage.name} ({stageTasks.length})</Text>
+                    </View>
+                    <View style={styles.stageHeaderRight}>
+                      <View style={styles.statusBadge}>
+                        <Text style={styles.statusBadgeText}>Pending</Text>
+                      </View>
+                      <Ionicons 
+                        name={isExpanded ? "chevron-up" : "chevron-down"} 
+                        size={20} 
+                        color="#fff" 
+                        style={styles.stageExpandIcon} 
+                      />
+                      <TouchableOpacity
+                        style={styles.stageMenuIcon}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          // Handle stage menu
+                        }}
+                      >
+                        <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableOpacity>
 
-        {/* Show all tasks as SimplifiedTaskCard components */}
-        {tasks.map((task) => {
+                  {/* Stage Content - Show tasks when expanded */}
+                  {isExpanded && (
+                    <View style={styles.stageContent}>
+                      {isLoadingTasks ? (
+                        <View style={styles.loadingContainer}>
+                          <ActivityIndicator size="small" color="#3b82f6" />
+                          <Text style={styles.loadingText}>Loading tasks...</Text>
+                        </View>
+                      ) : stageTasks.length > 0 ? (
+                        stageTasks.map((task) => {
           // Transform task data to match SimplifiedTaskCard format
-          // CRITICAL: Preserve status from task.assignments (which should already have status from loadTasks)
           const assignments = (task.assignments || []).map((assignment: any) => {
             const status = assignment.status || 'pending';
-            console.log(`📋 Task ${task.id} → Assignment ${assignment.id}: status="${status}"`);
             return {
               id: assignment.id || Date.now().toString(),
               service: assignment.service || { name: assignment.service_role },
               user: assignment.user || { id: assignment.user_id, name: assignment.user?.name || 'Unknown' },
-              status: status, // CRITICAL: Preserve status from backend
+                              status: status,
             };
           });
 
-          // Ensure task type is preserved - try multiple fields
           const taskType = task.type || task.task_type || task.title?.toLowerCase()?.replace(/\s+/g, '_');
           
-          console.log('📋 Rendering task card:', {
-            id: task.id,
-            title: task.title,
-            type: task.type,
-            task_type: task.task_type,
-            inferredType: taskType
-          });
+                          return (
+                            <SimplifiedTaskCard
+                              key={task.id}
+                              projectId={project.id}
+                              project={project}
+                              existingTask={{
+                                ...task,
+                                type: taskType,
+                                task_type: taskType,
+                                assignments,
+                              }}
+                              selectedUser={addUserToTask ? selectedUser : undefined}
+                              onTaskCreated={(updatedTask) => {
+                                const taskWithType = {
+                                  ...task,
+                                  ...updatedTask,
+                                  type: updatedTask.type || taskType || task.type || task.task_type,
+                                  task_type: updatedTask.task_type || taskType || task.task_type || task.type,
+                                  id: updatedTask.id || task.id,
+                                  assignments: updatedTask.assignments || task.assignments,
+                                };
+                                setTasks(prev => prev.map(t => t.id === taskWithType.id ? taskWithType : t));
+                              }}
+                              onDelete={(taskId) => {
+                                setTasks(prev => prev.filter(t => t.id !== taskId));
+                              }}
+                            />
+                          );
+                        })
+                      ) : (
+                        <View style={styles.noTasksContainer}>
+                          <Text style={styles.noTasksText}>No tasks yet</Text>
+                        </View>
+                      )}
+                      
+                      {/* Add Task Button for this stage */}
+                      <TouchableOpacity
+                        style={styles.addTaskButton}
+                        onPress={() => {
+                          // Add a new task card for this stage
+                          if (newTaskCards.length === 0) {
+                            setNewTaskCards(prev => [...prev, { id: Date.now(), stageId: stage.id }]);
+                          }
+                        }}
+                      >
+                        <Ionicons name="add" size={20} color="#6b7280" />
+                        <Text style={styles.addTaskButtonText}>Add Task</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        ) : (
+          /* Fallback: Show all tasks if no stages have tasks */
+          tasks.length > 0 && (
+            <View style={styles.stagesSection}>
+              {tasks.map((task) => {
+                const assignments = (task.assignments || []).map((assignment: any) => {
+                  const status = assignment.status || 'pending';
+                  
+                  // Extract company with proper name handling
+                  let company = null;
+                  if (assignment.company) {
+                    company = {
+                      ...assignment.company,
+                      id: assignment.company.id || assignment.company_id,
+                      name: assignment.company.name || 'Unknown Company',
+                    };
+                  } else if (assignment.company_id) {
+                    company = { id: assignment.company_id, name: 'Unknown Company' };
+                  }
+                  
+                  return {
+                    id: assignment.id || Date.now().toString(),
+                    service: assignment.service || { name: assignment.service_role },
+                    user: assignment.user || (assignment.user_id ? { id: assignment.user_id, name: assignment.user?.name || 'Unknown' } : null),
+                    company: company,
+                    status: status,
+                  };
+                });
+
+                const taskType = task.type || task.task_type || task.title?.toLowerCase()?.replace(/\s+/g, '_');
 
           return (
             <SimplifiedTaskCard
@@ -639,31 +773,21 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               project={project}
               existingTask={{
                 ...task,
-                type: taskType, // Ensure type is set
-                task_type: taskType, // Also set task_type for compatibility
+                      type: taskType,
+                      task_type: taskType,
                 assignments,
               }}
               selectedUser={addUserToTask ? selectedUser : undefined}
               onTaskCreated={(updatedTask) => {
-                console.log('📋 Received updated task in ProjectDashboard:', updatedTask);
-                // Preserve type when updating and ensure all fields are maintained
-                // CRITICAL: Preserve assignments with status from updatedTask
                 const taskWithType = {
-                  ...task, // Preserve original task data
-                  ...updatedTask, // Override with updated data
+                        ...task,
+                        ...updatedTask,
                   type: updatedTask.type || taskType || task.type || task.task_type,
                   task_type: updatedTask.task_type || taskType || task.task_type || task.type,
-                  id: updatedTask.id || task.id, // Ensure ID is always present
-                  // Preserve assignments with status - don't re-transform and lose status
+                        id: updatedTask.id || task.id,
                   assignments: updatedTask.assignments || task.assignments,
                 };
-                console.log('📋 Updating task in list:', taskWithType);
-                console.log('📋 Assignments with status:', taskWithType.assignments?.map((a: any) => ({ id: a.id, status: a.status })));
-                setTasks(prev => {
-                  const updated = prev.map(t => t.id === taskWithType.id ? taskWithType : t);
-                  console.log('📋 Tasks after update:', updated.map(t => ({ id: t.id, title: t.title, type: t.type })));
-                  return updated;
-                });
+                      setTasks(prev => prev.map(t => t.id === taskWithType.id ? taskWithType : t));
               }}
               onDelete={(taskId) => {
                 setTasks(prev => prev.filter(t => t.id !== taskId));
@@ -671,9 +795,46 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
             />
           );
         })}
+            </View>
+          )
+        )}
 
-        {/* Show new task cards being created */}
-        {newTaskCards.map((taskCard, index) => (
+        {/* Show new task cards being created - grouped by stage */}
+        {getStagesWithTasks().map((stage) => {
+          const stageNewTaskCards = newTaskCards.filter(card => card.stageId === stage.id);
+          if (stageNewTaskCards.length === 0) return null;
+          
+          const isExpanded = expandedStages.has(stage.id);
+          if (!isExpanded) return null;
+          
+          return (
+            <View key={`new-tasks-${stage.id}`} style={styles.stageContent}>
+              {stageNewTaskCards.map((taskCard) => (
+          <SimplifiedTaskCard
+            key={`new-task-${taskCard.id}`}
+            projectId={project.id}
+            project={project}
+            isNewTask={true}
+            selectedUser={addUserToTask ? selectedUser : undefined}
+                  existingTask={{
+                    type: stage.id,
+                    task_type: stage.id,
+                  }}
+                  onTaskCreated={(newTask) => {
+                    setTasks(prev => [...prev, newTask]);
+                    setNewTaskCards(prev => prev.filter((card) => card.id !== taskCard.id));
+                  }}
+                  onCancel={() => {
+                    setNewTaskCards(prev => prev.filter((card) => card.id !== taskCard.id));
+                  }}
+                />
+              ))}
+            </View>
+          );
+        })}
+        
+        {/* Show new task cards for stages without tasks */}
+        {newTaskCards.filter(card => !card.stageId || getStagesWithTasks().findIndex(s => s.id === card.stageId) === -1).map((taskCard) => (
           <SimplifiedTaskCard
             key={`new-task-${taskCard.id}`}
             projectId={project.id}
@@ -739,8 +900,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
-    padding: semanticSpacing.headerPadding,
-    paddingTop: semanticSpacing.headerPaddingVertical, // Reduced from 12 to 8
+    paddingHorizontal: semanticSpacing.headerPadding,
+    paddingTop: semanticSpacing.headerPaddingVertical,
+    paddingBottom: 0, // No bottom padding - buttonsRow will handle spacing
   },
   backButton: {
     padding: semanticSpacing.buttonPadding,
@@ -760,11 +922,14 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: semanticSpacing.containerPadding,
+    paddingTop: 0, // No top padding - header already has spacing
+    paddingHorizontal: semanticSpacing.containerPadding,
+    paddingBottom: semanticSpacing.containerPadding,
   },
   buttonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    marginTop: spacing.sm, // Small top margin (8px) for spacing from header
     marginBottom: semanticSpacing.sectionGap, // Reduced from sectionGapLarge to sectionGap (16 → 12)
     paddingHorizontal: spacing.xs,
   },
@@ -981,6 +1146,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderStyle: 'dashed',
+    minHeight: 48,
   },
   addTaskButtonText: {
     marginLeft: semanticSpacing.buttonPadding,

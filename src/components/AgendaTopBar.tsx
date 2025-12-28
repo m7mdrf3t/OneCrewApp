@@ -1,9 +1,10 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 interface AgendaTopBarProps {
-  onNavigate: (page: string) => void;
+  onNavigate?: (page: string) => void;
   showCalendarToggle?: boolean;
   calendarView?: 'week' | 'month';
   setCalendarView?: (view: 'week' | 'month') => void;
@@ -11,12 +12,15 @@ interface AgendaTopBarProps {
 }
 
 const AgendaTopBar: React.FC<AgendaTopBarProps> = ({
-  onNavigate,
+  onNavigate: onNavigateProp,
   showCalendarToggle = false,
   calendarView = 'week',
   setCalendarView,
   activeTab = 'wall',
 }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
   return (
     <View style={styles.container}>
       {showCalendarToggle && setCalendarView && (

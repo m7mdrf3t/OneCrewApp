@@ -11,13 +11,18 @@ import {
   Alert,
   Modal,
   ImageStyle,
+  SafeAreaView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { ChatPageProps, ChatMessage, ChatConversation, ChatConversationType, ChatParticipantType } from '../types';
+import { RootStackScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import supabaseService from '../services/SupabaseService';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import MediaPickerService from '../services/MediaPickerService';
@@ -28,11 +33,23 @@ import SkeletonMessage from '../components/SkeletonMessage';
 const FlashListUnsafe: React.ComponentType<any> = FlashList as any;
 
 const ChatPage: React.FC<ChatPageProps> = ({
-  conversationId,
-  participant,
-  courseData,
-  onBack,
+  conversationId: conversationIdProp,
+  participant: participantProp,
+  courseData: courseDataProp,
+  onBack: onBackProp,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'chat'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  const { goBack } = useAppNavigation();
+  
+  // Use route params if available, otherwise use props (for backward compatibility)
+  const conversationId = routeParams?.conversationId || conversationIdProp;
+  const participant = routeParams?.participant || participantProp;
+  const courseData = routeParams?.courseData || courseDataProp;
+  const onBack = onBackProp || goBack;
+
   const {
     getMessages,
     sendMessage,
@@ -50,6 +67,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   } = useApi();
 
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -332,7 +350,17 @@ const ChatPage: React.FC<ChatPageProps> = ({
   useEffect(() => {
     // Skip if we've already initialized this conversation
     const conversationKey = conversationId || (participant ? `participant-${participant.id}` : null);
+    console.log('💬 ChatPage useEffect triggered:', {
+      conversationId,
+      participant: participant ? { id: participant.id, name: participant.name, category: participant.category } : null,
+      conversationKey,
+      hasInitialized: hasInitializedRef.current,
+    });
+    
     if (!conversationKey) {
+      console.warn('⚠️ No conversation key - missing both conversationId and participant.id');
+      setError('No conversation or participant provided');
+      setLoading(false);
       return;
     }
     
@@ -433,6 +461,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
               console.log('✅ Found existing conversation, reusing:', existing.id);
               setConversation(existing);
               hasInitializedRef.current = conversationKey;
+              setLoading(false); // Clear loading once conversation is found
               // Messages are loaded via TanStack Query once conversation is set.
               return;
             }
@@ -449,7 +478,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
             const newConversation = createResponse.data;
             setConversation(newConversation);
             hasInitializedRef.current = conversationKey;
-            
+            setLoading(false); // Clear loading once conversation is created
             // Messages are loaded via TanStack Query once conversation is set.
             
             // Auto-send course registration message if courseData is provided (always send, even if conversation exists)
@@ -600,7 +629,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         hasSentCourseMessageRef.current = null;
       }
     };
-  }, [conversationId, participant?.id, currentProfileType, activeCompany?.id, courseData?.id, validateConversationForProfile]); // Include profile dependencies and validation function
+  }, [conversationId, participant?.id, participant, currentProfileType, activeCompany?.id, user?.id, courseData?.id, validateConversationForProfile]); // Include profile dependencies and validation function
 
   // Handle profile changes while viewing a conversation
   useEffect(() => {
@@ -1585,7 +1614,13 @@ const ChatPage: React.FC<ChatPageProps> = ({
     );
   };
 
-  const shouldShowLoading = loading || (messagesQuery.isLoading && messages.length === 0);
+  // Show loading if:
+  // 1. Conversation is still being initialized, OR
+  // 2. Messages are loading and we have no messages yet, OR
+  // 3. Conversation exists but messages query hasn't started yet
+  const shouldShowLoading = loading || 
+    (conversation?.id && messagesQuery.isLoading && messages.length === 0 && !messagesQuery.isError) ||
+    (conversation?.id && !messagesQuery.data && !messagesQuery.isError && !messagesQuery.isLoading);
 
   if (shouldShowLoading) {
     return (
@@ -1654,7 +1689,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
@@ -1724,7 +1759,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         }
       />
 
-      <View style={styles.inputContainer}>
+      <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         {/* Reply context */}
         {replyingToMessage && (
           <View style={styles.replyInputContext}>
@@ -2243,7 +2278,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
     backgroundColor: '#fff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },

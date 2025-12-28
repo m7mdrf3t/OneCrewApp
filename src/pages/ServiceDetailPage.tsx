@@ -1,17 +1,20 @@
 import React, { useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import { MOCK_PROFILES, getInitials } from '../data/mockData';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
+import { RootStackScreenProps } from '../navigation/types';
 
 interface ServiceDetailPageProps {
-  service: {
+  service?: {
     label: string;
     users?: number;
   };
-  onBack: () => void;
-  onProfileSelect: (profile: any) => void;
+  onBack?: () => void;
+  onProfileSelect?: (profile: any) => void;
   onAddToTeam?: (profile: any) => void;
   onAssignToProject?: (profile: any) => void;
   onStartChat?: (profile: any) => void;
@@ -19,14 +22,26 @@ interface ServiceDetailPageProps {
 }
 
 const ServiceDetailPage: React.FC<ServiceDetailPageProps> = ({
-  service,
-  onBack,
+  service: serviceProp,
+  onBack: onBackProp,
   onProfileSelect,
   onAddToTeam,
   onAssignToProject,
   onStartChat,
   myTeam = [],
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'details'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  
+  const { goBack } = useAppNavigation();
+  const onBack = onBackProp || goBack;
+  
+  // Get service from route params or prop
+  const serviceData = routeParams?.serviceData || serviceProp;
+  const service = serviceData?.label ? serviceData : (serviceProp || { label: '', users: 0 });
+  
   const { isGuest } = useApi();
   // Filter profiles based on the service
   const filteredProfiles = useMemo(() => {

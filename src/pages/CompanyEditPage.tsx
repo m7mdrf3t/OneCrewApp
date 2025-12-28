@@ -8,17 +8,22 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute, useNavigation } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import { useApi } from '../contexts/ApiContext';
-import { Company } from '../types';
+import { Company, CompanyDocumentType } from '../types';
 import DatePicker from '../components/DatePicker';
 import CollapsibleSection from '../components/CollapsibleSection';
 import SkeletonProfilePage from '../components/SkeletonProfilePage';
+import { RootStackScreenProps } from '../navigation/types';
+import { useAppNavigation } from '../navigation/NavigationContext';
 
 interface CompanyEditPageProps {
-  company: Company;
-  onBack: () => void;
+  company?: Company;
+  onBack?: () => void;
   onCompanyUpdated?: () => void;
 }
 
@@ -48,14 +53,61 @@ interface CompanyFormData {
 }
 
 const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
-  company,
-  onBack,
+  company: companyProp,
+  onBack: onBackProp,
   onCompanyUpdated,
 }) => {
-  const { updateCompany, getCompany } = useApi();
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'companyEdit'>['route']>();
+  const navigation = useNavigation();
+  const { goBack } = useAppNavigation();
+  
+  // Use prop if provided (for backward compatibility), otherwise use route params
+  const companyFromRoute = route.params?.company;
+  const company = companyProp || companyFromRoute;
+  const onBack = onBackProp || goBack;
+  
+  // If no company provided, show error
+  if (!company) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Edit Company Profile</Text>
+          <View style={styles.placeholder} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Company information not available. Please try again.</Text>
+        </View>
+      </View>
+    );
+  }
+  
+  const { 
+    updateCompany, 
+    getCompany,
+    getCompanyDocuments,
+    getCompanyServices,
+    getAvailableServicesForCompany,
+    addCompanyDocument,
+    deleteCompanyDocument,
+    addCompanyService,
+    removeCompanyService,
+    uploadFile,
+    getCompanyType,
+  } = useApi();
   const [saving, setSaving] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company>(company);
   const [loading, setLoading] = useState(true);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [companyServices, setCompanyServices] = useState<any[]>([]);
+  const [availableServices, setAvailableServices] = useState<any[]>([]);
+  const [requiredDocuments, setRequiredDocuments] = useState<CompanyDocumentType[]>([]);
+  const isPending = currentCompany.approval_status === 'pending' || currentCompany.approval_status === 'rejected' || currentCompany.approval_status === 'draft';
   const [formData, setFormData] = useState<CompanyFormData>({
     name: company.name || '',
     description: company.description || '',
@@ -74,6 +126,72 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
     social_media_links: company.social_media_links || {},
   });
 
+  // Load company type info to get required documents
+  useEffect(() => {
+    const loadCompanyTypeInfo = async () => {
+      if (company.subcategory && isPending) {
+        try {
+          const typeResponse = await getCompanyType(company.subcategory);
+          if (typeResponse.success && typeResponse.data) {
+            const requiredDocs = typeResponse.data.required_documents || [];
+            setRequiredDocuments(requiredDocs);
+          }
+        } catch (error) {
+          console.error('Failed to load company type info:', error);
+        }
+      }
+    };
+    loadCompanyTypeInfo();
+  }, [company.subcategory, isPending, getCompanyType]);
+
+  // Load documents for pending companies
+  useEffect(() => {
+    const loadDocuments = async () => {
+      if (isPending) {
+        try {
+          setLoadingDocuments(true);
+          const response = await getCompanyDocuments(company.id);
+          if (response.success && response.data) {
+            setDocuments(Array.isArray(response.data) ? response.data : []);
+          }
+        } catch (error) {
+          console.error('Failed to load documents:', error);
+        } finally {
+          setLoadingDocuments(false);
+        }
+      }
+    };
+    loadDocuments();
+  }, [company.id, isPending, getCompanyDocuments]);
+
+  // Load services for pending companies
+  useEffect(() => {
+    const loadServices = async () => {
+      if (isPending) {
+        try {
+          setLoadingServices(true);
+          // Load company's current services
+          const servicesResponse = await getCompanyServices(company.id);
+          if (servicesResponse.success && servicesResponse.data) {
+            const services = Array.isArray(servicesResponse.data) ? servicesResponse.data : [];
+            setCompanyServices(services);
+            
+            // Load available services for this company type
+            const availableResponse = await getAvailableServicesForCompany(company.id);
+            if (availableResponse.success && availableResponse.data) {
+              setAvailableServices(Array.isArray(availableResponse.data) ? availableResponse.data : []);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load services:', error);
+        } finally {
+          setLoadingServices(false);
+        }
+      }
+    };
+    loadServices();
+  }, [company.id, isPending, getCompanyServices, getAvailableServicesForCompany]);
+
   // Reload company data when component mounts to ensure we have the latest data
   useEffect(() => {
     const loadCompany = async () => {
@@ -81,7 +199,7 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
         setLoading(true);
         // Only fetch fields needed for editing form (v2.24.0 optimization)
         const response = await getCompany(company.id, {
-          fields: ['id', 'name', 'description', 'bio', 'website_url', 'location_text', 'address', 'city', 'country', 'email', 'phone', 'establishment_date', 'contact_email', 'contact_phone', 'contact_address', 'social_media_links']
+          fields: ['id', 'name', 'description', 'bio', 'website_url', 'location_text', 'address', 'city', 'country', 'email', 'phone', 'establishment_date', 'contact_email', 'contact_phone', 'contact_address', 'social_media_links', 'subcategory', 'approval_status']
         });
         if (response.success && response.data) {
           const updatedCompany = response.data;
@@ -265,6 +383,137 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
       return updated;
     });
     handleSocialMediaChange(platform, '');
+  };
+
+  // Document handlers
+  const handleDocumentUpload = async (documentType: CompanyDocumentType) => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Please grant camera roll permissions to upload documents.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        setLoadingDocuments(true);
+        
+        try {
+          // Upload file first
+          const uploadResponse = await uploadFile({
+            uri: asset.uri,
+            type: asset.mimeType || 'image/jpeg',
+            name: asset.fileName || `document_${Date.now()}.jpg`,
+          });
+
+          if (uploadResponse.success && uploadResponse.data?.url) {
+            // Add document to company
+            const docResponse = await addCompanyDocument(company.id, {
+              document_type: documentType,
+              file_url: uploadResponse.data.url,
+              file_name: asset.fileName || `document_${Date.now()}.jpg`,
+            });
+
+            if (docResponse.success) {
+              // Reload documents
+              const reloadResponse = await getCompanyDocuments(company.id);
+              if (reloadResponse.success && reloadResponse.data) {
+                setDocuments(Array.isArray(reloadResponse.data) ? reloadResponse.data : []);
+              }
+              Alert.alert('Success', 'Document uploaded successfully');
+            } else {
+              Alert.alert('Error', docResponse.error || 'Failed to add document');
+            }
+          } else {
+            Alert.alert('Error', 'Failed to upload file');
+          }
+        } catch (error: any) {
+          console.error('Failed to upload document:', error);
+          Alert.alert('Error', error.message || 'Failed to upload document');
+        } finally {
+          setLoadingDocuments(false);
+        }
+      }
+    } catch (error: any) {
+      console.error('Failed to pick document:', error);
+      Alert.alert('Error', 'Failed to pick document. Please try again.');
+    }
+  };
+
+  const handleRemoveDocument = async (documentId: string) => {
+    Alert.alert(
+      'Remove Document',
+      'Are you sure you want to remove this document?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoadingDocuments(true);
+              const response = await deleteCompanyDocument(company.id, documentId);
+              if (response.success) {
+                // Reload documents
+                const reloadResponse = await getCompanyDocuments(company.id);
+                if (reloadResponse.success && reloadResponse.data) {
+                  setDocuments(Array.isArray(reloadResponse.data) ? reloadResponse.data : []);
+                }
+                Alert.alert('Success', 'Document removed successfully');
+              } else {
+                Alert.alert('Error', response.error || 'Failed to remove document');
+              }
+            } catch (error: any) {
+              console.error('Failed to remove document:', error);
+              Alert.alert('Error', error.message || 'Failed to remove document');
+            } finally {
+              setLoadingDocuments(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Service handlers
+  const toggleService = async (serviceId: string) => {
+    const isSelected = companyServices.some((s: any) => s.id === serviceId || s.service_id === serviceId);
+    
+    try {
+      setLoadingServices(true);
+      if (isSelected) {
+        // Remove service
+        const response = await removeCompanyService(company.id, serviceId);
+        if (response.success) {
+          setCompanyServices((prev) => prev.filter((s: any) => (s.id !== serviceId && s.service_id !== serviceId)));
+        } else {
+          Alert.alert('Error', response.error || 'Failed to remove service');
+        }
+      } else {
+        // Add service
+        const response = await addCompanyService(company.id, serviceId);
+        if (response.success) {
+          // Reload services to get full service data
+          const reloadResponse = await getCompanyServices(company.id);
+          if (reloadResponse.success && reloadResponse.data) {
+            setCompanyServices(Array.isArray(reloadResponse.data) ? reloadResponse.data : []);
+          }
+        } else {
+          Alert.alert('Error', response.error || 'Failed to add service');
+        }
+      }
+    } catch (error: any) {
+      console.error('Failed to toggle service:', error);
+      Alert.alert('Error', error.message || 'Failed to update service');
+    } finally {
+      setLoadingServices(false);
+    }
   };
 
   const validateForm = (): boolean => {
@@ -790,6 +1039,136 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
           </View>
         </View>
 
+        {/* Services Section - Only show for pending/rejected/draft companies */}
+        {isPending && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Services</Text>
+            <Text style={styles.hint}>Select the services your company provides</Text>
+            
+            {loadingServices ? (
+              <ActivityIndicator size="small" color="#000" style={{ marginTop: 12 }} />
+            ) : (
+              <View style={styles.servicesList}>
+                {availableServices.map((service) => {
+                  const isSelected = companyServices.some((s: any) => s.id === service.id || s.service_id === service.id);
+                  return (
+                    <TouchableOpacity
+                      key={service.id}
+                      style={[
+                        styles.serviceCard,
+                        isSelected && styles.serviceCardSelected,
+                        !canEdit && styles.serviceCardDisabled,
+                      ]}
+                      onPress={() => canEdit && toggleService(service.id)}
+                      disabled={!canEdit || loadingServices}
+                    >
+                      <View style={styles.serviceContent}>
+                        <Text
+                          style={[
+                            styles.serviceName,
+                            isSelected && styles.serviceNameSelected,
+                          ]}
+                        >
+                          {service.name || service.label}
+                        </Text>
+                        {service.description && (
+                          <Text style={styles.serviceDescription}>{service.description}</Text>
+                        )}
+                      </View>
+                      <Ionicons
+                        name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={24}
+                        color={isSelected ? '#000' : '#71717a'}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+            
+            {availableServices.length === 0 && !loadingServices && (
+              <Text style={styles.emptyText}>No services available for this company type</Text>
+            )}
+          </View>
+        )}
+
+        {/* Documents Section - Only show for pending/rejected/draft companies */}
+        {isPending && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Documents</Text>
+            <Text style={styles.hint}>
+              Upload required documents. Documents help speed up the approval process.
+            </Text>
+            
+            {loadingDocuments ? (
+              <ActivityIndicator size="small" color="#000" style={{ marginTop: 12 }} />
+            ) : requiredDocuments.length === 0 ? (
+              <Text style={styles.emptyText}>No documents required for this company type</Text>
+            ) : (
+              <>
+                {requiredDocuments.map((docType) => {
+                  const uploadedDoc = documents.find((d: any) => d.document_type === docType);
+                  return (
+                    <View key={docType} style={styles.documentCard}>
+                      <View style={styles.documentHeader}>
+                        <View style={styles.documentInfo}>
+                          <Ionicons
+                            name={uploadedDoc ? 'checkmark-circle' : 'document-text'}
+                            size={24}
+                            color={uploadedDoc ? '#22c55e' : '#71717a'}
+                          />
+                          <View style={styles.documentText}>
+                            <Text style={styles.documentType}>
+                              {docType.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                            </Text>
+                            {uploadedDoc && (
+                              <Text style={styles.documentFileName} numberOfLines={1}>
+                                {uploadedDoc.file_name || 'Uploaded'}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                        {uploadedDoc && canEdit && (
+                          <TouchableOpacity
+                            onPress={() => handleRemoveDocument(uploadedDoc.id)}
+                            style={styles.removeButton}
+                            disabled={loadingDocuments}
+                          >
+                            <Ionicons name="trash" size={20} color="#ef4444" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      {!uploadedDoc && canEdit && (
+                        <TouchableOpacity
+                          style={[styles.uploadButton, loadingDocuments && styles.uploadButtonDisabled]}
+                          onPress={() => handleDocumentUpload(docType)}
+                          disabled={loadingDocuments}
+                        >
+                          <Ionicons name="cloud-upload" size={20} color="#000" />
+                          <Text style={styles.uploadButtonText}>Upload Document</Text>
+                        </TouchableOpacity>
+                      )}
+                      {uploadedDoc && uploadedDoc.file_url && (
+                        <Image
+                          source={{ uri: uploadedDoc.file_url }}
+                          style={styles.documentPreview}
+                          resizeMode="cover"
+                        />
+                      )}
+                    </View>
+                  );
+                })}
+                
+                <View style={styles.documentsProgress}>
+                  <Text style={styles.progressText}>
+                    {documents.length} of {requiredDocuments.length} documents uploaded
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+        )}
+
         {/* Save Button */}
         <View style={styles.buttonContainer}>
           <TouchableOpacity
@@ -1069,6 +1448,122 @@ const styles = StyleSheet.create({
     color: '#1e40af',
     flex: 1,
     lineHeight: 16,
+  },
+  servicesList: {
+    marginTop: 12,
+  },
+  serviceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+  },
+  serviceCardSelected: {
+    backgroundColor: '#f0f9ff',
+    borderColor: '#000',
+  },
+  serviceCardDisabled: {
+    opacity: 0.6,
+  },
+  serviceContent: {
+    flex: 1,
+  },
+  serviceName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  serviceNameSelected: {
+    color: '#000',
+  },
+  serviceDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+  },
+  documentCard: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  documentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  documentInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  documentText: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  documentType: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  documentFileName: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  removeButton: {
+    padding: 8,
+  },
+  uploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000',
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+  },
+  uploadButtonDisabled: {
+    opacity: 0.6,
+  },
+  uploadButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  documentPreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginTop: 12,
+  },
+  documentsProgress: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: '#eff6ff',
+    borderRadius: 8,
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#1e40af',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginTop: 12,
+    fontStyle: 'italic',
   },
 });
 

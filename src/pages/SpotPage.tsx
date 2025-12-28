@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, Image, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import { semanticSpacing } from '../constants/spacing';
 
 interface SpotPageProps {
@@ -23,7 +24,11 @@ interface NewsPost {
   tags?: string[];
 }
 
-const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate }) => {
+const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp }) => {
+  const { navigateTo } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+
   const { getPublishedNews } = useApi();
   const [newsPosts, setNewsPosts] = useState<NewsPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);

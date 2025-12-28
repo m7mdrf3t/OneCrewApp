@@ -11,12 +11,16 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { RootStackParamList } from '../navigation/types';
 import { useApi } from '../contexts/ApiContext';
+
+type NewsDetailRouteProp = RouteProp<RootStackParamList, 'newsDetail'>;
 
 interface NewsDetailPageProps {
   slug?: string;
   post?: any;
-  onBack: () => void;
+  onBack?: () => void;
   isDark?: boolean;
 }
 
@@ -36,13 +40,29 @@ interface NewsPost {
   updated_at?: string;
 }
 
-const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug, post: initialPost, onBack, isDark }) => {
+const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: initialPostProp, onBack: onBackProp, isDark }) => {
+  const navigation = useNavigation();
+  const route = useRoute<NewsDetailRouteProp>();
   const { getNewsPostBySlug } = useApi();
+  
+  // Get params from route or props (route takes precedence for React Navigation)
+  const slug = route.params?.slug || slugProp;
+  const initialPost = route.params?.post || initialPostProp;
+  
   const [post, setPost] = useState<NewsPost | null>(initialPost || null);
   const [isLoading, setIsLoading] = useState(!initialPost && !!slug);
   const [error, setError] = useState<string | null>(null);
   const colorScheme = useColorScheme();
   const darkMode = isDark ?? (colorScheme === 'dark');
+  
+  // Use navigation.goBack() if available, otherwise use onBack prop
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else if (onBackProp) {
+      onBackProp();
+    }
+  };
 
   useEffect(() => {
     const loadPost = async () => {
@@ -55,6 +75,8 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug, post: initialPost
         
         if (response.success && response.data) {
           setPost(response.data);
+          // Update header title when post loads
+          navigation.setOptions({ title: response.data.title || 'News' });
         } else {
           setError(response.error || 'Failed to load post');
         }
@@ -67,7 +89,7 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug, post: initialPost
     };
 
     loadPost();
-  }, [slug, initialPost, getNewsPostBySlug]);
+  }, [slug, initialPost, getNewsPostBySlug, navigation]);
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return '';
@@ -103,7 +125,7 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug, post: initialPost
         </Text>
         <TouchableOpacity
           style={[styles.retryButton, { backgroundColor: darkMode ? '#1f2937' : '#e5e7eb' }]}
-          onPress={onBack}
+          onPress={handleBack}
         >
           <Text style={[styles.retryButtonText, { color: darkMode ? '#fff' : '#000' }]}>
             Go Back
@@ -115,17 +137,6 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug, post: initialPost
 
   return (
     <View style={[styles.container, { backgroundColor: darkMode ? '#0b0b0b' : '#f4f4f5' }]}>
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: darkMode ? '#0e1113' : '#fff' }]}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={darkMode ? '#fff' : '#000'} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: darkMode ? '#fff' : '#000' }]}>
-          News
-        </Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}

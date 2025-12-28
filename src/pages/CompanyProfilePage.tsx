@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,8 +15,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
+import { RootStackScreenProps } from '../navigation/types';
 import SkeletonProfilePage from '../components/SkeletonProfilePage';
+import SkeletonServiceCard from '../components/SkeletonServiceCard';
+import SkeletonMemberCard from '../components/SkeletonMemberCard';
 import {
   Company,
   CompanyMember,
@@ -55,8 +60,8 @@ interface CompanyProfilePageProps {
 }
 
 const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
-  companyId,
-  onBack,
+  companyId: companyIdProp,
+  onBack: onBackProp,
   onEdit,
   onManageMembers,
   onManageServices,
@@ -64,12 +69,38 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   onManageCourses,
   onCourseSelect,
   refreshTrigger,
-  onNavigate,
+  onNavigate: onNavigateProp,
   readOnly = false,
 }) => {
+  // Get route params if available (React Navigation)
+  const route = useRoute<RootStackScreenProps<'companyProfile'>['route']>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  
+  const { navigateTo, goBack } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+  const onBack = onBackProp || goBack;
+  
+  // Get companyId from route params or prop
+  const companyId = companyIdProp || routeParams?.companyId || '';
+  
+  // Get readOnly from route params or prop (route params take precedence for navigation consistency)
+  const readOnlyFromRoute = routeParams?.readOnly ?? readOnly;
+  
+  // If no companyId provided, show error
+  if (!companyId) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text>Company ID not provided</Text>
+      </View>
+    );
+  }
+  
   const {
     getCompany,
     getCompanyMembers,
+    getPendingCompanyMembers,
     getCompanyServices,
     user,
     activeCompany,
@@ -119,19 +150,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const queryClient = useQueryClient();
   const refreshKey = refreshTrigger ?? 0;
 
-  // In read-only mode (public browsing), avoid heavy relationship fetches unless the user asks for them.
-  const [servicesRequested, setServicesRequested] = useState(!readOnly);
-  const [membersRequested, setMembersRequested] = useState(!readOnly);
-  const [documentsRequested, setDocumentsRequested] = useState(!readOnly);
-  const [certificationsRequested, setCertificationsRequested] = useState(!readOnly);
+  // Use readOnly from route params (takes precedence over prop for navigation consistency)
+  const isReadOnly = readOnlyFromRoute;
 
-  useEffect(() => {
-    // Reset lazy-load toggles when switching companies or mode.
-    setServicesRequested(!readOnly);
-    setMembersRequested(!readOnly);
-    setDocumentsRequested(!readOnly);
-    setCertificationsRequested(!readOnly);
-  }, [companyId, readOnly]);
+  // Auto-load all data - no lazy loading needed with skeleton screens
+  // Removed lazy loading toggles for better UX with skeleton loading states
 
   const companyCoreQuery = useQuery({
     queryKey: ['company', companyId, 'core', refreshKey],
@@ -163,37 +186,24 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   }, [companyCoreQuery.data]);
 
+  // Refetch company data when screen comes into focus to ensure fresh data after approval
+  useFocusEffect(
+    React.useCallback(() => {
+      // Invalidate and refetch company data when screen is focused
+      // This ensures that after approval, the page shows the updated status and management tools
+      if (companyId) {
+        queryClient.invalidateQueries({ queryKey: ['company', companyId, 'core'] });
+        queryClient.refetchQueries({ queryKey: ['company', companyId, 'core'] });
+      }
+    }, [companyId, queryClient])
+  );
+
   const isAcademy = (companyCoreQuery.data?.subcategory || company?.subcategory) === 'academy';
 
-  const servicesQuery = useQuery<CompanyService[]>({
-    queryKey: ['companyServices', companyId, refreshKey],
-    enabled: !!companyId && (!readOnly || servicesRequested),
-    queryFn: async () => {
-      const response = await getCompanyServices(companyId);
-      if (!response?.success) {
-        throw new Error(response?.error || 'Failed to load services');
-      }
-      const payload = response.data?.data ?? response.data;
-      const servicesArray = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.services)
-          ? payload.services
-          : Array.isArray(payload?.data)
-            ? payload.data
-            : [];
-      return servicesArray;
-    },
-  });
-
-  useEffect(() => {
-    if (servicesQuery.data) {
-      setServices(servicesQuery.data);
-    }
-  }, [servicesQuery.data]);
-
+  // Query for active (accepted) members - must be defined before helper functions that use it
   const membersQuery = useQuery<CompanyMember[]>({
     queryKey: ['companyMembers', companyId, refreshKey],
-    enabled: !!companyId && (!readOnly || membersRequested),
+    enabled: !!companyId,
     queryFn: async () => {
       let response = await getCompanyMembers(companyId, {
         page: 1,
@@ -217,9 +227,9 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         } else if (data?.members && Array.isArray(data.members)) {
           membersArray = data.members;
         }
+        // Only return accepted members - pending members are handled separately
         const acceptedMembers = membersArray.filter((m) => m.invitation_status === 'accepted');
-        const pendingMembers = membersArray.filter((m) => m.invitation_status === 'pending');
-        return [...acceptedMembers, ...pendingMembers];
+        return acceptedMembers;
       }
 
       // Graceful fallback: show empty list
@@ -227,19 +237,137 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     },
   });
 
+  // Helper to check if user is owner/admin (works in both read-only and edit mode)
+  // First check owner from company data (available immediately), then check members list
+  const isOwnerOrAdmin = useMemo(() => {
+    if (!user || !company) return false;
+    // Check if user is owner (available from company data immediately)
+    if (company.owner?.id === user.id) return true;
+    // Wait for members query to finish loading before checking admin status
+    if (membersQuery.isLoading || !membersQuery.isSuccess) return false; // Don't enable queries until members load successfully
+    // Use membersQuery.data directly (more reliable than members state)
+    const membersData = membersQuery.data || [];
+    const userMember = membersData.find(m => m.user_id === user.id);
+    return userMember && (userMember.role === 'owner' || userMember.role === 'admin');
+  }, [user, company, membersQuery.isLoading, membersQuery.isSuccess, membersQuery.data]);
+
+  // Helper to check if user is a company member (for read-only mode optimization)
+  const isCompanyMember = useMemo(() => {
+    if (!isReadOnly || !user || !company) return true; // In edit mode, assume access
+    // Check if user is owner (available from company data immediately)
+    if (company.owner?.id === user.id) return true;
+    // Wait for members query to finish loading before checking membership
+    if (membersQuery.isLoading || !membersQuery.isSuccess) return false; // Don't enable queries until members load successfully
+    // Use membersQuery.data directly (more reliable than members state)
+    const membersData = membersQuery.data || [];
+    return membersData.some(m => m.user_id === user.id);
+  }, [isReadOnly, user, company, membersQuery.isLoading, membersQuery.isSuccess, membersQuery.data]);
+
+  // Determine if services query should be enabled
+  const shouldLoadServices = useMemo(() => {
+    if (!companyId) return false;
+    // Always enable in edit mode (not read-only)
+    if (!isReadOnly) return true;
+    // In read-only mode, only enable if user is a member and members query has succeeded
+    return isCompanyMember && membersQuery.isSuccess;
+  }, [companyId, isReadOnly, isCompanyMember, membersQuery.isSuccess]);
+
+  const servicesQuery = useQuery<CompanyService[]>({
+    queryKey: ['companyServices', companyId, refreshKey],
+    enabled: shouldLoadServices,
+    queryFn: async () => {
+      console.log('🔍 Fetching company services for:', companyId, { isReadOnly, isCompanyMember, membersQuerySuccess: membersQuery.isSuccess });
+      const response = await getCompanyServices(companyId);
+      if (!response?.success) {
+        // Should not happen if enabled correctly, but handle gracefully
+        console.warn('⚠️ Failed to load services:', response?.error);
+        return [];
+      }
+      const payload = response.data?.data ?? response.data;
+      const servicesArray = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.services)
+          ? payload.services
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+      console.log('✅ Company services loaded:', servicesArray.length, 'services', servicesArray);
+      return servicesArray;
+    },
+  });
+
   useEffect(() => {
-    if (membersQuery.data) {
-      setMembers(membersQuery.data);
+    if (servicesQuery.data !== undefined) {
+      console.log('📦 Updating services state:', servicesQuery.data.length, 'services');
+      setServices(servicesQuery.data);
+    } else if (servicesQuery.isSuccess) {
+      // Query succeeded but returned no data - clear services
+      console.log('📦 Clearing services (query succeeded but no data)');
+      setServices([]);
     }
-  }, [membersQuery.data]);
+  }, [servicesQuery.data, servicesQuery.isSuccess]);
+
+
+  // Query for pending members using the dedicated endpoint (only for owners/admins)
+  const pendingMembersQuery = useQuery<CompanyMember[]>({
+    queryKey: ['companyPendingMembers', companyId, refreshKey],
+    enabled: !!companyId && (!isReadOnly || (isOwnerOrAdmin && membersQuery.isSuccess)),
+    queryFn: async () => {
+      try {
+        const response = await getPendingCompanyMembers(companyId, {
+          page: 1,
+          limit: 50,
+          sort: 'created_at',
+          order: 'desc',
+        });
+
+        if (response?.success && response.data) {
+          // The API returns data as an array directly in response.data, not response.data.data
+          // Check if data is an array or if it's nested in a data property
+          if (Array.isArray(response.data)) {
+            return response.data;
+          } else if (response.data.data && Array.isArray(response.data.data)) {
+            return response.data.data;
+          }
+          return [];
+        }
+
+        // Handle 403 errors gracefully (only owner/admin can view pending members)
+        if (response?.error?.includes('403') || response?.error?.includes('owner or admin')) {
+          console.log('ℹ️ Pending members not accessible (requires owner/admin access)');
+          return [];
+        }
+
+        // Graceful fallback: show empty list
+        return [];
+      } catch (error: any) {
+        // Handle 403 errors gracefully (only owner/admin can view pending members)
+        if (error?.status === 403 || error?.statusCode === 403 || error?.message?.includes('403') || error?.message?.includes('owner or admin')) {
+          console.log('ℹ️ Pending members not accessible (requires owner/admin access)');
+          return [];
+        }
+        console.warn('⚠️ Failed to load pending members, falling back to empty list:', error);
+        return [];
+      }
+    },
+  });
+
+  useEffect(() => {
+    // Combine accepted and pending members for display
+    const acceptedMembers = membersQuery.data || [];
+    const pendingMembers = pendingMembersQuery.data || [];
+    setMembers([...acceptedMembers, ...pendingMembers]);
+  }, [membersQuery.data, pendingMembersQuery.data]);
 
   const documentsQuery = useQuery<CompanyDocument[]>({
     queryKey: ['companyDocuments', companyId, refreshKey],
-    enabled: !!companyId && (!readOnly || documentsRequested),
+    enabled: !!companyId && (!isReadOnly || (isCompanyMember && membersQuery.isSuccess)),
     queryFn: async () => {
       const response = await getCompanyDocuments(companyId);
       if (!response?.success) {
-        throw new Error(response?.error || 'Failed to load documents');
+        // Should not happen if enabled correctly, but handle gracefully
+        console.warn('⚠️ Failed to load documents:', response?.error);
+        return [];
       }
       const docsArray = Array.isArray(response.data) ? response.data : (response.data?.data || []);
       return docsArray.filter((doc: CompanyDocument) => !doc?.deleted_at);
@@ -254,10 +382,20 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const coursesQuery = useQuery<CourseWithDetails[]>({
     queryKey: ['academyCourses', companyId, refreshKey],
-    enabled: !!companyId && isAcademy,
+    enabled: !!companyId && isAcademy && !!companyCoreQuery.data, // Only run if company is loaded
     queryFn: async () => {
-      const coursesData = await getAcademyCourses(companyId);
-      return Array.isArray(coursesData) ? coursesData : [];
+      try {
+        const coursesData = await getAcademyCourses(companyId);
+        return Array.isArray(coursesData) ? coursesData : [];
+      } catch (error: any) {
+        // Handle 404 "Company not found" errors gracefully
+        if (error?.message?.includes('Company not found') || error?.message?.includes('404')) {
+          console.warn('Company not found or not accessible for courses:', companyId);
+          return []; // Return empty array instead of throwing
+        }
+        // Re-throw other errors
+        throw error;
+      }
     },
   });
 
@@ -273,7 +411,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const certificationsQuery = useQuery<UserCertification[]>({
     queryKey: ['companyCertifications', companyId, refreshKey],
-    enabled: !!companyId && isAcademy && (!readOnly || certificationsRequested),
+    enabled: !!companyId && isAcademy,
     queryFn: async () => {
       const certs = await getCompanyCertifications(companyId);
       return Array.isArray(certs) ? certs : [];
@@ -297,7 +435,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     return err instanceof Error ? err.message : String(err);
   })();
 
-  const loadingMembers = membersQuery.isFetching;
+  const loadingMembers = membersQuery.isFetching || pendingMembersQuery.isFetching;
   const loadingServices = servicesQuery.isFetching;
   const loadingDocuments = documentsQuery.isFetching;
   const loadingCertifications = certificationsQuery.isFetching;
@@ -305,7 +443,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const handleRemoveMember = async (member: CompanyMember) => {
     // STRICT READ-ONLY: This function should never execute in read-only mode
-    if (readOnly) {
+    if (isReadOnly) {
       console.warn('⚠️ Attempted to remove member in read-only mode - operation blocked');
       return;
     }
@@ -351,11 +489,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       // Backwards-compatible helper for existing call sites (retry/upload flows).
       // With TanStack Query, the page's UI state is driven by the cached query data.
       await companyCoreQuery.refetch();
-      if (!readOnly || servicesRequested) await servicesQuery.refetch();
-      if (!readOnly || membersRequested) await membersQuery.refetch();
-      if (!readOnly || documentsRequested) await documentsQuery.refetch();
+      await servicesQuery.refetch();
+      await membersQuery.refetch();
+      await documentsQuery.refetch();
       if (isAcademy) await coursesQuery.refetch();
-      if (isAcademy && (!readOnly || certificationsRequested)) await certificationsQuery.refetch();
+      if (isAcademy) await certificationsQuery.refetch();
     } catch (err: any) {
       console.error('Failed to load company data:', err);
       Alert.alert('Error', err.message || 'Failed to load company profile');
@@ -366,7 +504,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const loadMembers = async (_id: string) => {
     try {
-      setMembersRequested(true);
       await membersQuery.refetch();
     } catch (err) {
       console.warn('⚠️ Failed to refresh members:', err);
@@ -375,7 +512,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const loadCertifications = async (_id: string) => {
     try {
-      setCertificationsRequested(true);
       await certificationsQuery.refetch();
     } catch (err) {
       console.warn('⚠️ Failed to refresh certifications:', err);
@@ -390,9 +526,64 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   };
 
+  // Create default handlers that use navigation when callback props aren't provided
+  const handleManageMembers = React.useCallback((company: Company) => {
+    if (onManageMembers) {
+      onManageMembers(company);
+    } else if (onNavigate) {
+      // Navigate to members management page
+      const userMember = members.find(m => m.user_id === user?.id);
+      onNavigate('companyMembersManagement', {
+        company,
+        currentUserId: user?.id || '',
+        currentUserRole: (userMember?.role || 'member') as CompanyMemberRole,
+      });
+    }
+  }, [onManageMembers, onNavigate, members, user]);
+
+  const handleManageCourses = React.useCallback((company: Company) => {
+    if (onManageCourses) {
+      onManageCourses(company);
+    } else if (onNavigate) {
+      // Navigate to courses management page
+      onNavigate('coursesManagement', {
+        companyId: company.id,
+        readOnly: false,
+      });
+    }
+  }, [onManageCourses, onNavigate]);
+
+  const handleInviteMember = React.useCallback((company: Company) => {
+    if (onInviteMember) {
+      onInviteMember(company);
+    } else if (onNavigate) {
+      // Navigate to members management page and show invite modal
+      const userMember = members.find(m => m.user_id === user?.id);
+      onNavigate('companyMembersManagement', {
+        company,
+        currentUserId: user?.id || '',
+        currentUserRole: (userMember?.role || 'member') as CompanyMemberRole,
+        showInviteModal: true,
+      });
+    }
+  }, [onInviteMember, onNavigate, members, user]);
+
+  const handleEditCompany = React.useCallback((company: Company | null) => {
+    if (!company) {
+      console.warn('Cannot edit: company is null or undefined');
+      Alert.alert('Error', 'Company information is not available. Please try again.');
+      return;
+    }
+    if (onEdit) {
+      onEdit(company);
+    } else if (onNavigate) {
+      // Navigate to company edit page
+      onNavigate('companyEdit', { company });
+    }
+  }, [onEdit, onNavigate]);
+
   const loadDocuments = async (_id: string) => {
     try {
-      setDocumentsRequested(true);
       await documentsQuery.refetch();
     } catch (err) {
       console.warn('⚠️ Failed to refresh documents:', err);
@@ -401,7 +592,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const handleUploadDocument = async (documentType: CompanyDocumentType) => {
     // STRICT READ-ONLY: This function should never execute in read-only mode
-    if (readOnly) {
+    if (isReadOnly) {
       console.warn('⚠️ Attempted to upload document in read-only mode - operation blocked');
       return;
     }
@@ -436,7 +627,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const uploadDocumentFile = async (companyId: string, doc: { document_type: CompanyDocumentType; file_uri: string; file_name: string }) => {
     // STRICT READ-ONLY: This function should never execute in read-only mode
-    if (readOnly) {
+    if (isReadOnly) {
       console.warn('⚠️ Attempted to upload document file in read-only mode - operation blocked');
       return;
     }
@@ -480,7 +671,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const handleDeleteDocument = async (documentId: string) => {
     // STRICT READ-ONLY: This function should never execute in read-only mode
-    if (readOnly) {
+    if (isReadOnly) {
       console.warn('⚠️ Attempted to delete document in read-only mode - operation blocked');
       return;
     }
@@ -515,7 +706,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const loadServices = async (_id: string) => {
     try {
-      setServicesRequested(true);
       await servicesQuery.refetch();
     } catch (err) {
       console.warn('⚠️ Failed to refresh services:', err);
@@ -524,7 +714,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const isOwner = () => {
     // In read-only mode, never detect ownership - always return false
-    if (readOnly) return false;
+    if (isReadOnly) return false;
     
     if (!company || !user) return false;
     // Check multiple ways: owner.id or activeCompany match
@@ -537,7 +727,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const canEdit = () => {
     // In read-only mode, never allow editing - always return false
-    if (readOnly) return false;
+    if (isReadOnly) return false;
     
     if (!company || !user) return false;
     // Owner, or user viewing their own active company, or user is a member with edit permissions
@@ -696,7 +886,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const handleUploadLogo = async () => {
     // STRICT READ-ONLY: This function should never execute in read-only mode
-    if (readOnly) {
+    if (isReadOnly) {
       console.warn('⚠️ Attempted to upload logo in read-only mode - operation blocked');
       return;
     }
@@ -766,7 +956,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
   const uploadLogoFile = async (imageResult: any) => {
     // STRICT READ-ONLY: This function should never execute in read-only mode
-    if (readOnly) {
+    if (isReadOnly) {
       console.warn('⚠️ Attempted to upload logo file in read-only mode - operation blocked');
       return;
     }
@@ -849,8 +1039,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Company Profile</Text>
         {/* STRICT READ-ONLY: Edit button completely removed when readOnly is true */}
-        {!readOnly && canEdit() && onEdit && (
-          <TouchableOpacity onPress={() => onEdit(company)} style={styles.editButton}>
+        {!isReadOnly && canEdit() && company && (
+          <TouchableOpacity onPress={() => handleEditCompany(company)} style={styles.editButton}>
             <Ionicons name="create-outline" size={24} color="#000" />
           </TouchableOpacity>
         )}
@@ -908,7 +1098,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               )}
               
               {/* STRICT READ-ONLY: Upload Logo Button completely removed when readOnly is true */}
-              {!readOnly && canEdit() && (
+              {!isReadOnly && canEdit() && (
                 <TouchableOpacity
                   style={styles.uploadLogoButton}
                   onPress={handleUploadLogo}
@@ -1058,7 +1248,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="people-outline" size={18} color="#000" />
                   <Text style={styles.metricLabel}>Active Users</Text>
                   <Text style={styles.metricValue}>
-                    {(!readOnly || membersRequested) ? (loadingMembers ? '...' : `${members.length}+`) : '—'}
+                    {loadingMembers ? '...' : `${members.length}+`}
                   </Text>
                 </View>
 
@@ -1066,7 +1256,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="bar-chart-outline" size={18} color="#000" />
                   <Text style={styles.metricLabel}>Active</Text>
                   <Text style={styles.metricValue}>
-                    {(!readOnly || membersRequested) ? (loadingMembers ? '...' : `${members.length}+`) : '—'}
+                    {loadingMembers ? '...' : `${members.length}+`}
                   </Text>
                 </View>
               </View>
@@ -1077,10 +1267,10 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Team & Metrics</Text>
                 {/* STRICT READ-ONLY: Manage button completely removed when readOnly is true */}
-                {!readOnly && canEdit() && onManageCourses && (
+                {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
                   <TouchableOpacity
                     style={styles.manageButton}
-                    onPress={() => onManageCourses(company)}
+                    onPress={() => handleManageCourses(company)}
                   >
                     <Ionicons name="school-outline" size={14} color="#000" />
                     <Text style={styles.manageButtonText}>Manage</Text>
@@ -1092,66 +1282,71 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 <ActivityIndicator size="small" color="#000" />
               ) : courses.length > 0 ? (
                 <>
-                  <FlashListUnsafe
-                    horizontal
-                    data={courses}
-                    keyExtractor={(course: CourseWithDetails) => String(course.id)}
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.coursesHorizontalScroll}
-                    contentContainerStyle={styles.coursesHorizontalContent}
-                    ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-                    estimatedItemSize={courseCardWidth}
-                    renderItem={({ item: course }: { item: CourseWithDetails }) => (
-                      <View style={{ width: courseCardWidth }}>
-                        <CourseCard
-                          course={course}
-                          onSelect={() => {
-                            // STRICT READ-ONLY: In read-only mode, only allow viewing course details
-                            if (readOnly && onCourseSelect) {
-                              onCourseSelect(course);
-                            } else if (!readOnly && onCourseSelect) {
-                              onCourseSelect(course);
-                            } else if (!readOnly && onManageCourses) {
-                              onManageCourses(company);
-                            }
-                          }}
-                        />
-                      </View>
-                    )}
-                  />
-                  {/* STRICT READ-ONLY: In read-only mode, only allow viewing courses, not managing */}
-                  {readOnly && onCourseSelect ? (
-                    <TouchableOpacity
-                      style={styles.viewAllButton}
-                      onPress={() => {
+                  <View style={styles.coursesList}>
+                    {courses.map((course: CourseWithDetails) => (
+                      <CourseCard
+                        key={course.id}
+                        course={course}
+                        onSelect={() => {
+                          console.log('🔍 [CompanyProfilePage] Course selected:', {
+                            courseId: course.id,
+                            courseTitle: course.title,
+                            companyId: company.id,
+                            readOnly: isReadOnly,
+                            hasOnCourseSelect: !!onCourseSelect,
+                            hasOnNavigate: !!onNavigate,
+                          });
+                          
+                          // STRICT READ-ONLY: In read-only mode, only allow viewing course details
+                          if (isReadOnly && onCourseSelect) {
+                            onCourseSelect(course);
+                          } else if (!isReadOnly && onCourseSelect) {
+                            onCourseSelect(course);
+                          } else if (onNavigate) {
+                            // Fallback: navigate directly to course detail page
+                            console.log('📱 [CompanyProfilePage] Navigating to courseDetail:', {
+                              courseId: course.id,
+                              companyId: course.company_id || company.id,
+                            });
+                            onNavigate('courseDetail', {
+                              courseId: course.id,
+                              companyId: course.company_id || company.id,
+                            });
+                          } else if (!isReadOnly && onManageCourses) {
+                            // Last resort: navigate to courses management page
+                            onManageCourses(company);
+                          } else {
+                            console.warn('⚠️ [CompanyProfilePage] No navigation method available for course!');
+                          }
+                        }}
+                      />
+                    ))}
+                  </View>
+                  {/* View All Courses button - always visible when there are courses */}
+                  <TouchableOpacity
+                    style={styles.viewAllButton}
+                    onPress={() => {
+                      if (isReadOnly && onNavigate) {
                         // In read-only mode, navigate to courses management page in read-only mode
-                        if (onNavigate) {
-                          onNavigate('coursesManagement', { companyId: company.id, readOnly: true });
-                        }
-                      }}
-                    >
-                      <Text style={styles.viewAllButtonText}>View All Courses</Text>
-                    </TouchableOpacity>
-                  ) : !readOnly && onManageCourses ? (
-                    <TouchableOpacity
-                      style={styles.viewAllButton}
-                      onPress={() => {
-                        onManageCourses(company);
-                      }}
-                    >
-                      <Text style={styles.viewAllButtonText}>View All Courses</Text>
-                    </TouchableOpacity>
-                  ) : null}
+                        onNavigate('coursesManagement', { companyId: company.id, readOnly: true });
+                      } else {
+                        // In edit mode, navigate to courses management page
+                        handleManageCourses(company);
+                      }
+                    }}
+                  >
+                    <Text style={styles.viewAllButtonText}>View All Courses</Text>
+                  </TouchableOpacity>
                 </>
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="school-outline" size={48} color="#e4e4e7" />
                   <Text style={styles.emptyStateText}>No courses available yet</Text>
                   {/* STRICT READ-ONLY: Create Course button completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && onManageCourses && (
+                  {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
                     <TouchableOpacity
                       style={styles.addButton}
-                      onPress={() => onManageCourses(company)}
+                      onPress={() => handleManageCourses(company)}
                     >
                       <Text style={styles.addButtonText}>Create Course</Text>
                     </TouchableOpacity>
@@ -1160,64 +1355,84 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               )}
             </View>
 
-            {/* STRICT READ-ONLY: Course Registrations Section completely removed when readOnly is true */}
-            {!readOnly && canEdit() && (
+            {/* STRICT READ-ONLY: Academy Management Section - Enhanced UI */}
+            {!isReadOnly && canEdit() && company.subcategory === 'academy' && company.approval_status === 'approved' && (
               <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Course Registrations</Text>
+                <Text style={styles.managementSectionTitle}>Academy Management</Text>
+                <Text style={styles.managementSectionSubtitle}>
+                  Manage your academy's courses, members, and certifications
+                </Text>
+                
+                {/* Management Cards Grid */}
+                <View style={styles.managementCardsContainer}>
+                  {/* Course Registrations Card */}
                   <TouchableOpacity
-                    style={styles.manageButton}
+                    style={styles.managementCard}
                     onPress={() => setShowCourseRegistrationModal(true)}
+                    activeOpacity={0.7}
                   >
-                    <Ionicons name="people-outline" size={14} color="#000" />
-                    <Text style={styles.manageButtonText}>Manage</Text>
+                    <View style={[styles.managementCardIcon, { backgroundColor: '#dbeafe' }]}>
+                      <Ionicons name="people-outline" size={24} color="#3b82f6" />
+                    </View>
+                    <Text style={styles.managementCardTitle}>Course Registrations</Text>
+                    <Text style={styles.managementCardDescription}>
+                      Register and manage users for your courses
+                    </Text>
                   </TouchableOpacity>
-                </View>
-                <Text style={styles.description}>
-                  Register and manage users for your academy courses. Only academy owners and admins can manage registrations.
-                </Text>
-                <TouchableOpacity
-                  style={styles.manageRegistrationsButton}
-                  onPress={() => setShowCourseRegistrationModal(true)}
-                >
-                  <Ionicons name="person-add-outline" size={18} color="#fff" />
-                  <Text style={styles.manageRegistrationsButtonText}>Manage Course Registrations</Text>
-                </TouchableOpacity>
-              </View>
-            )}
 
-            {/* STRICT READ-ONLY: Invite Admin Users Section completely removed when readOnly is true */}
-            {!readOnly && canEdit() && company.subcategory === 'academy' && onInviteMember && (
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Admin Management</Text>
-                </View>
-                <Text style={styles.description}>
-                  Invite users as administrators to help manage your academy. Admin users have full management privileges including the ability to add other admin users, manage courses, and grant certifications.
-                </Text>
-                <View style={styles.adminManagementButtons}>
-                  {onManageMembers && (
-                    <TouchableOpacity
-                      style={[styles.manageRegistrationsButton, { backgroundColor: '#6366f1', marginBottom: 8 }]}
-                      onPress={() => onManageMembers(company)}
-                    >
-                      <Ionicons name="settings-outline" size={18} color="#fff" />
-                      <Text style={styles.manageRegistrationsButtonText}>Manage All Members</Text>
-                    </TouchableOpacity>
-                  )}
+                  {/* Admin Management Card */}
                   <TouchableOpacity
-                    style={[styles.manageRegistrationsButton, styles.inviteAdminButton]}
-                    onPress={() => onInviteMember(company)}
+                    style={styles.managementCard}
+                    onPress={() => handleManageMembers(company)}
+                    activeOpacity={0.7}
                   >
-                    <Ionicons name="person-add-outline" size={18} color="#fff" />
-                    <Text style={styles.manageRegistrationsButtonText}>Invite Admin User</Text>
+                    <View style={[styles.managementCardIcon, { backgroundColor: '#ede9fe' }]}>
+                      <Ionicons name="settings-outline" size={24} color="#6366f1" />
+                    </View>
+                    <Text style={styles.managementCardTitle}>Manage Members</Text>
+                    <Text style={styles.managementCardDescription}>
+                      View and manage all academy members
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Invite Admin Card */}
+                  <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={() => handleInviteMember(company)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.managementCardIcon, { backgroundColor: '#f3e8ff' }]}>
+                      <Ionicons name="person-add-outline" size={24} color="#8b5cf6" />
+                    </View>
+                    <Text style={styles.managementCardTitle}>Invite Admin</Text>
+                    <Text style={styles.managementCardDescription}>
+                      Add administrators to help manage
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Grant Certifications Card */}
+                  <TouchableOpacity
+                    style={styles.managementCard}
+                    onPress={() => {
+                      setSelectedUserIdForCertification(null);
+                      setShowGrantCertificationModal(true);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.managementCardIcon, { backgroundColor: '#fef3c7' }]}>
+                      <Ionicons name="trophy-outline" size={24} color="#f59e0b" />
+                    </View>
+                    <Text style={styles.managementCardTitle}>Grant Certification</Text>
+                    <Text style={styles.managementCardDescription}>
+                      Manually grant certifications to users
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
             
             {/* User Management Section - For all company types */}
-            {!readOnly && canEdit() && onManageMembers && company.subcategory !== 'academy' && (
+            {!isReadOnly && canEdit() && company.approval_status === 'approved' && company.subcategory !== 'academy' && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>User Management</Text>
@@ -1227,32 +1442,10 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 </Text>
                 <TouchableOpacity
                   style={[styles.manageRegistrationsButton, { backgroundColor: '#3b82f6' }]}
-                  onPress={() => onManageMembers(company)}
+                  onPress={() => handleManageMembers(company)}
                 >
                   <Ionicons name="people-outline" size={18} color="#fff" />
                   <Text style={styles.manageRegistrationsButtonText}>Manage Members</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* STRICT READ-ONLY: Grant Certification Section completely removed when readOnly is true */}
-            {!readOnly && canEdit() && company.subcategory === 'academy' && (
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Grant Certifications</Text>
-                </View>
-                <Text style={styles.description}>
-                  Manually grant certifications to users. You can also grant certifications from the Team Members section by clicking the trophy icon next to any member.
-                </Text>
-                <TouchableOpacity
-                  style={styles.manageRegistrationsButton}
-                  onPress={() => {
-                    setSelectedUserIdForCertification(null);
-                    setShowGrantCertificationModal(true);
-                  }}
-                >
-                  <Ionicons name="trophy-outline" size={18} color="#fff" />
-                  <Text style={styles.manageRegistrationsButtonText}>Grant Certification</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1471,10 +1664,10 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>
-                  Services We Provide {((!readOnly || servicesRequested) && services.length > 0) ? `(${services.length})` : ''}
+                  Services We Provide {services.length > 0 ? `(${services.length})` : ''}
                 </Text>
                 {/* STRICT READ-ONLY: Manage Services button completely removed when readOnly is true */}
-                {!readOnly && canEdit() && onManageServices && (
+                {!isReadOnly && canEdit() && onManageServices && (
                   <TouchableOpacity
                     style={styles.manageButton}
                     onPress={() => onManageServices(company)}
@@ -1483,24 +1676,26 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     <Text style={styles.manageButtonText}>Manage</Text>
                   </TouchableOpacity>
                 )}
-                {readOnly && !servicesRequested && (
-                  <TouchableOpacity
-                    style={styles.manageButton}
-                    onPress={() => loadServices(company.id)}
-                  >
-                    <Ionicons name="download-outline" size={18} color="#000" />
-                    <Text style={styles.manageButtonText}>Load</Text>
-                  </TouchableOpacity>
-                )}
               </View>
 
               {loadingServices ? (
-                <ActivityIndicator size="small" color="#000" />
-              ) : (!readOnly || servicesRequested) && services.length > 0 ? (
                 <View style={styles.servicesGrid}>
-                  {services.map((companyService) => {
-                    const service = companyService.service;
-                    if (!service) return null;
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <SkeletonServiceCard key={index} isDark={false} />
+                  ))}
+                </View>
+              ) : services.length > 0 ? (
+                <View style={styles.servicesGrid}>
+                  {services
+                    .filter((companyService) => {
+                      const hasService = !!companyService.service;
+                      if (!hasService) {
+                        console.warn('⚠️ Filtering out service without nested service object:', companyService.service_id);
+                      }
+                      return hasService;
+                    })
+                    .map((companyService) => {
+                    const service = companyService.service!; // Safe to use ! here since we filtered
 
                     return (
                       <View key={companyService.service_id} style={styles.serviceCard}>
@@ -1524,11 +1719,9 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="briefcase-outline" size={48} color="#e4e4e7" />
-                  <Text style={styles.emptyStateText}>
-                    {readOnly && !servicesRequested ? 'Tap "Load" to view services' : 'No services added yet'}
-                  </Text>
+                  <Text style={styles.emptyStateText}>No services added yet</Text>
                   {/* STRICT READ-ONLY: Add Services button completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && onManageServices && (
+                  {!isReadOnly && canEdit() && onManageServices && (
                     <TouchableOpacity
                       style={styles.addButton}
                       onPress={() => onManageServices(company)}
@@ -1548,40 +1741,35 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 </Text>
                 <View style={styles.memberActionButtons}>
                   {/* STRICT READ-ONLY: Manage Members button completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && onManageMembers && (
+                  {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
                     <TouchableOpacity
                       style={styles.manageButton}
-                      onPress={() => onManageMembers(company)}
+                      onPress={() => handleManageMembers(company)}
                     >
                       <Ionicons name="settings-outline" size={18} color="#000" />
                       <Text style={styles.manageButtonText}>Manage</Text>
                     </TouchableOpacity>
                   )}
-                  {/* STRICT READ-ONLY: Invite Member button completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && onInviteMember && (
-                    <TouchableOpacity
-                      style={styles.manageButton}
-                      onPress={() => onInviteMember(company)}
-                    >
-                      <Ionicons name="person-add-outline" size={18} color="#000" />
-                      <Text style={styles.manageButtonText}>Invite</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-                {readOnly && !membersRequested && (
+                {/* STRICT READ-ONLY: Invite Member button completely removed when readOnly is true */}
+                {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
                   <TouchableOpacity
                     style={styles.manageButton}
-                    onPress={() => loadMembers(company.id)}
+                    onPress={() => handleInviteMember(company)}
                   >
-                    <Ionicons name="download-outline" size={18} color="#000" />
-                    <Text style={styles.manageButtonText}>Load</Text>
+                    <Ionicons name="person-add-outline" size={18} color="#000" />
+                    <Text style={styles.manageButtonText}>Invite</Text>
                   </TouchableOpacity>
                 )}
+                </View>
               </View>
 
               {loadingMembers ? (
-                <ActivityIndicator size="small" color="#000" />
-              ) : (!readOnly || membersRequested) && members.length > 0 ? (
+                <View style={styles.membersList}>
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <SkeletonMemberCard key={index} isDark={false} />
+                  ))}
+                </View>
+              ) : members.length > 0 ? (
                 <View style={styles.membersList}>
                   {members.map((member) => (
                       <View key={member.user_id} style={styles.memberCard}>
@@ -1629,7 +1817,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
                         <View style={styles.memberActions}>
                           {/* STRICT READ-ONLY: Member action buttons completely removed when readOnly is true */}
-                          {!readOnly && canEdit() && member.role !== 'owner' && (
+                          {!isReadOnly && canEdit() && member.role !== 'owner' && (
                             <>
                               {company.subcategory === 'academy' && (
                                 <TouchableOpacity
@@ -1664,38 +1852,32 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="people-outline" size={48} color="#e4e4e7" />
-                  <Text style={styles.emptyStateText}>
-                    {readOnly && !membersRequested ? 'Tap "Load" to view team members' : 'No members yet'}
-                  </Text>
+                  <Text style={styles.emptyStateText}>No members yet</Text>
                   {/* STRICT READ-ONLY: Management buttons completely removed when readOnly is true */}
-                  {!readOnly && canEdit() && (
+                  {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
                     <View style={styles.emptyStateButtons}>
-                      {onManageMembers && (
-                        <TouchableOpacity
-                          style={[styles.addButton, { backgroundColor: '#3b82f6', marginBottom: 8 }]}
-                          onPress={() => onManageMembers(company)}
-                        >
-                          <Ionicons name="settings-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
-                          <Text style={styles.addButtonText}>Manage Members</Text>
-                        </TouchableOpacity>
-                      )}
-                      {onInviteMember && (
-                        <TouchableOpacity
-                          style={styles.addButton}
-                          onPress={() => onInviteMember(company)}
-                        >
-                          <Text style={styles.addButtonText}>Invite Members</Text>
-                        </TouchableOpacity>
-                      )}
+                      <TouchableOpacity
+                        style={[styles.addButton, { backgroundColor: '#3b82f6', marginBottom: 8 }]}
+                        onPress={() => handleManageMembers(company)}
+                      >
+                        <Ionicons name="settings-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+                        <Text style={styles.addButtonText}>Manage Members</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.addButton}
+                        onPress={() => handleInviteMember(company)}
+                      >
+                        <Text style={styles.addButtonText}>Invite Members</Text>
+                      </TouchableOpacity>
                     </View>
                   )}
                 </View>
               )}
             </View>
 
-            {/* Documents Section - Only show if company is not approved */}
+            {/* Documents Section - Show when company is pending or rejected, allow document upload */}
             {/* STRICT READ-ONLY: Documents section completely removed when readOnly is true */}
-            {!readOnly && company.approval_status !== 'approved' && (isOwner() || canEdit()) && (
+            {!isReadOnly && (company.approval_status === 'pending' || company.approval_status === 'rejected') && (isOwner() || canEdit()) && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Documents</Text>
@@ -1707,6 +1889,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <ActivityIndicator size="small" color="#000" style={{ marginTop: 12 }} />
                 ) : (
                   <>
+                    {/* Show required documents if available */}
                     {company.company_type_info?.required_documents && company.company_type_info.required_documents.length > 0 ? (
                       company.company_type_info.required_documents.map((docType) => {
                         const uploadedDoc = documents.find((d) => d.document_type === docType);
@@ -1763,12 +1946,69 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                         );
                       })
                     ) : (
-                      <Text style={styles.emptyStateText}>No documents required for this company type</Text>
+                      /* If no required documents defined, show a generic upload option */
+                      <View style={styles.documentCard}>
+                        <Text style={[styles.emptyStateText, { marginBottom: 12 }]}>
+                          Upload documents to complete your company profile
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.uploadButton, uploadingDocument && styles.uploadButtonDisabled]}
+                          onPress={() => handleUploadDocument('other')}
+                          disabled={uploadingDocument}
+                        >
+                          {uploadingDocument ? (
+                            <ActivityIndicator size="small" color="#000" />
+                          ) : (
+                            <>
+                              <Ionicons name="cloud-upload-outline" size={18} color="#000" />
+                              <Text style={styles.uploadButtonText}>Upload Document</Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      </View>
                     )}
-                    {documents.length > 0 && (
+                    
+                    {/* Show uploaded documents that aren't in required_documents list */}
+                    {documents.filter(doc => {
+                      const requiredDocs = company.company_type_info?.required_documents || [];
+                      return !requiredDocs.includes(doc.document_type);
+                    }).length > 0 && (
+                      <View style={styles.section}>
+                        <Text style={[styles.sectionTitle, { marginBottom: 12 }]}>Additional Documents</Text>
+                        {documents.filter(doc => {
+                          const requiredDocs = company.company_type_info?.required_documents || [];
+                          return !requiredDocs.includes(doc.document_type);
+                        }).map((doc) => (
+                          <View key={doc.id} style={styles.documentCard}>
+                            <View style={styles.documentHeader}>
+                              <View style={styles.documentInfo}>
+                                <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                                <View style={styles.documentText}>
+                                  <Text style={styles.documentType}>
+                                    {doc.document_type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                                  </Text>
+                                  <Text style={styles.documentFileName}>
+                                    {doc.file_name || 'Uploaded'}
+                                  </Text>
+                                </View>
+                              </View>
+                              <TouchableOpacity
+                                onPress={() => handleDeleteDocument(doc.id)}
+                                style={styles.removeButton}
+                                disabled={uploadingDocument}
+                              >
+                                <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    
+                    {documents.length > 0 && company.company_type_info?.required_documents && company.company_type_info.required_documents.length > 0 && (
                       <View style={styles.documentsProgress}>
                         <Text style={styles.progressText}>
-                          {documents.length} of {company.company_type_info?.required_documents?.length || 0} documents uploaded
+                          {documents.filter(d => company.company_type_info?.required_documents?.includes(d.document_type)).length} of {company.company_type_info.required_documents.length} required documents uploaded
                         </Text>
                       </View>
                     )}
@@ -1798,7 +2038,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       </ScrollView>
 
       {/* STRICT READ-ONLY: Grant Certification Modal completely removed when readOnly is true */}
-      {!readOnly && company && (
+      {!isReadOnly && company && (
         <GrantCertificationModal
           visible={showGrantCertificationModal}
           onClose={() => {
@@ -1816,7 +2056,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       )}
 
       {/* STRICT READ-ONLY: Course Registration Modal completely removed when readOnly is true */}
-      {!readOnly && company && company.subcategory === 'academy' && canEdit() && (
+      {!isReadOnly && company && company.subcategory === 'academy' && canEdit() && (
         <CourseRegistrationModal
           visible={showCourseRegistrationModal}
           onClose={() => setShowCourseRegistrationModal(false)}
@@ -2019,7 +2259,7 @@ const styles = StyleSheet.create({
   },
   section: {
     backgroundColor: '#fff',
-    padding: 10,
+    padding: 16,
     marginTop: 4,
     borderTopWidth: 1,
     borderBottomWidth: 1,
@@ -2368,8 +2608,8 @@ const styles = StyleSheet.create({
   },
   // Courses section styles
   coursesList: {
-    gap: 12,
     marginTop: 8,
+    gap: 12,
   },
   viewAllButton: {
     width: '100%',
@@ -2385,6 +2625,56 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#fff',
+  },
+  // Enhanced Academy Management Styles
+  managementSectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 4,
+  },
+  managementSectionSubtitle: {
+    fontSize: 13,
+    color: '#71717a',
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+  managementCardsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 4,
+  },
+  managementCard: {
+    flex: 1,
+    minWidth: '47%',
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+    alignItems: 'center',
+  },
+  managementCardIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  managementCardTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  managementCardDescription: {
+    fontSize: 12,
+    color: '#71717a',
+    textAlign: 'center',
+    lineHeight: 16,
   },
   adminManagementButtons: {
     gap: 8,

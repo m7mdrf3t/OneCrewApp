@@ -4,11 +4,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
+import { useAppNavigation } from '../navigation/NavigationContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import SearchBar from '../components/SearchBar';
 import FilterModal, { FilterParams } from '../components/FilterModal';
 import SkeletonUserCard from '../components/SkeletonUserCard';
+import { SECTIONS } from '../data/mockData';
+import { RootStackScreenProps } from '../navigation/types';
+import { getRoleName } from '../utils/roleCategorizer';
 
 // NOTE: FlashList runtime supports `estimatedItemSize`, but the shipped TS typings
 // in our current setup don't expose it. We cast to keep the perf optimization without
@@ -81,15 +86,108 @@ interface Company {
 }
 
 const DirectoryPage: React.FC<DirectoryPageProps> = ({
-  section,
-  onBack,
+  section: sectionProp,
+  onBack: onBackProp,
   onUserSelect,
-  onNavigate,
+  onNavigate: onNavigateProp,
 }) => {
+  // Get route params if available (React Navigation)
+  // DirectoryPage can be accessed via both 'sectionServices' and 'directory' routes
+  const route = useRoute<any>();
+  const navigation = useNavigation();
+  const routeParams = route.params;
+  
   // Hide subcategory counts for now (they can be inaccurate due to role/label normalization differences)
   const SHOW_SUBCATEGORY_COUNTS = false;
 
-  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies } = useApi();
+  const { navigateTo, goBack } = useAppNavigation();
+  // Use prop if provided (for backward compatibility), otherwise use hook
+  const onNavigate = onNavigateProp || navigateTo;
+  const onBack = onBackProp || goBack;
+
+  // Handle user selection - use onUserSelect prop if provided, otherwise navigate directly
+  const handleUserSelect = async (user: User) => {
+    // For talent users without complete data, fetch it first
+    if (user.category === 'talent' && !user.about) {
+      const updatedUser = await fetchCompleteUserData(user.id);
+      const userToNavigate = updatedUser || user;
+      if (onUserSelect) {
+        onUserSelect(userToNavigate);
+      } else {
+        // Transform user data to match ProfileDetailPage expectations
+        const transformedProfile = {
+          ...userToNavigate,
+          stats: userToNavigate.stats || {
+            followers: '0',
+            projects: 0,
+            likes: '0'
+          },
+          skills: userToNavigate.skills || [],
+          bio: userToNavigate.bio || 'No bio available',
+          onlineStatus: userToNavigate.onlineStatus || userToNavigate.online_last_seen || 'Last seen recently',
+          about: userToNavigate.about || {
+            gender: 'unknown'
+          }
+        };
+        onNavigate('profile', transformedProfile);
+      }
+    } else {
+      if (onUserSelect) {
+        onUserSelect(user);
+      } else {
+        // Transform user data to match ProfileDetailPage expectations
+        const transformedProfile = {
+          ...user,
+          stats: user.stats || {
+            followers: '0',
+            projects: 0,
+            likes: '0'
+          },
+          skills: user.skills || [],
+          bio: user.bio || 'No bio available',
+          onlineStatus: user.onlineStatus || user.online_last_seen || 'Last seen recently',
+          about: user.about || {
+            gender: 'unknown'
+          }
+        };
+        onNavigate('profile', transformedProfile);
+      }
+    }
+  };
+
+  // Get section from route params or prop
+  // If route name is 'directory' or sectionKey is 'directory', use 'directory'
+  const routeName = route.name;
+  const sectionKey = routeParams?.sectionKey || (routeName === 'directory' ? 'directory' : null) || sectionProp?.key;
+  
+  // Handle directory section specially (it's dynamically created, not in SECTIONS)
+  let section = sectionProp;
+  if (!section && sectionKey) {
+    if (sectionKey === 'directory') {
+      // Create directory section dynamically
+      section = {
+        key: 'directory',
+        title: 'All Members',
+        items: [
+          { label: 'All Members', users: 0 }
+        ]
+      };
+    } else {
+      // Find section from SECTIONS constant
+      section = SECTIONS.find(s => s.key === sectionKey);
+    }
+  }
+  
+  // If no section found, show error or return early
+  if (!section) {
+    return (
+      <View style={styles.container}>
+        <Text>Section not found</Text>
+      </View>
+    );
+  }
+
+  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies, getRoles } = useApi();
   const queryClient = useQueryClient();
   const isCompaniesSection = section.key === 'onehub' || section.key === 'academy';
   const isDirectorySection = section.key === 'directory';
@@ -106,6 +204,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const [filters, setFilters] = useState<FilterParams>({});
   const [debouncedFilters, setDebouncedFilters] = useState<FilterParams>({});
   const [showSearchBar, setShowSearchBar] = useState(false);
+  const [crewRoles, setCrewRoles] = useState<any[]>([]);
+  const [talentRoles, setTalentRoles] = useState<any[]>([]);
 
   // Local back behavior: close in-page UI (filter/subcategory) before popping navigation history
   const handleBackPress = useCallback(() => {
@@ -114,11 +214,17 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       return;
     }
     if (selectedSubcategory) {
+      // For Academy/onehub sections, go back directly instead of clearing selection
+      // (since we auto-select the subcategory when there's only one item)
+      if (isCompaniesSection) {
+        onBack();
+        return;
+      }
       setSelectedSubcategory(null);
       return;
     }
     onBack();
-  }, [showFilterModal, selectedSubcategory, onBack]);
+  }, [showFilterModal, selectedSubcategory, onBack, isCompaniesSection]);
 
   // Debounce search query (500ms)
   useEffect(() => {
@@ -135,6 +241,32 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }, 500);
     return () => clearTimeout(timer);
   }, [filters]);
+
+  // Fetch crew and talent roles for custom user identification
+  useEffect(() => {
+    const loadRoles = async () => {
+      try {
+        // Fetch crew roles using backend category filter
+        const crewResponse = await getRoles({ category: 'crew' });
+        if (crewResponse.success && crewResponse.data) {
+          const crewRolesData = Array.isArray(crewResponse.data) ? crewResponse.data : [];
+          setCrewRoles(crewRolesData);
+          console.log('✅ Crew roles loaded for directory page:', crewRolesData.length, 'roles');
+        }
+
+        // Fetch talent roles using backend category filter
+        const talentResponse = await getRoles({ category: 'talent' });
+        if (talentResponse.success && talentResponse.data) {
+          const talentRolesData = Array.isArray(talentResponse.data) ? talentResponse.data : [];
+          setTalentRoles(talentRolesData);
+          console.log('✅ Talent roles loaded for directory page:', talentRolesData.length, 'roles');
+        }
+      } catch (err) {
+        console.error('Failed to load roles in directory page:', err);
+      }
+    };
+    loadRoles();
+  }, [getRoles]);
 
   const directoryUsersQueryKey = useMemo(
     () => [
@@ -275,8 +407,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   });
 
   const directoryCompaniesQueryKey = useMemo(
-    () => ['directoryCompanies', { sectionKey: section.key }],
-    [section.key]
+    () => ['directoryCompanies', { sectionKey: section.key, search: debouncedSearchQuery }],
+    [section.key, debouncedSearchQuery]
   );
 
   const directoryCompaniesQuery = useQuery<Company[]>({
@@ -297,6 +429,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         subcategory: subcategoryFilter,
         sort: 'name',
         order: 'asc',
+        search: debouncedSearchQuery || undefined,
       });
 
       if (!response.success) {
@@ -499,6 +632,13 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     // For other sections, use original items
     return section.items;
   }, [section.items, section.key, filteredCompaniesByType]);
+
+  // Auto-select subcategory for Academy/onehub sections when there's only one item
+  useEffect(() => {
+    if (isCompaniesSection && sectionItems.length === 1 && !selectedSubcategory) {
+      setSelectedSubcategory(sectionItems[0].label);
+    }
+  }, [isCompaniesSection, sectionItems, selectedSubcategory]);
 
   // Helper function to check if a user matches the filter criteria
   // Note: Search is handled server-side, so we don't need to filter by searchQuery here
@@ -740,29 +880,52 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }
 
     // Custom section: allow an "All Custom Users" bucket + role-based buckets.
-    // We infer "custom users" from the section's role items (generated on HomePageWithUsers),
-    // so this works even before the backend supports a true `custom` category.
+    // Use the same logic as HomePageWithUsers to identify ALL custom users:
+    // - explicit category 'custom' (future backend support), OR
+    // - crew/talent users whose primary_role isn't in the known crew/talent roles lists
     if (section.key === 'custom') {
       const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      const roleLabels = section.items
-        .map((i) => i.label)
-        .filter((label) => label !== 'All Custom Users');
-      const roleSet = new Set(roleLabels.map(normalize).filter(Boolean));
 
-      const customUsers = filteredByCriteria.filter((u) => {
+      // Build known role set from crew and talent roles (same as HomePageWithUsers)
+      const knownRoleSet = new Set<string>([
+        ...crewRoles.map((r: any) => normalize(getRoleName(r))),
+        ...talentRoles.map((r: any) => normalize(getRoleName(r))),
+      ].filter(Boolean));
+
+      // Identify ALL custom users using the same logic as HomePageWithUsers
+      const allCustomUsers = filteredByCriteria.filter((u) => {
+        // Always include users with explicit 'custom' category
+        if ((u as any).category === 'custom') {
+          return true;
+        }
+        // Exclude companies
+        if (u.category === 'company') return false;
+        // Need a primary_role to classify as custom
         if (!u.primary_role) return false;
+        
+        // If roles haven't loaded yet, we can't determine if user is custom
+        if (knownRoleSet.size === 0) {
+          return false;
+        }
+        
         const role = normalize(u.primary_role);
-        return roleSet.size > 0 ? roleSet.has(role) : false;
+        const isCustom = role ? !knownRoleSet.has(role) : false;
+        
+        return isCustom;
       });
 
+      // Process section items
       section.items.forEach((item) => {
         if (item.label === 'All Custom Users') {
-          sectionUsers[item.label] = customUsers;
+          // Show ALL custom users, not just those matching role labels
+          sectionUsers[item.label] = allCustomUsers;
           return;
         }
+        // For specific role labels, filter by that role
         const itemLabelNormalized = normalize(item.label);
-        sectionUsers[item.label] = customUsers.filter((u) => {
-          const userRoleNormalized = normalize(u.primary_role || '');
+        sectionUsers[item.label] = allCustomUsers.filter((u) => {
+          if (!u.primary_role) return false;
+          const userRoleNormalized = normalize(u.primary_role);
           // Exact match only to avoid double-counting (e.g. `nurse_2` showing up under `nurse`)
           return userRoleNormalized === itemLabelNormalized;
         });
@@ -796,7 +959,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     });
 
     return sectionUsers;
-  }, [users, section, matchesFilters]);
+  }, [users, section, matchesFilters, crewRoles, talentRoles, isDirectorySection]);
 
   const getInitials = (name: string) => {
     if (!name) return '??';
@@ -870,8 +1033,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         const response = await removeFromMyTeam(user.id);
         
         if (response.success) {
-          // Invalidate and refetch to get fresh data
+          // Optimistically remove from UI
+          queryClient.setQueryData(teamMembersQueryKey, (old: any) => {
+            const prev = Array.isArray(old) ? old : [];
+            return prev.filter((m: any) => (m?.user_id || m?.id) !== user.id);
+          });
+          // Then invalidate and refetch to get fresh data
           queryClient.invalidateQueries({ queryKey: teamMembersQueryKey });
+          // Force refetch to ensure UI updates immediately
+          await queryClient.refetchQueries({ queryKey: teamMembersQueryKey });
         } else {
           console.error('Failed to remove user:', response.error);
         }
@@ -881,25 +1051,32 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         const response = await addToMyTeam(user.id);
         
         if (response.success) {
-          // Invalidate and refetch to get fresh data immediately
-          queryClient.invalidateQueries({ queryKey: teamMembersQueryKey });
-          // Also optimistically update the UI
+          // Optimistically update the UI first to match API response structure
           queryClient.setQueryData(teamMembersQueryKey, (old: any) => {
             const prev = Array.isArray(old) ? old : [];
             const already = prev.some((m: any) => (m?.user_id || m?.id) === user.id);
             if (already) return prev;
-            // Add user with full data structure
+            // Add user with full data structure matching API response (uses 'users' not 'user')
+            // API returns: { user_id, users: {...}, joined_at, role, team_id }
             return [...prev, { 
               user_id: user.id,
-              user: {
+              users: {
                 id: user.id,
                 name: user.name,
                 email: user.email,
                 image_url: user.image_url,
-                specialty: user.primary_role
-              }
+                category: user.category,
+                primary_role: user.primary_role
+              },
+              joined_at: new Date().toISOString(),
+              role: null,
+              team_id: null // Will be set by actual API response
             }];
           });
+          // Then invalidate and refetch to get fresh data from server
+          queryClient.invalidateQueries({ queryKey: teamMembersQueryKey });
+          // Force refetch to ensure UI updates immediately
+          await queryClient.refetchQueries({ queryKey: teamMembersQueryKey });
         } else {
           console.error('Failed to add user:', response.error);
         }
@@ -925,37 +1102,37 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           <Text style={styles.title}>
             {selectedSubcategory ? capitalizeRole(selectedSubcategory) : section.title}
           </Text>
-          <View style={styles.headerRight}>
-            {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
-              <TouchableOpacity 
-                onPress={() => setShowSearchBar(!showSearchBar)} 
-                style={styles.searchToggleButton}
-              >
-                <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
-              </TouchableOpacity>
-            )}
-            {selectedSubcategory ? (
-              <TouchableOpacity
-                onPress={() => setSelectedSubcategory(null)}
-                style={styles.backButton}
-              >
-                <Ionicons name="close" size={24} color="#000" />
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.placeholder} />
-            )}
-          </View>
+        <View style={styles.headerRight}>
+          {selectedSubcategory && (
+            <TouchableOpacity 
+              onPress={() => setShowSearchBar(!showSearchBar)} 
+              style={styles.searchToggleButton}
+            >
+              <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
+            </TouchableOpacity>
+          )}
+          {selectedSubcategory ? (
+            <TouchableOpacity 
+              onPress={() => setSelectedSubcategory(null)} 
+              style={styles.backButton}
+            >
+              <Ionicons name="close" size={24} color="#000" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.placeholder} />
+          )}
         </View>
+      </View>
 
-        {/* Search and Filter Bar - Expandable */}
-        {showSearchBar && selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+      {/* Search and Filter Bar - Expandable */}
+        {showSearchBar && selectedSubcategory && (
           <View style={styles.searchContainer}>
             <SearchBar
               value={searchQuery}
               onChange={setSearchQuery}
-              onOpenFilter={() => setShowFilterModal(true)}
-              filters={filters}
-              onClearFilters={handleClearFilters}
+              onOpenFilter={section.key !== 'academy' ? () => setShowFilterModal(true) : undefined}
+              filters={section.key !== 'academy' ? filters : undefined}
+              onClearFilters={section.key !== 'academy' ? handleClearFilters : undefined}
             />
           </View>
         )}
@@ -991,7 +1168,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           {selectedSubcategory ? capitalizeRole(selectedSubcategory) : section.title}
         </Text>
         <View style={styles.headerRight}>
-          {selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+          {selectedSubcategory && (
             <TouchableOpacity 
               onPress={() => setShowSearchBar(!showSearchBar)} 
               style={styles.searchToggleButton}
@@ -1011,14 +1188,14 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       </View>
 
       {/* Search and Filter Bar - Expandable */}
-      {showSearchBar && selectedSubcategory && (section.key !== 'onehub' && section.key !== 'academy') && (
+      {showSearchBar && selectedSubcategory && (
         <View style={styles.searchContainer}>
           <SearchBar
             value={searchQuery}
             onChange={setSearchQuery}
-            onOpenFilter={() => setShowFilterModal(true)}
-            filters={filters}
-            onClearFilters={handleClearFilters}
+            onOpenFilter={section.key !== 'academy' ? () => setShowFilterModal(true) : undefined}
+            filters={section.key !== 'academy' ? filters : undefined}
+            onClearFilters={section.key !== 'academy' ? handleClearFilters : undefined}
           />
         </View>
       )}
@@ -1111,9 +1288,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                     key={company.id}
                     style={[styles.companyCardTwoTone, isAcademy && styles.academyCard]}
                     onPress={() => {
-                      if (onNavigate) {
-                        onNavigate('companyProfile', { companyId: company.id, readOnly: true });
-                      }
+                      onNavigate('companyProfile', { companyId: company.id, readOnly: true });
                     }}
                     activeOpacity={0.85}
                   >
@@ -1137,9 +1312,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                         style={styles.companyNavButton}
                         onPress={(e) => {
                           e.stopPropagation();
-                          if (onNavigate) {
-                            onNavigate('companyProfile', { companyId: company.id, readOnly: true });
-                          }
+                          onNavigate('companyProfile', { companyId: company.id, readOnly: true });
                         }}
                         activeOpacity={0.8}
                       >
@@ -1220,15 +1393,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
             <TouchableOpacity
               key={user.id}
               style={styles.userCard}
-              onPress={async () => {
-                // For talent users without complete data, fetch it first
-                if (user.category === 'talent' && !user.about) {
-                  const updatedUser = await fetchCompleteUserData(user.id);
-                  onUserSelect(updatedUser || user);
-                } else {
-                  onUserSelect(user);
-                }
-              }}
+              onPress={() => handleUserSelect(user)}
               activeOpacity={0.7}
             >
               {/* Full card background image */}
