@@ -18,12 +18,14 @@ interface NotificationModalProps {
   visible: boolean;
   onClose: () => void;
   onNotificationPress?: (notification: Notification) => void;
+  onModalDismiss?: () => void;
 }
 
 const NotificationModal: React.FC<NotificationModalProps> = ({
   visible,
   onClose,
   onNotificationPress,
+  onModalDismiss,
 }) => {
   const {
     notifications,
@@ -70,15 +72,37 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
   };
 
   const handleNotificationPress = async (notification: Notification) => {
+    console.log('📬 [NotificationModal] handleNotificationPress called:', {
+      id: notification.id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      isCompanyInvitation: notification.type === 'company_invitation',
+      data: notification.data,
+      isRead: notification.is_read,
+    });
+    
     if (!notification.is_read) {
       try {
+        console.log('📬 [NotificationModal] Marking notification as read:', notification.id);
         await markNotificationAsRead(notification.id);
       } catch (error) {
-        console.error('Failed to mark notification as read:', error);
+        console.error('❌ [NotificationModal] Failed to mark notification as read:', error);
       }
     }
+    
     if (onNotificationPress) {
-      onNotificationPress(notification);
+      console.log('📬 [NotificationModal] Calling onNotificationPress callback');
+      console.log('📬 [NotificationModal] Callback function type:', typeof onNotificationPress);
+      try {
+        onNotificationPress(notification);
+        console.log('📬 [NotificationModal] onNotificationPress callback executed successfully');
+      } catch (error) {
+        console.error('❌ [NotificationModal] Error calling onNotificationPress:', error);
+      }
+    } else {
+      console.warn('⚠️ [NotificationModal] onNotificationPress callback is not provided');
+      console.warn('⚠️ [NotificationModal] onNotificationPress prop value:', onNotificationPress);
     }
   };
 
@@ -124,6 +148,7 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
+      onDismiss={onModalDismiss}
     >
       <View style={styles.container}>
         {/* Header */}

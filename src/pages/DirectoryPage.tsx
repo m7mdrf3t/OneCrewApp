@@ -214,9 +214,9 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       return;
     }
     if (selectedSubcategory) {
-      // For Academy/onehub sections, go back directly instead of clearing selection
+      // For Academy/onehub sections and directory section, go back directly instead of clearing selection
       // (since we auto-select the subcategory when there's only one item)
-      if (isCompaniesSection) {
+      if (isCompaniesSection || isDirectorySection) {
         onBack();
         return;
       }
@@ -224,7 +224,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       return;
     }
     onBack();
-  }, [showFilterModal, selectedSubcategory, onBack, isCompaniesSection]);
+  }, [showFilterModal, selectedSubcategory, onBack, isCompaniesSection, isDirectorySection]);
 
   // Debounce search query (500ms)
   useEffect(() => {

@@ -9,6 +9,8 @@ interface GlobalModalsContextType {
   setShowUserMenu: (show: boolean) => void;
   showMyTeam: boolean;
   setShowMyTeam: (show: boolean) => void;
+  showInvitationListModal: boolean;
+  setShowInvitationListModal: (show: boolean) => void;
 }
 
 const GlobalModalsContext = createContext<GlobalModalsContextType | undefined>(undefined);
@@ -18,6 +20,7 @@ export const GlobalModalsProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showMyTeam, setShowMyTeam] = useState(false);
+  const [showInvitationListModal, setShowInvitationListModal] = useState(false);
 
   // Debug: Log when showMyTeam changes
   React.useEffect(() => {
@@ -35,6 +38,8 @@ export const GlobalModalsProvider: React.FC<{ children: ReactNode }> = ({ childr
         setShowUserMenu,
         showMyTeam,
         setShowMyTeam,
+        showInvitationListModal,
+        setShowInvitationListModal,
       }}
     >
       {children}

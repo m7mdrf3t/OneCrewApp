@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -57,8 +57,13 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
   // Load tasks when component mounts
   useEffect(() => {
-    loadProjectData(); // Load latest project data
-    loadTasks(true); // Replace existing tasks on initial load
+    // Run both in parallel for better performance
+    Promise.all([
+      loadProjectData(),
+      loadTasks(true)
+    ]).catch(error => {
+      console.error('Failed to load project data:', error);
+    });
   }, [project.id]);
 
   // Automatically create a new task card when addUserToTask is true and selectedUser is provided
@@ -76,8 +81,12 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
   const loadProjectData = async () => {
     try {
-      await getProjectById(project.id);
-      // Note: We can't update the project prop directly, but we can use this data for display
+      // Only refresh if we need the latest data, otherwise use the project prop
+      // The project data is already loaded in App.tsx before navigation
+      if (onRefreshProject) {
+        const latestData = await getProjectById(project.id);
+        onRefreshProject(); // Let parent handle the update
+      }
     } catch (error) {
       console.error('❌ Failed to load latest project data:', error);
     }
@@ -97,23 +106,9 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         // Use the dedicated tasks endpoint which has the updated structure with assignment.user
         projectTasks = await getProjectTasks(project.id);
         
-        // Log raw assignment structure from API
+        // Log summary only (reduced logging for performance)
         if (projectTasks.length > 0 && projectTasks[0].assignments?.length > 0) {
-          console.log('📋 TASK ASSIGNMENTS (FROM GET /api/projects/{id}/tasks):');
-          projectTasks[0].assignments.forEach((assignment: any, idx: number) => {
-            // Log FULL assignment object to see all available fields
-            console.log(`  Assignment ${idx + 1} FULL OBJECT:`, JSON.stringify(assignment, null, 2));
-            console.log(`  Assignment ${idx + 1} SUMMARY:`, {
-              id: assignment.id,
-              user_id: assignment.user_id,
-              hasUser: !!assignment.user,
-              userName: assignment.user?.name || 'MISSING',
-              user_id_from_user: assignment.user?.id,
-              service_role: assignment.service_role,
-              status: assignment.status || 'MISSING STATUS', // CRITICAL: Log status from backend
-              allKeys: Object.keys(assignment), // Show all available keys
-            });
-          });
+          console.log(`📋 Loaded ${projectTasks.length} tasks with assignments`);
         }
 
         
@@ -130,26 +125,50 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       }
         
       // Transform tasks to include service and member data
-      // CRITICAL: Use getTaskAssignments() to get assignments with status
+      // OPTIMIZATION: Use assignments already in task data first, only fetch if missing
+      // This avoids N+1 query problem - getProjectTasks already includes assignments
       let transformedTasks = await Promise.all(projectTasks.map(async (task) => {
-          // Fetch assignments with status using getTaskAssignments (includes status via select('*'))
-          let assignmentsWithStatus: any[] = [];
-          try {
-            const assignmentsResponse = await getTaskAssignments(project.id, task.id);
-            if (assignmentsResponse.success && assignmentsResponse.data) {
-              assignmentsWithStatus = Array.isArray(assignmentsResponse.data) 
-                ? assignmentsResponse.data 
-                : (assignmentsResponse.data.assignments || []);
-              console.log(`✅ Fetched ${assignmentsWithStatus.length} assignments with status for task ${task.id}`);
-            } else {
-              // Fallback to assignments from task if getTaskAssignments fails
-              assignmentsWithStatus = task.assignments || [];
-              console.log(`⚠️ getTaskAssignments failed for task ${task.id}, using fallback`);
+          // First, try to use assignments that are already in the task object
+          let assignmentsWithStatus: any[] = task.assignments || [];
+          
+          // Only fetch if assignments are missing, incomplete, or don't have status
+          const needsStatusCheck = assignmentsWithStatus.length > 0 && 
+            assignmentsWithStatus.some((a: any) => !a.status);
+          
+          if (assignmentsWithStatus.length === 0 || needsStatusCheck) {
+            try {
+              const assignmentsResponse = await getTaskAssignments(project.id, task.id);
+              if (assignmentsResponse.success && assignmentsResponse.data) {
+                const fetchedAssignments = Array.isArray(assignmentsResponse.data) 
+                  ? assignmentsResponse.data 
+                  : (assignmentsResponse.data.assignments || []);
+                
+                // If we had assignments but they were missing status, merge them
+                if (needsStatusCheck && assignmentsWithStatus.length > 0) {
+                  // Merge by ID, preferring fetched data for status
+                  const fetchedMap = new Map(fetchedAssignments.map((a: any) => [a.id, a]));
+                  assignmentsWithStatus = assignmentsWithStatus.map((a: any) => {
+                    const fetched = fetchedMap.get(a.id);
+                    return fetched ? { ...a, ...fetched } : a;
+                  });
+                } else {
+                  assignmentsWithStatus = fetchedAssignments;
+                }
+                
+                if (fetchedAssignments.length > 0) {
+                  console.log(`✅ Fetched ${fetchedAssignments.length} assignments with status for task ${task.id}`);
+                }
+              } else {
+                // Keep existing assignments if fetch fails
+                console.log(`⚠️ getTaskAssignments failed for task ${task.id}, using existing assignments`);
+              }
+            } catch (error) {
+              console.warn(`⚠️ Failed to fetch assignments for task ${task.id}:`, error);
+              // Keep existing assignments on error
             }
-          } catch (error) {
-            console.warn(`⚠️ Failed to fetch assignments for task ${task.id}:`, error);
-            // Fallback to assignments from task
-            assignmentsWithStatus = task.assignments || [];
+          } else {
+            // Assignments already exist with status - no need to fetch
+            console.log(`✅ Using existing assignments for task ${task.id} (${assignmentsWithStatus.length} assignments)`);
           }
 
           // Extract service information
@@ -187,38 +206,29 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                 if (assignment.user && assignment.user.name) {
                   userName = assignment.user.name;
                   userObj = assignment.user;
-                  console.log(`✅ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: Found name "${userName}" from assignment.user`);
                 }
                 // Priority 2: assignment.users (legacy/alternative structure)
                 else if (assignment.users && assignment.users.name) {
                   userName = assignment.users.name;
                   userObj = assignment.users;
-                  console.log(`✅ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: Found name "${userName}" from assignment.users`);
                 }
                 // Priority 3: assignment.user_name (direct field)
                 else if (assignment.user_name) {
                   userName = assignment.user_name;
-                  console.log(`✅ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: Found name "${userName}" from assignment.user_name`);
                 }
                 // Priority 4: User object exists but name is missing
                 else if (assignment.user && assignment.user.id) {
                   userName = null;
                   userObj = assignment.user;
-                  console.log(`⚠️ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: User object exists but no name for ${userId}`);
                 }
                 // Fallback: No user data
                 else if (userId) {
                   userName = null;
-                  console.log(`⚠️ Task ${task.id} → Assignment ${assignment.id || 'unknown'}: No user data found for ${userId}`);
                 }
                 
                 // Determine final name and fetch flag
                 const finalName = userName || `User ${userId?.substring(0, 8) || 'Unknown'}`;
                 const shouldFetch = !userName || isPlaceholderName(finalName);
-                
-                if (shouldFetch && userId) {
-                  console.log(`🔍 Task ${task.id} → Will fetch user ${userId} (current: "${finalName}")`);
-                }
                 
                 return {
                   id: userId,
@@ -254,7 +264,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
           // Map assignments to ensure proper structure with status
           const finalAssignments = assignmentsWithStatus.map((assignment: any) => {
             const status = assignment.status || 'pending';
-            console.log(`📋 Task ${task.id} → Assignment ${assignment.id}: status="${status}" (from getTaskAssignments)`);
             return {
               ...assignment,
               status: status, // Status is included from getTaskAssignments (select('*'))
@@ -271,140 +280,77 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
           };
         }));
         
-        // Fetch user details for tasks that have user_ids but no proper names
-        // Only fetch if name is missing or it's clearly a placeholder (starts with "User " + ID)
+        // OPTIMIZATION: Show tasks immediately, fetch user names in background
+        // This prevents blocking the UI while user names are being fetched
+        if (replaceExisting) {
+          // Replace all tasks (used on initial load) - show immediately
+          setTasks(transformedTasks);
+        } else {
+          // Merge with existing tasks (used for refresh)
+          setTasks(prev => {
+            const existingTaskIds = new Set(prev.map(t => t.id));
+            const newTasks = transformedTasks.filter(t => !existingTaskIds.has(t.id));
+            return [...prev, ...newTasks];
+          });
+        }
+        
+        // Fetch user details in background (non-blocking)
+        // Only fetch if name is missing or it's clearly a placeholder
         const isPlaceholderName = (name: string | null | undefined): boolean => {
           if (!name) return true;
           const nameTrimmed = name.trim();
-          return nameTrimmed.startsWith('User ') && nameTrimmed.length > 10; // "User " + 8+ chars
+          return nameTrimmed.startsWith('User ') && nameTrimmed.length > 10;
         };
         
-        // Filter tasks that need user fetching - only for missing names or placeholder names
-        const tasksNeedingUserDetails = transformedTasks.filter(task => 
-          task.members && task.members.some((member: any) => {
-            if (!member.id) return false;
-            
-            const currentName = member.name || member.user?.name;
-            const isPlaceholder = isPlaceholderName(currentName);
-            const hasNoName = !currentName;
-            return member.needsUserFetch || isPlaceholder || hasNoName;
-          })
-        );
-        
-        if (tasksNeedingUserDetails.length > 0) {
-          // Collect all unique user IDs that need names
-          const userIdsToFetch = new Set<string>();
-          tasksNeedingUserDetails.forEach(task => {
-            task.members?.forEach((member: any) => {
-              if (member.id) {
-                const currentName = member.name || member.user?.name;
-                const isPlaceholder = isPlaceholderName(currentName);
-                const hasNoName = !currentName;
-                const shouldFetch = member.needsUserFetch || isPlaceholder || hasNoName;
-                
-                if (shouldFetch) {
-                  userIdsToFetch.add(member.id);
-                }
+        // Collect unique user IDs that need names (only if truly missing)
+        const userIdsToFetch = new Set<string>();
+        transformedTasks.forEach(task => {
+          task.members?.forEach((member: any) => {
+            if (member.id) {
+              const currentName = member.name || member.user?.name;
+              const isPlaceholder = isPlaceholderName(currentName);
+              const hasNoName = !currentName;
+              // Only fetch if name is truly missing - most assignments already have user.name
+              if (hasNoName || (isPlaceholder && !member.user?.name)) {
+                userIdsToFetch.add(member.id);
               }
-            });
+            }
           });
-          
-          if (userIdsToFetch.size > 0) {
-            console.log(`🔍 Fetching ${userIdsToFetch.size} user names:`, Array.from(userIdsToFetch).map(id => id.substring(0, 8)).join(', '));
-          }
-          
-          // Fetch user details for all missing users
-          const userDetailsMap = new Map<string, any>();
-          await Promise.all(Array.from(userIdsToFetch).map(async (userId) => {
+        });
+        
+        // Fetch user names in background (non-blocking, updates UI as they arrive)
+        if (userIdsToFetch.size > 0) {
+          // Don't await - let it run in background
+          Promise.all(Array.from(userIdsToFetch).slice(0, 10).map(async (userId) => {
             try {
-              // Try to fetch complete user profile
+              // Only fetch if we don't already have the user data
               const userProfile = await fetchCompleteUserProfile(userId);
-              if (userProfile && userProfile.name && !isPlaceholderName(userProfile.name)) {
-                userDetailsMap.set(userId, userProfile);
-                console.log(`✅ Fetched name for ${userId.substring(0, 8)}: "${userProfile.name}"`);
+              if (userProfile?.name && !isPlaceholderName(userProfile.name)) {
+                // Update tasks with fetched user name
+                setTasks(prevTasks => prevTasks.map(task => {
+                  if (!task.members) return task;
+                  const updatedMembers = task.members.map((member: any) => {
+                    if (member.id === userId) {
+                      return {
+                        ...member,
+                        name: userProfile.name,
+                        user: userProfile,
+                        image_url: userProfile.image_url || userProfile.about?.image_url || member.image_url,
+                        primary_role: userProfile.primary_role || member.primary_role,
+                      };
+                    }
+                    return member;
+                  });
+                  return { ...task, members: updatedMembers };
+                }));
               }
             } catch (error) {
-              // Try alternative method - get all users and find the one we need
-              try {
-                const usersResponse = await getUsersDirect({ limit: 1000 });
-                if (usersResponse && usersResponse.data) {
-                  const users = Array.isArray(usersResponse.data) ? usersResponse.data : usersResponse.data.data || [];
-                  const foundUser = users.find((u: any) => u.id === userId);
-                  if (foundUser && foundUser.name && !isPlaceholderName(foundUser.name)) {
-                    userDetailsMap.set(userId, foundUser);
-                    console.log(`✅ Found name for ${userId.substring(0, 8)}: "${foundUser.name}"`);
-                  }
-                }
-              } catch (altError) {
-                // Silently fail - will use placeholder name
-              }
+              // Silently fail - placeholder name is fine
             }
-          }));
-          
-          // Update member names with fetched user details
-          // IMPORTANT: Create new task objects to ensure React detects the change
-          let updatedTasks = transformedTasks.map(task => {
-            if (task.members && task.members.length > 0) {
-              const updatedMembers = task.members.map((member: any) => {
-                if (member.id && userDetailsMap.has(member.id)) {
-                  const userDetails = userDetailsMap.get(member.id);
-                  // Validate the fetched name - only reject if it's clearly a placeholder
-                  const fetchedName = userDetails.name;
-                  const nameIsValid = fetchedName && !isPlaceholderName(fetchedName);
-                  
-                  if (nameIsValid) {
-                    console.log(`✅ Updated ${member.id.substring(0, 8)}: "${member.name}" → "${fetchedName}"`);
-                    return {
-                      ...member,
-                      name: fetchedName,
-                      user: userDetails || member.user,
-                      image_url: userDetails.image_url || userDetails.about?.image_url || member.image_url,
-                      primary_role: userDetails.primary_role || member.primary_role,
-                      needsUserFetch: false // Clear the flag since we fetched it
-                    };
-                  } else {
-                    // Keep existing name if it's not a placeholder, otherwise use fetched or fallback
-                    const fallbackName = !isPlaceholderName(member.name) ? member.name : (fetchedName || `User ${member.id.substring(0, 8)}`);
-                    return {
-                      ...member,
-                      name: fallbackName,
-                      user: userDetails || member.user,
-                      image_url: userDetails.image_url || userDetails.about?.image_url || member.image_url,
-                      primary_role: userDetails.primary_role || member.primary_role
-                    };
-                  }
-                }
-                return member;
-              });
-              
-              // Return new task object with updated members
-              return {
-                ...task,
-                members: updatedMembers
-              };
-            }
-            return task;
+          })).catch(() => {
+            // Ignore errors - UI already shows placeholder names
           });
-          
-          if (userDetailsMap.size > 0) {
-            console.log(`✅ Updated ${userDetailsMap.size} user name(s) in tasks`);
-          }
-          
-          // Use updated tasks for state
-          transformedTasks = updatedTasks;
         }
-      
-      if (replaceExisting) {
-        // Replace all tasks (used on initial load)
-        setTasks(transformedTasks);
-      } else {
-        // Merge with existing tasks (used for refresh)
-        setTasks(prev => {
-          const existingTaskIds = new Set(prev.map(t => t.id));
-          const newTasks = transformedTasks.filter(t => !existingTaskIds.has(t.id));
-          return [...prev, ...newTasks];
-        });
-      }
     } catch (error) {
       console.error('❌ Error loading tasks:', error);
       if (replaceExisting) {
@@ -510,24 +456,29 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     });
   };
 
-  const getStageTasks = (stageId: string) => {
-    const stageTasks = tasks.filter(task => {
-      // Use task title as the primary categorization method
-      // Fallback to type field for backward compatibility
-      const taskTitle = task.title || '';
-      const taskType = task.type || task.task_type || task.category || task.stage || task.stage_id || '';
-      
-      // Check if task title matches stage ID (e.g., "pre_production", "development")
-      const matchesByTitle = taskTitle === stageId;
-      const matchesByType = taskType === stageId;
-      
-      return matchesByTitle || matchesByType;
+  // Memoize stage tasks to avoid recalculating on every render
+  const stageTasksMap = useMemo(() => {
+    const map = new Map<string, any[]>();
+    const stages = ['development', 'pre_production', 'production', 'post_production', 'distribution'];
+    
+    stages.forEach(stageId => {
+      const stageTasks = tasks.filter(task => {
+        const taskTitle = task.title || '';
+        const taskType = task.type || task.task_type || task.category || task.stage || task.stage_id || '';
+        return taskTitle === stageId || taskType === stageId;
+      });
+      map.set(stageId, stageTasks);
     });
     
-    return stageTasks;
+    return map;
+  }, [tasks]);
+
+  const getStageTasks = (stageId: string) => {
+    return stageTasksMap.get(stageId) || [];
   };
 
-  const getStagesWithTasks = () => {
+  // Memoize stages with tasks to avoid recalculating on every render
+  const stagesWithTasks = useMemo(() => {
     const stages = [
       { id: 'development', name: 'Development', icon: 'create', color: '#6b7280' },
       { id: 'pre_production', name: 'Pre-production', icon: 'film', color: '#10b981' },
@@ -537,8 +488,10 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
     ];
 
     // Only return stages that have tasks
-    return stages.filter(stage => getStageTasks(stage.id).length > 0);
-  };
+    return stages.filter(stage => (stageTasksMap.get(stage.id) || []).length > 0);
+  }, [stageTasksMap]);
+
+  const getStagesWithTasks = () => stagesWithTasks;
 
   const getStatusColor = (status: string) => {
     switch (status) {

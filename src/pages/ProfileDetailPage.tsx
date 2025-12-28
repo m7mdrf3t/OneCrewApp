@@ -19,6 +19,7 @@ import ProfileHeaderRight from '../components/ProfileHeaderRight';
 import NotificationModal from '../components/NotificationModal';
 import AccountSwitcherModal from '../components/AccountSwitcherModal';
 import UserMenuModal from '../components/UserMenuModal';
+import InvitationListModal from '../components/InvitationListModal';
 import { useGlobalModals } from '../contexts/GlobalModalsContext';
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void; onNavigate?: (page: string, data?: any) => void }> = ({
@@ -52,6 +53,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   } catch {
     // Context not available, will use local state
   }
+
+  // Debug: Track invitation modal state changes
+  useEffect(() => {
+    if (globalModals) {
+      console.log('📧 [ProfileDetailPage] showInvitationListModal state changed:', globalModals.showInvitationListModal);
+      console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
+      console.log('📧 [ProfileDetailPage] Should render modal:', currentUser && globalModals.showInvitationListModal);
+    }
+  }, [globalModals?.showInvitationListModal, currentUser]);
 
   const { 
     api, 
@@ -1489,18 +1499,23 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   const hasImage = !!certification.certificate_image_url;
                   
                   return (
-                    <View key={certification.id} style={styles.certificateCard}>
+                    <View key={certification.id} style={[styles.certificateCard, hasImage && styles.certificateCardWithImage]}>
                       {hasImage ? (
-                        <Image
-                          source={{ uri: certification.certificate_image_url! }}
-                          style={styles.certificateCardImage}
-                          contentFit="cover"
-                        />
+                        <>
+                          <Image
+                            source={{ uri: certification.certificate_image_url! }}
+                            style={styles.certificateCardImage}
+                            contentFit="cover"
+                          />
+                          <View style={styles.certificateCardOverlay} />
+                        </>
                       ) : (
                         <Ionicons name={iconName} size={24} color="#fff" />
                       )}
-                      <Text style={styles.certificateTitle}>{certName}</Text>
-                      <Text style={styles.certificateYear}>{year}</Text>
+                      <View style={styles.certificateCardContent}>
+                        <Text style={styles.certificateTitle}>{certName}</Text>
+                        <Text style={styles.certificateYear}>{year}</Text>
+                      </View>
                     </View>
                   );
                 })}
@@ -1938,13 +1953,31 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         visible={showNotificationModal}
         onClose={() => setShowNotificationModal(false)}
         onNotificationPress={(notification) => {
+          console.log('📬 [ProfileDetailPage] Notification pressed:', notification.type);
           setShowNotificationModal(false);
-          // Handle notification press - navigate to relevant page
-          if (notification.data?.project_id) {
+          // Handle notification press - navigate to relevant page or open modals
+          if (notification.type === 'company_invitation' && currentUser && globalModals) {
+            console.log('📧 [ProfileDetailPage] ========== COMPANY INVITATION DETECTED ==========');
+            console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
+            console.log('📧 [ProfileDetailPage] globalModals:', !!globalModals);
+            console.log('📧 [ProfileDetailPage] Current showInvitationListModal state:', globalModals.showInvitationListModal);
+            console.log('📧 [ProfileDetailPage] About to set showInvitationListModal to true...');
+            // Wait for notification modal to close before opening invitation modal
+            setTimeout(() => {
+              console.log('📧 [ProfileDetailPage] Setting showInvitationListModal to true NOW');
+              globalModals.setShowInvitationListModal(true);
+              console.log('📧 [ProfileDetailPage] showInvitationListModal set to:', globalModals.showInvitationListModal);
+              console.log('📧 [ProfileDetailPage] ===========================================');
+            }, 300);
+          } else if (notification.data?.project_id) {
             navigateTo('projectDetail', { id: notification.data.project_id });
           } else if (notification.data?.conversation_id) {
             navigateTo('chat', { conversationId: notification.data.conversation_id });
           }
+        }}
+        onModalDismiss={() => {
+          // Handle modal dismissal if needed
+          console.log('📬 [ProfileDetailPage] Notification modal dismissed');
         }}
       />
 
@@ -2012,6 +2045,33 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           navigateTo('login');
         }}
       />
+
+      {/* Invitation List Modal - Rendered here to ensure it appears above ProfileDetailPage */}
+      {(() => {
+        const shouldShow = currentUser && globalModals && globalModals.showInvitationListModal;
+        console.log('📧 [ProfileDetailPage] Rendering InvitationListModal check:', {
+          currentUser: !!currentUser,
+          currentUserId: currentUser?.id,
+          globalModals: !!globalModals,
+          showInvitationListModal: globalModals?.showInvitationListModal,
+          shouldShow,
+        });
+        return shouldShow ? (
+          <InvitationListModal
+            visible={true}
+            onClose={() => {
+              console.log('📧 [ProfileDetailPage] Closing invitation modal');
+              if (globalModals) {
+                globalModals.setShowInvitationListModal(false);
+              }
+            }}
+            userId={currentUser.id}
+            onInvitationResponded={() => {
+              console.log('📧 [ProfileDetailPage] Invitation responded');
+            }}
+          />
+        ) : null;
+      })()}
     </View>
   );
 };
@@ -2734,11 +2794,36 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
   },
+  certificateCardWithImage: {
+    padding: 0,
+  },
   certificateCardImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginBottom: 8,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  certificateCardOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderRadius: 12,
+    zIndex: 0,
+  },
+  certificateCardContent: {
+    position: 'relative',
+    zIndex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    padding: 16,
   },
   certificateTitle: {
     fontSize: 14,
