@@ -91,6 +91,15 @@ export const appCommonStyles = {
     flex: 1,
   } as ViewStyle,
   
+  appWrapper: {
+    flex: 1,
+    flexDirection: 'column' as const,
+  } as ViewStyle,
+  
+  navigationContainer: {
+    flex: 1,
+  } as ViewStyle,
+  
   backButton: {
     position: 'absolute' as const,
     bottom: 88,

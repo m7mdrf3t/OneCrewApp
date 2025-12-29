@@ -62,6 +62,14 @@ export const appIosStyles = StyleSheet.create({
     ...appCommonStyles.content,
   } as ViewStyle,
   
+  appWrapper: {
+    ...appCommonStyles.appWrapper,
+  } as ViewStyle,
+  
+  navigationContainer: {
+    ...appCommonStyles.navigationContainer,
+  } as ViewStyle,
+  
   backButton: {
     ...appCommonStyles.backButton,
     borderRadius: 20, // iOS prefers more rounded
