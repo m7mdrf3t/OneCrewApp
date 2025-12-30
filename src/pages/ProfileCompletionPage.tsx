@@ -12,7 +12,7 @@ import {
   Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import MediaPickerService, { MediaPickerResult } from '../services/MediaPickerService';
 import DatePicker from '../components/DatePicker';
@@ -223,7 +223,11 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
 }) => {
   // Get route params if available (when used as a screen)
   const route = useRoute();
+  const navigationHook = useNavigation(); // Use hook as fallback
   const routeParams = (route.params as any) || {};
+  
+  // Use navigation prop if provided, otherwise use hook
+  const nav = navigation || navigationHook;
   
   const { api, updateProfile, isLoading, getSkinTones, getHairColors, getSkills, getAbilities, getLanguages, getRoles, uploadFile, getAccessToken, getBaseUrl, getUserSocialLinks, addSocialLink, updateSocialLink, deleteSocialLink, getUserProfilePictures, uploadProfilePicture, setMainProfilePicture, deleteProfilePicture, getUserPortfolio, user: currentUser, isAuthenticated, isGuest } = useApi();
   
@@ -333,6 +337,33 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   const [languages, setLanguages] = useState<Array<{id: string, name: string}>>([]);
   const [loadingReferences, setLoadingReferences] = useState(false);
 
+  // Refs to track API-loaded state (fixes stale closure and race conditions)
+  const apiLoadedStateRef = useRef<{
+    portfolio: boolean;
+    socialLinks: boolean;
+    profilePictures: boolean;
+  }>({
+    portfolio: false,
+    socialLinks: false,
+    profilePictures: false,
+  });
+
+  // Constants for magic numbers
+  const FILE_SIZE_LIMITS = {
+    IMAGE_MB: 20,
+    VIDEO_MB: 100,
+    AUDIO_MB: 50,
+    PROFILE_IMAGE_MB: 10,
+  } as const;
+
+  const VIDEO_DURATION_LIMIT_SECONDS = 300; // 5 minutes
+  const IMAGE_DIMENSIONS = {
+    PROFILE_MAX: 1024,
+    PORTFOLIO_MAX: 1920,
+    COVER_MAX: 1920,
+    COVER_HEIGHT: 1080,
+  } as const;
+
   // Load social links from API
   useEffect(() => {
     const loadSocialLinks = async () => {
@@ -353,6 +384,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             ...prev,
             socialLinks: mappedLinks,
           }));
+          // Mark as API-loaded
+          apiLoadedStateRef.current.socialLinks = true;
         }
       } catch (error) {
         console.error('Failed to load social links:', error);
@@ -365,16 +398,14 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     if (user?.id && (visible !== false)) {
       loadSocialLinks();
     }
-  }, [visible, user?.id, getUserSocialLinks, isGuest, isAuthenticated]);
+  }, [visible, user?.id, isGuest, isAuthenticated]);
 
   // Load portfolio items from API
   useEffect(() => {
     const loadPortfolio = async () => {
       if (!user?.id || isGuest || !isAuthenticated) return;
       try {
-        console.log('🖼️ [ProfileCompletionPage] Loading portfolio for user:', user?.id);
         const response = await getUserPortfolio();
-        console.log('🖼️ [ProfileCompletionPage] Portfolio response:', JSON.stringify(response, null, 2));
         
         if (response.success && response.data) {
           // Handle both array and paginated response formats
@@ -382,36 +413,30 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             ? response.data 
             : (response.data.data || response.data.items || []);
           
-          console.log('🖼️ [ProfileCompletionPage] Portfolio items extracted:', portfolioItems.length, 'items');
-          
           // Map backend portfolio items to form format
-          const mappedPortfolio = portfolioItems.map((item: any) => {
-            const mapped = {
-              kind: item.kind || 'image',
-              url: item.url,
-              caption: item.caption || '',
-              sort_order: item.sort_order || 0,
-              id: item.id, // Store backend ID for updates/deletes
-            };
-            console.log('🖼️ [ProfileCompletionPage] Mapped portfolio item:', mapped);
-            return mapped;
-          });
+          const mappedPortfolio = portfolioItems.map((item: any) => ({
+            kind: item.kind || 'image',
+            url: item.url,
+            caption: item.caption || '',
+            sort_order: item.sort_order || 0,
+            id: item.id, // Store backend ID for updates/deletes
+          }));
           
           // Sort portfolio items by sort_order
-          const sortedPortfolio = mappedPortfolio.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+          const sortedPortfolio = mappedPortfolio.sort((a: { sort_order?: number }, b: { sort_order?: number }) => (a.sort_order || 0) - (b.sort_order || 0));
           
-          console.log('🖼️ [ProfileCompletionPage] Setting portfolio in form data:', sortedPortfolio.length, 'items');
           setFormData(prev => ({
             ...prev,
             portfolio: sortedPortfolio,
           }));
           
+          // Mark as API-loaded
+          apiLoadedStateRef.current.portfolio = true;
+          
           // Auto-expand portfolio section if items are loaded
           if (sortedPortfolio.length > 0) {
             setExpandedSections(prev => new Set(prev).add('portfolio'));
           }
-        } else {
-          console.warn('🖼️ [ProfileCompletionPage] Portfolio response missing data:', response);
         }
       } catch (error) {
         console.error('❌ [ProfileCompletionPage] Failed to load portfolio:', error);
@@ -424,7 +449,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     if (user?.id && (visible !== false)) {
       loadPortfolio();
     }
-  }, [visible, user?.id, getUserPortfolio, isGuest, isAuthenticated]);
+  }, [visible, user?.id, isGuest, isAuthenticated]);
 
   // Helper function to refresh profile pictures (with cache busting)
   const refreshProfilePictures = async (userIdToFetch?: string) => {
@@ -471,6 +496,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       try {
         setLoadingProfilePictures(true);
         await refreshProfilePictures(userIdToFetch);
+        // Mark as API-loaded
+        apiLoadedStateRef.current.profilePictures = true;
       } catch (error) {
         console.error('Failed to load profile pictures:', error);
         // Don't throw - just log, user can still add pictures
@@ -484,13 +511,89 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     if ((currentUser?.id || user?.id) && (visible !== false)) {
       loadProfilePictures();
     }
-  }, [visible, currentUser?.id, user?.id, getUserProfilePictures, isGuest, isAuthenticated]);
+  }, [visible, currentUser?.id, user?.id, isGuest, isAuthenticated]);
 
   // Track last user data hash to detect updates
   const lastUserDataHashRef = useRef<string>('');
   const lastVisibleRef = useRef<boolean>(false);
   
-  // Initialize form data when user changes
+  // State to store fetched user details and talent profile
+  const [fetchedUserDetails, setFetchedUserDetails] = useState<any>(null);
+  const [fetchedTalentProfile, setFetchedTalentProfile] = useState<any>(null);
+  const [loadingUserData, setLoadingUserData] = useState(false);
+  
+  // Reset fetched data when modal closes
+  useEffect(() => {
+    if (!visible) {
+      setFetchedUserDetails(null);
+      setFetchedTalentProfile(null);
+    }
+  }, [visible]);
+  
+  // Fetch user details and talent profile when modal opens
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const userToUse = currentUser || routeParams.user || userProp;
+      if (!userToUse?.id || !visible || isGuest || !isAuthenticated) {
+        return;
+      }
+      
+      // Only fetch if modal just became visible (and we don't already have data)
+      if (visible && !lastVisibleRef.current && !fetchedUserDetails && !fetchedTalentProfile) {
+        setLoadingUserData(true);
+        try {
+          const accessToken = getAccessToken();
+          const baseUrl = getBaseUrl();
+          
+          // Fetch user details
+          try {
+            const userDetailsResponse = await fetch(`${baseUrl}/api/user-details`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            });
+            
+            if (userDetailsResponse.ok) {
+              const detailsData = await userDetailsResponse.json();
+              setFetchedUserDetails(detailsData.data || detailsData);
+            }
+          } catch (error) {
+            console.error('Failed to fetch user details:', error);
+          }
+          
+          // Fetch talent profile if user is talent
+          if (userToUse.category === 'talent' || userToUse.category === 'Talent') {
+            try {
+              const talentResponse = await fetch(`${baseUrl}/api/talent/profile`, {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${accessToken}`,
+                },
+              });
+              
+              if (talentResponse.ok) {
+                const talentData = await talentResponse.json();
+                setFetchedTalentProfile(talentData.data || talentData);
+              }
+            } catch (error) {
+              console.error('Failed to fetch talent profile:', error);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to fetch user data:', error);
+        } finally {
+          setLoadingUserData(false);
+        }
+      }
+    };
+    
+    fetchUserData();
+  }, [visible, currentUser?.id, routeParams.user?.id, userProp?.id, isGuest, isAuthenticated, getAccessToken, getBaseUrl, fetchedUserDetails, fetchedTalentProfile]);
+  
+  // Initialize form data when user changes or when fetched data is available
   useEffect(() => {
     const userToUse = currentUser || routeParams.user || userProp;
     if (userToUse) {
@@ -500,23 +603,23 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         bio: userToUse.bio,
         specialty: userToUse.specialty,
         skills: userToUse.skills || userToUse.user_skills,
-        about: userToUse.about,
         imageUrl: userToUse.imageUrl || userToUse.image_url,
+        fetchedUserDetails: fetchedUserDetails,
+        fetchedTalentProfile: fetchedTalentProfile,
       });
       
       // Force update when modal becomes visible (to catch any data updates)
       const justBecameVisible = visible && !lastVisibleRef.current;
       lastVisibleRef.current = visible;
       
-      // Update if user data has changed OR if modal just became visible
-      if (lastUserDataHashRef.current !== userDataHash || justBecameVisible) {
+      // Update if user data has changed OR if modal just became visible OR if fetched data is available
+      if (lastUserDataHashRef.current !== userDataHash || justBecameVisible || fetchedUserDetails || fetchedTalentProfile) {
         lastUserDataHashRef.current = userDataHash;
         
-        // The user object is already the direct user data (not nested under 'data')
-        const aboutData = userToUse.about || {};
-        
-        // Check if user has separate user details (age, gender, nationality)
-        const userDetails = userToUse.userDetails || {};
+        // Merge user data with fetched details and talent profile
+        // Priority: fetched data > user.about > user.userDetails
+        const aboutData = fetchedTalentProfile || userToUse.about || {};
+        const userDetails = fetchedUserDetails || userToUse.userDetails || {};
         
         // Handle skills - they might be stored as IDs or names
         let userSkills = userToUse.skills || userToUse.user_skills || [];
@@ -534,50 +637,49 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
           return String(skill); // Fallback to string conversion
         });
         
-        
-        // Preserve portfolio if it has been loaded from API (items with IDs), otherwise use user data
-        const hasApiLoadedPortfolio = formData.portfolio.length > 0 && formData.portfolio.some((item: any) => item.id);
-        const portfolioToUse = hasApiLoadedPortfolio 
-          ? formData.portfolio 
-          : (userToUse.portfolio || userToUse.user_portfolios || []);
-        
-        // Preserve social links if already loaded from API
-        const hasApiLoadedSocialLinks = formData.socialLinks.length > 0 && formData.socialLinks.some((link: any) => link.id);
-        const socialLinksToUse = hasApiLoadedSocialLinks ? formData.socialLinks : [];
-        
-        const newFormData = {
-          bio: userToUse.bio || '',
-          skills: normalizedSkills,
-          portfolio: portfolioToUse,
-          socialLinks: socialLinksToUse,
-          about: {
-            gender: aboutData.gender || userDetails.gender || '',
-            birthday: aboutData.birthday || userDetails.birthday || null,
-            nationality: aboutData.nationality || userDetails.nationality || '',
-            location: aboutData.location || aboutData.location_text || userToUse.location_text || userDetails.location || userDetails.location_text || '',
-            height: aboutData.height_cm?.toString() || userDetails.height_cm?.toString() || '',
-            weight: aboutData.weight_kg?.toString() || userDetails.weight_kg?.toString() || '',
-            skinTone: aboutData.skin_tone_id || aboutData.skin_tone || userDetails.skin_tone_id || userDetails.skin_tone || '',
-            hairColor: aboutData.hair_color_id || aboutData.hair_color || userDetails.hair_color_id || userDetails.hair_color || '',
-            eyeColor: aboutData.eye_color || userDetails.eye_color || '',
-            chestCm: aboutData.chest_cm?.toString() || '',
-            waistCm: aboutData.waist_cm?.toString() || '',
-            hipsCm: aboutData.hips_cm?.toString() || '',
-            shoeSizeEu: aboutData.shoe_size_eu?.toString() || '',
-            reelUrl: aboutData.reel_url || '',
-            unionMember: aboutData.union_member || false,
-            dialects: aboutData.dialects || [],
-            willingToTravel: aboutData.travel_ready || aboutData.willing_to_travel || userDetails.willing_to_travel || false,
-          },
-          specialty: userToUse.specialty || '',
-          imageUrl: userToUse.imageUrl || userToUse.image_url || '',
-        };
-        
-        
-        setFormData(newFormData);
+        // Use refs to check if API has loaded data (fixes stale closure issue)
+        // Preserve portfolio if it has been loaded from API, otherwise use user data
+        setFormData(prev => {
+          const portfolioToUse = apiLoadedStateRef.current.portfolio 
+            ? prev.portfolio 
+            : (userToUse.portfolio || userToUse.user_portfolios || []);
+          
+          // Preserve social links if already loaded from API
+          const socialLinksToUse = apiLoadedStateRef.current.socialLinks 
+            ? prev.socialLinks 
+            : [];
+          
+          return {
+            bio: userToUse.bio || '',
+            skills: normalizedSkills,
+            portfolio: portfolioToUse,
+            socialLinks: socialLinksToUse,
+            about: {
+              gender: userDetails.gender || aboutData.gender || '',
+              birthday: userDetails.birthday || aboutData.birthday || null,
+              nationality: userDetails.nationality || aboutData.nationality || '',
+              location: userToUse.location_text || userDetails.location || userDetails.location_text || aboutData.location || aboutData.location_text || '',
+              height: aboutData.height_cm?.toString() || userDetails.height_cm?.toString() || '',
+              weight: aboutData.weight_kg?.toString() || userDetails.weight_kg?.toString() || '',
+              skinTone: aboutData.skin_tone_id || aboutData.skin_tone || userDetails.skin_tone_id || userDetails.skin_tone || '',
+              hairColor: aboutData.hair_color_id || aboutData.hair_color || userDetails.hair_color_id || userDetails.hair_color || '',
+              eyeColor: aboutData.eye_color || userDetails.eye_color || '',
+              chestCm: aboutData.chest_cm?.toString() || '',
+              waistCm: aboutData.waist_cm?.toString() || '',
+              hipsCm: aboutData.hips_cm?.toString() || '',
+              shoeSizeEu: aboutData.shoe_size_eu?.toString() || '',
+              reelUrl: aboutData.reel_url || '',
+              unionMember: aboutData.union_member || false,
+              dialects: aboutData.dialects || [],
+              willingToTravel: aboutData.travel_ready || aboutData.willing_to_travel || userDetails.willing_to_travel || false,
+            },
+            specialty: userToUse.specialty || '',
+            imageUrl: userToUse.imageUrl || userToUse.image_url || '',
+          };
+        });
       }
     }
-  }, [currentUser, routeParams.user, userProp, visible]);
+  }, [currentUser, routeParams.user, userProp, visible, fetchedUserDetails, fetchedTalentProfile]);
 
   // Auto-expand section when initialSection is provided
   useEffect(() => {
@@ -585,7 +687,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       setExpandedSections(prev => new Set(prev).add(initialSection));
       
       // Scroll to section after a brief delay to ensure it's rendered
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         const sectionRef = sectionRefs[initialSection];
         if (sectionRef?.current && scrollViewRef.current) {
           sectionRef.current.measureLayout(
@@ -595,7 +697,7 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             },
             () => {
               // Fallback: try to scroll after a longer delay
-              setTimeout(() => {
+              const fallbackTimeoutId = setTimeout(() => {
                 if (sectionRef?.current) {
                   sectionRef.current.measureLayout(
                     scrollViewRef.current as any,
@@ -608,10 +710,16 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                   );
                 }
               }, 200);
+              
+              // Cleanup fallback timeout
+              return () => clearTimeout(fallbackTimeoutId);
             }
           );
         }
       }, 300);
+      
+      // Cleanup timeout on unmount
+      return () => clearTimeout(timeoutId);
     }
   }, [initialSection, visible]);
 
@@ -1110,37 +1218,51 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       return;
     }
 
-    try {
-      const newItem = {
-        kind: kind === 'audio' ? 'image' : kind, // Convert audio to image for API compatibility
-        url: url.trim(),
-        caption: caption?.trim() || undefined,
-        sort_order: formData.portfolio.length,
-      };
+    const newItem: {
+      kind: 'image' | 'video';
+      url: string;
+      caption?: string;
+      sort_order: number;
+      id?: string;
+    } = {
+      kind: kind === 'audio' ? 'image' : kind, // Convert audio to image for API compatibility
+      url: url.trim(),
+      caption: caption?.trim() || undefined,
+      sort_order: formData.portfolio.length,
+    };
 
-      // Add to local state first
+    // Only try to save to API if it's a proper URL (not a local file path)
+    const isLocalFile = url.startsWith('file://') || url.startsWith('/');
+    
+    if (!isLocalFile) {
+      try {
+        // Try to save to API first
+        const response = await api.addPortfolioItem(newItem);
+        
+        // If API returns an ID, use it
+        if (response?.data?.id) {
+          newItem.id = response.data.id;
+        }
+        
+        // Add to local state only after API success
+        setFormData(prev => ({
+          ...prev,
+          portfolio: [...prev.portfolio, newItem],
+        }));
+      } catch (apiError: any) {
+        console.error('API error adding portfolio item:', apiError);
+        Alert.alert(
+          'Upload Failed',
+          apiError.message || 'Failed to save portfolio item to server. Please try again.'
+        );
+        throw apiError; // Re-throw to prevent adding to UI
+      }
+    } else {
+      // For local files, add to state immediately (will be uploaded later)
       setFormData(prev => ({
         ...prev,
         portfolio: [...prev.portfolio, newItem],
       }));
-
-      // Only try to save to API if it's a proper URL (not a local file path)
-      const isLocalFile = url.startsWith('file://') || url.startsWith('/');
-      
-      if (!isLocalFile) {
-        try {
-          await api.addPortfolioItem(newItem);
-        } catch (apiError) {
-          console.error('API error adding portfolio item:', apiError);
-        }
-      }
-
-      // Show brief success feedback
-      // Note: Removed Alert.alert for less intrusive UX - item appears in grid immediately
-    } catch (error: any) {
-      console.error('Error adding portfolio item:', error);
-      Alert.alert('Error', 'Failed to add portfolio item. Please try again.');
-      throw error;
     }
   };
 
@@ -1148,25 +1270,43 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     const item = formData.portfolio[index];
     if (!item) return;
 
+    const itemId = (item as any).id;
+    const previousPortfolio = [...formData.portfolio];
+
     try {
-      // Remove from local state
-    setFormData(prev => ({
-      ...prev,
+      // Optimistically remove from local state
+      setFormData(prev => ({
+        ...prev,
         portfolio: prev.portfolio.filter((_, i) => i !== index),
       }));
 
       // Try to remove from API if item has an ID
-      if ((item as any).id) {
+      if (itemId) {
         try {
-          await api.removePortfolioItem((item as any).id);
-        } catch (apiError) {
+          await api.removePortfolioItem(itemId);
+        } catch (apiError: any) {
+          // Revert optimistic update on error
+          setFormData(prev => ({
+            ...prev,
+            portfolio: previousPortfolio,
+          }));
+          console.error('API error removing portfolio item:', apiError);
+          Alert.alert(
+            'Error',
+            apiError.message || 'Failed to remove portfolio item from server. Please try again.'
+          );
+          return;
         }
       }
-
-      Alert.alert('Success', 'Portfolio item removed successfully!');
+      // Success - no alert needed for better UX
     } catch (error: any) {
+      // Revert optimistic update on error
+      setFormData(prev => ({
+        ...prev,
+        portfolio: previousPortfolio,
+      }));
       console.error('Error removing portfolio item:', error);
-      Alert.alert('Error', 'Failed to remove portfolio item. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to remove portfolio item. Please try again.');
     }
   };
 
@@ -1175,13 +1315,13 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       const result = await mediaPicker.pickImage({
         allowsEditing: true,
         quality: 0.8,
-        maxWidth: 1920,
-        maxHeight: 1920,
+        maxWidth: IMAGE_DIMENSIONS.PORTFOLIO_MAX,
+        maxHeight: IMAGE_DIMENSIONS.PORTFOLIO_MAX,
       });
 
       if (result) {
-        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 20)) {
-          Alert.alert('File Too Large', 'Please select an image smaller than 20MB.');
+        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, FILE_SIZE_LIMITS.IMAGE_MB)) {
+          Alert.alert('File Too Large', `Please select an image smaller than ${FILE_SIZE_LIMITS.IMAGE_MB}MB.`);
           return;
         }
 
@@ -1221,13 +1361,13 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       const result = await mediaPicker.takePhoto({
         allowsEditing: true,
         quality: 0.8,
-        maxWidth: 1920,
-        maxHeight: 1920,
+        maxWidth: IMAGE_DIMENSIONS.PORTFOLIO_MAX,
+        maxHeight: IMAGE_DIMENSIONS.PORTFOLIO_MAX,
       });
 
       if (result) {
-        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 20)) {
-          Alert.alert('File Too Large', 'Please take a photo smaller than 20MB.');
+        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, FILE_SIZE_LIMITS.IMAGE_MB)) {
+          Alert.alert('File Too Large', `Please take a photo smaller than ${FILE_SIZE_LIMITS.IMAGE_MB}MB.`);
           return;
         }
 
@@ -1269,13 +1409,11 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       });
 
       if (result) {
-        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 100)) {
-          Alert.alert('File Too Large', 'Please select a video smaller than 100MB.');
+        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, FILE_SIZE_LIMITS.VIDEO_MB)) {
+          Alert.alert('File Too Large', `Please select a video smaller than ${FILE_SIZE_LIMITS.VIDEO_MB}MB.`);
           return;
         }
 
-        // Debug: Log the actual duration value
-        
         // Handle duration validation - check if it's in seconds or milliseconds
         if (result.duration) {
           let durationInSeconds = result.duration;
@@ -1286,8 +1424,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             durationInSeconds = result.duration / 1000;
           }
           
-          if (durationInSeconds > 300) {
-            Alert.alert('Video Too Long', 'Please select a video shorter than 5 minutes.');
+          if (durationInSeconds > VIDEO_DURATION_LIMIT_SECONDS) {
+            const minutes = Math.floor(VIDEO_DURATION_LIMIT_SECONDS / 60);
+            Alert.alert('Video Too Long', `Please select a video shorter than ${minutes} minutes.`);
             return;
           }
         }
@@ -1330,13 +1469,11 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       });
 
       if (result) {
-        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 100)) {
-          Alert.alert('File Too Large', 'Please record a video smaller than 100MB.');
+        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, FILE_SIZE_LIMITS.VIDEO_MB)) {
+          Alert.alert('File Too Large', `Please record a video smaller than ${FILE_SIZE_LIMITS.VIDEO_MB}MB.`);
           return;
         }
 
-        // Debug: Log the actual duration value
-        
         // Handle duration validation - check if it's in seconds or milliseconds
         if (result.duration) {
           let durationInSeconds = result.duration;
@@ -1347,8 +1484,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             durationInSeconds = result.duration / 1000;
           }
           
-          if (durationInSeconds > 300) {
-            Alert.alert('Video Too Long', 'Please record a video shorter than 5 minutes.');
+          if (durationInSeconds > VIDEO_DURATION_LIMIT_SECONDS) {
+            const minutes = Math.floor(VIDEO_DURATION_LIMIT_SECONDS / 60);
+            Alert.alert('Video Too Long', `Please record a video shorter than ${minutes} minutes.`);
             return;
           }
         }
@@ -1451,8 +1589,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         allowsEditing: true,
         quality: 0.8,
         aspect: [1, 1],
-        maxWidth: 1024,
-        maxHeight: 1024,
+        maxWidth: IMAGE_DIMENSIONS.PROFILE_MAX,
+        maxHeight: IMAGE_DIMENSIONS.PROFILE_MAX,
       });
 
       if (!result) {
@@ -1460,9 +1598,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         return;
       }
 
-      // Validate file size (max 10MB)
-      if (result.fileSize && mediaPicker.validateFileSize && !mediaPicker.validateFileSize(result.fileSize, 10)) {
-        Alert.alert('File Too Large', 'Please select an image smaller than 10MB.');
+      // Validate file size
+      if (result.fileSize && mediaPicker.validateFileSize && !mediaPicker.validateFileSize(result.fileSize, FILE_SIZE_LIMITS.PROFILE_IMAGE_MB)) {
+        Alert.alert('File Too Large', `Please select an image smaller than ${FILE_SIZE_LIMITS.PROFILE_IMAGE_MB}MB.`);
         return;
       }
 
@@ -1534,14 +1672,14 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         allowsEditing: true,
         quality: 0.8,
         aspect: [1, 1],
-        maxWidth: 1024,
-        maxHeight: 1024,
+        maxWidth: IMAGE_DIMENSIONS.PROFILE_MAX,
+        maxHeight: IMAGE_DIMENSIONS.PROFILE_MAX,
       });
 
       if (result) {
-        // Validate file size (max 10MB)
-        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 10)) {
-          Alert.alert('File Too Large', 'Please take a photo smaller than 10MB.');
+        // Validate file size
+        if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, FILE_SIZE_LIMITS.PROFILE_IMAGE_MB)) {
+          Alert.alert('File Too Large', `Please take a photo smaller than ${FILE_SIZE_LIMITS.PROFILE_IMAGE_MB}MB.`);
           return;
         }
 
@@ -1688,7 +1826,18 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         userDetailsResponse = await api.updateUserDetails(userDetailsData);
       } catch (updateError: any) {
         // If update fails (404 - user details don't exist), create new ones
-        userDetailsResponse = await api.createUserDetails(userDetailsData);
+        if (updateError?.response?.status === 404 || updateError?.status === 404) {
+          try {
+            userDetailsResponse = await api.createUserDetails(userDetailsData);
+          } catch (createError: any) {
+            console.error('❌ Failed to create user details:', createError);
+            throw new Error(createError.message || 'Failed to save user details. Please try again.');
+          }
+        } else {
+          // For other errors, throw to show user
+          console.error('❌ Failed to update user details:', updateError);
+          throw new Error(updateError.message || 'Failed to update user details. Please try again.');
+        }
       }
 
       // Update talent profile (physical details) using direct API call
@@ -1743,12 +1892,21 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             console.error('   2. The token does not have permission to access talent endpoints');
             console.error('   3. The API requires the user to have category="talent" before accessing talent endpoints');
             
-            // Don't throw error - just log warning like updateProfile does
-            // This allows the profile update to complete even if talent profile fails
-            console.warn('⚠️ Continuing without talent profile update - user can update it later when their category is set to "talent"');
+            // Show user-friendly message but don't block other updates
+            Alert.alert(
+              'Talent Profile Update Skipped',
+              'Your basic profile was updated, but talent-specific details could not be saved. This may be because your account category is not set to "talent" yet. You can update these details later.',
+              [{ text: 'OK' }]
+            );
           } else {
-            // For other errors, log but don't block the profile update
-            console.warn('⚠️ Talent profile update failed, but continuing with other updates:', talentResult.error);
+            // For other errors, show warning but continue
+            const errorMessage = talentResult.error || talentResult.message || 'Unknown error';
+            console.warn('⚠️ Talent profile update failed, but continuing with other updates:', errorMessage);
+            Alert.alert(
+              'Partial Update',
+              `Your basic profile was updated, but there was an issue saving talent-specific details: ${errorMessage}. You can try updating these details again later.`,
+              [{ text: 'OK' }]
+            );
           }
         }
       }
@@ -1768,16 +1926,82 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         if (userId) {
           // Refresh profile pictures to show updated gallery
           await refreshProfilePictures(userId);
+          
+          // Refresh user details and talent profile data
+          const accessToken = getAccessToken();
+          const baseUrl = getBaseUrl();
+          
+          // Refresh user details
+          try {
+            const userDetailsResponse = await fetch(`${baseUrl}/api/user-details`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${accessToken}`,
+              },
+            });
+            
+            if (userDetailsResponse.ok) {
+              const detailsData = await userDetailsResponse.json();
+              setFetchedUserDetails(detailsData.data || detailsData);
+            }
+          } catch (error) {
+            console.error('Failed to refresh user details:', error);
+          }
+          
+          // Refresh talent profile if user is talent
+          if (isTalent) {
+            try {
+              const talentResponse = await fetch(`${baseUrl}/api/talent/profile`, {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${accessToken}`,
+                },
+              });
+              
+              if (talentResponse.ok) {
+                const talentData = await talentResponse.json();
+                setFetchedTalentProfile(talentData.data || talentData);
+              }
+            } catch (error) {
+              console.error('Failed to refresh talent profile:', error);
+            }
+          }
         }
       } catch (refreshError) {
-        console.error('Failed to refresh profile pictures after update:', refreshError);
+        console.error('Failed to refresh data after update:', refreshError);
         // Don't block success message if refresh fails
       }
 
       Alert.alert(
         'Success',
         'Your profile has been updated successfully!',
-        [{ text: 'OK' }] // Stay on the same page - don't navigate away
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // If used as a modal, close it
+              if (visible !== undefined && onClose) {
+                onClose();
+              } else if (visible === undefined) {
+              // If used as a screen, navigate back to profile page
+              // Check if we can go back, otherwise navigate to myProfile
+              if (nav.canGoBack()) {
+                nav.goBack();
+              } else {
+                // Fallback: navigate to myProfile if we can't go back
+                const userToNavigate = currentUser || user;
+                if (userToNavigate?.id) {
+                  (nav as any).navigate('myProfile', { user: userToNavigate });
+                } else {
+                  (nav as any).navigate('spot');
+                }
+              }
+              }
+            }
+          }
+        ]
       );
       onProfileUpdated?.(combinedData);
       
@@ -1972,12 +2196,14 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                           <TouchableOpacity
                             style={styles.setMainButton}
                             onPress={async () => {
+                              const userId = currentUser?.id || user?.id;
+                              if (!userId) return;
+                              
+                              // Capture previous state before optimistic update
+                              const previousPictures = [...profilePictures];
+                              
                               try {
-                                const userId = currentUser?.id || user?.id;
-                                if (!userId) return;
-                                
                                 // Optimistically update the state immediately
-                                const previousPictures = [...profilePictures];
                                 const updatedPictures = profilePictures.map((p) => ({
                                   ...p,
                                   is_main: p.id === picture.id,
@@ -2048,13 +2274,13 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                         const result = await mediaPicker.pickImage({
                           allowsEditing: true,
                           quality: 0.8,
-                          maxWidth: 1920,
-                          maxHeight: 1080,
+                          maxWidth: IMAGE_DIMENSIONS.COVER_MAX,
+                          maxHeight: IMAGE_DIMENSIONS.COVER_HEIGHT,
                         });
 
                         if (result) {
-                          if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 20)) {
-                            Alert.alert('File Too Large', 'Please select an image smaller than 20MB.');
+                          if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, FILE_SIZE_LIMITS.IMAGE_MB)) {
+                            Alert.alert('File Too Large', `Please select an image smaller than ${FILE_SIZE_LIMITS.IMAGE_MB}MB.`);
                             return;
                           }
 
@@ -2113,13 +2339,13 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                         const result = await mediaPicker.takePhoto({
                           allowsEditing: true,
                           quality: 0.8,
-                          maxWidth: 1920,
-                          maxHeight: 1080,
+                          maxWidth: IMAGE_DIMENSIONS.COVER_MAX,
+                          maxHeight: IMAGE_DIMENSIONS.COVER_HEIGHT,
                         });
 
                         if (result) {
-                          if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, 20)) {
-                            Alert.alert('File Too Large', 'Please take a photo smaller than 20MB.');
+                          if (result.fileSize && !mediaPicker.validateFileSize(result.fileSize, FILE_SIZE_LIMITS.IMAGE_MB)) {
+                            Alert.alert('File Too Large', `Please take a photo smaller than ${FILE_SIZE_LIMITS.IMAGE_MB}MB.`);
                             return;
                           }
 

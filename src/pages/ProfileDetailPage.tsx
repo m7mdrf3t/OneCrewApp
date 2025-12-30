@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking, Modal, Dimensions, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { ProfileDetailPageProps } from '../types';
 import { getInitials } from '../data/mockData';
@@ -54,15 +54,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     // Context not available, will use local state
   }
 
-  // Debug: Track invitation modal state changes
-  useEffect(() => {
-    if (globalModals) {
-      console.log('📧 [ProfileDetailPage] showInvitationListModal state changed:', globalModals.showInvitationListModal);
-      console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
-      console.log('📧 [ProfileDetailPage] Should render modal:', currentUser && globalModals.showInvitationListModal);
-    }
-  }, [globalModals?.showInvitationListModal, currentUser]);
-
   const { 
     api, 
     user: currentUser, 
@@ -85,8 +76,19 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     logout,
   } = useApi();
 
+  // Debug: Track invitation modal state changes
+  useEffect(() => {
+    if (globalModals) {
+      console.log('📧 [ProfileDetailPage] showInvitationListModal state changed:', globalModals.showInvitationListModal);
+      console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
+      console.log('📧 [ProfileDetailPage] Should render modal:', currentUser && globalModals.showInvitationListModal);
+    }
+  }, [globalModals?.showInvitationListModal, currentUser]);
+
   // Get profile from route params or prop, with fallback to currentUser for myProfile route
-  const profile = profileProp || routeParams?.profile || routeParams?.user || (routeName === 'myProfile' && currentUser ? currentUser : null);
+  const routeProfile = routeParams && 'profile' in routeParams ? routeParams.profile : undefined;
+  const routeUser = routeParams && 'user' in routeParams ? routeParams.user : undefined;
+  const profile = profileProp || routeProfile || routeUser || (routeName === 'myProfile' && currentUser ? currentUser : null);
 
   // Compute isCurrentUser based on actual comparison if not explicitly provided
   // This will be updated when userProfile is loaded
@@ -95,6 +97,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   );
   
   const [userProfile, setUserProfile] = useState(profile);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   
   // Update computedIsCurrentUser when userProfile or currentUser changes
   useEffect(() => {
@@ -105,6 +108,28 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       setComputedIsCurrentUser(true);
     }
   }, [userProfile?.id, currentUser?.id, isAuthenticated, isGuest, isCurrentUser, routeName]);
+
+  // Update userProfile when currentUser changes (for own profile) - this ensures we show latest data after profile updates
+  useEffect(() => {
+    const isViewingOwnProfile = isAuthenticated && !isGuest && currentUser && profile?.id === currentUser.id;
+    if (isViewingOwnProfile && currentUser && currentUser.id === profile?.id) {
+      // Only update if currentUser has more complete data or if we're forcing a refresh
+      // This prevents overwriting with stale data
+      if (refreshTrigger > 0 || (currentUser.bio && (currentUser as any).skills)) {
+        if (__DEV__) console.log('🔄 Updating userProfile from currentUser after profile update');
+        // Merge currentUser data with existing userProfile to preserve any additional data
+        setUserProfile((prev: any) => ({
+          ...prev,
+          ...currentUser,
+          // Preserve about data structure
+          about: {
+            ...prev?.about,
+            ...(currentUser as any).about,
+          },
+        }));
+      }
+    }
+  }, [currentUser, profile?.id, isAuthenticated, isGuest, refreshTrigger]);
 
   // If no profile provided, show loading/error state
   if (!profile) {
@@ -193,6 +218,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     }
   };
 
+  // Refresh profile data when screen comes into focus (e.g., after editing profile)
+  useFocusEffect(
+    React.useCallback(() => {
+      // Force refresh when screen comes into focus
+      setRefreshTrigger(prev => prev + 1);
+      debugLog('🔄 ProfileDetailPage focused, triggering refresh');
+    }, [])
+  );
+
   // Fetch fresh user data if we have a user ID
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -201,33 +235,41 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         return;
       }
       
-      // Skip fetch if we already have complete profile data
-      // Check for both basic profile data and talent-specific data
-      const hasBasicData = profile.bio && profile.skills && profile.stats;
-      const hasTalentData = profile.category !== 'talent' || (profile.about && profile.about.height_cm);
-      
-      if (hasBasicData && hasTalentData) {
-        debugLog('✅ Profile data already complete, skipping fetch');
-        setUserProfile(profile);
-        setIsLoading(false); // Ensure loading is cleared
-        setError(null);
-        // Still trigger the parallel data loading (certifications, social links, pictures)
-        // by setting userProfile, which will trigger the useEffect dependency
-        return;
-      }
-      
-      // Also check if we're viewing the current user's profile and already have user data
+      // Check if viewing own profile
       const isViewingOwnProfile = isAuthenticated && !isGuest && currentUser && profile.id === currentUser.id;
-      if (isViewingOwnProfile && currentUser && currentUser.id === profile.id) {
-        // Check if currentUser has complete data
-        const currentUserHasCompleteData = currentUser.bio && currentUser.skills;
-        if (currentUserHasCompleteData) {
-          debugLog('✅ Using current user data, skipping fetch');
-          setUserProfile(currentUser);
+      
+      // If refresh trigger is set or currentUser changed (for own profile), always fetch fresh data
+      const shouldForceRefresh = refreshTrigger > 0 || (isViewingOwnProfile && currentUser);
+      
+      // Skip fetch if we already have complete profile data AND not forcing refresh
+      if (!shouldForceRefresh) {
+        const hasBasicData = profile.bio && profile.skills && profile.stats;
+        const hasTalentData = profile.category !== 'talent' || (profile.about && profile.about.height_cm);
+        
+        if (hasBasicData && hasTalentData) {
+          debugLog('✅ Profile data already complete, skipping fetch');
+          setUserProfile(profile);
           setIsLoading(false); // Ensure loading is cleared
           setError(null);
+          // Still trigger the parallel data loading (certifications, social links, pictures)
+          // by setting userProfile, which will trigger the useEffect dependency
           return;
         }
+        
+        // Also check if we're viewing the current user's profile and already have user data
+        if (isViewingOwnProfile && currentUser && currentUser.id === profile.id) {
+          // Check if currentUser has complete data
+          const currentUserHasCompleteData = currentUser.bio && (currentUser as any).skills;
+          if (currentUserHasCompleteData) {
+            debugLog('✅ Using current user data, skipping fetch');
+            setUserProfile(currentUser);
+            setIsLoading(false); // Ensure loading is cleared
+            setError(null);
+            return;
+          }
+        }
+      } else {
+        debugLog('🔄 Force refresh triggered, fetching fresh data');
       }
       
       setIsLoading(true);
@@ -377,7 +419,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
 
     fetchUserProfile();
-  }, [profile?.id, api, isAuthenticated, isGuest, currentUser?.id, getBaseUrl]);
+  }, [profile?.id, api, isAuthenticated, isGuest, currentUser?.id, getBaseUrl, refreshTrigger]);
 
   // Load certifications, social links, and profile pictures in parallel for better performance
   useEffect(() => {
@@ -516,7 +558,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
 
     loadAllProfileData();
-  }, [profile?.id, userProfile?.id, computedIsCurrentUser, currentUser?.id, getUserCertifications, getUserSocialLinks, getUserProfilePictures, getUserPortfolio, isGuest, socialLinksRefreshTrigger]);
+  }, [profile?.id, userProfile?.id, computedIsCurrentUser, currentUser?.id, getUserCertifications, getUserSocialLinks, getUserProfilePictures, getUserPortfolio, isGuest, socialLinksRefreshTrigger, refreshTrigger]);
 
   const isInTeam = Array.isArray(myTeam) && myTeam.length > 0 && myTeam.some(member => member?.id === userProfile?.id);
 
@@ -1505,7 +1547,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                           <Image
                             source={{ uri: certification.certificate_image_url! }}
                             style={styles.certificateCardImage}
-                            contentFit="cover"
+                            resizeMode="cover"
                           />
                           <View style={styles.certificateCardOverlay} />
                         </>

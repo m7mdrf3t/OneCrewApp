@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, Image, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { semanticSpacing } from '../constants/spacing';
@@ -38,6 +39,17 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // Ensure route is tracked when this page is focused
+  // This helps ensure the navigation bar is always visible
+  useFocusEffect(
+    useCallback(() => {
+      // When spot page is focused, ensure navigation state is properly set
+      // The parent App.tsx will handle the actual route tracking via onStateChange
+      // This is just a safeguard to ensure the page is recognized
+      console.log('📍 SpotPage focused - ensuring navigation bar visibility');
+    }, [])
+  );
 
   const loadNews = useCallback(async (pageNum: number = 1, append: boolean = false) => {
     try {
