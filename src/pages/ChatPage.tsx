@@ -12,6 +12,7 @@ import {
   Modal,
   ImageStyle,
   SafeAreaView,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -68,6 +69,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const headerHeightRef = useRef(0);
   const [conversation, setConversation] = useState<ChatConversation | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1685,13 +1687,49 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const participantAvatar = getParticipantAvatar();
   const initials = participantName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
+  // Calculate keyboard offset: header height + safe area top
+  // Header is approximately 60-70px, plus safe area insets
+  const keyboardVerticalOffset = Platform.OS === 'ios' 
+    ? (headerHeightRef.current || 60) + insets.top
+    : (headerHeightRef.current || 60) + insets.top;
+
+  // Handle keyboard show/hide to scroll to bottom
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        // Scroll to bottom when keyboard appears
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd?.({ animated: true });
+        }, 100);
+      }
+    );
+
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        // Optional: scroll adjustment when keyboard hides
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+      keyboardVerticalOffset={keyboardVerticalOffset}
     >
-      <View style={styles.header}>
+      <View 
+        style={styles.header}
+        onLayout={(event) => {
+          headerHeightRef.current = event.nativeEvent.layout.height;
+        }}
+      >
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
@@ -1717,16 +1755,17 @@ const ChatPage: React.FC<ChatPageProps> = ({
         <View style={styles.headerRight} />
       </View>
 
-      <FlashListUnsafe
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item: ChatMessage) => item.id}
-        contentContainerStyle={styles.messagesList}
-        inverted={false}
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.5}
-        estimatedItemSize={110}
+      <View style={styles.messagesContainer}>
+        <FlashListUnsafe
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item: ChatMessage) => item.id}
+          contentContainerStyle={styles.messagesList}
+          inverted={false}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.5}
+          estimatedItemSize={110}
         ListEmptyComponent={
           !shouldShowLoading && messages.length === 0 ? (
             <View style={styles.emptyState}>
@@ -1757,7 +1796,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
             )}
           </>
         }
-      />
+        />
+      </View>
 
       <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         {/* Reply context */}
@@ -2105,6 +2145,10 @@ const styles = StyleSheet.create({
   },
   headerRight: {
     width: 32,
+  },
+  messagesContainer: {
+    flex: 1,
+    flexShrink: 1,
   },
   loadingContainer: {
     flex: 1,

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator, Linking, Platform } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
@@ -19,6 +19,9 @@ import { queryClient } from './src/services/queryClient';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { NavigationProvider, navigationRef } from './src/navigation/NavigationContext';
 import { RootStackParamList } from './src/navigation/types';
+
+// Hooks
+import { useAndroidBackHandler } from './src/hooks/useAndroidBackHandler';
 
 // Components
 import TabBar from './src/components/TabBar';
@@ -146,6 +149,9 @@ const AppContent: React.FC = () => {
       setTheme(systemColorScheme);
     }
   }, [systemColorScheme]);
+
+  // Android back button handler
+  useAndroidBackHandler();
 
   // Track current route to update tab and show/hide TabBar
   const [currentRoute, setCurrentRoute] = useState<string>('spot');
@@ -1329,12 +1335,10 @@ const AppContent: React.FC = () => {
                 }
               }}
             >
-              <GlobalModalsProvider>
-                <NavigationProvider>
-                  <AppNavigator />
-                  <GlobalModals />
-                </NavigationProvider>
-              </GlobalModalsProvider>
+              <NavigationProvider>
+                <AppNavigator />
+                <GlobalModals />
+              </NavigationProvider>
             </NavigationContainer>
           </View>
           {shouldShowTabBar && (
@@ -1421,9 +1425,11 @@ const App: React.FC = () => {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <QueryClientProvider client={queryClient}>
           <ApiProvider>
-            <SafeAreaProvider>
-              <AppContent />
-            </SafeAreaProvider>
+            <GlobalModalsProvider>
+              <SafeAreaProvider>
+                <AppContent />
+              </SafeAreaProvider>
+            </GlobalModalsProvider>
           </ApiProvider>
         </QueryClientProvider>
       </GestureHandlerRootView>
