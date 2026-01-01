@@ -49,12 +49,18 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
 
 const styles = StyleSheet.create({
   container: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     backgroundColor: '#000',
     borderTopWidth: 1,
     borderTopColor: '#333',
     paddingVertical: 8,
     paddingHorizontal: 16,
+    zIndex: 1000,
+    elevation: 10, // For Android
   },
   tab: {
     flex: 1,

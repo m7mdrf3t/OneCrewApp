@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator, Linking } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -88,6 +88,9 @@ import { spacing, semanticSpacing } from './src/constants/spacing';
 // Main App Content Component
 const AppContent: React.FC = () => {
   const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted, getCompanyMembers } = useApi();
+  const insets = useSafeAreaInsets();
+  // Calculate TabBar height: padding (16) + content (~50) + safe area bottom
+  const tabBarHeight = 66 + Math.max(insets.bottom, 8);
   const [showSplash, setShowSplash] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState('spot');
@@ -1351,7 +1354,7 @@ const AppContent: React.FC = () => {
       <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
         <View style={styles.appWrapper}>
-          <View style={styles.navigationContainer}>
+          <View style={[styles.navigationContainer, { paddingBottom: tabBarHeight }]}>
             <NavigationContainer 
               ref={navigationRef}
               onStateChange={(state) => {
@@ -1414,19 +1417,17 @@ const AppContent: React.FC = () => {
               </GlobalModalsProvider>
             </NavigationContainer>
           </View>
-          {shouldShowTabBar && (
-            <TabBar 
-              active={tab} 
-              onChange={handleTabChange}
-              onProfilePress={() => {
-                if (currentProfileType === 'company' && activeCompany?.id) {
-                  navigateTo('companyProfile', { companyId: activeCompany.id });
-                } else if (user) {
-                  navigateTo('myProfile', user);
-                }
-              }}
-            />
-          )}
+          <TabBar 
+            active={tab} 
+            onChange={handleTabChange}
+            onProfilePress={() => {
+              if (currentProfileType === 'company' && activeCompany?.id) {
+                navigateTo('companyProfile', { companyId: activeCompany.id });
+              } else if (user) {
+                navigateTo('myProfile', user);
+              }
+            }}
+          />
         </View>
       </SafeAreaView>
     </SafeAreaProvider>

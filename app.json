@@ -29,7 +29,8 @@
         "NSMicrophoneUsageDescription": "This app needs access to your microphone to record videos with audio for your portfolio."
       },
       "appleTeamId": "9MK2V33M87",
-      "scheme": "com.minaezzat.onesteps"
+      "scheme": "com.minaezzat.onesteps",
+      "buildNumber": "2"
     },
     "android": {
       "adaptiveIcon": {

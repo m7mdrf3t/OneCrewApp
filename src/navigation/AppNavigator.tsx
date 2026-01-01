@@ -44,23 +44,20 @@ interface AppNavigatorProps {
 }
 
 export const AppNavigator: React.FC<AppNavigatorProps> = () => {
-  // Default header options with ProfileHeaderRight for screens that show headers
-  const defaultHeaderOptions = {
-    headerBackTitleVisible: false,
-    headerStyle: {
-      backgroundColor: '#ffffff',
-    },
-    headerTintColor: '#000000',
-    headerTitleStyle: {
-      fontWeight: '600' as const,
-    },
-    headerRight: () => <ProfileHeaderRight />,
-  };
-
   return (
     <Stack.Navigator
       screenOptions={{
-        headerShown: false,
+        headerShown: true,
+        headerTransparent: false,
+        headerStyle: {
+          backgroundColor: '#ffffff',
+        },
+        headerTintColor: '#000000',
+        headerTitleStyle: {
+          fontWeight: '600' as const,
+        },
+        headerRight: () => <ProfileHeaderRight />,
+        headerBackTitleVisible: false,
         animation: 'slide_from_right',
         gestureEnabled: true,
         fullScreenGestureEnabled: true,
@@ -68,104 +65,196 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
       initialRouteName="spot"
     >
       {/* Main tabs */}
-      <Stack.Screen name="spot" component={SpotPage} />
-      <Stack.Screen name="home" component={HomePageWithUsers} />
+      <Stack.Screen 
+        name="spot" 
+        component={SpotPage}
+        options={{
+          title: 'Spot',
+        }}
+      />
+      <Stack.Screen 
+        name="home" 
+        component={HomePageWithUsers}
+        options={{
+          title: 'Home',
+        }}
+      />
       <Stack.Screen 
         name="projects" 
         component={ProjectsPage}
         options={{
-          headerShown: true,
           title: 'Projects',
-          ...defaultHeaderOptions,
         }}
       />
-      <Stack.Screen name="wall" component={AgendaPage} />
+      <Stack.Screen 
+        name="wall" 
+        component={AgendaPage}
+        options={{
+          title: 'Agenda',
+        }}
+      />
       
       {/* Service screens */}
-      <Stack.Screen name="sectionServices" component={DirectoryPage} />
-      <Stack.Screen name="details" component={ServiceDetailPage} />
-      <Stack.Screen name="academyDetail" component={CompanyProfilePage} />
-      <Stack.Screen name="legalDetail" component={ServiceDetailPage} />
-      <Stack.Screen name="directory" component={DirectoryPage} />
-      <Stack.Screen name="serviceDetail" component={ServiceDetailPage} />
+      <Stack.Screen 
+        name="sectionServices" 
+        component={DirectoryPage}
+        options={{
+          title: 'Services',
+        }}
+      />
+      <Stack.Screen 
+        name="details" 
+        component={ServiceDetailPage}
+        options={{
+          title: 'Service Details',
+        }}
+      />
+      <Stack.Screen 
+        name="academyDetail" 
+        component={CompanyProfilePage}
+        options={{
+          title: 'Academy',
+        }}
+      />
+      <Stack.Screen 
+        name="legalDetail" 
+        component={ServiceDetailPage}
+        options={{
+          title: 'Legal Services',
+        }}
+      />
+      <Stack.Screen 
+        name="directory" 
+        component={DirectoryPage}
+        options={{
+          title: 'Directory',
+        }}
+      />
+      <Stack.Screen 
+        name="serviceDetail" 
+        component={ServiceDetailPage}
+        options={{
+          title: 'Service Details',
+        }}
+      />
       
       {/* Profile screens */}
       <Stack.Screen 
         name="profile" 
         component={ProfileDetailPage}
         options={({ route }) => ({
-          headerShown: true,
           title: route.params?.profile?.name || 'Profile',
-          ...defaultHeaderOptions,
         })}
       />
       <Stack.Screen 
         name="myProfile" 
         component={ProfileDetailPage}
         options={({ route }) => ({
-          headerShown: true,
           title: route.params?.user?.name || 'My Profile',
-          ...defaultHeaderOptions,
         })}
       />
-      <Stack.Screen name="profileCompletion" component={ProfileCompletionPage} />
+      <Stack.Screen 
+        name="profileCompletion" 
+        component={ProfileCompletionPage}
+        options={{
+          title: 'Complete Profile',
+        }}
+      />
       <Stack.Screen 
         name="companyProfile" 
         component={CompanyProfilePage}
         options={{
-          headerShown: true,
           title: 'Company',
-          ...defaultHeaderOptions,
         }}
       />
-      <Stack.Screen name="companyRegistration" component={CompanyRegistrationPage} />
-      <Stack.Screen name="companyEdit" component={CompanyEditPage} />
-      <Stack.Screen name="companyMembersManagement" component={CompanyMembersManagementPage} />
+      <Stack.Screen 
+        name="companyRegistration" 
+        component={CompanyRegistrationPage}
+        options={{
+          title: 'Register Company',
+        }}
+      />
+      <Stack.Screen 
+        name="companyEdit" 
+        component={CompanyEditPage}
+        options={{
+          title: 'Edit Company',
+        }}
+      />
+      <Stack.Screen 
+        name="companyMembersManagement" 
+        component={CompanyMembersManagementPage}
+        options={{
+          title: 'Company Members',
+        }}
+      />
       
       {/* Project screens */}
       <Stack.Screen 
         name="projectDetail" 
         component={ProjectDetailPage}
         options={{
-          headerShown: true,
           title: 'Project',
-          ...defaultHeaderOptions,
         }}
       />
       <Stack.Screen 
         name="newProject" 
         component={NewProjectPage}
         options={{
-          headerShown: true,
           title: 'New Project',
-          ...defaultHeaderOptions,
         }}
       />
-      <Stack.Screen name="newProjectEasy" component={NewProjectPage} />
+      <Stack.Screen 
+        name="newProjectEasy" 
+        component={NewProjectPage}
+        options={{
+          title: 'New Project',
+        }}
+      />
       
       {/* Course screens */}
-      <Stack.Screen name="coursesManagement" component={CoursesManagementPage} />
-      <Stack.Screen name="courseEdit" component={CourseEditPage} />
-      <Stack.Screen name="courseDetail" component={CourseDetailPage} />
-      <Stack.Screen name="publicCourses" component={PublicCoursesPage} />
+      <Stack.Screen 
+        name="coursesManagement" 
+        component={CoursesManagementPage}
+        options={{
+          title: 'Courses',
+        }}
+      />
+      <Stack.Screen 
+        name="courseEdit" 
+        component={CourseEditPage}
+        options={{
+          title: 'Edit Course',
+        }}
+      />
+      <Stack.Screen 
+        name="courseDetail" 
+        component={CourseDetailPage}
+        options={{
+          title: 'Course Details',
+        }}
+      />
+      <Stack.Screen 
+        name="publicCourses" 
+        component={PublicCoursesPage}
+        options={{
+          title: 'Public Courses',
+        }}
+      />
       
       {/* Chat screens */}
       <Stack.Screen 
         name="chat" 
         component={ChatPage}
         options={{
-          headerShown: true,
           title: 'Chat',
-          ...defaultHeaderOptions,
         }}
       />
       <Stack.Screen 
         name="conversations" 
         component={ConversationsListPage}
         options={{
-          headerShown: true,
           title: 'Messages',
-          ...defaultHeaderOptions,
         }}
       />
       
@@ -174,53 +263,79 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
         name="settings" 
         component={SettingsPage}
         options={{
-          headerShown: true,
           title: 'Settings',
-          ...defaultHeaderOptions,
         }}
       />
-      <Stack.Screen name="changePassword" component={ChangePasswordPage} />
-      <Stack.Screen name="accountDeletion" component={AccountDeletionPage} />
-      <Stack.Screen name="privacyPolicy" component={PrivacyPolicyPage} />
+      <Stack.Screen 
+        name="changePassword" 
+        component={ChangePasswordPage}
+        options={{
+          title: 'Change Password',
+        }}
+      />
+      <Stack.Screen 
+        name="accountDeletion" 
+        component={AccountDeletionPage}
+        options={{
+          title: 'Delete Account',
+        }}
+      />
+      <Stack.Screen 
+        name="privacyPolicy" 
+        component={PrivacyPolicyPage}
+        options={{
+          title: 'Privacy Policy',
+        }}
+      />
       <Stack.Screen 
         name="support" 
         component={SupportPage}
         options={{
-          headerShown: true,
           title: 'Support',
-          ...defaultHeaderOptions,
         }}
       />
       <Stack.Screen 
         name="agenda" 
         component={AgendaPage}
         options={{
-          headerShown: true,
           title: 'Agenda',
-          ...defaultHeaderOptions,
         }}
       />
-      <Stack.Screen name="allAgenda" component={AllAgendaPage} />
+      <Stack.Screen 
+        name="allAgenda" 
+        component={AllAgendaPage}
+        options={{
+          title: 'All Agenda',
+        }}
+      />
       <Stack.Screen 
         name="bookingRequests" 
         component={BookingRequestsPage}
         options={{
-          headerShown: true,
           title: 'Booking Requests',
-          ...defaultHeaderOptions,
         }}
       />
-      <Stack.Screen name="weeklySchedule" component={WeeklySchedulePage} />
-      <Stack.Screen name="performanceTest" component={PerformanceTestPage} />
+      <Stack.Screen 
+        name="weeklySchedule" 
+        component={WeeklySchedulePage}
+        options={{
+          title: 'Weekly Schedule',
+        }}
+      />
+      <Stack.Screen 
+        name="performanceTest" 
+        component={PerformanceTestPage}
+        options={{
+          title: 'Performance Test',
+        }}
+      />
       
       {/* News screens */}
       <Stack.Screen 
         name="newsDetail" 
         component={NewsDetailPage}
         options={({ route }) => ({
-          headerShown: true,
           title: route.params?.post?.title || 'News',
-          ...defaultHeaderOptions,
         })}
       />
     </Stack.Navigator>
