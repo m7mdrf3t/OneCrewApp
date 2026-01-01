@@ -1353,82 +1353,82 @@ const AppContent: React.FC = () => {
     <SafeAreaProvider>
       <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-        <View style={styles.appWrapper}>
-          <View style={[styles.navigationContainer, { paddingBottom: tabBarHeight }]}>
-            <NavigationContainer 
-              ref={navigationRef}
-              onStateChange={(state) => {
-                try {
-                  if (state && state.routes && state.routes.length > 0) {
-                    const route = state.routes[state.index];
-                    if (route?.name) {
-                      const routeName = route.name;
-                      console.log('🧭 Navigation state changed:', routeName);
-                      setCurrentRoute(routeName);
-                      // Update tab if it's a main tab route
-                      if (mainTabRoutes.includes(routeName)) {
-                        setTab(routeName);
+        <GlobalModalsProvider>
+          <View style={styles.appWrapper}>
+            <View style={[styles.navigationContainer, { paddingBottom: tabBarHeight }]}>
+              <NavigationContainer 
+                ref={navigationRef}
+                onStateChange={(state) => {
+                  try {
+                    if (state && state.routes && state.routes.length > 0) {
+                      const route = state.routes[state.index];
+                      if (route?.name) {
+                        const routeName = route.name;
+                        console.log('🧭 Navigation state changed:', routeName);
+                        setCurrentRoute(routeName);
+                        // Update tab if it's a main tab route
+                        if (mainTabRoutes.includes(routeName)) {
+                          setTab(routeName);
+                        }
+                      } else {
+                        // Fallback: if no route name detected, ensure we're tracking spot as default
+                        // This ensures tab bar is visible even if route tracking fails
+                        console.log('⚠️ No route name detected, defaulting to spot');
+                        if (!currentRoute || currentRoute === '') {
+                          setCurrentRoute('spot');
+                          setTab('spot');
+                        }
                       }
                     } else {
-                      // Fallback: if no route name detected, ensure we're tracking spot as default
-                      // This ensures tab bar is visible even if route tracking fails
-                      console.log('⚠️ No route name detected, defaulting to spot');
+                      // If state is null/undefined or empty, ensure spot is set as fallback
+                      console.log('⚠️ Navigation state is null/empty, defaulting to spot');
                       if (!currentRoute || currentRoute === '') {
                         setCurrentRoute('spot');
                         setTab('spot');
                       }
                     }
-                  } else {
-                    // If state is null/undefined or empty, ensure spot is set as fallback
-                    console.log('⚠️ Navigation state is null/empty, defaulting to spot');
-                    if (!currentRoute || currentRoute === '') {
+                  } catch (error) {
+                    console.error('❌ Error in onStateChange:', error);
+                    // On error, ensure we have a valid route set
+                    if (!currentRoute || !mainTabRoutes.includes(currentRoute)) {
                       setCurrentRoute('spot');
                       setTab('spot');
                     }
                   }
-                } catch (error) {
-                  console.error('❌ Error in onStateChange:', error);
-                  // On error, ensure we have a valid route set
-                  if (!currentRoute || !mainTabRoutes.includes(currentRoute)) {
+                }}
+                onReady={() => {
+                  // When navigation is ready, ensure initial route is set
+                  const initialRoute = getCurrentRouteFromState();
+                  if (initialRoute && mainTabRoutes.includes(initialRoute)) {
+                    setCurrentRoute(initialRoute);
+                    setTab(initialRoute);
+                  } else {
+                    // Default to spot if we can't determine the route
                     setCurrentRoute('spot');
                     setTab('spot');
                   }
-                }
-              }}
-              onReady={() => {
-                // When navigation is ready, ensure initial route is set
-                const initialRoute = getCurrentRouteFromState();
-                if (initialRoute && mainTabRoutes.includes(initialRoute)) {
-                  setCurrentRoute(initialRoute);
-                  setTab(initialRoute);
-                } else {
-                  // Default to spot if we can't determine the route
-                  setCurrentRoute('spot');
-                  setTab('spot');
-                }
-                console.log('✅ Navigation ready, initial route:', initialRoute || 'spot');
-              }}
-            >
-              <GlobalModalsProvider>
+                  console.log('✅ Navigation ready, initial route:', initialRoute || 'spot');
+                }}
+              >
                 <NavigationProvider>
                   <AppNavigator />
                   <GlobalModals />
                 </NavigationProvider>
-              </GlobalModalsProvider>
-            </NavigationContainer>
+              </NavigationContainer>
+            </View>
+            <TabBar 
+              active={tab} 
+              onChange={handleTabChange}
+              onProfilePress={() => {
+                if (currentProfileType === 'company' && activeCompany?.id) {
+                  navigateTo('companyProfile', { companyId: activeCompany.id });
+                } else if (user) {
+                  navigateTo('myProfile', user);
+                }
+              }}
+            />
           </View>
-          <TabBar 
-            active={tab} 
-            onChange={handleTabChange}
-            onProfilePress={() => {
-              if (currentProfileType === 'company' && activeCompany?.id) {
-                navigateTo('companyProfile', { companyId: activeCompany.id });
-              } else if (user) {
-                navigateTo('myProfile', user);
-              }
-            }}
-          />
-        </View>
+        </GlobalModalsProvider>
       </SafeAreaView>
     </SafeAreaProvider>
   );

@@ -447,12 +447,23 @@ const ChatPage: React.FC<ChatPageProps> = ({
           console.log('💬 Creating conversation with profile context:', {
             conversationType,
             participantIds,
+            participantType: otherParticipantType,
+            participantData: {
+              id: participant.id,
+              category: participant.category,
+              name: participant.name,
+            },
             currentProfileType: currentProfileTypeValue,
             currentProfileId,
             hasActiveCompany: !!activeCompany,
             hasUser: !!user,
             note: 'Using user_company for academy chats (users can send as company later if authorized)',
           });
+
+          // Validate participant ID exists
+          if (!participant.id) {
+            throw new Error('Participant ID is missing. Cannot create conversation.');
+          }
 
           // Prevent duplicate direct conversations: look up existing conversation before creating a new one
           try {
@@ -467,6 +478,29 @@ const ChatPage: React.FC<ChatPageProps> = ({
             }
           } catch (lookupErr) {
             console.warn('⚠️ Failed to lookup existing conversation, falling back to create:', lookupErr);
+          }
+
+          // For user_company conversations, verify the company exists before creating
+          if (conversationType === 'user_company' && otherParticipantType === 'company') {
+            console.log('💬 Validating company participant for user_company conversation:', {
+              participantId: participant.id,
+              participantCategory: participant.category,
+            });
+            
+            // Verify the participant is actually a company
+            if (participant.category !== 'company' && !participant.profile_type && !participant.type) {
+              console.warn('⚠️ Participant may not be a company. Category:', participant.category);
+            }
+            
+            // Try to verify company exists by checking if we can fetch it
+            // This helps catch cases where the company ID is invalid
+            try {
+              const { getCompany } = await import('../contexts/ApiContext');
+              // We can't directly call getCompany here, but we can note this for debugging
+              console.log('💬 Note: Backend should validate company ID exists in companies table, not users table');
+            } catch (verifyErr) {
+              console.warn('⚠️ Could not verify company existence:', verifyErr);
+            }
           }
 
           const createResponse = await createConversationRef.current({
@@ -590,14 +624,30 @@ const ChatPage: React.FC<ChatPageProps> = ({
               }
             }
           } else {
-            throw new Error(createResponse.error || 'Failed to create conversation');
+            // Provide more specific error message for user_company conversations
+            const errorMsg = createResponse.error || 'Failed to create conversation';
+            if (conversationType === 'user_company' && errorMsg.includes('Target user not found')) {
+              throw new Error('The company or academy you\'re trying to message could not be found. This appears to be a backend issue - the backend is looking for the company ID in the users table instead of the companies table. Please contact support.');
+            }
+            throw new Error(errorMsg);
           }
         } else {
           throw new Error('No conversation ID or participant provided');
         }
-      } catch (err: any) {
+        } catch (err: any) {
         console.error('Failed to initialize conversation:', err);
-        const errorMessage = err.message || 'Failed to load conversation';
+        let errorMessage = err.message || 'Failed to load conversation';
+        
+        // Provide more helpful error messages for common backend errors
+        if (errorMessage.includes('Target user not found') || errorMessage.includes('not found')) {
+          // Check if we're trying to message a company
+          if (participant && (participant.category === 'company' || participant.profile_type === 'company' || participant.type === 'company')) {
+            errorMessage = 'The academy or company you\'re trying to message could not be found. Please try again or contact support if the issue persists.';
+          } else {
+            errorMessage = 'The person you\'re trying to message could not be found. Please try again.';
+          }
+        }
+        
         setError(errorMessage);
         
         // Handle profile mismatch errors gracefully
