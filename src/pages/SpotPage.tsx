@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { semanticSpacing } from '../constants/spacing';
+import { stripHtmlTagsAndTruncate } from '../utils/htmlUtils';
 
 interface SpotPageProps {
   isDark: boolean;
@@ -195,7 +196,9 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
         </Text>
         {(post.excerpt || post.body) && (
           <Text style={[styles.summary, { color: isDark ? '#9ca3af' : '#4b5563' }]} numberOfLines={3}>
-            {post.excerpt || (post.body ? post.body.substring(0, 150) + '...' : '')}
+            {post.excerpt 
+              ? stripHtmlTagsAndTruncate(post.excerpt, 150)
+              : (post.body ? stripHtmlTagsAndTruncate(post.body, 150) : '')}
           </Text>
         )}
         <View style={styles.footer}>
