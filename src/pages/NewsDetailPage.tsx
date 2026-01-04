@@ -9,9 +9,11 @@ import {
   ActivityIndicator,
   useColorScheme,
   Linking,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import RenderHTML from 'react-native-render-html';
 import { RootStackParamList } from '../navigation/types';
 import { useApi } from '../contexts/ApiContext';
 
@@ -54,6 +56,7 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
   const [error, setError] = useState<string | null>(null);
   const colorScheme = useColorScheme();
   const darkMode = isDark ?? (colorScheme === 'dark');
+  const { width } = useWindowDimensions();
   
   // Use navigation.goBack() if available, otherwise use onBack prop
   const handleBack = () => {
@@ -203,17 +206,74 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
 
           {/* Excerpt */}
           {post.excerpt && (
-            <Text style={[styles.excerpt, { color: darkMode ? '#d1d5db' : '#4b5563' }]}>
-              {post.excerpt}
-            </Text>
+            <View style={styles.excerptContainer}>
+              <RenderHTML
+                contentWidth={width - 80} // Account for padding (20 * 2) + content padding (20 * 2)
+                source={{ html: post.excerpt }}
+                baseStyle={{
+                  color: darkMode ? '#d1d5db' : '#4b5563',
+                  fontSize: 18,
+                  lineHeight: 28,
+                  fontStyle: 'italic',
+                }}
+                tagsStyles={{
+                  p: { marginBottom: 12, marginTop: 0 },
+                  strong: { fontWeight: 'bold' },
+                  em: { fontStyle: 'italic' },
+                }}
+              />
+            </View>
           )}
 
           {/* Body */}
           {post.body && (
             <View style={styles.bodyContainer}>
-              <Text style={[styles.body, { color: darkMode ? '#e5e7eb' : '#1f2937' }]}>
-                {post.body}
-              </Text>
+              <RenderHTML
+                contentWidth={width - 80} // Account for padding (20 * 2) + content padding (20 * 2)
+                source={{ html: post.body }}
+                baseStyle={{
+                  color: darkMode ? '#e5e7eb' : '#1f2937',
+                  fontSize: 16,
+                  lineHeight: 26,
+                }}
+                tagsStyles={{
+                  p: { marginBottom: 16, marginTop: 0 },
+                  strong: { fontWeight: 'bold', color: darkMode ? '#fff' : '#000' },
+                  em: { fontStyle: 'italic' },
+                  h1: { 
+                    fontSize: 28, 
+                    fontWeight: 'bold', 
+                    marginBottom: 16, 
+                    marginTop: 0,
+                    color: darkMode ? '#fff' : '#000'
+                  },
+                  h2: { 
+                    fontSize: 24, 
+                    fontWeight: 'bold', 
+                    marginBottom: 14, 
+                    marginTop: 0,
+                    color: darkMode ? '#fff' : '#000'
+                  },
+                  h3: { 
+                    fontSize: 20, 
+                    fontWeight: 'bold', 
+                    marginBottom: 12, 
+                    marginTop: 0,
+                    color: darkMode ? '#fff' : '#000'
+                  },
+                  ul: { marginBottom: 16, marginTop: 0 },
+                  ol: { marginBottom: 16, marginTop: 0 },
+                  li: { marginBottom: 8 },
+                  blockquote: {
+                    borderLeftWidth: 4,
+                    borderLeftColor: darkMode ? '#3b82f6' : '#3b82f6',
+                    paddingLeft: 16,
+                    marginLeft: 0,
+                    marginBottom: 16,
+                    fontStyle: 'italic',
+                  },
+                }}
+              />
             </View>
           )}
         </View>
@@ -340,6 +400,12 @@ const styles = StyleSheet.create({
   tagText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  excerptContainer: {
+    marginBottom: 24,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(156, 163, 175, 0.1)',
   },
   excerpt: {
     fontSize: 18,

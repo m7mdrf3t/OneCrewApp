@@ -127,12 +127,27 @@ const InvitationListModal: React.FC<InvitationListModalProps> = ({
     return date.toLocaleDateString();
   };
 
+  // Debug logging
+  useEffect(() => {
+    console.log('📧 [InvitationListModal] Modal visibility changed:', {
+      visible,
+      userId,
+      timestamp: new Date().toISOString(),
+    });
+  }, [visible, userId]);
+
   return (
     <Modal
       visible={visible}
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
+      onShow={() => {
+        console.log('📧 [InvitationListModal] Modal onShow called - modal is now visible');
+      }}
+      onDismiss={() => {
+        console.log('📧 [InvitationListModal] Modal onDismiss called - modal was dismissed');
+      }}
     >
       <View style={styles.container}>
         {/* Header */}

@@ -89,13 +89,26 @@ const NotificationItem: React.FC<NotificationItemProps> = ({
   const iconName = getNotificationIcon(notification.type);
   const iconColor = getNotificationColor(notification.type);
 
+  const handlePress = () => {
+    console.log('👆 [NotificationItem] Notification item pressed:', {
+      id: notification.id,
+      type: notification.type,
+      title: notification.title,
+      message: notification.message,
+      isCompanyInvitation: notification.type === 'company_invitation',
+      data: notification.data,
+      fullNotification: notification,
+    });
+    onPress(notification);
+  };
+
   return (
     <TouchableOpacity
       style={[
         styles.container,
         !notification.is_read && styles.unreadContainer,
       ]}
-      onPress={() => onPress(notification)}
+      onPress={handlePress}
       activeOpacity={0.7}
     >
       <View style={styles.content}>
@@ -103,9 +116,16 @@ const NotificationItem: React.FC<NotificationItemProps> = ({
           <Ionicons name={iconName} size={20} color={iconColor} />
         </View>
         <View style={styles.textContainer}>
-          <Text style={[styles.title, !notification.is_read && styles.unreadTitle]}>
-            {notification.title}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, !notification.is_read && styles.unreadTitle]}>
+              {notification.title}
+            </Text>
+            {notification.type === 'company_invitation' && (
+              <View style={styles.invitationBadge}>
+                <Text style={styles.invitationBadgeText}>INVITATION</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.message} numberOfLines={2}>
             {notification.message}
           </Text>
@@ -154,11 +174,29 @@ const styles = StyleSheet.create({
   textContainer: {
     flex: 1,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 8,
+  },
   title: {
     fontSize: 14,
     fontWeight: '500',
     color: '#111827',
-    marginBottom: 4,
+    flex: 1,
+  },
+  invitationBadge: {
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  invitationBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.5,
   },
   unreadTitle: {
     fontWeight: '600',

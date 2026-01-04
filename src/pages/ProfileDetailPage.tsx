@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking, Modal, Dimensions, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { ProfileDetailPageProps } from '../types';
 import { getInitials } from '../data/mockData';
@@ -19,6 +19,7 @@ import ProfileHeaderRight from '../components/ProfileHeaderRight';
 import NotificationModal from '../components/NotificationModal';
 import AccountSwitcherModal from '../components/AccountSwitcherModal';
 import UserMenuModal from '../components/UserMenuModal';
+import InvitationListModal from '../components/InvitationListModal';
 import { useGlobalModals } from '../contexts/GlobalModalsContext';
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void; onNavigate?: (page: string, data?: any) => void }> = ({
@@ -75,8 +76,19 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     logout,
   } = useApi();
 
+  // Debug: Track invitation modal state changes
+  useEffect(() => {
+    if (globalModals) {
+      console.log('📧 [ProfileDetailPage] showInvitationListModal state changed:', globalModals.showInvitationListModal);
+      console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
+      console.log('📧 [ProfileDetailPage] Should render modal:', currentUser && globalModals.showInvitationListModal);
+    }
+  }, [globalModals?.showInvitationListModal, currentUser]);
+
   // Get profile from route params or prop, with fallback to currentUser for myProfile route
-  const profile = profileProp || routeParams?.profile || routeParams?.user || (routeName === 'myProfile' && currentUser ? currentUser : null);
+  const routeProfile = routeParams && 'profile' in routeParams ? routeParams.profile : undefined;
+  const routeUser = routeParams && 'user' in routeParams ? routeParams.user : undefined;
+  const profile = profileProp || routeProfile || routeUser || (routeName === 'myProfile' && currentUser ? currentUser : null);
 
   // Compute isCurrentUser based on actual comparison if not explicitly provided
   // This will be updated when userProfile is loaded
@@ -85,6 +97,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   );
   
   const [userProfile, setUserProfile] = useState(profile);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   
   // Update computedIsCurrentUser when userProfile or currentUser changes
   useEffect(() => {
@@ -95,6 +108,28 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       setComputedIsCurrentUser(true);
     }
   }, [userProfile?.id, currentUser?.id, isAuthenticated, isGuest, isCurrentUser, routeName]);
+
+  // Update userProfile when currentUser changes (for own profile) - this ensures we show latest data after profile updates
+  useEffect(() => {
+    const isViewingOwnProfile = isAuthenticated && !isGuest && currentUser && profile?.id === currentUser.id;
+    if (isViewingOwnProfile && currentUser && currentUser.id === profile?.id) {
+      // Only update if currentUser has more complete data or if we're forcing a refresh
+      // This prevents overwriting with stale data
+      if (refreshTrigger > 0 || (currentUser.bio && (currentUser as any).skills)) {
+        if (__DEV__) console.log('🔄 Updating userProfile from currentUser after profile update');
+        // Merge currentUser data with existing userProfile to preserve any additional data
+        setUserProfile((prev: any) => ({
+          ...prev,
+          ...currentUser,
+          // Preserve about data structure
+          about: {
+            ...prev?.about,
+            ...(currentUser as any).about,
+          },
+        }));
+      }
+    }
+  }, [currentUser, profile?.id, isAuthenticated, isGuest, refreshTrigger]);
 
   // If no profile provided, show loading/error state
   if (!profile) {
@@ -183,6 +218,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     }
   };
 
+  // Refresh profile data when screen comes into focus (e.g., after editing profile)
+  useFocusEffect(
+    React.useCallback(() => {
+      // Force refresh when screen comes into focus
+      setRefreshTrigger(prev => prev + 1);
+      debugLog('🔄 ProfileDetailPage focused, triggering refresh');
+    }, [])
+  );
+
   // Fetch fresh user data if we have a user ID
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -191,33 +235,41 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         return;
       }
       
-      // Skip fetch if we already have complete profile data
-      // Check for both basic profile data and talent-specific data
-      const hasBasicData = profile.bio && profile.skills && profile.stats;
-      const hasTalentData = profile.category !== 'talent' || (profile.about && profile.about.height_cm);
-      
-      if (hasBasicData && hasTalentData) {
-        debugLog('✅ Profile data already complete, skipping fetch');
-        setUserProfile(profile);
-        setIsLoading(false); // Ensure loading is cleared
-        setError(null);
-        // Still trigger the parallel data loading (certifications, social links, pictures)
-        // by setting userProfile, which will trigger the useEffect dependency
-        return;
-      }
-      
-      // Also check if we're viewing the current user's profile and already have user data
+      // Check if viewing own profile
       const isViewingOwnProfile = isAuthenticated && !isGuest && currentUser && profile.id === currentUser.id;
-      if (isViewingOwnProfile && currentUser && currentUser.id === profile.id) {
-        // Check if currentUser has complete data
-        const currentUserHasCompleteData = currentUser.bio && currentUser.skills;
-        if (currentUserHasCompleteData) {
-          debugLog('✅ Using current user data, skipping fetch');
-          setUserProfile(currentUser);
+      
+      // If refresh trigger is set or currentUser changed (for own profile), always fetch fresh data
+      const shouldForceRefresh = refreshTrigger > 0 || (isViewingOwnProfile && currentUser);
+      
+      // Skip fetch if we already have complete profile data AND not forcing refresh
+      if (!shouldForceRefresh) {
+        const hasBasicData = profile.bio && profile.skills && profile.stats;
+        const hasTalentData = profile.category !== 'talent' || (profile.about && profile.about.height_cm);
+        
+        if (hasBasicData && hasTalentData) {
+          debugLog('✅ Profile data already complete, skipping fetch');
+          setUserProfile(profile);
           setIsLoading(false); // Ensure loading is cleared
           setError(null);
+          // Still trigger the parallel data loading (certifications, social links, pictures)
+          // by setting userProfile, which will trigger the useEffect dependency
           return;
         }
+        
+        // Also check if we're viewing the current user's profile and already have user data
+        if (isViewingOwnProfile && currentUser && currentUser.id === profile.id) {
+          // Check if currentUser has complete data
+          const currentUserHasCompleteData = currentUser.bio && (currentUser as any).skills;
+          if (currentUserHasCompleteData) {
+            debugLog('✅ Using current user data, skipping fetch');
+            setUserProfile(currentUser);
+            setIsLoading(false); // Ensure loading is cleared
+            setError(null);
+            return;
+          }
+        }
+      } else {
+        debugLog('🔄 Force refresh triggered, fetching fresh data');
       }
       
       setIsLoading(true);
@@ -367,7 +419,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
 
     fetchUserProfile();
-  }, [profile?.id, api, isAuthenticated, isGuest, currentUser?.id, getBaseUrl]);
+  }, [profile?.id, api, isAuthenticated, isGuest, currentUser?.id, getBaseUrl, refreshTrigger]);
 
   // Load certifications, social links, and profile pictures in parallel for better performance
   useEffect(() => {
@@ -506,7 +558,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     };
 
     loadAllProfileData();
-  }, [profile?.id, userProfile?.id, computedIsCurrentUser, currentUser?.id, getUserCertifications, getUserSocialLinks, getUserProfilePictures, getUserPortfolio, isGuest, socialLinksRefreshTrigger]);
+  }, [profile?.id, userProfile?.id, computedIsCurrentUser, currentUser?.id, getUserCertifications, getUserSocialLinks, getUserProfilePictures, getUserPortfolio, isGuest, socialLinksRefreshTrigger, refreshTrigger]);
 
   const isInTeam = Array.isArray(myTeam) && myTeam.length > 0 && myTeam.some(member => member?.id === userProfile?.id);
 
@@ -1489,18 +1541,23 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   const hasImage = !!certification.certificate_image_url;
                   
                   return (
-                    <View key={certification.id} style={styles.certificateCard}>
+                    <View key={certification.id} style={[styles.certificateCard, hasImage && styles.certificateCardWithImage]}>
                       {hasImage ? (
-                        <Image
-                          source={{ uri: certification.certificate_image_url! }}
-                          style={styles.certificateCardImage}
-                          contentFit="cover"
-                        />
+                        <>
+                          <Image
+                            source={{ uri: certification.certificate_image_url! }}
+                            style={styles.certificateCardImage}
+                            resizeMode="cover"
+                          />
+                          <View style={styles.certificateCardOverlay} />
+                        </>
                       ) : (
                         <Ionicons name={iconName} size={24} color="#fff" />
                       )}
-                      <Text style={styles.certificateTitle}>{certName}</Text>
-                      <Text style={styles.certificateYear}>{year}</Text>
+                      <View style={styles.certificateCardContent}>
+                        <Text style={styles.certificateTitle}>{certName}</Text>
+                        <Text style={styles.certificateYear}>{year}</Text>
+                      </View>
                     </View>
                   );
                 })}
@@ -1938,13 +1995,31 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         visible={showNotificationModal}
         onClose={() => setShowNotificationModal(false)}
         onNotificationPress={(notification) => {
+          console.log('📬 [ProfileDetailPage] Notification pressed:', notification.type);
           setShowNotificationModal(false);
-          // Handle notification press - navigate to relevant page
-          if (notification.data?.project_id) {
+          // Handle notification press - navigate to relevant page or open modals
+          if (notification.type === 'company_invitation' && currentUser && globalModals) {
+            console.log('📧 [ProfileDetailPage] ========== COMPANY INVITATION DETECTED ==========');
+            console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
+            console.log('📧 [ProfileDetailPage] globalModals:', !!globalModals);
+            console.log('📧 [ProfileDetailPage] Current showInvitationListModal state:', globalModals.showInvitationListModal);
+            console.log('📧 [ProfileDetailPage] About to set showInvitationListModal to true...');
+            // Wait for notification modal to close before opening invitation modal
+            setTimeout(() => {
+              console.log('📧 [ProfileDetailPage] Setting showInvitationListModal to true NOW');
+              globalModals.setShowInvitationListModal(true);
+              console.log('📧 [ProfileDetailPage] showInvitationListModal set to:', globalModals.showInvitationListModal);
+              console.log('📧 [ProfileDetailPage] ===========================================');
+            }, 300);
+          } else if (notification.data?.project_id) {
             navigateTo('projectDetail', { id: notification.data.project_id });
           } else if (notification.data?.conversation_id) {
             navigateTo('chat', { conversationId: notification.data.conversation_id });
           }
+        }}
+        onModalDismiss={() => {
+          // Handle modal dismissal if needed
+          console.log('📬 [ProfileDetailPage] Notification modal dismissed');
         }}
       />
 
@@ -2012,6 +2087,33 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           navigateTo('login');
         }}
       />
+
+      {/* Invitation List Modal - Rendered here to ensure it appears above ProfileDetailPage */}
+      {(() => {
+        const shouldShow = currentUser && globalModals && globalModals.showInvitationListModal;
+        console.log('📧 [ProfileDetailPage] Rendering InvitationListModal check:', {
+          currentUser: !!currentUser,
+          currentUserId: currentUser?.id,
+          globalModals: !!globalModals,
+          showInvitationListModal: globalModals?.showInvitationListModal,
+          shouldShow,
+        });
+        return shouldShow ? (
+          <InvitationListModal
+            visible={true}
+            onClose={() => {
+              console.log('📧 [ProfileDetailPage] Closing invitation modal');
+              if (globalModals) {
+                globalModals.setShowInvitationListModal(false);
+              }
+            }}
+            userId={currentUser.id}
+            onInvitationResponded={() => {
+              console.log('📧 [ProfileDetailPage] Invitation responded');
+            }}
+          />
+        ) : null;
+      })()}
     </View>
   );
 };
@@ -2734,11 +2836,36 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
   },
+  certificateCardWithImage: {
+    padding: 0,
+  },
   certificateCardImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginBottom: 8,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  certificateCardOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderRadius: 12,
+    zIndex: 0,
+  },
+  certificateCardContent: {
+    position: 'relative',
+    zIndex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    padding: 16,
   },
   certificateTitle: {
     fontSize: 14,

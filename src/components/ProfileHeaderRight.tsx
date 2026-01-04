@@ -93,22 +93,6 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
           </View>
         )}
       </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.iconButton}
-        onPress={handleAccountSwitcher}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-      >
-        <Ionicons name="swap-horizontal-outline" size={20} color="#000000" />
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.iconButton}
-        onPress={handleMenu}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-      >
-        <Ionicons name="menu-outline" size={20} color="#000000" />
-      </TouchableOpacity>
     </View>
   );
 };

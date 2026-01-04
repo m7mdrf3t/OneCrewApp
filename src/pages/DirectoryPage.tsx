@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
@@ -117,14 +117,14 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         // Transform user data to match ProfileDetailPage expectations
         const transformedProfile = {
           ...userToNavigate,
-          stats: userToNavigate.stats || {
+          stats: {
             followers: '0',
             projects: 0,
             likes: '0'
           },
           skills: userToNavigate.skills || [],
           bio: userToNavigate.bio || 'No bio available',
-          onlineStatus: userToNavigate.onlineStatus || userToNavigate.online_last_seen || 'Last seen recently',
+          onlineStatus: userToNavigate.online_last_seen || 'Last seen recently',
           about: userToNavigate.about || {
             gender: 'unknown'
           }
@@ -138,14 +138,14 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         // Transform user data to match ProfileDetailPage expectations
         const transformedProfile = {
           ...user,
-          stats: user.stats || {
+          stats: {
             followers: '0',
             projects: 0,
             likes: '0'
           },
           skills: user.skills || [],
           bio: user.bio || 'No bio available',
-          onlineStatus: user.onlineStatus || user.online_last_seen || 'Last seen recently',
+          onlineStatus: user.online_last_seen || 'Last seen recently',
           about: user.about || {
             gender: 'unknown'
           }
@@ -161,7 +161,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const sectionKey = routeParams?.sectionKey || (routeName === 'directory' ? 'directory' : null) || sectionProp?.key;
   
   // Handle directory section specially (it's dynamically created, not in SECTIONS)
-  let section = sectionProp;
+  let section: { key: string; title: string; items: Array<{ label: string; users?: number }> } | undefined = sectionProp;
   if (!section && sectionKey) {
     if (sectionKey === 'directory') {
       // Create directory section dynamically
@@ -214,9 +214,9 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       return;
     }
     if (selectedSubcategory) {
-      // For Academy/onehub sections, go back directly instead of clearing selection
+      // For Academy/onehub sections and directory section, go back directly instead of clearing selection
       // (since we auto-select the subcategory when there's only one item)
-      if (isCompaniesSection) {
+      if (isCompaniesSection || isDirectorySection) {
         onBack();
         return;
       }
@@ -224,7 +224,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       return;
     }
     onBack();
-  }, [showFilterModal, selectedSubcategory, onBack, isCompaniesSection]);
+  }, [showFilterModal, selectedSubcategory, onBack, isCompaniesSection, isDirectorySection]);
 
   // Debounce search query (500ms)
   useEffect(() => {
@@ -639,6 +639,17 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       setSelectedSubcategory(sectionItems[0].label);
     }
   }, [isCompaniesSection, sectionItems, selectedSubcategory]);
+
+  // Refetch companies when screen comes into focus (e.g., after editing a course)
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isCompaniesSection) {
+        // Invalidate and refetch companies to ensure fresh data
+        queryClient.invalidateQueries({ queryKey: directoryCompaniesQueryKey });
+        queryClient.refetchQueries({ queryKey: directoryCompaniesQueryKey });
+      }
+    }, [isCompaniesSection, queryClient, directoryCompaniesQueryKey])
+  );
 
   // Helper function to check if a user matches the filter criteria
   // Note: Search is handled server-side, so we don't need to filter by searchQuery here

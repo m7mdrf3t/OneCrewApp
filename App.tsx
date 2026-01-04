@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator, Linking, Platform } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -109,6 +109,9 @@ const AppContent: React.FC = () => {
   console.log('📱 [AppContent] Component initializing...');
   const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted, getCompanyMembers } = useApi();
   console.log('📱 [AppContent] API context loaded, isLoading:', isLoading);
+  const insets = useSafeAreaInsets();
+  // Calculate TabBar height: padding (16) + content (~50) + safe area bottom
+  const tabBarHeight = 66 + Math.max(insets.bottom, 8);
   const [showSplash, setShowSplash] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [tab, setTab] = useState('spot');
@@ -156,9 +159,45 @@ const AppContent: React.FC = () => {
   // Track current route to update tab and show/hide TabBar
   const [currentRoute, setCurrentRoute] = useState<string>('spot');
   const mainTabRoutes = ['home', 'projects', 'spot', 'wall'];
+  
+  // Function to get current route from navigation state
+  const getCurrentRouteFromState = useCallback(() => {
+    if (navigationRef.current) {
+      const state = navigationRef.current.getRootState();
+      if (state && state.routes && state.routes.length > 0) {
+        const route = state.routes[state.index];
+        return route?.name || null;
+      }
+    }
+    return null;
+  }, []);
+
   // Always show TabBar on main tab routes (spot is included in mainTabRoutes)
-  // Ensure tab bar is always visible on spot page
-  const shouldShowTabBar = mainTabRoutes.includes(currentRoute);
+  // Use multiple fallbacks to ensure tab bar is always visible on main routes
+  const shouldShowTabBar = useMemo(() => {
+    // Primary check: currentRoute state
+    if (mainTabRoutes.includes(currentRoute)) {
+      return true;
+    }
+    
+    // Fallback 1: Check if tab state indicates we're on a main route
+    if (mainTabRoutes.includes(tab)) {
+      return true;
+    }
+    
+    // Fallback 2: Check navigation state directly
+    const routeFromState = getCurrentRouteFromState();
+    if (routeFromState && mainTabRoutes.includes(routeFromState)) {
+      return true;
+    }
+    
+    // Fallback 3: If route is not set or empty, default to showing tab bar (assume spot page)
+    if (!currentRoute || currentRoute === '') {
+      return true;
+    }
+    
+    return false;
+  }, [currentRoute, tab, getCurrentRouteFromState]);
 
   // Additional safeguard: Ensure tab bar is visible when on spot page
   useEffect(() => {
@@ -170,6 +209,29 @@ const AppContent: React.FC = () => {
       }
     }
   }, [currentRoute, tab]);
+
+  // Periodic check to ensure route tracking is accurate (fallback safety net)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const routeFromState = getCurrentRouteFromState();
+      if (routeFromState && routeFromState !== currentRoute) {
+        // Only update if it's a main tab route to avoid interfering with other navigation
+        if (mainTabRoutes.includes(routeFromState)) {
+          console.log('🔄 Route tracking correction:', routeFromState);
+          setCurrentRoute(routeFromState);
+          if (mainTabRoutes.includes(routeFromState)) {
+            setTab(routeFromState);
+          }
+        }
+      } else if (!routeFromState && !currentRoute) {
+        // If no route detected and currentRoute is empty, default to spot
+        setCurrentRoute('spot');
+        setTab('spot');
+      }
+    }, 1000); // Check every second as a safety net
+
+    return () => clearInterval(interval);
+  }, [currentRoute, getCurrentRouteFromState]);
 
   // Navigation function - uses React Navigation
   const navigateTo = useCallback((pageName: string, data: any = null) => {
@@ -1304,34 +1366,61 @@ const AppContent: React.FC = () => {
     <SafeAreaProvider>
       <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-        <View style={styles.appWrapper}>
-          <View style={styles.navigationContainer}>
-            <NavigationContainer 
-              ref={navigationRef}
-              onStateChange={(state) => {
-                if (state) {
-                  const route = state.routes[state.index];
-                  if (route?.name) {
-                    const routeName = route.name;
-                    setCurrentRoute(routeName);
-                    // Update tab if it's a main tab route
-                    if (mainTabRoutes.includes(routeName)) {
-                      setTab(routeName);
+        <GlobalModalsProvider>
+          <View style={styles.appWrapper}>
+            <View style={[styles.navigationContainer, { paddingBottom: tabBarHeight }]}>
+              <NavigationContainer 
+                ref={navigationRef}
+                onStateChange={(state) => {
+                  try {
+                    if (state && state.routes && state.routes.length > 0) {
+                      const route = state.routes[state.index];
+                      if (route?.name) {
+                        const routeName = route.name;
+                        console.log('🧭 Navigation state changed:', routeName);
+                        setCurrentRoute(routeName);
+                        // Update tab if it's a main tab route
+                        if (mainTabRoutes.includes(routeName)) {
+                          setTab(routeName);
+                        }
+                      } else {
+                        // Fallback: if no route name detected, ensure we're tracking spot as default
+                        // This ensures tab bar is visible even if route tracking fails
+                        console.log('⚠️ No route name detected, defaulting to spot');
+                        if (!currentRoute || currentRoute === '') {
+                          setCurrentRoute('spot');
+                          setTab('spot');
+                        }
+                      }
+                    } else {
+                      // If state is null/undefined or empty, ensure spot is set as fallback
+                      console.log('⚠️ Navigation state is null/empty, defaulting to spot');
+                      if (!currentRoute || currentRoute === '') {
+                        setCurrentRoute('spot');
+                        setTab('spot');
+                      }
                     }
-                  } else {
-                    // Fallback: if no route name detected, ensure we're tracking spot as default
-                    // This ensures tab bar is visible even if route tracking fails
-                    if (!currentRoute || currentRoute === '') {
+                  } catch (error) {
+                    console.error('❌ Error in onStateChange:', error);
+                    // On error, ensure we have a valid route set
+                    if (!currentRoute || !mainTabRoutes.includes(currentRoute)) {
                       setCurrentRoute('spot');
                       setTab('spot');
                     }
                   }
-                } else {
-                  // If state is null/undefined, ensure spot is set as fallback
-                  if (!currentRoute || currentRoute === '') {
+                }}
+                onReady={() => {
+                  // When navigation is ready, ensure initial route is set
+                  const initialRoute = getCurrentRouteFromState();
+                  if (initialRoute && mainTabRoutes.includes(initialRoute)) {
+                    setCurrentRoute(initialRoute);
+                    setTab(initialRoute);
+                  } else {
+                    // Default to spot if we can't determine the route
                     setCurrentRoute('spot');
                     setTab('spot');
                   }
+                  console.log('✅ Navigation ready, initial route:', initialRoute || 'spot');
                 }
               }}
             >
@@ -1353,8 +1442,8 @@ const AppContent: React.FC = () => {
                 }
               }}
             />
-          )}
-        </View>
+          </View>
+        </GlobalModalsProvider>
       </SafeAreaView>
     </SafeAreaProvider>
   );

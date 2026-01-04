@@ -2,7 +2,7 @@
   "expo": {
     "name": "Steps",
     "slug": "one-crew",
-    "version": "1.2.0",
+    "version": "1.3.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -29,7 +29,8 @@
         "NSMicrophoneUsageDescription": "This app needs access to your microphone to record videos with audio for your portfolio."
       },
       "appleTeamId": "9MK2V33M87",
-      "scheme": "com.minaezzat.onesteps"
+      "scheme": "com.minaezzat.onesteps",
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {
@@ -92,7 +93,7 @@
         }
       ]
     ],
-    "runtimeVersion": "1.2.0",
+    "runtimeVersion": "1.3.3",
     "updates": {
       "url": "https://u.expo.dev/bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
     }
