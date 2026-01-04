@@ -1421,14 +1421,14 @@ const AppContent: React.FC = () => {
                     setTab('spot');
                   }
                   console.log('✅ Navigation ready, initial route:', initialRoute || 'spot');
-                }
-              }}
+                }}
             >
               <NavigationProvider>
                 <AppNavigator />
                 <GlobalModals />
               </NavigationProvider>
             </NavigationContainer>
+            </View>
           </View>
           {shouldShowTabBar && (
             <TabBar 
@@ -1442,7 +1442,7 @@ const AppContent: React.FC = () => {
                 }
               }}
             />
-          </View>
+          )}
         </GlobalModalsProvider>
       </SafeAreaView>
     </SafeAreaProvider>
