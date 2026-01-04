@@ -11,6 +11,7 @@ import ProjectTypeModal from '../components/ProjectTypeModal';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import MediaPickerService from '../services/MediaPickerService';
 import SkeletonProjectCard from '../components/SkeletonProjectCard';
+import ProfileHeaderRight from '../components/ProfileHeaderRight';
 
 const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onProjectSelect,
@@ -764,10 +765,15 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         <TouchableOpacity onPress={handleBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.title}>Projects</Text>
-        <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-          <Ionicons name="refresh" size={24} color="#000" />
-        </TouchableOpacity>
+        <View style={styles.titleContainer}>
+          <Text style={styles.title}>Projects</Text>
+        </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
+            <Ionicons name="refresh" size={24} color="#000" />
+          </TouchableOpacity>
+          <ProfileHeaderRight />
+        </View>
       </View>
       {/* Backend Error Banner */}
       {/* Removed error banner - no longer loading tasks upfront */}
@@ -1054,12 +1060,20 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
     padding: semanticSpacing.containerPaddingLarge,
     paddingTop: semanticSpacing.containerPaddingLarge + 4,
+    position: 'relative',
+  },
+  backButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  titleContainer: {
+    flex: 1,
+    justifyContent: 'center',
   },
   title: {
     fontSize: 20,
@@ -1067,14 +1081,14 @@ const styles = StyleSheet.create({
     color: '#000',
     letterSpacing: -0.3,
   },
-  backButton: {
-    position: 'absolute',
-    left: semanticSpacing.containerPaddingLarge,
-    padding: 8,
-  },
-  refreshButton: {
+  headerRight: {
     position: 'absolute',
     right: semanticSpacing.containerPaddingLarge,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  refreshButton: {
     padding: 8,
   },
   content: {

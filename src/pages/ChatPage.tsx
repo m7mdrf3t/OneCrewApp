@@ -28,6 +28,7 @@ import supabaseService from '../services/SupabaseService';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import MediaPickerService from '../services/MediaPickerService';
 import SkeletonMessage from '../components/SkeletonMessage';
+import ProfileHeaderRight from '../components/ProfileHeaderRight';
 
 // NOTE: FlashList runtime supports `estimatedItemSize`, but our current TS setup may not expose it.
 // We cast to keep the perf optimization without blocking typecheck; revisit after dependency upgrades.
@@ -75,6 +76,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [renderError, setRenderError] = useState<string | null>(null);
   const flatListRef = useRef<any>(null);
   const messageChannelIdRef = useRef<string | null>(null);
   const hasInitializedRef = useRef<string | null>(null);
@@ -84,6 +86,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const sendMessageRef = useRef(sendMessage);
   const getMessagesRef = useRef(getMessages);
   const getConversationsRef = useRef(getConversations);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Keep refs updated
   useEffect(() => {
@@ -200,21 +203,27 @@ const ChatPage: React.FC<ChatPageProps> = ({
   });
 
   const messages: ChatMessage[] = useMemo(() => {
-    const pages = messagesQuery.data?.pages ?? [];
-    // Page 1 contains newest set; older pages must appear before it.
-    const orderedPages = [...pages].reverse();
-    const merged: ChatMessage[] = [];
-    const seen = new Set<string>();
-    orderedPages.forEach((p) => {
-      (p.items || []).forEach((m) => {
-        if (!m?.id) return;
-        if (!seen.has(m.id)) {
-          seen.add(m.id);
-          merged.push(m);
-        }
+    try {
+      const pages = messagesQuery.data?.pages ?? [];
+      // Page 1 contains newest set; older pages must appear before it.
+      const orderedPages = [...pages].reverse();
+      const merged: ChatMessage[] = [];
+      const seen = new Set<string>();
+      orderedPages.forEach((p) => {
+        (p.items || []).forEach((m) => {
+          if (!m?.id) return;
+          if (!seen.has(m.id)) {
+            seen.add(m.id);
+            merged.push(m);
+          }
+        });
       });
-    });
-    return merged;
+      return merged;
+    } catch (error) {
+      console.error('Error processing messages:', error);
+      setRenderError('Failed to load messages');
+      return [];
+    }
   }, [messagesQuery.data]);
 
   const getParticipantTypeFromParticipant = useCallback((p: any): ChatParticipantType => {
@@ -617,13 +626,31 @@ const ChatPage: React.FC<ChatPageProps> = ({
         }
       } finally {
         setLoading(false);
+        // Clear any existing timeout
+        if (loadingTimeoutRef.current) {
+          clearTimeout(loadingTimeoutRef.current);
+          loadingTimeoutRef.current = null;
+        }
       }
     };
+
+    // Set a timeout to force loading to false after 10 seconds
+    // This prevents infinite loading states
+    loadingTimeoutRef.current = setTimeout(() => {
+      console.warn('⚠️ Loading timeout - forcing loading to false');
+      setLoading(false);
+      loadingTimeoutRef.current = null;
+    }, 10000);
 
     initializeConversation();
     
     // Reset initialization flag when conversation key changes
     return () => {
+      // Clear loading timeout on unmount
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
       // Only reset if the conversation key actually changed
       const currentKey = conversationId || (participant ? `participant-${participant.id}` : null);
       if (currentKey && currentKey !== conversationKey) {
@@ -1189,6 +1216,58 @@ const ChatPage: React.FC<ChatPageProps> = ({
     sendTypingStatusRef.current = sendTypingStatus;
   }, [sendTypingStatus]);
 
+  // Handle keyboard show/hide to scroll to bottom
+  // IMPORTANT: This hook must be called before any conditional returns to follow Rules of Hooks
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        // Scroll to bottom when keyboard appears
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd?.({ animated: true });
+        }, 100);
+      }
+    );
+
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        // Optional: scroll adjustment when keyboard hides
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
+  // Auto-scroll to bottom when messages are first loaded or conversation changes
+  const hasScrolledToBottomRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!conversation?.id || !messages || messages.length === 0 || loading) {
+      return;
+    }
+
+    // Only scroll once per conversation load
+    const conversationKey = `${conversation.id}-${messages.length}`;
+    if (hasScrolledToBottomRef.current === conversationKey) {
+      return;
+    }
+
+    // Scroll to bottom after messages are rendered
+    const scrollTimer = setTimeout(() => {
+      if (flatListRef.current) {
+        flatListRef.current.scrollToEnd?.({ animated: false });
+        hasScrolledToBottomRef.current = conversationKey;
+      }
+    }, 300); // Give time for list to render
+
+    return () => {
+      clearTimeout(scrollTimer);
+    };
+  }, [conversation?.id, messages.length, loading]);
+
   const handleTextChange = (text: string) => {
     setNewMessage(text);
     
@@ -1450,19 +1529,30 @@ const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
-    const isCurrentUser = isCurrentUserMessage(item);
-    const isSystem = item.message_type === 'system';
+    try {
+      // Defensive check: ensure item exists
+      if (!item || !item.id) {
+        console.warn('⚠️ renderMessage: Invalid item', item);
+        return (
+          <View style={styles.systemMessage}>
+            <Text style={styles.systemMessageText}>Invalid message</Text>
+          </View>
+        );
+      }
 
-    if (isSystem) {
+      const isCurrentUser = isCurrentUserMessage(item);
+      const isSystem = item.message_type === 'system';
+
+      if (isSystem) {
+        return (
+          <View style={styles.systemMessage}>
+            <Text style={styles.systemMessageText}>{item.content || 'System message'}</Text>
+            <Text style={styles.systemMessageTime}>{formatTime(item.sent_at)}</Text>
+          </View>
+        );
+      }
+
       return (
-        <View style={styles.systemMessage}>
-          <Text style={styles.systemMessageText}>{item.content || 'System message'}</Text>
-          <Text style={styles.systemMessageTime}>{formatTime(item.sent_at)}</Text>
-        </View>
-      );
-    }
-
-    return (
       <TouchableOpacity
         style={[
           styles.messageContainer,
@@ -1613,16 +1703,29 @@ const ChatPage: React.FC<ChatPageProps> = ({
           )}
         </View>
       </TouchableOpacity>
-    );
+      );
+    } catch (error) {
+      console.error('❌ Error rendering message:', error, item);
+      // Return a fallback message UI instead of crashing
+      return (
+        <View style={styles.systemMessage}>
+          <Text style={styles.systemMessageText}>Error loading message</Text>
+          <Text style={styles.systemMessageTime}>{item?.sent_at ? formatTime(item.sent_at) : ''}</Text>
+        </View>
+      );
+    }
   };
 
   // Show loading if:
   // 1. Conversation is still being initialized, OR
   // 2. Messages are loading and we have no messages yet, OR
   // 3. Conversation exists but messages query hasn't started yet
-  const shouldShowLoading = loading || 
+  // BUT: Don't show loading if we have an error or if loading has been stuck for too long
+  const shouldShowLoading = (loading || 
     (conversation?.id && messagesQuery.isLoading && messages.length === 0 && !messagesQuery.isError) ||
-    (conversation?.id && !messagesQuery.data && !messagesQuery.isError && !messagesQuery.isLoading);
+    (conversation?.id && !messagesQuery.data && !messagesQuery.isError && !messagesQuery.isLoading)) &&
+    !renderError &&
+    !messagesQuery.isError;
 
   if (shouldShowLoading) {
     return (
@@ -1683,6 +1786,93 @@ const ChatPage: React.FC<ChatPageProps> = ({
     );
   }
 
+  // Show render error if any (but only if we don't have a conversation)
+  // If we have a conversation, show the chat interface with error message in the list
+  if (renderError && !conversation) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Error</Text>
+          <View style={styles.headerRight} />
+        </View>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
+          <Text style={styles.errorText}>{renderError}</Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => {
+              setRenderError(null);
+              setLoading(true);
+              // Reload the page
+              if (conversationId) {
+                getConversationById(conversationId).then(response => {
+                  if (response.success && response.data) {
+                    setConversation(response.data);
+                  }
+                });
+              }
+            }}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // Ensure we have a conversation before rendering the chat interface
+  if (!conversation) {
+    // If we're still loading, show loading screen
+    if (loading) {
+      return (
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onBack} style={styles.backButton}>
+              <Ionicons name="arrow-back" size={24} color="#000" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Loading...</Text>
+            <View style={styles.headerRight} />
+          </View>
+          <FlashListUnsafe
+            data={Array.from({ length: 5 })}
+            renderItem={({ index }: { index: number }) => (
+              <SkeletonMessage key={index} isOwn={index % 2 === 0} isDark={false} />
+            )}
+            keyExtractor={(_: any, index: number) => `skeleton-loading-${index}`}
+            contentContainerStyle={styles.skeletonLoadingContainer}
+            inverted={false}
+            estimatedItemSize={88}
+          />
+        </View>
+      );
+    }
+    // Otherwise show error
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Error</Text>
+          <View style={styles.headerRight} />
+        </View>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
+          <Text style={styles.errorText}>Failed to load conversation</Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={onBack}
+          >
+            <Text style={styles.retryButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   const participantName = getParticipantName();
   const participantAvatar = getParticipantAvatar();
   const initials = participantName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -1692,31 +1882,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const keyboardVerticalOffset = Platform.OS === 'ios' 
     ? (headerHeightRef.current || 60) + insets.top
     : (headerHeightRef.current || 60) + insets.top;
-
-  // Handle keyboard show/hide to scroll to bottom
-  useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => {
-        // Scroll to bottom when keyboard appears
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd?.({ animated: true });
-        }, 100);
-      }
-    );
-
-    const keyboardDidHideListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        // Optional: scroll adjustment when keyboard hides
-      }
-    );
-
-    return () => {
-      keyboardDidShowListener.remove();
-      keyboardDidHideListener.remove();
-    };
-  }, []);
 
   return (
     <KeyboardAvoidingView
@@ -1752,29 +1917,78 @@ const ChatPage: React.FC<ChatPageProps> = ({
           </Text>
         </View>
         
-        <View style={styles.headerRight} />
+        <ProfileHeaderRight />
       </View>
 
       <View style={styles.messagesContainer}>
         <FlashListUnsafe
           ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item: ChatMessage) => item.id}
+          data={messages || []}
+          renderItem={(props) => {
+            try {
+              return renderMessage(props);
+            } catch (error) {
+              console.error('❌ Error in FlashList renderItem:', error);
+              return (
+                <View style={styles.systemMessage}>
+                  <Text style={styles.systemMessageText}>Error rendering message</Text>
+                </View>
+              );
+            }
+          }}
+          keyExtractor={(item: ChatMessage, index: number) => {
+            try {
+              return item?.id || `message-${index}-${Date.now()}-${Math.random()}`;
+            } catch (error) {
+              return `message-error-${index}-${Date.now()}`;
+            }
+          }}
           contentContainerStyle={styles.messagesList}
           inverted={false}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           estimatedItemSize={110}
-        ListEmptyComponent={
-          !shouldShowLoading && messages.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="chatbubble-outline" size={64} color="#d1d5db" />
-              <Text style={styles.emptyStateText}>No messages yet</Text>
-              <Text style={styles.emptyStateSubtext}>Start the conversation!</Text>
-            </View>
-          ) : null
-        }
+          onContentSizeChange={() => {
+            // Auto-scroll to bottom when content size changes (messages loaded)
+            if (conversation?.id && messages && messages.length > 0 && !loading) {
+              const conversationKey = `${conversation.id}-${messages.length}`;
+              if (hasScrolledToBottomRef.current !== conversationKey) {
+                setTimeout(() => {
+                  flatListRef.current?.scrollToEnd?.({ animated: false });
+                  hasScrolledToBottomRef.current = conversationKey;
+                }, 100);
+              }
+            }
+          }}
+          ListEmptyComponent={
+            !shouldShowLoading && (!messages || messages.length === 0) ? (
+              <View style={styles.emptyState}>
+                {messagesQuery.isError ? (
+                  <>
+                    <Ionicons name="alert-circle-outline" size={64} color="#ef4444" />
+                    <Text style={styles.emptyStateText}>Failed to load messages</Text>
+                    <Text style={styles.emptyStateSubtext}>Please try again</Text>
+                    <TouchableOpacity
+                      style={styles.retryButton}
+                      onPress={() => {
+                        messagesQuery.refetch().catch((err) => {
+                          console.error('Failed to refetch messages:', err);
+                        });
+                      }}
+                    >
+                      <Text style={styles.retryButtonText}>Retry</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="chatbubble-outline" size={64} color="#d1d5db" />
+                    <Text style={styles.emptyStateText}>No messages yet</Text>
+                    <Text style={styles.emptyStateSubtext}>Start the conversation!</Text>
+                  </>
+                )}
+              </View>
+            ) : null
+          }
         ListFooterComponent={
           <>
             {otherUserTyping && (

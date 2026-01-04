@@ -18,6 +18,7 @@ import { useApi } from '../contexts/ApiContext';
 import { ConversationsListPageProps, ChatConversation, ChatParticipant } from '../types';
 import supabaseService from '../services/SupabaseService';
 import SkeletonConversationItem from '../components/SkeletonConversationItem';
+import ProfileHeaderRight from '../components/ProfileHeaderRight';
 
 // NOTE: FlashList runtime supports `estimatedItemSize`, but our current TS setup may not expose it.
 // We cast to keep the perf optimization without blocking typecheck; revisit after dependency upgrades.
@@ -596,7 +597,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Messages</Text>
-        <View style={styles.headerRight} />
+        <ProfileHeaderRight />
       </View>
 
       {/* Search Bar */}

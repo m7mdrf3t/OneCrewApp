@@ -74,9 +74,7 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
         name="projects" 
         component={ProjectsPage}
         options={{
-          headerShown: true,
-          title: 'Projects',
-          ...defaultHeaderOptions,
+          headerShown: false, // Use custom header from ProjectsPage component
         }}
       />
       <Stack.Screen name="wall" component={AgendaPage} />
@@ -154,18 +152,14 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
         name="chat" 
         component={ChatPage}
         options={{
-          headerShown: true,
-          title: 'Chat',
-          ...defaultHeaderOptions,
+          headerShown: false, // Use custom header from ChatPage component
         }}
       />
       <Stack.Screen 
         name="conversations" 
         component={ConversationsListPage}
         options={{
-          headerShown: true,
-          title: 'Messages',
-          ...defaultHeaderOptions,
+          headerShown: false, // Use custom header from ConversationsListPage component
         }}
       />
       

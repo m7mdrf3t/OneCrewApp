@@ -28,6 +28,50 @@ export const useAndroidBackHandler = () => {
   const rootScreens = ['spot', 'projects', 'wall', 'profile'];
   const homeScreen = 'home';
 
+  // Helper function to get the current active route name
+  const getCurrentRouteName = (): string | null => {
+    if (!navigationRef.current) {
+      return null;
+    }
+
+    try {
+      const state = navigationRef.current.getRootState();
+      if (!state) {
+        return null;
+      }
+
+      // Traverse the navigation state to find the deepest active route
+      const findActiveRoute = (navState: any): string | null => {
+        if (!navState) {
+          return null;
+        }
+
+        // If this state has routes and an index
+        if (navState.routes && typeof navState.index === 'number') {
+          const route = navState.routes[navState.index];
+          
+          // If this route has nested state, recurse
+          if (route.state) {
+            const nestedRoute = findActiveRoute(route.state);
+            if (nestedRoute) {
+              return nestedRoute;
+            }
+          }
+          
+          // Return this route's name
+          return route.name || null;
+        }
+
+        return null;
+      };
+
+      return findActiveRoute(state);
+    } catch (error) {
+      console.error('Error getting current route:', error);
+      return null;
+    }
+  };
+
   useEffect(() => {
     // Only register handler on Android
     if (Platform.OS !== 'android') {
@@ -40,9 +84,9 @@ export const useAndroidBackHandler = () => {
         return false; // Allow default behavior
       }
 
-      // Get current navigation state
-      const state = navigationRef.current.getRootState();
-      const currentRoute = state?.routes[state?.index]?.name;
+      // Get current navigation state using helper function
+      const currentRoute = getCurrentRouteName();
+      console.log('🔙 Android back button pressed. Current route:', currentRoute);
 
       // Priority 1: Check if any global modals are open
       // Close modals in order of visual priority (topmost first)
@@ -76,6 +120,7 @@ export const useAndroidBackHandler = () => {
 
         // If on home screen, show exit confirmation
         if (currentRoute === homeScreen) {
+          console.log('🏠 On home screen - showing exit confirmation');
           Alert.alert(
             'Exit App',
             'Are you sure you want to exit?',
@@ -87,7 +132,10 @@ export const useAndroidBackHandler = () => {
               {
                 text: 'Exit',
                 style: 'destructive',
-                onPress: () => BackHandler.exitApp(),
+                onPress: () => {
+                  console.log('✅ User confirmed exit');
+                  BackHandler.exitApp();
+                },
               },
             ],
             { cancelable: true }
@@ -102,7 +150,34 @@ export const useAndroidBackHandler = () => {
         return true; // Prevent default back action
       }
 
-      // If we can't go back, allow default behavior (exit app)
+      // Priority 4: If we can't go back and no route detected, 
+      // check if we're at the root (likely on home screen)
+      // Show exit confirmation as fallback
+      if (!currentRoute || !navigationRef.current.canGoBack()) {
+        console.log('⚠️ No route detected or can\'t go back - showing exit confirmation as fallback');
+        Alert.alert(
+          'Exit App',
+          'Are you sure you want to exit?',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+            },
+            {
+              text: 'Exit',
+              style: 'destructive',
+              onPress: () => {
+                console.log('✅ User confirmed exit (fallback)');
+                BackHandler.exitApp();
+              },
+            },
+          ],
+          { cancelable: true }
+        );
+        return true; // Prevent default back action
+      }
+
+      // Final fallback: allow default behavior (exit app)
       return false;
     });
 
