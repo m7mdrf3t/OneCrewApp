@@ -12,6 +12,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 // Context
 import { ApiProvider, useApi } from './src/contexts/ApiContext';
 import { GlobalModalsProvider } from './src/contexts/GlobalModalsContext';
+import { StreamChatProvider } from './src/components/StreamChatProvider';
 import pushNotificationService from './src/services/PushNotificationService';
 import { queryClient } from './src/services/queryClient';
 
@@ -1659,9 +1660,11 @@ const App: React.FC = () => {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <ApiProvider>
-          <SafeAreaProvider>
-            <AppContent />
-          </SafeAreaProvider>
+          <StreamChatProvider>
+            <SafeAreaProvider>
+              <AppContent />
+            </SafeAreaProvider>
+          </StreamChatProvider>
         </ApiProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

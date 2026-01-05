@@ -42,3 +42,4 @@ echo "  --update-env-vars=\"ADMIN_PORTAL_URL=$ADMIN_PORTAL_URL,FRONTEND_URL=your
 
 
 
+

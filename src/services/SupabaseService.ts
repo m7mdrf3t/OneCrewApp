@@ -173,6 +173,10 @@ class SupabaseService {
   }
 
   /**
+   * @deprecated Chat subscriptions are now handled by StreamChat backend.
+   * This method is kept for backward compatibility but should not be used for new code.
+   * Use StreamChat SDK for real-time chat features.
+   * 
    * Subscribe to chat messages for a specific conversation
    * @param conversationId Conversation ID to filter messages
    * @param onNewMessage Callback when new message is created
@@ -186,6 +190,7 @@ class SupabaseService {
     onMessageUpdate?: (message: any) => void,
     onMessageDelete?: (message: any) => void
   ): string {
+    console.warn('⚠️ subscribeToChatMessages is deprecated. Use StreamChat SDK for real-time chat features.');
     if (!this.client) {
       console.warn('⚠️ Supabase client not initialized. Cannot subscribe to chat messages.');
       return '';
@@ -260,6 +265,10 @@ class SupabaseService {
   }
 
   /**
+   * @deprecated Chat subscriptions are now handled by StreamChat backend.
+   * This method is kept for backward compatibility but should not be used for new code.
+   * Use StreamChat SDK for real-time chat features.
+   * 
    * Subscribe to conversation updates (for conversation list)
    * @param userId User ID to filter conversations
    * @param onConversationUpdate Callback when conversation is updated
@@ -269,6 +278,7 @@ class SupabaseService {
     userId: string,
     onConversationUpdate?: (conversation: any) => void
   ): string {
+    console.warn('⚠️ subscribeToConversations is deprecated. Use StreamChat SDK for real-time chat features.');
     if (!this.client) {
       console.warn('⚠️ Supabase client not initialized. Cannot subscribe to conversations.');
       return '';
