@@ -443,9 +443,9 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-    //baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud
+    baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud
    // baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
-      baseUrl = 'http://localhost:3000' // Local server
+      // baseUrl = 'http://localhost:3000' // Local server
 }) => {
   const [api] = useState(() => {
     const apiClient = new OneCrewApi(baseUrl);

@@ -14,7 +14,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { ChannelList, useChatContext } from 'stream-chat-react-native';
+import { ChannelList } from 'stream-chat-react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { RootStackScreenProps } from '../navigation/types';
 import { useAppNavigation } from '../navigation/NavigationContext';
@@ -31,7 +31,11 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   const navigation = useNavigation();
   const { navigateTo, goBack } = useAppNavigation();
   const { user, currentProfileType, activeCompany } = useApi();
-  const { client } = useChatContext();
+  
+  // Get client directly from service
+  // Note: ChannelList will get the client from ChatContext provided by StreamChatProvider
+  const client = streamChatService.getClient();
+  const isConnected = streamChatService.isConnected();
 
   // Use props if provided (for backward compatibility), otherwise use navigation hooks
   const onBack = onBackProp || goBack;
@@ -187,7 +191,16 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  if (!client || !currentStreamUserId) {
+  // Show loading state if client doesn't exist, not connected, or user ID not available
+  if (!client || !isConnected || !currentStreamUserId) {
+    // Log debug info
+    console.log('💬 [ConversationsListPage] Loading state:', {
+      hasClient: !!client,
+      isConnected,
+      currentStreamUserId,
+      clientUserId: client?.userID,
+    });
+    
     return (
       <View style={styles.container}>
         <View style={styles.header}>

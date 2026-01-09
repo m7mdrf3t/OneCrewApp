@@ -4,6 +4,8 @@
   <dict>
     <key>CADisableMinimumFrameDurationOnPhone</key>
     <true/>
+    <key>CFBundleAllowMixedLocalizations</key>
+    <true/>
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
@@ -28,18 +30,13 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>com.minaezzat.onesteps</string>
+          <string>com.minaezzat.onesteps</string>
         </array>
       </dict>
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
           <string>exp+one-crew</string>
-        </array>
-      </dict>
-      <dict>
-        <key>CFBundleURLSchemes</key>
-        <array>
-          <string>com.googleusercontent.apps.309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj</string>
         </array>
       </dict>
     </array>
