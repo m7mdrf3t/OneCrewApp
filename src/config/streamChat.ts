@@ -10,7 +10,7 @@
 // The backend's getStreamChatToken() should return { token, user_id, api_key }
 // If backend provides api_key, it will be used automatically
 // This fallback is only used if backend doesn't provide the API key
-export const STREAM_CHAT_API_KEY = process.env.STREAM_CHAT_API_KEY || process.env.STREAM_API_KEY || 'gjs4e7pmvpum';
+export const STREAM_CHAT_API_KEY = process.env.STREAM_CHAT_API_KEY || process.env.STREAM_API_KEY || 'j8yy2mzarh3n';
 
 /**
  * Channel ID prefix for OneCrew conversations

@@ -44,7 +44,12 @@ config.resolver.resolveRequest = (context, realModuleName, platform, moduleName)
       // If resolution fails and it's a .native file for react-native-worklets, try fallback
       if (realModuleName && realModuleName.includes('react-native-worklets') && realModuleName.includes('.native')) {
         const fallbackModuleName = realModuleName.replace('.native', '');
-        return defaultResolver(context, fallbackModuleName, platform, moduleName);
+        try {
+          return defaultResolver(context, fallbackModuleName, platform, moduleName);
+        } catch (fallbackError) {
+          // If fallback also fails, throw the original error
+          throw error;
+        }
       }
       throw error;
     }

@@ -254,45 +254,49 @@ const AppContent: React.FC = () => {
       'newsDetail': 'newsDetail',
     };
 
-    const routeName = routeMap[pageName] as keyof RootStackParamList;
-    if (routeName && navigationRef.current) {
-      // Transform data to match route params
-      let params: any = undefined;
-      
-      if (data) {
-        // Handle different data formats
-        if (pageName === 'profile' || pageName === 'myProfile') {
-          params = { profile: data, user: data };
-        } else if (pageName === 'projectDetail') {
-          params = { project: data };
-        } else if (pageName === 'companyProfile') {
-          // Preserve readOnly flag when navigating to company profile
-          const companyId = typeof data === 'string' ? data : (data?.companyId || data?.id || data);
-          params = { 
-            companyId,
-            readOnly: data?.readOnly ?? false
-          };
-        } else if (pageName === 'chat') {
-          params = data;
-        } else if (pageName === 'sectionServices') {
-          params = { sectionKey: data?.key || data };
-        } else if (pageName === 'details' || pageName === 'academyDetail' || pageName === 'legalDetail') {
-          params = { serviceData: data };
-        } else if (pageName === 'courseDetail' || pageName === 'courseEdit' || pageName === 'coursesManagement') {
-          params = data;
-        } else if (pageName === 'newsDetail') {
-          params = { slug: data?.slug || data, post: data?.post || data };
-        } else {
-          params = data;
-        }
+    const routeName = routeMap[pageName] as keyof RootStackParamList | undefined;
+    if (!routeName || !navigationRef.current) {
+      console.warn(`Route not found for page: ${pageName}`);
+      return;
+    }
+    
+    // Transform data to match route params
+    let params: any = undefined;
+    
+    if (data) {
+      // Handle different data formats
+      if (pageName === 'profile' || pageName === 'myProfile') {
+        params = { profile: data, user: data };
+      } else if (pageName === 'projectDetail') {
+        params = { project: data };
+      } else if (pageName === 'companyProfile') {
+        // Preserve readOnly flag when navigating to company profile
+        const companyId = typeof data === 'string' ? data : (data?.companyId || data?.id || data);
+        params = { 
+          companyId,
+          readOnly: data?.readOnly ?? false
+        };
+      } else if (pageName === 'chat') {
+        params = data;
+      } else if (pageName === 'sectionServices') {
+        params = { sectionKey: data?.key || data };
+      } else if (pageName === 'details' || pageName === 'academyDetail' || pageName === 'legalDetail') {
+        params = { serviceData: data };
+      } else if (pageName === 'courseDetail' || pageName === 'courseEdit' || pageName === 'coursesManagement') {
+        params = data;
+      } else if (pageName === 'publicCourses') {
+        params = { filters: data?.filters || data };
+      } else if (pageName === 'newsDetail') {
+        params = { slug: data?.slug || data, post: data?.post || data };
+      } else {
+        params = data;
       }
-      
-      navigationRef.current.navigate(routeName, params as any);
-      if (pageName !== 'home') {
-        setTab('');
-      }
-    } else {
-      console.warn(`Unknown route or navigation not ready: ${pageName}`);
+    }
+    
+    // Use type assertion for navigation since we've validated routeName exists
+    (navigationRef.current as any).navigate(routeName, params);
+    if (pageName !== 'home') {
+      setTab('');
     }
   }, []);
 

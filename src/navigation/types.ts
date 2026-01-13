@@ -59,6 +59,9 @@ export type RootStackParamList = {
   
   // News screens
   newsDetail: { slug: string; post?: any };
+  
+  // Course screens
+  publicCourses: { filters?: { category?: string; company_id?: string } } | undefined;
 };
 
 export type RootStackScreenProps<T extends keyof RootStackParamList> = NativeStackScreenProps<

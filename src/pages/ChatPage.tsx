@@ -13,6 +13,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { 
@@ -43,6 +45,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   // All hooks must be called unconditionally and in the same order
   const insets = useSafeAreaInsets();
   const { 
+    api,
     getConversationById, 
     createConversation,
     user, 
@@ -58,7 +61,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const onBack = onBackProp || goBack;
 
   // Try to get chat context - use optional chaining to handle when context isn't ready
-  // Note: useChatContext must be called unconditionally, but we handle undefined client
+  // Note: useChatContext must be called unconditionally
   let chatContext;
   try {
     chatContext = useChatContext();
@@ -79,6 +82,35 @@ const ChatPage: React.FC<ChatPageProps> = ({
     if (!conversationId) return null;
     return getStreamChannelId(conversationId);
   }, [conversationId]);
+
+  // Log channel state and ensure it's watched - MUST be called before any conditional returns
+  useEffect(() => {
+    if (channel) {
+      console.log('💬 [ChatPage] Channel state:', {
+        channelId: channel.id,
+        channelCid: channel.cid,
+        channelName: channel.data?.name,
+        hasMessages: channel.state?.messages?.length > 0,
+        messageCount: channel.state?.messages?.length || 0,
+        isWatched: channel.state?.watched,
+        channelData: channel.data,
+      });
+      
+      // Ensure channel is watched (required for MessageInput to work)
+      if (!channel.state?.watched) {
+        console.log('⏳ [ChatPage] Channel not watched yet, watching...');
+        channel.watch().then(() => {
+          console.log('✅ [ChatPage] Channel watched successfully - MessageInput should be available');
+        }).catch((err) => {
+          console.error('❌ [ChatPage] Failed to watch channel:', err);
+        });
+      } else {
+        console.log('✅ [ChatPage] Channel is watched - MessageInput should be visible');
+      }
+    } else {
+      console.log('⏳ [ChatPage] No channel yet, waiting for initialization...');
+    }
+  }, [channel]);
 
   // Initialize or retrieve channel
   useEffect(() => {
@@ -106,56 +138,85 @@ const ChatPage: React.FC<ChatPageProps> = ({
             throw new Error(createResponse.error || 'Failed to create conversation');
           }
 
-          // Get the new conversation ID and create channel
+          // Get the new conversation ID from backend response
+          // CRITICAL: Backend returns the actual StreamChat channel ID (not a UUID)
+          // The backend generates channel IDs like: user_user-{hash} or {type}-{id1}-{id2}
+          // We should use this ID directly without transformation
           const newConversationId = createResponse.data.id;
-          const newStreamChannelId = getStreamChannelId(newConversationId);
+          console.log('💬 [ChatPage] Backend returned conversation ID:', newConversationId);
           
-          // Wait a bit for backend to create the channel in StreamChat
-          // Backend should handle channel creation and member management
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          // CRITICAL: Call backend API first to ensure user is added as member
+          // This will trigger checkConversationAccess which automatically adds user if missing
+          console.log('🔄 [ChatPage] Ensuring backend access to conversation...');
+          const conversationResponse = await getConversationById(newConversationId);
+          
+          if (!conversationResponse.success) {
+            throw new Error('Failed to access conversation. Please try again.');
+          }
+          
+          console.log('✅ [ChatPage] Backend confirmed access, user is now a member');
+          
+          // Wait a moment for StreamChat to sync the member addition
+          await new Promise(resolve => setTimeout(resolve, 1000));
           
           const channelType = 'messaging';
-          // Extract just the ID part (without messaging: prefix) for channel creation
-          const channelIdOnly = newStreamChannelId.replace(/^messaging:/, '');
+          // CRITICAL: Use the conversation ID directly from backend
+          // The backend already returns the correct StreamChat channel ID format
+          // No need to transform it with getStreamChannelId()
+          const channelIdOnly = newConversationId;
           
-          // Get conversation details for channel name
-          const conversationResponse = await getConversationById(newConversationId);
-          const channelName = conversationResponse.success && conversationResponse.data 
-            ? conversationResponse.data.name 
-            : undefined;
+          // Use conversation data from create response
+          const channelName = createResponse.data?.name || undefined;
           
-          // Create channel instance - don't specify members, let backend handle it
-          // StreamChat will automatically add the current connected user as a member
-          let channelInstance = client.channel(channelType, channelIdOnly, {
-            ...(channelName && { name: channelName }),
-          });
+          // Get current user's StreamChat ID
+          const currentStreamUserId = client.userID;
+          if (!currentStreamUserId) {
+            throw new Error('StreamChat user not connected');
+          }
+          
+          // Create channel instance using the conversation ID from backend
+          // The backend already created the channel with proper members, so we just need to watch it
+          console.log('💬 [ChatPage] Creating channel instance with ID:', channelIdOnly);
+          let channelInstance = client.channel(channelType, channelIdOnly);
 
-          // Try to watch the channel (backend should have created it)
+          // Try to watch the channel (backend should have already created it with members)
           try {
+            console.log('🔄 [ChatPage] Attempting to watch channel...');
             await channelInstance.watch();
-            console.log('✅ Channel watched successfully, messages should load');
+            console.log('✅ [ChatPage] Channel watched successfully');
             setChannel(channelInstance);
           } catch (watchError: any) {
-            // If channel doesn't exist in StreamChat yet, try to create it
-            // Only include current user - backend will add other members
-            console.log('⚠️ Channel not found in StreamChat, attempting to create...');
-            try {
-              // Use getOrCreate which is safer - it will create if needed or get existing
-              await channelInstance.watch();
-              console.log('✅ Channel watched after retry');
-              setChannel(channelInstance);
-            } catch (createError: any) {
-              console.error('❌ Failed to watch channel:', createError);
-              // If backend hasn't created it yet, wait a bit more and retry
+            console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
+            console.error('❌ [ChatPage] Channel ID used:', channelIdOnly);
+            console.error('❌ [ChatPage] Current user ID:', currentStreamUserId);
+            
+            // If we get a permission error, the backend might not have added the user correctly
+            // Or there might be a timing issue - wait a bit longer and retry
+            if (watchError.message?.includes('ReadChannel is denied') || 
+                watchError.message?.includes('not allowed') ||
+                watchError.message?.includes('not a member') ||
+                watchError.message?.includes('error code 17')) {
+              console.warn('⚠️ [ChatPage] Permission error, waiting longer and retrying...');
+              
+              // Wait longer for backend to sync
               await new Promise(resolve => setTimeout(resolve, 2000));
+              
+              // Call backend again to ensure user is added
               try {
+                await getConversationById(newConversationId);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Retry watch
                 await channelInstance.watch();
-                console.log('✅ Channel watched after additional wait');
+                console.log('✅ [ChatPage] Channel watched after retry');
                 setChannel(channelInstance);
-              } catch (finalError: any) {
-                console.error('❌ Final attempt to watch channel failed:', finalError);
-                throw new Error('Channel not available. Please try again in a moment.');
+              } catch (retryError: any) {
+                console.error('❌ [ChatPage] Retry failed:', retryError.message);
+                throw new Error('Channel not available. Please try again in a moment. If the issue persists, the backend may need to fix the channel members.');
               }
+            } else {
+              // Other errors - throw as-is
+              throw watchError;
             }
           }
         } catch (err: any) {
@@ -178,67 +239,99 @@ const ChatPage: React.FC<ChatPageProps> = ({
         setLoading(true);
         setError(null);
 
+        // CRITICAL: Call backend API first to ensure user is added as member
+        // This will trigger checkConversationAccess which automatically adds user if missing
+        console.log('🔄 [ChatPage] Ensuring backend access to conversation...');
+        const conversationResponse = await getConversationById(conversationId!);
+        
+        if (!conversationResponse.success) {
+          throw new Error('Failed to access conversation. Please try again.');
+        }
+        
+        console.log('✅ [ChatPage] Backend confirmed access, user is now a member');
+        
+        // Wait a moment for StreamChat to sync the member addition
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         const channelType = 'messaging';
-        // Extract just the ID part (without messaging: prefix) for channel creation
-        const channelIdOnly = streamChannelId.replace(/^messaging:/, '');
+        
+        // Get conversation data from backend response
+        const conversation = conversationResponse.data;
+        
+        // CRITICAL: Use the conversation ID from backend response directly
+        // The backend returns the actual StreamChat channel ID format
+        // For existing conversations, the conversationId prop might be in a different format
+        // So we use the ID from the backend response which is guaranteed to be correct
+        const actualConversationId = conversation?.id || conversationId!;
+        console.log('💬 [ChatPage] Using conversation ID from backend:', actualConversationId);
+        
+        // Use the actual conversation ID directly (backend already returns correct format)
+        const channelIdOnly = actualConversationId;
+        
+        // Get current user's StreamChat ID
+        const currentStreamUserId = client.userID;
+        if (!currentStreamUserId) {
+          throw new Error('StreamChat user not connected');
+        }
+        
+        // Get channel name from conversation
+        const channelName = conversation?.name || undefined;
+        
+        // Create channel instance using the conversation ID from backend
+        // The backend should have already created the channel with proper members
+        console.log('💬 [ChatPage] Creating channel instance with ID:', channelIdOnly);
         let channelInstance = client.channel(channelType, channelIdOnly);
 
-        // Try to watch the channel (this will load it if it exists)
+        // Try to watch the channel (backend should have already created it with members)
         try {
+          console.log('🔄 [ChatPage] Attempting to watch channel...');
           await channelInstance.watch();
-          console.log('✅ Channel watched successfully, messages should load');
+          console.log('✅ [ChatPage] Channel watched successfully');
           setChannel(channelInstance);
         } catch (watchError: any) {
-          console.log('⚠️ Channel watch failed:', watchError?.message || watchError);
-          // Channel might not exist in StreamChat yet
-          console.log('Channel not found in StreamChat, checking backend...');
+          console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
+          console.error('❌ [ChatPage] Channel ID used:', channelIdOnly);
+          console.error('❌ [ChatPage] Current user ID:', currentStreamUserId);
           
-          // Check if conversation exists in backend
-          const conversationResponse = await getConversationById(conversationId!);
-          if (conversationResponse.success && conversationResponse.data) {
-            // Conversation exists - get channel name but don't specify members
-            // Backend should handle member management
-            const conversation = conversationResponse.data;
+          // If we get a permission error, the backend might not have added the user correctly
+          // Or there might be a timing issue - wait a bit longer and retry
+          if (watchError.message?.includes('ReadChannel is denied') || 
+              watchError.message?.includes('not allowed') ||
+              watchError.message?.includes('not a member') ||
+              watchError.message?.includes('error code 17')) {
+            console.warn('⚠️ [ChatPage] Permission error, waiting longer and retrying...');
             
-            // Create channel instance without members - backend manages them
-            // StreamChat will automatically include the current connected user
-            channelInstance = client.channel(channelType, channelIdOnly, {
-              ...(conversation.name && { name: conversation.name }),
-            });
-
-            // Try to watch the channel (backend should have created it)
+            // Wait longer for backend to sync
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Call backend again to ensure user is added
             try {
+              await getConversationById(conversationId!);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              
+              // Retry watch
               await channelInstance.watch();
-              console.log('✅ Channel watched successfully');
+              console.log('✅ [ChatPage] Channel watched after retry');
               setChannel(channelInstance);
-            } catch (watchError2: any) {
-              console.error('❌ Failed to watch channel:', watchError2);
-              // If backend hasn't created it yet, wait and retry
-              console.log('⏳ Waiting for backend to create channel...');
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              try {
-                await channelInstance.watch();
-                console.log('✅ Channel watched after retry');
-                setChannel(channelInstance);
-              } catch (finalError: any) {
-                console.error('❌ Final attempt to watch channel failed:', finalError);
-                throw new Error('Channel not available. The backend may still be creating it. Please try again in a moment.');
-              }
+            } catch (retryError: any) {
+              console.error('❌ [ChatPage] Retry failed:', retryError.message);
+              throw new Error('Channel not available. Please try again in a moment. If the issue persists, the backend may need to fix the channel members.');
             }
           } else {
-            throw new Error('Conversation not found in backend');
+            // Other errors - throw as-is
+            throw watchError;
           }
         }
       } catch (err: any) {
-        console.error('Failed to initialize channel:', err);
-        setError(err.message || 'Failed to load chat');
+        console.error('❌ [ChatPage] Failed to initialize channel:', err);
+        setError(err.message || 'Failed to load chat. Please try again.');
       } finally {
         setLoading(false);
       }
     };
 
     initializeChannel();
-  }, [client, streamChannelId, conversationId, participant, getConversationById, createConversation, currentProfileType]);
+  }, [client, streamChannelId, conversationId, participant, getConversationById, createConversation, currentProfileType, api]);
 
   // Show loading state if client is not available yet (must be after all hooks)
   if (!client) {
@@ -285,6 +378,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const handleThreadDismiss = useCallback(() => {
     setThread(null);
   }, []);
+
+  // All hooks must be called before any conditional returns
+  // Early returns are below this point
 
   if (loading) {
     return (
@@ -379,79 +475,78 @@ const ChatPage: React.FC<ChatPageProps> = ({
     );
   }
 
-  // Log channel state for debugging
-  useEffect(() => {
-    if (channel) {
-      console.log('💬 [ChatPage] Channel state:', {
-        channelId: channel.id,
-        channelCid: channel.cid,
-        channelName: channel.data?.name,
-        hasMessages: channel.state?.messages?.length > 0,
-        messageCount: channel.state?.messages?.length || 0,
-        isWatched: channel.state?.watched,
-      });
-    }
-  }, [channel]);
-
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {channel?.data?.name || 'Chat'}
-        </Text>
-        <View style={styles.headerRight} />
-      </View>
-
-      {channel ? (
-        <Channel
-          channel={channel}
-          onThreadSelect={handleThreadSelect}
-          // Custom message input handler
-          SendMessageButton={({ sendMessage, text }) => (
-            <TouchableOpacity
-              style={[styles.sendButton, !text?.trim() && styles.sendButtonDisabled]}
-              onPress={() => {
-                if (text?.trim()) {
-                  sendMessage();
-                  handleSendMessage({ text });
-                }
-              }}
-              disabled={!text?.trim()}
-            >
-              <Ionicons 
-                name="send" 
-                size={20} 
-                color={text?.trim() ? '#fff' : '#9ca3af'} 
-              />
-            </TouchableOpacity>
-          )}
-        >
-          <MessageList 
-            onThreadSelect={handleThreadSelect}
-            // Mark as read when viewing
-            onMessageRead={() => {
-              channel.markRead().catch(console.error);
-            }}
-            // Empty state
-            EmptyStateIndicator={() => (
-              <View style={styles.emptyState}>
-                <Ionicons name="chatbubbles-outline" size={64} color="#d1d5db" />
-                <Text style={styles.emptyStateText}>No messages yet</Text>
-                <Text style={styles.emptyStateSubtext}>Start the conversation!</Text>
-              </View>
-            )}
-          />
-          <MessageInput />
-        </Channel>
-      ) : (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Channel not available</Text>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>
+            {channel?.data?.name || participant?.name || 'Chat'}
+          </Text>
+          <View style={styles.headerRight} />
         </View>
-      )}
-    </View>
+
+        {channel ? (
+          <View style={styles.channelContainer}>
+            <Channel
+              channel={channel}
+              onThreadSelect={handleThreadSelect}
+            >
+              <MessageList 
+                onThreadSelect={handleThreadSelect}
+                // Mark as read when viewing
+                onMessageRead={() => {
+                  channel.markRead().catch(console.error);
+                }}
+                // Empty state
+                EmptyStateIndicator={() => (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="chatbubbles-outline" size={64} color="#d1d5db" />
+                    <Text style={styles.emptyStateText}>No messages yet</Text>
+                    <Text style={styles.emptyStateSubtext}>Start the conversation!</Text>
+                  </View>
+                )}
+              />
+              <MessageInput 
+                additionalTextInputProps={{
+                  placeholder: 'Type a message...',
+                  placeholderTextColor: '#9ca3af',
+                }}
+                giphyEnabled={false}
+                imageUploadEnabled={false}
+                fileUploadEnabled={false}
+                audioRecordingEnabled={false}
+              />
+            </Channel>
+          </View>
+        ) : loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3b82f6" />
+            <Text style={styles.loadingText}>Loading chat...</Text>
+          </View>
+        ) : (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>Channel not available</Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => {
+                setLoading(true);
+                setError(null);
+                // Retry initialization will happen via useEffect
+              }}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -459,6 +554,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  channelContainer: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
