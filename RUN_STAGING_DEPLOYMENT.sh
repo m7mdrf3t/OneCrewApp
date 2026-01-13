@@ -43,3 +43,4 @@ echo "  cd /Users/aghone01/Documents/CS/OneCrew_BE/OneCrewBE"
 echo "  gcloud builds submit --config=cloudbuild-staging.yaml --project=cool-steps ."
 echo ""
 
+

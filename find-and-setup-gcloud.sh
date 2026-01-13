@@ -117,3 +117,4 @@ if [ -n "$GCLOUD_PATH" ]; then
     echo "   4. Update secrets: ./update-staging-secrets.sh"
 fi
 
+
