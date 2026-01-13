@@ -203,13 +203,6 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Messages</Text>
-          <View style={styles.headerRight} />
-        </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3b82f6" />
           <Text style={styles.loadingText}>Connecting to chat...</Text>
@@ -227,20 +220,6 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity 
-          onPress={handleNewMessage} 
-          style={styles.newMessageButton}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="add" size={24} color="#3b82f6" />
-        </TouchableOpacity>
-      </View>
-
       <ChannelList
         filters={filters}
         sort={sort}
@@ -258,7 +237,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
             <Ionicons name="chatbubbles-outline" size={64} color="#d1d5db" />
             <Text style={styles.emptyStateTitle}>No conversations yet</Text>
             <Text style={styles.emptyStateText}>
-              Tap the + button above to find people to message, or visit someone's profile to start a chat
+              Visit someone's profile to start a chat, or use the navigation to find people to message
             </Text>
           </View>
         )}

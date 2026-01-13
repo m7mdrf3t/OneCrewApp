@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator, Linking, Platform } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
@@ -20,6 +20,9 @@ import { queryClient } from './src/services/queryClient';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { NavigationProvider, navigationRef } from './src/navigation/NavigationContext';
 import { RootStackParamList } from './src/navigation/types';
+
+// Android-specific hooks
+import { useAndroidBackHandler } from './src/hooks/useAndroidBackHandler';
 
 // Components
 import TabBar from './src/components/TabBar';
@@ -85,6 +88,12 @@ import PerformanceTestPage from './src/pages/PerformanceTestPage';
 import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
 import { User, ProjectCreationData, ProjectDashboardData, Notification } from './src/types';
 import { spacing, semanticSpacing } from './src/constants/spacing';
+
+// Platform-specific styles
+import { createPlatformStyles } from './src/utils/platformStyles';
+import { appCommonStyles } from './App.styles.common';
+import { appIosStyles } from './App.styles.ios';
+import { appAndroidStyles } from './App.styles.android';
 
 // Main App Content Component
 const AppContent: React.FC = () => {
@@ -1205,7 +1214,7 @@ const AppContent: React.FC = () => {
   if (showSplash) {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <SplashScreen onFinished={handleSplashFinished} />
         </SafeAreaView>
@@ -1216,7 +1225,7 @@ const AppContent: React.FC = () => {
   if (isLoading) {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <SkeletonScreen showHeader={true} contentCount={5} isDark={isDark} />
         </SafeAreaView>
@@ -1228,7 +1237,7 @@ const AppContent: React.FC = () => {
   if (authPage === 'login') {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <LoginPage
             onNavigateToSignup={handleNavigateToSignup}
@@ -1244,7 +1253,7 @@ const AppContent: React.FC = () => {
   if (authPage === 'signup') {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <SignupPage
             onNavigateToLogin={handleNavigateToLogin}
@@ -1260,7 +1269,7 @@ const AppContent: React.FC = () => {
   if (authPage === 'forgot-password') {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <ForgotPasswordPage
             onNavigateToLogin={handleNavigateToLogin}
@@ -1274,7 +1283,7 @@ const AppContent: React.FC = () => {
   if (authPage === 'verify-otp') {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <VerifyOtpPage
             email={resetEmail}
@@ -1292,7 +1301,7 @@ const AppContent: React.FC = () => {
     if (!signupEmail) {
       return (
         <SafeAreaProvider>
-          <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+          <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
             <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
             <LoginPage
               onNavigateToSignup={handleNavigateToSignup}
@@ -1306,7 +1315,7 @@ const AppContent: React.FC = () => {
     }
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <VerifyOtpPage
             email={signupEmail}
@@ -1323,7 +1332,7 @@ const AppContent: React.FC = () => {
   if (authPage === 'reset-password') {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <ResetPasswordPage
             resetToken={resetToken}
@@ -1342,7 +1351,7 @@ const AppContent: React.FC = () => {
   if (showOnboarding) {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <OnboardingPage
             onComplete={handleOnboardingComplete}
@@ -1356,10 +1365,11 @@ const AppContent: React.FC = () => {
   // Main app with React Navigation
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={['top'] as any}>
+      <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
         <GlobalModalsProvider>
-          <View style={styles.appWrapper}>
+          <AndroidBackHandlerWrapper>
+            <View style={styles.appWrapper}>
             <View style={[styles.navigationContainer, { paddingBottom: tabBarHeight }]}>
               <NavigationContainer 
                 ref={navigationRef}
@@ -1433,173 +1443,25 @@ const AppContent: React.FC = () => {
               }}
             />
           </View>
+          </AndroidBackHandlerWrapper>
         </GlobalModalsProvider>
       </SafeAreaView>
     </SafeAreaProvider>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f4f4f5',
-  },
-  appWrapper: {
-    flex: 1,
-    flexDirection: 'column',
-  },
-  navigationContainer: {
-    flex: 1,
-  },
-  appContainer: {
-    flex: 1,
-    backgroundColor: '#f4f4f5',
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    borderBottomWidth: 2,
-    borderBottomColor: '#000',
-    paddingHorizontal: semanticSpacing.containerPadding,
-    paddingVertical: semanticSpacing.headerPaddingVertical,
-    paddingTop: semanticSpacing.containerPadding,
-    minHeight: 56,
-  },
-  topBarLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  topBarRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: spacing.xs,
-  },
-  topBarButton: {
-    padding: semanticSpacing.tightPadding,
-    marginLeft: spacing.xs,
-    position: 'relative',
-  },
-  topBarTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: semanticSpacing.containerPadding,
-  },
-  topBarTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-  },
-  userName: {
-    fontWeight: '400',
-  },
-  chevronIcon: {
-    marginLeft: spacing.xs,
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#ef4444',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: spacing.xs,
-    borderWidth: 2,
-    borderColor: '#ffffff',
-  },
-  notificationBadgeText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-  },
-  backButton: {
-    position: 'absolute',
-    bottom: 88,
-    left: semanticSpacing.sectionGapLarge,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    borderRadius: 24,
-    padding: semanticSpacing.buttonPadding,
-    zIndex: 20,
-  },
-  fullPageOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#f5f5f5',
-    zIndex: 1000,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10000,
-  },
-  guestPromptModal: {
-    width: '85%',
-    maxWidth: 400,
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-  },
-  guestPromptTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  guestPromptMessage: {
-    fontSize: 16,
-    marginBottom: 24,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  guestPromptButtons: {
-    width: '100%',
-    gap: 12,
-  },
-  guestPromptButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  guestPromptButtonPrimary: {
-    backgroundColor: '#000',
-  },
-  guestPromptButtonSecondary: {
-    borderWidth: 1,
-  },
-  guestPromptButtonTertiary: {
-    backgroundColor: 'transparent',
-  },
-  guestPromptButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
+// Wrapper component that uses Android back handler (must be inside GlobalModalsProvider)
+const AndroidBackHandlerWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Android back button handler - must be called inside GlobalModalsProvider
+  useAndroidBackHandler();
+  return <>{children}</>;
+};
+
+// Create platform-specific styles
+const styles = createPlatformStyles({
+  common: appCommonStyles,
+  ios: appIosStyles,
+  android: appAndroidStyles,
 });
 
 // Wrapper component to fetch user role and pass to management page

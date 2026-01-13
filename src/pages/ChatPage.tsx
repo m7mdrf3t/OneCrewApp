@@ -337,13 +337,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   if (!client) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Chat</Text>
-          <View style={styles.headerRight} />
-        </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3b82f6" />
           <Text style={styles.loadingText}>Connecting to chat...</Text>
@@ -385,13 +378,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   if (loading) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Chat</Text>
-          <View style={styles.headerRight} />
-        </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3b82f6" />
           <Text style={styles.loadingText}>Loading chat...</Text>
@@ -403,13 +389,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   if (error) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Chat</Text>
-          <View style={styles.headerRight} />
-        </View>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
           <Text style={styles.errorText}>{error}</Text>
@@ -445,13 +424,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   if (!channel) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Chat</Text>
-          <View style={styles.headerRight} />
-        </View>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Channel not available</Text>
         </View>
@@ -463,13 +435,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   if (thread) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleThreadDismiss} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Thread</Text>
-          <View style={styles.headerRight} />
-        </View>
         <Thread thread={thread} />
       </View>
     );
@@ -481,17 +446,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>
-            {channel?.data?.name || participant?.name || 'Chat'}
-          </Text>
-          <View style={styles.headerRight} />
-        </View>
-
+      <View style={styles.container}>
         {channel ? (
           <View style={styles.channelContainer}>
             <Channel
