@@ -145,28 +145,11 @@ const ChatPage: React.FC<ChatPageProps> = ({
           const newConversationId = createResponse.data.id;
           console.log('💬 [ChatPage] Backend returned conversation ID:', newConversationId);
           
-          // CRITICAL: Call backend API first to ensure user is added as member
-          // This will trigger checkConversationAccess which automatically adds user if missing
-          console.log('🔄 [ChatPage] Ensuring backend access to conversation...');
-          const conversationResponse = await getConversationById(newConversationId);
-          
-          if (!conversationResponse.success) {
-            throw new Error('Failed to access conversation. Please try again.');
-          }
-          
-          console.log('✅ [ChatPage] Backend confirmed access, user is now a member');
-          
-          // Wait a moment for StreamChat to sync the member addition
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
           const channelType = 'messaging';
           // CRITICAL: Use the conversation ID directly from backend
           // The backend already returns the correct StreamChat channel ID format
           // No need to transform it with getStreamChannelId()
           const channelIdOnly = newConversationId;
-          
-          // Use conversation data from create response
-          const channelName = createResponse.data?.name || undefined;
           
           // Get current user's StreamChat ID
           const currentStreamUserId = client.userID;
@@ -175,11 +158,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
           }
           
           // Create channel instance using the conversation ID from backend
-          // The backend already created the channel with proper members, so we just need to watch it
+          // The backend should have already created the channel with proper members
           console.log('💬 [ChatPage] Creating channel instance with ID:', channelIdOnly);
           let channelInstance = client.channel(channelType, channelIdOnly);
 
-          // Try to watch the channel (backend should have already created it with members)
+          // Try to watch the channel immediately (backend should have already created it with members)
+          // Only call getConversationById if watch fails with permission error
           try {
             console.log('🔄 [ChatPage] Attempting to watch channel...');
             await channelInstance.watch();
@@ -190,25 +174,24 @@ const ChatPage: React.FC<ChatPageProps> = ({
             console.error('❌ [ChatPage] Channel ID used:', channelIdOnly);
             console.error('❌ [ChatPage] Current user ID:', currentStreamUserId);
             
-            // If we get a permission error, the backend might not have added the user correctly
-            // Or there might be a timing issue - wait a bit longer and retry
+            // If we get a permission error, ensure user is added via backend
             if (watchError.message?.includes('ReadChannel is denied') || 
                 watchError.message?.includes('not allowed') ||
                 watchError.message?.includes('not a member') ||
                 watchError.message?.includes('error code 17')) {
-              console.warn('⚠️ [ChatPage] Permission error, waiting longer and retrying...');
+              console.warn('⚠️ [ChatPage] Permission error, ensuring backend access...');
               
-              // Wait longer for backend to sync
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              
-              // Call backend again to ensure user is added
+              // Call backend to ensure user is added as member
               try {
-                await getConversationById(newConversationId);
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                const conversationResponse = await getConversationById(newConversationId);
+                if (!conversationResponse.success) {
+                  throw new Error('Failed to access conversation. Please try again.');
+                }
+                console.log('✅ [ChatPage] Backend confirmed access, retrying watch...');
                 
-                // Retry watch
+                // Retry watch immediately (backend should have synced by now)
                 await channelInstance.watch();
-                console.log('✅ [ChatPage] Channel watched after retry');
+                console.log('✅ [ChatPage] Channel watched after ensuring access');
                 setChannel(channelInstance);
               } catch (retryError: any) {
                 console.error('❌ [ChatPage] Retry failed:', retryError.message);
@@ -239,34 +222,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         setLoading(true);
         setError(null);
 
-        // CRITICAL: Call backend API first to ensure user is added as member
-        // This will trigger checkConversationAccess which automatically adds user if missing
-        console.log('🔄 [ChatPage] Ensuring backend access to conversation...');
-        const conversationResponse = await getConversationById(conversationId!);
-        
-        if (!conversationResponse.success) {
-          throw new Error('Failed to access conversation. Please try again.');
-        }
-        
-        console.log('✅ [ChatPage] Backend confirmed access, user is now a member');
-        
-        // Wait a moment for StreamChat to sync the member addition
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
         const channelType = 'messaging';
-        
-        // Get conversation data from backend response
-        const conversation = conversationResponse.data;
-        
-        // CRITICAL: Use the conversation ID from backend response directly
-        // The backend returns the actual StreamChat channel ID format
-        // For existing conversations, the conversationId prop might be in a different format
-        // So we use the ID from the backend response which is guaranteed to be correct
-        const actualConversationId = conversation?.id || conversationId!;
-        console.log('💬 [ChatPage] Using conversation ID from backend:', actualConversationId);
-        
-        // Use the actual conversation ID directly (backend already returns correct format)
-        const channelIdOnly = actualConversationId;
         
         // Get current user's StreamChat ID
         const currentStreamUserId = client.userID;
@@ -274,15 +230,17 @@ const ChatPage: React.FC<ChatPageProps> = ({
           throw new Error('StreamChat user not connected');
         }
         
-        // Get channel name from conversation
-        const channelName = conversation?.name || undefined;
+        // Use the conversation ID directly (backend should return correct format)
+        // Try to extract from streamChannelId or use conversationId directly
+        const channelIdOnly = streamChannelId?.replace(/^messaging:/, '') || conversationId!;
+        console.log('💬 [ChatPage] Using channel ID:', channelIdOnly);
         
-        // Create channel instance using the conversation ID from backend
-        // The backend should have already created the channel with proper members
+        // Create channel instance and try to watch immediately
+        // Only call backend if watch fails with permission error
         console.log('💬 [ChatPage] Creating channel instance with ID:', channelIdOnly);
         let channelInstance = client.channel(channelType, channelIdOnly);
 
-        // Try to watch the channel (backend should have already created it with members)
+        // Try to watch the channel immediately
         try {
           console.log('🔄 [ChatPage] Attempting to watch channel...');
           await channelInstance.watch();
@@ -293,25 +251,35 @@ const ChatPage: React.FC<ChatPageProps> = ({
           console.error('❌ [ChatPage] Channel ID used:', channelIdOnly);
           console.error('❌ [ChatPage] Current user ID:', currentStreamUserId);
           
-          // If we get a permission error, the backend might not have added the user correctly
-          // Or there might be a timing issue - wait a bit longer and retry
+          // If we get a permission error, ensure user is added via backend
           if (watchError.message?.includes('ReadChannel is denied') || 
               watchError.message?.includes('not allowed') ||
               watchError.message?.includes('not a member') ||
               watchError.message?.includes('error code 17')) {
-            console.warn('⚠️ [ChatPage] Permission error, waiting longer and retrying...');
+            console.warn('⚠️ [ChatPage] Permission error, ensuring backend access...');
             
-            // Wait longer for backend to sync
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Call backend again to ensure user is added
+            // Call backend to ensure user is added as member
             try {
-              await getConversationById(conversationId!);
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              const conversationResponse = await getConversationById(conversationId!);
+              if (!conversationResponse.success) {
+                throw new Error('Failed to access conversation. Please try again.');
+              }
               
-              // Retry watch
+              // Get actual conversation ID from backend response (might be different format)
+              const conversation = conversationResponse.data;
+              const actualConversationId = conversation?.id || conversationId!;
+              
+              // If ID is different, recreate channel instance
+              if (actualConversationId !== channelIdOnly) {
+                console.log('💬 [ChatPage] Using corrected conversation ID from backend:', actualConversationId);
+                channelInstance = client.channel(channelType, actualConversationId);
+              }
+              
+              console.log('✅ [ChatPage] Backend confirmed access, retrying watch...');
+              
+              // Retry watch immediately (backend should have synced by now)
               await channelInstance.watch();
-              console.log('✅ [ChatPage] Channel watched after retry');
+              console.log('✅ [ChatPage] Channel watched after ensuring access');
               setChannel(channelInstance);
             } catch (retryError: any) {
               console.error('❌ [ChatPage] Retry failed:', retryError.message);

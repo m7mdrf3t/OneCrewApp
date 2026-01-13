@@ -117,7 +117,8 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   }, []);
 
   // Custom channel preview component to match app design
-  const ChannelPreview = useCallback(({ channel }: any) => {
+  // Memoized for performance optimization
+  const ChannelPreview = React.memo(useCallback(({ channel }: any) => {
     if (!channel) {
       return null;
     }
@@ -172,7 +173,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
       </TouchableOpacity>
     );
-  }, [currentStreamUserId, handleChannelSelect]);
+  }, [currentStreamUserId, handleChannelSelect]));
 
   // Format time helper
   const formatTime = (timestamp: string | Date): string => {
@@ -225,8 +226,16 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         sort={sort}
         Preview={ChannelPreview}
         // Note: onSelect is handled by the custom Preview component's onPress
-        // Pagination
-        pagination={{ limit: 20 }}
+        // Pagination - reduced limit for faster initial load
+        pagination={{ limit: 15 }}
+        // Performance optimizations for FlatList
+        additionalFlatListProps={{
+          removeClippedSubviews: true,
+          maxToRenderPerBatch: 10,
+          windowSize: 5,
+          initialNumToRender: 10,
+          updateCellsBatchingPeriod: 50,
+        }}
         // Error handling
         onError={(error) => {
           console.error('ChannelList error:', error);
