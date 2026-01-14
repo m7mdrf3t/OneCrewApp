@@ -22,13 +22,18 @@ prepare_react_native_project!
 
 target 'Steps' do
   use_expo_modules!
+  
+  # Enable modular headers for Firebase/GoogleUtilities
   use_modular_headers!
 
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
   else
     config_command = [
-      'npx',
+      'node',
+      '--no-warnings',
+      '--eval',
+      'require(\'expo/bin/autolinking\')',
       'expo-modules-autolinking',
       'react-native-config',
       '--json',
@@ -57,5 +62,15 @@ target 'Steps' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
+    
+    # Fix for Firebase/GoogleUtilities modular headers issue
+    installer.pods_project.targets.each do |target|
+      if target.name == 'GoogleUtilities' || target.name.start_with?('Firebase')
+        target.build_configurations.each do |config|
+          config.build_settings['DEFINES_MODULE'] = 'YES'
+          config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+        end
+      end
+    end
   end
 end

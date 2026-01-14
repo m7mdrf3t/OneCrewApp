@@ -1,0 +1,125 @@
+{
+  "name": "onecrew-api-client",
+  "version": "2.29.0",
+  "description": "OneCrew Backend API Client for Expo/React Native - A comprehensive TypeScript client for film and entertainment industry APIs with user profile management, talent profiles, skills, abilities, languages, portfolio management, project management, task assignments, roles & categories management, academy course management with design options, certifications with image uploads, company location and social media links, notifications, real-time chat system, push notifications, and guest user functionality",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublish": "npm run build",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean"
+  },
+  "keywords": [
+    "onecrew",
+    "api",
+    "client",
+    "expo",
+    "react-native",
+    "film",
+    "entertainment",
+    "typescript",
+    "jwt",
+    "authentication",
+    "film-production",
+    "crew-management",
+    "talent-profile",
+    "skills-management",
+    "portfolio",
+    "abilities",
+    "languages",
+    "project-management",
+    "task-assignments",
+    "service-roles",
+    "roles-management",
+    "categories-management",
+    "user-filtering",
+    "personal-teams",
+    "role-based-permissions",
+    "media-upload",
+    "social-media",
+    "likes",
+    "followers",
+    "albums",
+    "contacts",
+    "news",
+    "trends",
+    "blog",
+    "articles",
+    "company-profiles",
+    "company-services",
+    "company-invitations",
+    "company-management",
+    "academy-courses",
+    "course-management",
+    "course-registration",
+    "course-enrollment",
+    "notifications",
+    "realtime-notifications",
+    "supabase-realtime",
+    "chat",
+    "messaging",
+    "realtime-chat",
+    "typing-indicators",
+    "read-receipts",
+    "online-status",
+    "streamchat",
+    "stream-chat",
+    "message-reactions",
+    "message-threading",
+    "message-pinning",
+    "message-search",
+    "channel-moderation",
+    "message-translation",
+    "account-deletion",
+    "grace-period"
+  ],
+  "author": {
+    "name": "OneCrew Team",
+    "email": "team@onecrew.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/onecrew/onecrew-api-client.git"
+  },
+  "bugs": {
+    "url": "https://github.com/onecrew/onecrew-api-client/issues"
+  },
+  "homepage": "https://github.com/onecrew/onecrew-api-client#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^1.19.5",
+    "expo-secure-store": "~12.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.6",
+    "typescript": "^5.0.4"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "react-native": ">=0.60.0",
+    "stream-chat": ">=9.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": false
+    },
+    "react-native": {
+      "optional": false
+    },
+    "stream-chat": {
+      "optional": true,
+      "description": "Required for StreamChat real-time features. Install with: npm install stream-chat"
+    }
+  }
+}

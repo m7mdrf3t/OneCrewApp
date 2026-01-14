@@ -688,15 +688,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Projects</Text>
-          <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-            <Ionicons name="refresh" size={24} color="#000" />
-          </TouchableOpacity>
-        </View>
         <ScrollView 
           style={styles.content}
           showsVerticalScrollIndicator={false}
@@ -713,13 +704,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   if (error) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Projects</Text>
-          <View style={styles.headerSpacer} />
-        </View>
         <View style={styles.errorContainer}>
           <Ionicons name="alert-circle" size={48} color="#ef4444" />
           <Text style={styles.errorText}>{error}</Text>
@@ -735,13 +719,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   if (isGuest) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.title}>Projects</Text>
-          <View style={styles.headerSpacer} />
-        </View>
         <View style={styles.guestEmptyState}>
           <Ionicons name="folder-open" size={80} color="#9ca3af" />
           <Text style={styles.guestTitle}>Sign in to view and manage your projects</Text>
@@ -760,15 +737,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   }
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.title}>Projects</Text>
-        <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-          <Ionicons name="refresh" size={24} color="#000" />
-        </TouchableOpacity>
-      </View>
       {/* Backend Error Banner */}
       {/* Removed error banner - no longer loading tasks upfront */}
 

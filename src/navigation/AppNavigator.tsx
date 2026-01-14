@@ -61,6 +61,9 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
         animation: 'slide_from_right',
         gestureEnabled: true,
         fullScreenGestureEnabled: true,
+        // Performance optimizations
+        freezeOnBlur: true, // Freeze screens when not visible
+        animationDuration: 200, // Faster animations
       }}
       initialRouteName="spot"
     >

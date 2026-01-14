@@ -34,6 +34,7 @@ import {
 import ReferenceDataService from '../services/ReferenceDataService';
 import supabaseService from '../services/SupabaseService';
 import pushNotificationService from '../services/PushNotificationService';
+import streamChatService from '../services/StreamChatService';
 import { initializeGoogleSignIn, signInWithGoogle } from '../services/GoogleAuthService';
 import { initializeAppleAuthentication, signInWithApple } from '../services/AppleAuthService';
 import agendaService from '../services/AgendaService';
@@ -373,12 +374,46 @@ interface ApiContextType {
     }
   ) => Promise<any>;
   sendMessage: (conversationId: string, messageData: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; file_url?: string; file_name?: string; file_size?: number; reply_to_message_id?: string }) => Promise<any>;
-  editMessage: (messageId: string, content: string) => Promise<any>;
-  deleteMessage: (messageId: string) => Promise<any>;
+  editMessage: (messageId: string, data: { content: string; conversation_id?: string }) => Promise<any>;
+  deleteMessage: (messageId: string, conversationId: string) => Promise<any>;
   readMessage: (conversationId: string, messageId?: string, messageIds?: string[]) => Promise<any>;
+  markMessageAsRead: (messageId: string, conversationId: string) => Promise<any>;
+  markAllAsRead: (conversationId: string, messageIds?: string[]) => Promise<any>;
   leaveConversation: (conversationId: string) => Promise<any>;
   muteConversation: (conversationId: string, mutedUntil?: string) => Promise<any>;
   sendTypingIndicator: (conversationId: string, isTyping: boolean) => Promise<any>;
+  // StreamChat token
+  getStreamChatToken: () => Promise<any>;
+  // Message reactions
+  addReaction: (messageId: string, data: { reaction_type: string; conversation_id: string }) => Promise<any>;
+  removeReaction: (messageId: string, reactionType: string, conversationId: string) => Promise<any>;
+  getReactions: (messageId: string, conversationId: string) => Promise<any>;
+  // Message threading
+  createThreadReply: (parentMessageId: string, conversationId: string, data: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; file_url?: string; file_name?: string; file_size?: number }) => Promise<any>;
+  getThreadReplies: (parentMessageId: string, conversationId: string, params?: { limit?: number }) => Promise<any>;
+  // Message pinning
+  pinMessage: (messageId: string, conversationId: string) => Promise<any>;
+  unpinMessage: (messageId: string, conversationId: string) => Promise<any>;
+  getPinnedMessages: (conversationId: string) => Promise<any>;
+  // Message search
+  searchMessages: (params: { query: string; conversation_id?: string; sender_id?: string; date_from?: string; date_to?: string; limit?: number; offset?: number }) => Promise<any>;
+  searchInConversation: (conversationId: string, params: { query: string; sender_id?: string; date_from?: string; date_to?: string; limit?: number; offset?: number }) => Promise<any>;
+  // Channel management
+  updateChannel: (conversationId: string, data: { name?: string; image?: string; description?: string }) => Promise<any>;
+  addMember: (conversationId: string, userId: string) => Promise<any>;
+  removeMember: (conversationId: string, userId: string) => Promise<any>;
+  getMembers: (conversationId: string) => Promise<any>;
+  // Channel moderation
+  addModerator: (conversationId: string, userId: string) => Promise<any>;
+  removeModerator: (conversationId: string, userId: string) => Promise<any>;
+  banUser: (conversationId: string, data: { user_id: string; reason?: string; timeout?: number }) => Promise<any>;
+  unbanUser: (conversationId: string, userId: string) => Promise<any>;
+  muteUser: (conversationId: string, data: { user_id: string; timeout?: number }) => Promise<any>;
+  unmuteUser: (conversationId: string, userId: string) => Promise<any>;
+  flagMessage: (messageId: string, conversationId: string) => Promise<any>;
+  getFlaggedMessages: (params?: { limit?: number; offset?: number }) => Promise<any>;
+  // Message translation
+  translateMessage: (messageId: string, conversationId: string, targetLanguage: string) => Promise<any>;
   // Online status methods (Redis-powered)
   getOnlineStatus: (userId: string) => Promise<any>;
   getOnlineStatuses: (userIds: string[]) => Promise<any>;
@@ -408,9 +443,12 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-    baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud
-   // baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
-    //  baseUrl = 'http://localhost:3000' // Local server
+  // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
+  baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
+  // Local dev server URL (commented out - using staging instead)
+  // baseUrl = Platform.OS === 'android' 
+  //   ? 'http://10.0.2.2:3000' // Android emulator special IP for localhost
+  //   : 'http://localhost:3000' // iOS simulator can use localhost directly
 }) => {
   const [api] = useState(() => {
     const apiClient = new OneCrewApi(baseUrl);
@@ -910,6 +948,41 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Update user state
       setUser(userData);
       setIsAuthenticated(true);
+      
+      // Initialize StreamChat after successful login
+      try {
+        const streamTokenResponse = await api.chat.getStreamChatToken();
+        if (streamTokenResponse.success && streamTokenResponse.data) {
+          const { token, user_id, api_key } = streamTokenResponse.data as any;
+          
+          // Log token response for debugging
+          console.log('💬 StreamChat token response:', {
+            hasToken: !!token,
+            hasUserId: !!user_id,
+            hasApiKey: !!api_key,
+            userId: user_id,
+            apiKeyPrefix: api_key ? api_key.substring(0, 10) + '...' : 'NOT PROVIDED',
+          });
+          
+          // Use user_id from token response (backend knows the correct StreamChat user ID format)
+          await streamChatService.connectUser(
+            user_id, // Use user_id from token, not mapped OneCrew ID
+            token,
+            {
+              name: userData.name,
+              image: userData.image_url,
+            },
+            api_key, // Pass API key from backend if provided
+            'user' // User type for tracking
+          );
+          console.log('✅ StreamChat initialized after login');
+        } else {
+          console.error('❌ StreamChat token response failed:', streamTokenResponse);
+        }
+      } catch (streamError) {
+        console.error('❌ Failed to initialize StreamChat:', streamError);
+        // Don't block login if StreamChat fails, but log the error
+      }
       
       // Set up token refresh callback for automatic re-registration
       pushNotificationService.setOnTokenRefreshCallback((newToken) => {
@@ -1770,6 +1843,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     pushNotificationService.clearTokenRefreshCallback();
     setIsLoading(true);
     try {
+      // Disconnect StreamChat
+      try {
+        await streamChatService.disconnectUser();
+        console.log('✅ StreamChat disconnected');
+      } catch (streamError) {
+        console.warn('⚠️ Failed to disconnect StreamChat (non-critical):', streamError);
+      }
+      
       // Unsubscribe from real-time notifications
       if (notificationChannelId) {
         supabaseService.unsubscribe(notificationChannelId);
@@ -5673,6 +5754,31 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     setActiveCompany(null);
     AsyncStorage.setItem('currentProfileType', 'user');
     AsyncStorage.removeItem('activeCompanyId');
+    
+    // Reconnect StreamChat with user profile
+    if (user?.id) {
+      try {
+        const streamTokenResponse = await api.chat.getStreamChatToken();
+        if (streamTokenResponse.success && streamTokenResponse.data) {
+          const { token, user_id, api_key } = streamTokenResponse.data as any;
+          // Use user_id from token response (backend knows the correct StreamChat user ID format)
+          await streamChatService.reconnectUser(
+            user_id, // Use user_id from token, not mapped OneCrew ID
+            token,
+            {
+              name: user.name,
+              image: user.image_url,
+            },
+            api_key, // Pass API key from backend if provided
+            'user' // User type for tracking
+          );
+          console.log('✅ StreamChat reconnected with user profile');
+        }
+      } catch (streamError) {
+        console.warn('⚠️ Failed to reconnect StreamChat (non-critical):', streamError);
+      }
+    }
+    
     console.log('✅ Switched to user profile');
   };
 
@@ -5726,10 +5832,33 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         fields: ['id', 'name', 'logo_url', 'subcategory', 'approval_status']
       });
       if (companyResponse.success && companyResponse.data) {
-        setActiveCompany(companyResponse.data);
+        const companyData = companyResponse.data;
+        setActiveCompany(companyData);
         setCurrentProfileType('company');
         await AsyncStorage.setItem('currentProfileType', 'company');
         await AsyncStorage.setItem('activeCompanyId', companyId);
+        
+        // Reconnect StreamChat with company profile
+        try {
+          const streamTokenResponse = await api.chat.getStreamChatToken();
+          if (streamTokenResponse.success && streamTokenResponse.data) {
+            const { token, user_id, api_key } = streamTokenResponse.data as any;
+            // Use user_id from token response (backend knows the correct StreamChat user ID format)
+            await streamChatService.reconnectUser(
+              user_id, // Use user_id from token, not mapped OneCrew ID
+              token,
+              {
+                name: companyData.name,
+                image: companyData.logo_url,
+              },
+              api_key, // Pass API key from backend if provided
+              'company' // User type for tracking
+            );
+            console.log('✅ StreamChat reconnected with company profile');
+          }
+        } catch (streamError) {
+          console.warn('⚠️ Failed to reconnect StreamChat (non-critical):', streamError);
+        }
         console.log('✅ Switched to company profile:', companyId);
       } else {
         throw new Error('Failed to load company');
@@ -7931,13 +8060,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const editMessage = async (messageId: string, content: string) => {
+  const editMessage = async (messageId: string, data: { content: string; conversation_id?: string }) => {
     try {
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
       console.log('💬 Editing message:', messageId);
-      const response = await api.chat.editMessage(messageId, { content });
+      const response = await api.chat.editMessage(messageId, data);
       if (response.success) {
         // Cache invalidation not needed since caching is disabled for real-time data
         console.log('✅ Message edited successfully');
@@ -7950,13 +8079,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const deleteMessage = async (messageId: string) => {
+  const deleteMessage = async (messageId: string, conversationId: string) => {
     try {
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Deleting message:', messageId);
-      const response = await api.chat.deleteMessage(messageId);
+      console.log('💬 Deleting message:', messageId, 'from conversation:', conversationId);
+      const response = await api.chat.deleteMessage(messageId, conversationId);
       if (response.success) {
         // Cache invalidation not needed since caching is disabled for real-time data
         console.log('✅ Message deleted successfully');
@@ -7989,8 +8118,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       if (messageId) {
         // Mark a single message as read using library method
-        // markMessageAsRead(messageId: string)
-        response = await api.chat.markMessageAsRead(messageId);
+        // markMessageAsRead(messageId: string, conversationId: string)
+        response = await api.chat.markMessageAsRead(messageId, conversationId);
       } else {
         // Mark all messages in a conversation as read using library method
         // markAllAsRead(conversationId: string, messageIds?: string[])
@@ -8005,6 +8134,42 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       throw new Error(response.error || 'Failed to mark message as read');
     } catch (error: any) {
       console.error('❌ Failed to mark message as read:', error);
+      throw error;
+    }
+  };
+
+  const markMessageAsRead = async (messageId: string, conversationId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Marking message as read:', messageId);
+      const response = await api.chat.markMessageAsRead(messageId, conversationId);
+      if (response.success) {
+        console.log('✅ Message marked as read successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to mark message as read');
+    } catch (error: any) {
+      console.error('❌ Failed to mark message as read:', error);
+      throw error;
+    }
+  };
+
+  const markAllAsRead = async (conversationId: string, messageIds?: string[]) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Marking all messages as read in conversation:', conversationId);
+      const response = await api.chat.markAllAsRead(conversationId, messageIds);
+      if (response.success) {
+        console.log('✅ All messages marked as read successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to mark all messages as read');
+    } catch (error: any) {
+      console.error('❌ Failed to mark all messages as read:', error);
       throw error;
     }
   };
@@ -8057,6 +8222,438 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       throw new Error(response.error || 'Failed to send typing indicator');
     } catch (error: any) {
       console.error('❌ Failed to send typing indicator:', error);
+      throw error;
+    }
+  };
+
+  // StreamChat token
+  const getStreamChatToken = async () => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Getting StreamChat token...');
+      const response = await api.chat.getStreamChatToken();
+      if (response.success) {
+        console.log('✅ StreamChat token retrieved successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to get StreamChat token');
+    } catch (error: any) {
+      console.error('❌ Failed to get StreamChat token:', error);
+      throw error;
+    }
+  };
+
+  // Message reactions
+  const addReaction = async (messageId: string, data: { reaction_type: string; conversation_id: string }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Adding reaction to message:', messageId);
+      const response = await api.chat.addReaction(messageId, data);
+      if (response.success) {
+        console.log('✅ Reaction added successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to add reaction');
+    } catch (error: any) {
+      console.error('❌ Failed to add reaction:', error);
+      throw error;
+    }
+  };
+
+  const removeReaction = async (messageId: string, reactionType: string, conversationId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Removing reaction from message:', messageId);
+      const response = await api.chat.removeReaction(messageId, reactionType, conversationId);
+      if (response.success) {
+        console.log('✅ Reaction removed successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to remove reaction');
+    } catch (error: any) {
+      console.error('❌ Failed to remove reaction:', error);
+      throw error;
+    }
+  };
+
+  const getReactions = async (messageId: string, conversationId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Getting reactions for message:', messageId);
+      const response = await api.chat.getReactions(messageId, conversationId);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to get reactions');
+    } catch (error: any) {
+      console.error('❌ Failed to get reactions:', error);
+      throw error;
+    }
+  };
+
+  // Message threading
+  const createThreadReply = async (parentMessageId: string, conversationId: string, data: { content?: string; message_type?: 'text' | 'image' | 'file' | 'system'; file_url?: string; file_name?: string; file_size?: number }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Creating thread reply to message:', parentMessageId);
+      const response = await api.chat.createThreadReply(parentMessageId, conversationId, data);
+      if (response.success) {
+        console.log('✅ Thread reply created successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to create thread reply');
+    } catch (error: any) {
+      console.error('❌ Failed to create thread reply:', error);
+      throw error;
+    }
+  };
+
+  const getThreadReplies = async (parentMessageId: string, conversationId: string, params?: { limit?: number }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Getting thread replies for message:', parentMessageId);
+      const response = await api.chat.getThreadReplies(parentMessageId, conversationId, params);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to get thread replies');
+    } catch (error: any) {
+      console.error('❌ Failed to get thread replies:', error);
+      throw error;
+    }
+  };
+
+  // Message pinning
+  const pinMessage = async (messageId: string, conversationId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Pinning message:', messageId);
+      const response = await api.chat.pinMessage(messageId, conversationId);
+      if (response.success) {
+        console.log('✅ Message pinned successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to pin message');
+    } catch (error: any) {
+      console.error('❌ Failed to pin message:', error);
+      throw error;
+    }
+  };
+
+  const unpinMessage = async (messageId: string, conversationId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Unpinning message:', messageId);
+      const response = await api.chat.unpinMessage(messageId, conversationId);
+      if (response.success) {
+        console.log('✅ Message unpinned successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to unpin message');
+    } catch (error: any) {
+      console.error('❌ Failed to unpin message:', error);
+      throw error;
+    }
+  };
+
+  const getPinnedMessages = async (conversationId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Getting pinned messages for conversation:', conversationId);
+      const response = await api.chat.getPinnedMessages(conversationId);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to get pinned messages');
+    } catch (error: any) {
+      console.error('❌ Failed to get pinned messages:', error);
+      throw error;
+    }
+  };
+
+  // Message search
+  const searchMessages = async (params: { query: string; conversation_id?: string; sender_id?: string; date_from?: string; date_to?: string; limit?: number; offset?: number }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Searching messages:', params);
+      const response = await api.chat.searchMessages(params);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to search messages');
+    } catch (error: any) {
+      console.error('❌ Failed to search messages:', error);
+      throw error;
+    }
+  };
+
+  const searchInConversation = async (conversationId: string, params: { query: string; sender_id?: string; date_from?: string; date_to?: string; limit?: number; offset?: number }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Searching messages in conversation:', conversationId);
+      const response = await api.chat.searchInConversation(conversationId, params);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to search in conversation');
+    } catch (error: any) {
+      console.error('❌ Failed to search in conversation:', error);
+      throw error;
+    }
+  };
+
+  // Channel management
+  const updateChannel = async (conversationId: string, data: { name?: string; image?: string; description?: string }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Updating channel:', conversationId);
+      const response = await api.chat.updateChannel(conversationId, data);
+      if (response.success) {
+        console.log('✅ Channel updated successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to update channel');
+    } catch (error: any) {
+      console.error('❌ Failed to update channel:', error);
+      throw error;
+    }
+  };
+
+  const addMember = async (conversationId: string, userId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Adding member to channel:', conversationId);
+      const response = await api.chat.addMember(conversationId, userId);
+      if (response.success) {
+        console.log('✅ Member added successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to add member');
+    } catch (error: any) {
+      console.error('❌ Failed to add member:', error);
+      throw error;
+    }
+  };
+
+  const removeMember = async (conversationId: string, userId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Removing member from channel:', conversationId);
+      const response = await api.chat.removeMember(conversationId, userId);
+      if (response.success) {
+        console.log('✅ Member removed successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to remove member');
+    } catch (error: any) {
+      console.error('❌ Failed to remove member:', error);
+      throw error;
+    }
+  };
+
+  const getMembers = async (conversationId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Getting channel members:', conversationId);
+      const response = await api.chat.getMembers(conversationId);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to get members');
+    } catch (error: any) {
+      console.error('❌ Failed to get members:', error);
+      throw error;
+    }
+  };
+
+  // Channel moderation
+  const addModerator = async (conversationId: string, userId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Adding moderator to channel:', conversationId);
+      const response = await api.chat.addModerator(conversationId, userId);
+      if (response.success) {
+        console.log('✅ Moderator added successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to add moderator');
+    } catch (error: any) {
+      console.error('❌ Failed to add moderator:', error);
+      throw error;
+    }
+  };
+
+  const removeModerator = async (conversationId: string, userId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Removing moderator from channel:', conversationId);
+      const response = await api.chat.removeModerator(conversationId, userId);
+      if (response.success) {
+        console.log('✅ Moderator removed successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to remove moderator');
+    } catch (error: any) {
+      console.error('❌ Failed to remove moderator:', error);
+      throw error;
+    }
+  };
+
+  const banUser = async (conversationId: string, data: { user_id: string; reason?: string; timeout?: number }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Banning user from channel:', conversationId);
+      const response = await api.chat.banUser(conversationId, data);
+      if (response.success) {
+        console.log('✅ User banned successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to ban user');
+    } catch (error: any) {
+      console.error('❌ Failed to ban user:', error);
+      throw error;
+    }
+  };
+
+  const unbanUser = async (conversationId: string, userId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Unbanning user from channel:', conversationId);
+      const response = await api.chat.unbanUser(conversationId, userId);
+      if (response.success) {
+        console.log('✅ User unbanned successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to unban user');
+    } catch (error: any) {
+      console.error('❌ Failed to unban user:', error);
+      throw error;
+    }
+  };
+
+  const muteUser = async (conversationId: string, data: { user_id: string; timeout?: number }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Muting user in channel:', conversationId);
+      const response = await api.chat.muteUser(conversationId, data);
+      if (response.success) {
+        console.log('✅ User muted successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to mute user');
+    } catch (error: any) {
+      console.error('❌ Failed to mute user:', error);
+      throw error;
+    }
+  };
+
+  const unmuteUser = async (conversationId: string, userId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Unmuting user in channel:', conversationId);
+      const response = await api.chat.unmuteUser(conversationId, userId);
+      if (response.success) {
+        console.log('✅ User unmuted successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to unmute user');
+    } catch (error: any) {
+      console.error('❌ Failed to unmute user:', error);
+      throw error;
+    }
+  };
+
+  const flagMessage = async (messageId: string, conversationId: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Flagging message:', messageId);
+      const response = await api.chat.flagMessage(messageId, conversationId);
+      if (response.success) {
+        console.log('✅ Message flagged successfully');
+        return response;
+      }
+      throw new Error(response.error || 'Failed to flag message');
+    } catch (error: any) {
+      console.error('❌ Failed to flag message:', error);
+      throw error;
+    }
+  };
+
+  const getFlaggedMessages = async (params?: { limit?: number; offset?: number }) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Getting flagged messages');
+      const response = await api.chat.getFlaggedMessages(params);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to get flagged messages');
+    } catch (error: any) {
+      console.error('❌ Failed to get flagged messages:', error);
+      throw error;
+    }
+  };
+
+  // Message translation
+  const translateMessage = async (messageId: string, conversationId: string, targetLanguage: string) => {
+    try {
+      if (!api.chat) {
+        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      }
+      console.log('💬 Translating message:', messageId, 'to', targetLanguage);
+      const response = await api.chat.translateMessage(messageId, conversationId, targetLanguage);
+      if (response.success) {
+        return response;
+      }
+      throw new Error(response.error || 'Failed to translate message');
+    } catch (error: any) {
+      console.error('❌ Failed to translate message:', error);
       throw error;
     }
   };
@@ -8243,6 +8840,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       await api.chat.sendHeartbeat();
       console.log('✅ Heartbeat sent');
     } catch (error: any) {
+      // Handle 404 gracefully - endpoint might not exist on local dev server
+      if (error?.status === 404 || 
+          error?.statusCode === 404 ||
+          error?.message?.includes('404') ||
+          error?.message?.includes('not found') ||
+          (error?.message?.includes('Route') && error?.message?.includes('not found'))) {
+        // Silently ignore - heartbeat is optional for local dev
+        return;
+      }
       // Handle 401 errors - token invalidated, need to logout
       if (error?.status === 401 || error?.statusCode === 401) {
         const errorMessage = error?.message || error?.error || '';
@@ -9040,9 +9646,43 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     editMessage,
     deleteMessage,
     readMessage,
+    markMessageAsRead,
+    markAllAsRead,
     leaveConversation,
     muteConversation,
     sendTypingIndicator,
+    // StreamChat token
+    getStreamChatToken,
+    // Message reactions
+    addReaction,
+    removeReaction,
+    getReactions,
+    // Message threading
+    createThreadReply,
+    getThreadReplies,
+    // Message pinning
+    pinMessage,
+    unpinMessage,
+    getPinnedMessages,
+    // Message search
+    searchMessages,
+    searchInConversation,
+    // Channel management
+    updateChannel,
+    addMember,
+    removeMember,
+    getMembers,
+    // Channel moderation
+    addModerator,
+    removeModerator,
+    banUser,
+    unbanUser,
+    muteUser,
+    unmuteUser,
+    flagMessage,
+    getFlaggedMessages,
+    // Message translation
+    translateMessage,
     // Online status methods
     getOnlineStatus,
     getOnlineStatuses,

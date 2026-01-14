@@ -935,3 +935,60 @@ export interface ChatPageProps {
   onBack: () => void;
   courseData?: CourseWithDetails; // Course data for auto-sending registration message
 }
+
+// StreamChat-related types
+export interface StreamChatTokenResponse {
+  token: string;
+  user_id: string;
+  api_key?: string; // Optional: API key from backend (if provided)
+}
+
+export interface MessageReaction {
+  type: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface ThreadReply extends ChatMessage {
+  parent_id: string;
+}
+
+export interface MessageSearchParams {
+  query: string;
+  conversation_id?: string;
+  sender_id?: string;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface MessageSearchResult {
+  id: string;
+  conversation_id: string;
+  content?: string;
+  sender_id: string;
+  sender_type: 'user' | 'company';
+  sent_at: string;
+  conversation?: {
+    id: string;
+    name?: string;
+  };
+}
+
+export interface BanUserRequest {
+  user_id: string;
+  reason?: string;
+  timeout?: number;
+}
+
+export interface MuteUserRequest {
+  user_id: string;
+  timeout?: number;
+}
+
+export interface UpdateChannelRequest {
+  name?: string;
+  image?: string;
+  description?: string;
+}
