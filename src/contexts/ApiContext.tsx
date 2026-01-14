@@ -444,11 +444,11 @@ interface ApiProviderProps {
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
   // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
-  // baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
-  // Auto-detect local dev server URL based on platform
-  baseUrl = Platform.OS === 'android' 
-    ? 'http://10.0.2.2:3000' // Android emulator special IP for localhost
-    : 'http://localhost:3000' // iOS simulator can use localhost directly
+  baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
+  // Local dev server URL (commented out - using staging instead)
+  // baseUrl = Platform.OS === 'android' 
+  //   ? 'http://10.0.2.2:3000' // Android emulator special IP for localhost
+  //   : 'http://localhost:3000' // iOS simulator can use localhost directly
 }) => {
   const [api] = useState(() => {
     const apiClient = new OneCrewApi(baseUrl);

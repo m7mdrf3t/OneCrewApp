@@ -313,7 +313,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
             (async () => {
               try {
                 const token = getAccessToken();
-                const baseUrl = (api as any).baseUrl || (Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000');
+                const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
                 const prepareUrl = `${baseUrl}/api/chat/conversations/${newConversationId}/prepare`;
                 
                 const response = await fetch(prepareUrl, {
