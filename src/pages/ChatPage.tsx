@@ -48,6 +48,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     api,
     getConversationById, 
     createConversation,
+    getAccessToken,
     user, 
     currentProfileType, 
     activeCompany 
@@ -78,9 +79,13 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [thread, setThread] = useState<any>(null);
 
   // Get StreamChat channel ID from OneCrew conversation ID
+  // CRITICAL: Backend returns channel IDs directly (e.g., "user_user-{hash}")
+  // Do NOT add "onecrew_" prefix - use conversation ID directly
   const streamChannelId = useMemo(() => {
     if (!conversationId) return null;
-    return getStreamChannelId(conversationId);
+    // Backend already returns the correct StreamChat channel ID format
+    // No need to transform with getStreamChannelId() which adds "onecrew_" prefix
+    return conversationId;
   }, [conversationId]);
 
   // Log channel state and ensure it's watched - MUST be called before any conditional returns
@@ -99,18 +104,154 @@ const ChatPage: React.FC<ChatPageProps> = ({
       // Ensure channel is watched (required for MessageInput to work)
       if (!channel.state?.watched) {
         console.log('⏳ [ChatPage] Channel not watched yet, watching...');
-        channel.watch().then(() => {
+        channel.watch({
+          watchers: { limit: 10 },
+          messages: { limit: 50 }, // Reduced - pagination will load more
+          presence: true,
+        }).then(async () => {
           console.log('✅ [ChatPage] Channel watched successfully - MessageInput should be available');
+          // Load more messages in background (non-blocking)
+          channel.query({
+            messages: { limit: 200 },
+          }).catch((queryError: any) => {
+            console.warn('⚠️ [ChatPage] Background message query failed (non-critical):', queryError.message);
+          });
         }).catch((err) => {
           console.error('❌ [ChatPage] Failed to watch channel:', err);
         });
       } else {
         console.log('✅ [ChatPage] Channel is watched - MessageInput should be visible');
+        // Even if watched, verify messages are loaded
+        const messageCount = channel.state?.messages?.length || 0;
+        if (messageCount === 0) {
+          console.warn('⚠️ [ChatPage] Channel watched but no messages. Querying...');
+          channel.query({
+            messages: { limit: 500 }, // Increased limit
+          }).then(async () => {
+            // StreamChat's MessageList will handle pagination automatically
+          }).then(() => {
+            console.log('✅ [ChatPage] Messages loaded. Count:', channel.state?.messages?.length || 0);
+          }).catch((err) => {
+            console.error('❌ [ChatPage] Failed to query messages:', err);
+          });
+        }
       }
     } else {
       console.log('⏳ [ChatPage] No channel yet, waiting for initialization...');
     }
   }, [channel]);
+
+  // Real-time message event listeners
+  useEffect(() => {
+    if (!channel || !client) return;
+
+    console.log('💬 [ChatPage] Setting up real-time event listeners');
+
+    // Listen for new messages
+    const handleNewMessage = (event: any) => {
+      console.log('💬 [ChatPage] New message received:', {
+        messageId: event.message?.id,
+        text: event.message?.text,
+        userId: event.message?.user?.id,
+        timestamp: event.message?.created_at,
+      });
+    };
+
+    // Listen for message updates
+    const handleMessageUpdated = (event: any) => {
+      console.log('💬 [ChatPage] Message updated:', event.message);
+    };
+
+    // Listen for message deletions
+    const handleMessageDeleted = (event: any) => {
+      console.log('💬 [ChatPage] Message deleted:', event.message);
+    };
+
+    // Listen for typing start
+    const handleTypingStart = (event: any) => {
+      console.log('💬 [ChatPage] User typing:', event.user);
+      console.log('💬 [ChatPage] Typing state:', channel.state?.typing);
+    };
+
+    // Listen for typing stop
+    const handleTypingStop = (event: any) => {
+      console.log('💬 [ChatPage] User stopped typing:', event.user);
+      console.log('💬 [ChatPage] Typing state:', channel.state?.typing);
+    };
+
+    // Subscribe to events
+    channel.on('message.new', handleNewMessage);
+    channel.on('message.updated', handleMessageUpdated);
+    channel.on('message.deleted', handleMessageDeleted);
+    channel.on('typing.start', handleTypingStart);
+    channel.on('typing.stop', handleTypingStop);
+
+    // Verify channel state for real-time events
+    console.log('💬 [ChatPage] Channel state for real-time:', {
+      watched: channel.state?.watched,
+      presence: channel.state?.presence,
+      typing: channel.state?.typing,
+      watchers: channel.state?.watchers,
+      messagesCount: channel.state?.messages?.length || 0,
+      channelId: channel.id,
+      channelCid: channel.cid,
+      connected: client.connected,
+    });
+    
+    // Verify event listeners are registered
+    console.log('💬 [ChatPage] Event listeners registered for:', [
+      'message.new',
+      'message.updated', 
+      'message.deleted',
+      'typing.start',
+      'typing.stop',
+    ]);
+
+    // Cleanup function
+    return () => {
+      console.log('💬 [ChatPage] Cleaning up event listeners');
+      channel.off('message.new', handleNewMessage);
+      channel.off('message.updated', handleMessageUpdated);
+      channel.off('message.deleted', handleMessageDeleted);
+      channel.off('typing.start', handleTypingStart);
+      channel.off('typing.stop', handleTypingStop);
+    };
+  }, [channel, client]);
+
+  // Verify messages are loaded after channel is set
+  useEffect(() => {
+    if (channel && channel.state?.watched) {
+      const messageCount = channel.state?.messages?.length || 0;
+      console.log('💬 [ChatPage] Message verification:', {
+        messageCount,
+        hasMessages: messageCount > 0,
+        latestMessage: channel.state?.messages?.[messageCount - 1]?.text,
+        oldestMessage: channel.state?.messages?.[0]?.text,
+        channelId: channel.id,
+        currentUserId: client?.userID,
+      });
+      
+      // If no messages but channel is watched, try querying again
+      if (messageCount === 0) {
+        console.warn('⚠️ [ChatPage] Channel watched but no messages found. Querying...');
+        channel.query({
+          messages: { limit: 50 }, // Reduced - pagination will load more
+        }).then(async () => {
+          const newCount = channel.state?.messages?.length || 0;
+          console.log('✅ [ChatPage] Messages loaded after query. Count:', newCount);
+          
+          // Load more in background if needed
+          if (newCount > 0 && newCount < 50) {
+            channel.query({
+              messages: { limit: 200 },
+            }).catch(() => {});
+          }
+        }).catch((err) => {
+          console.error('❌ [ChatPage] Failed to query messages:', err);
+        });
+      }
+    }
+  }, [channel, client]);
 
   // Initialize or retrieve channel
   useEffect(() => {
@@ -162,46 +303,66 @@ const ChatPage: React.FC<ChatPageProps> = ({
           console.log('💬 [ChatPage] Creating channel instance with ID:', channelIdOnly);
           let channelInstance = client.channel(channelType, channelIdOnly);
 
-          // Try to watch the channel immediately (backend should have already created it with members)
-          // Only call getConversationById if watch fails with permission error
-          try {
-            console.log('🔄 [ChatPage] Attempting to watch channel...');
-            await channelInstance.watch();
-            console.log('✅ [ChatPage] Channel watched successfully');
-            setChannel(channelInstance);
-          } catch (watchError: any) {
-            console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
-            console.error('❌ [ChatPage] Channel ID used:', channelIdOnly);
-            console.error('❌ [ChatPage] Current user ID:', currentStreamUserId);
-            
-            // If we get a permission error, ensure user is added via backend
-            if (watchError.message?.includes('ReadChannel is denied') || 
-                watchError.message?.includes('not allowed') ||
-                watchError.message?.includes('not a member') ||
-                watchError.message?.includes('error code 17')) {
-              console.warn('⚠️ [ChatPage] Permission error, ensuring backend access...');
-              
-              // Call backend to ensure user is added as member
+          // PERFORMANCE OPTIMIZATION: Set channel early and run operations in parallel
+          setChannel(channelInstance);
+          setLoading(false); // Stop loading spinner early - UI renders immediately
+          
+          // Parallel operations for faster loading
+          const [prepareResult, watchResult] = await Promise.allSettled([
+            // Prepare endpoint (non-blocking)
+            (async () => {
               try {
-                const conversationResponse = await getConversationById(newConversationId);
-                if (!conversationResponse.success) {
-                  throw new Error('Failed to access conversation. Please try again.');
-                }
-                console.log('✅ [ChatPage] Backend confirmed access, retrying watch...');
+                const token = getAccessToken();
+                const baseUrl = (api as any).baseUrl || (Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000');
+                const prepareUrl = `${baseUrl}/api/chat/conversations/${newConversationId}/prepare`;
                 
-                // Retry watch immediately (backend should have synced by now)
-                await channelInstance.watch();
-                console.log('✅ [ChatPage] Channel watched after ensuring access');
-                setChannel(channelInstance);
-              } catch (retryError: any) {
-                console.error('❌ [ChatPage] Retry failed:', retryError.message);
-                throw new Error('Channel not available. Please try again in a moment. If the issue persists, the backend may need to fix the channel members.');
+                const response = await fetch(prepareUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                  },
+                });
+                
+                if (response.ok) {
+                  await response.json();
+                  console.log('✅ [ChatPage] Conversation prepared successfully');
+                }
+              } catch (error: any) {
+                console.warn('⚠️ [ChatPage] Prepare endpoint error (non-critical):', error.message);
               }
-            } else {
-              // Other errors - throw as-is
-              throw watchError;
-            }
+            })(),
+            
+            // Watch channel (critical)
+            (async () => {
+              console.log('🔄 [ChatPage] Watching channel...');
+              await channelInstance.watch({
+                watchers: { limit: 10 },
+                messages: { limit: 50 }, // Reduced from 500 - load more via pagination
+                presence: true,
+              });
+              console.log('✅ [ChatPage] Channel watched successfully');
+              return channelInstance;
+            })(),
+          ]);
+          
+          // Handle watch result
+          if (watchResult.status === 'rejected') {
+            const watchError = watchResult.reason;
+            console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
+            setError(watchError.message || 'Failed to load chat');
+            return;
           }
+          
+          // Load more messages in background (non-blocking)
+          channelInstance.query({
+            messages: { limit: 200 }, // Load more in background
+          }).then(() => {
+            const loadedMessages = channelInstance.state?.messages || [];
+            console.log('✅ [ChatPage] Background message load complete. Count:', loadedMessages.length);
+          }).catch((queryError: any) => {
+            console.warn('⚠️ [ChatPage] Background message query failed (non-critical):', queryError.message);
+          });
         } catch (err: any) {
           console.error('Failed to create conversation and channel:', err);
           setError(err.message || 'Failed to create chat');
@@ -219,7 +380,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
       }
 
       try {
-        setLoading(true);
+        // Don't set loading to true if channel already exists (optimization)
+        if (!channel) {
+          setLoading(true);
+        }
         setError(null);
 
         const channelType = 'messaging';
@@ -230,66 +394,121 @@ const ChatPage: React.FC<ChatPageProps> = ({
           throw new Error('StreamChat user not connected');
         }
         
-        // Use the conversation ID directly (backend should return correct format)
-        // Try to extract from streamChannelId or use conversationId directly
-        const channelIdOnly = streamChannelId?.replace(/^messaging:/, '') || conversationId!;
+        // Use the conversation ID directly (backend returns correct format: "user_user-{hash}")
+        // Backend already returns the correct StreamChat channel ID, no transformation needed
+        const channelIdOnly = conversationId!;
         console.log('💬 [ChatPage] Using channel ID:', channelIdOnly);
+        console.log('💬 [ChatPage] Channel ID details:', {
+          originalConversationId: conversationId,
+          streamChannelId: streamChannelId,
+          extractedChannelId: channelIdOnly,
+          currentUserId: currentStreamUserId,
+          channelType: channelType,
+        });
         
         // Create channel instance and try to watch immediately
         // Only call backend if watch fails with permission error
         console.log('💬 [ChatPage] Creating channel instance with ID:', channelIdOnly);
         let channelInstance = client.channel(channelType, channelIdOnly);
+        
+        // Log channel instance details for debugging
+        console.log('💬 [ChatPage] Channel instance created:', {
+          channelId: channelInstance.id,
+          channelCid: channelInstance.cid,
+          currentUserId: currentStreamUserId,
+          conversationId: conversationId,
+        });
 
-        // Try to watch the channel immediately
-        try {
-          console.log('🔄 [ChatPage] Attempting to watch channel...');
-          await channelInstance.watch();
-          console.log('✅ [ChatPage] Channel watched successfully');
-          setChannel(channelInstance);
-        } catch (watchError: any) {
-          console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
-          console.error('❌ [ChatPage] Channel ID used:', channelIdOnly);
-          console.error('❌ [ChatPage] Current user ID:', currentStreamUserId);
+        // PERFORMANCE OPTIMIZATION: Start watching immediately, prepare in parallel
+        // Set channel early to start rendering UI while data loads
+        setChannel(channelInstance);
+        setLoading(false); // Stop loading spinner early
+        
+        // Parallel operations for faster loading
+        const [prepareResult, watchResult] = await Promise.allSettled([
+          // Prepare endpoint (non-blocking - real-time will work even if this fails)
+          (async () => {
+            try {
+              const token = getAccessToken();
+              const baseUrl = (api as any).baseUrl || (Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000');
+              const prepareUrl = `${baseUrl}/api/chat/conversations/${conversationId}/prepare`;
+              
+              const response = await fetch(prepareUrl, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+              
+              if (response.ok) {
+                const prepareData = await response.json();
+                console.log('✅ [ChatPage] Conversation prepared successfully');
+                return prepareData;
+              }
+            } catch (error: any) {
+              // Non-critical - continue without prepare
+              console.warn('⚠️ [ChatPage] Prepare endpoint error (non-critical):', error.message);
+            }
+          })(),
           
-          // If we get a permission error, ensure user is added via backend
+          // Watch channel (critical - must succeed)
+          (async () => {
+            console.log('🔄 [ChatPage] Watching channel...');
+            // Optimize: Load fewer messages initially, pagination will load more
+            await channelInstance.watch({
+              watchers: { limit: 10 },
+              messages: { limit: 50 }, // Reduced from 500 - load more via pagination
+              presence: true,
+            });
+            console.log('✅ [ChatPage] Channel watched successfully');
+            return channelInstance;
+          })(),
+        ]);
+        
+        // Handle watch result (critical)
+        if (watchResult.status === 'rejected') {
+          const watchError = watchResult.reason;
+          console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
+          
+          // If permission error, try backend fix
           if (watchError.message?.includes('ReadChannel is denied') || 
               watchError.message?.includes('not allowed') ||
               watchError.message?.includes('not a member') ||
               watchError.message?.includes('error code 17')) {
             console.warn('⚠️ [ChatPage] Permission error, ensuring backend access...');
             
-            // Call backend to ensure user is added as member
             try {
-              const conversationResponse = await getConversationById(conversationId!);
-              if (!conversationResponse.success) {
-                throw new Error('Failed to access conversation. Please try again.');
-              }
-              
-              // Get actual conversation ID from backend response (might be different format)
-              const conversation = conversationResponse.data;
-              const actualConversationId = conversation?.id || conversationId!;
-              
-              // If ID is different, recreate channel instance
-              if (actualConversationId !== channelIdOnly) {
-                console.log('💬 [ChatPage] Using corrected conversation ID from backend:', actualConversationId);
-                channelInstance = client.channel(channelType, actualConversationId);
-              }
-              
+              await getConversationById(conversationId!);
               console.log('✅ [ChatPage] Backend confirmed access, retrying watch...');
               
-              // Retry watch immediately (backend should have synced by now)
-              await channelInstance.watch();
+              await channelInstance.watch({
+                watchers: { limit: 10 },
+                messages: { limit: 50 },
+                presence: true,
+              });
               console.log('✅ [ChatPage] Channel watched after ensuring access');
-              setChannel(channelInstance);
             } catch (retryError: any) {
               console.error('❌ [ChatPage] Retry failed:', retryError.message);
-              throw new Error('Channel not available. Please try again in a moment. If the issue persists, the backend may need to fix the channel members.');
+              setError('Channel not available. Please try again.');
+              return;
             }
           } else {
-            // Other errors - throw as-is
-            throw watchError;
+            setError(watchError.message || 'Failed to load chat');
+            return;
           }
         }
+        
+        // Load more messages in background (non-blocking)
+        // This allows UI to render immediately with initial 50 messages
+        channelInstance.query({
+          messages: { limit: 200 }, // Load more in background
+        }).then(() => {
+          const loadedMessages = channelInstance.state?.messages || [];
+          console.log('✅ [ChatPage] Background message load complete. Count:', loadedMessages.length);
+        }).catch((queryError: any) => {
+          console.warn('⚠️ [ChatPage] Background message query failed (non-critical):', queryError.message);
+        });
       } catch (err: any) {
         console.error('❌ [ChatPage] Failed to initialize channel:', err);
         setError(err.message || 'Failed to load chat. Please try again.');
@@ -299,7 +518,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     };
 
     initializeChannel();
-  }, [client, streamChannelId, conversationId, participant, getConversationById, createConversation, currentProfileType, api]);
+  }, [client, streamChannelId, conversationId, participant, getConversationById, createConversation, currentProfileType, api, getAccessToken]);
 
   // Show loading state if client is not available yet (must be after all hooks)
   if (!client) {
@@ -426,6 +645,22 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 // Mark as read when viewing
                 onMessageRead={() => {
                   channel.markRead().catch(console.error);
+                }}
+                // Enable pagination to load more messages when scrolling up
+                loadMore={true}
+                loadMoreThreshold={10} // Load more when 10 messages from top
+                // Ensure all messages are displayed
+                noGroupByUser={false}
+                // Additional props to ensure messages render
+                additionalFlatListProps={{
+                  removeClippedSubviews: false, // Disable to ensure all messages render
+                  maintainVisibleContentPosition: {
+                    minIndexForVisible: 0,
+                  },
+                  // Ensure all messages are rendered
+                  initialNumToRender: 50, // Render more messages initially
+                  maxToRenderPerBatch: 20, // Render more per batch
+                  windowSize: 10, // Larger window size
                 }}
                 // Empty state
                 EmptyStateIndicator={() => (

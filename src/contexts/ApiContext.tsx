@@ -443,10 +443,12 @@ interface ApiProviderProps {
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
-    // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud
-  //  baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
-      // baseUrl = 'http://localhost:3000' // Local server - for testing
-      baseUrl = 'http://192.168.100.92:3000' // Local server - Mac IP for iOS simulator
+  // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
+  // baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
+  // Auto-detect local dev server URL based on platform
+  baseUrl = Platform.OS === 'android' 
+    ? 'http://10.0.2.2:3000' // Android emulator special IP for localhost
+    : 'http://localhost:3000' // iOS simulator can use localhost directly
 }) => {
   const [api] = useState(() => {
     const apiClient = new OneCrewApi(baseUrl);
@@ -8838,6 +8840,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       await api.chat.sendHeartbeat();
       console.log('✅ Heartbeat sent');
     } catch (error: any) {
+      // Handle 404 gracefully - endpoint might not exist on local dev server
+      if (error?.status === 404 || 
+          error?.statusCode === 404 ||
+          error?.message?.includes('404') ||
+          error?.message?.includes('not found') ||
+          (error?.message?.includes('Route') && error?.message?.includes('not found'))) {
+        // Silently ignore - heartbeat is optional for local dev
+        return;
+      }
       // Handle 401 errors - token invalidated, need to logout
       if (error?.status === 401 || error?.statusCode === 401) {
         const errorMessage = error?.message || error?.error || '';
