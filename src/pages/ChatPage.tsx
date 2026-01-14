@@ -116,7 +116,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           }).catch((queryError: any) => {
             console.warn('⚠️ [ChatPage] Background message query failed (non-critical):', queryError.message);
           });
-        }).catch((err) => {
+        }).catch((err: any) => {
           console.error('❌ [ChatPage] Failed to watch channel:', err);
         });
       } else {
@@ -131,7 +131,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
             // StreamChat's MessageList will handle pagination automatically
           }).then(() => {
             console.log('✅ [ChatPage] Messages loaded. Count:', channel.state?.messages?.length || 0);
-          }).catch((err) => {
+          }).catch((err: any) => {
             console.error('❌ [ChatPage] Failed to query messages:', err);
           });
         }
@@ -195,7 +195,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       messagesCount: channel.state?.messages?.length || 0,
       channelId: channel.id,
       channelCid: channel.cid,
-      connected: client.connected,
+      isConnected: !!client?.userID,
     });
     
     // Verify event listeners are registered
@@ -246,7 +246,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
               messages: { limit: 200 },
             }).catch(() => {});
           }
-        }).catch((err) => {
+        }).catch((err: any) => {
           console.error('❌ [ChatPage] Failed to query messages:', err);
         });
       }
@@ -638,17 +638,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
           <View style={styles.channelContainer}>
             <Channel
               channel={channel}
-              onThreadSelect={handleThreadSelect}
             >
               <MessageList 
                 onThreadSelect={handleThreadSelect}
-                // Mark as read when viewing
-                onMessageRead={() => {
-                  channel.markRead().catch(console.error);
-                }}
-                // Enable pagination to load more messages when scrolling up
-                loadMore={true}
-                loadMoreThreshold={10} // Load more when 10 messages from top
                 // Ensure all messages are displayed
                 noGroupByUser={false}
                 // Additional props to ensure messages render
@@ -676,10 +668,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
                   placeholder: 'Type a message...',
                   placeholderTextColor: '#9ca3af',
                 }}
-                giphyEnabled={false}
-                imageUploadEnabled={false}
-                fileUploadEnabled={false}
-                audioRecordingEnabled={false}
               />
             </Channel>
           </View>
