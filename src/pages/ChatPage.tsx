@@ -46,7 +46,7 @@ import {
   CareReaction,
   AngryReaction,
 } from '../components/ReactionIcons';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApi } from '../contexts/ApiContext';
 import { ChatPageProps } from '../types';
@@ -100,13 +100,20 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const headerDataRef = useRef<{
     userName: string;
     userImage: string | null;
+    imageLoadError: boolean;
+    lastImageUrl: string | null;
   }>({
     userName: 'Chat',
     userImage: null,
+    imageLoadError: false,
+    lastImageUrl: null,
   });
 
   // Track when channel members are loaded
   const [channelMembersLoaded, setChannelMembersLoaded] = useState(false);
+  
+  // State to force header updates when channel data changes
+  const [headerUpdateTrigger, setHeaderUpdateTrigger] = useState(0);
 
   // Watch for channel state changes to detect when members are populated
   useEffect(() => {
@@ -122,6 +129,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
       
       if (memberCount > 0) {
         setChannelMembersLoaded(true);
+        // Force header update when members are detected
+        setHeaderUpdateTrigger(prev => prev + 1);
         if (__DEV__) {
           console.log('✅ [ChatPage] Channel members loaded:', memberCount, 'members');
         }
@@ -139,76 +148,199 @@ const ChatPage: React.FC<ChatPageProps> = ({
     const handleStateChange = () => {
       if (checkMembers()) {
         // Force header update by triggering a state change
-        // The useLayoutEffect will re-run when channelMembersLoaded changes
+        setHeaderUpdateTrigger(prev => prev + 1);
       }
     };
 
     // Also listen for member updates specifically
     const handleMemberUpdated = () => {
       if (checkMembers()) {
+        setHeaderUpdateTrigger(prev => prev + 1);
         if (__DEV__) {
           console.log('✅ [ChatPage] Member updated, members now available');
         }
       }
     };
 
+    // Listen for when channel becomes watched (triggers header update)
+    const handleWatched = () => {
+      if (__DEV__) {
+        console.log('✅ [ChatPage] Channel watched, members should be available');
+      }
+      // Trigger header update by checking members
+      if (checkMembers()) {
+        setHeaderUpdateTrigger(prev => prev + 1);
+      }
+    };
+
     channel.on('state.changed', handleStateChange);
     channel.on('member.added', handleMemberUpdated);
     channel.on('member.updated', handleMemberUpdated);
+    channel.on('connection.changed', handleWatched);
 
     return () => {
       channel.off('state.changed', handleStateChange);
       channel.off('member.added', handleMemberUpdated);
       channel.off('member.updated', handleMemberUpdated);
+      channel.off('connection.changed', handleWatched);
     };
   }, [channel]);
 
-  // Update navigation header with participant info dynamically
-  // Try to get from participant prop first, then from channel after it loads
-  useLayoutEffect(() => {
-    // Helper function to extract user info
-    const getUserInfo = () => {
-      // Method 1: Try participant prop
-      // Participant might be nested (participant.user) or direct (participant is the user)
-      let participantUser = participant?.user || participant;
-      let userName = participantUser?.name || participantUser?.id || participant?.user_id;
-      
-      // Try all possible image fields - check both nested and direct
-      let userImage = 
-        participantUser?.image || 
-        participantUser?.image_url || 
-        participantUser?.imageUrl ||  // camelCase variant
-        participantUser?.avatar || 
-        participantUser?.avatar_url ||
-        participantUser?.avatarUrl ||  // camelCase variant
-        participantUser?.profile_image ||
-        participantUser?.profile_image_url ||
-        participantUser?.profileImage ||  // camelCase variant
-        participantUser?.profileImageUrl ||  // camelCase variant
-        participantUser?.photo_url ||
-        participantUser?.photoUrl ||
-        participantUser?.logo_url ||
-        participantUser?.logoUrl;
-      
-      // Method 2: If channel is loaded and watched, try to get from channel members
-      if ((!userName || !userImage) && channel && client && channel.state?.watched) {
+  // Periodic check to update header when channel data becomes available
+  // This ensures header updates even if events don't fire
+  useEffect(() => {
+    if (!channel || !client) return;
+    
+    // If header still has defaults, check channel periodically
+    if (headerDataRef.current.userName === 'Chat' || !headerDataRef.current.userImage) {
+      const checkInterval = setInterval(() => {
         try {
-          const currentUserId = client?.userID;
+          const currentUserId = client.userID;
           const members = channel?.state?.members || {};
-          
           const otherMember = Object.values(members).find(
             (member: any) => member.user?.id !== currentUserId
           );
           
           if (otherMember?.user) {
             const channelUser = otherMember.user;
-            if (!userName) {
-              userName = channelUser.name || channelUser.id;
+            const channelUserName = channelUser.name || channelUser.id;
+            const channelUserImage = channelUser.image || 
+                                   channelUser.image_url || 
+                                   channelUser.logo_url ||
+                                   channelUser.imageUrl ||
+                                   channelUser.avatar ||
+                                   channelUser.avatar_url ||
+                                   channelUser.avatarUrl ||
+                                   null;
+            
+            if ((channelUserName && channelUserName !== 'Chat') || channelUserImage) {
+              // Found data, update ref and trigger header update
+              headerDataRef.current = {
+                ...headerDataRef.current,
+                userName: channelUserName || headerDataRef.current.userName,
+                userImage: channelUserImage || headerDataRef.current.userImage,
+              };
+              setHeaderUpdateTrigger(prev => prev + 1);
+              clearInterval(checkInterval);
+              
+              if (__DEV__) {
+                console.log('✅ [ChatPage] Periodic check found channel data:', {
+                  userName: channelUserName,
+                  hasImage: !!channelUserImage,
+                });
+              }
             }
-            if (!userImage) {
-              // Try all possible image fields from channel user
-              userImage = channelUser.image || 
+          }
+        } catch (error) {
+          // Silently continue checking
+        }
+      }, 500); // Check every 500ms
+      
+      // Stop checking after 10 seconds
+      const timeout = setTimeout(() => {
+        clearInterval(checkInterval);
+      }, 10000);
+      
+      return () => {
+        clearInterval(checkInterval);
+        clearTimeout(timeout);
+      };
+    }
+  }, [channel, client, headerUpdateTrigger]);
+
+  // Update navigation header with participant info dynamically
+  // Try to get from participant prop first, then from channel after it loads
+  // CRITICAL: This effect must run on every render to catch data when re-entering
+  useLayoutEffect(() => {
+    // On mount/re-entry, if ref has defaults, we need to extract data immediately
+    const isInitialMount = headerDataRef.current.userName === 'Chat' && !headerDataRef.current.userImage;
+    
+    if (__DEV__ && isInitialMount) {
+      console.log('🔄 [ChatPage] Header effect running on mount/re-entry, extracting data...');
+    }
+    
+    // Helper function to extract user info
+    // This function aggressively checks all possible data sources
+    const getUserInfo = () => {
+      // Method 1: Try participant prop directly first (for companies with logo_url, users with image_url)
+      // Check participant prop directly before checking nested structures
+      let userName = participant?.name || participant?.id || participant?.user_id;
+      let userImage = 
+        participant?.image_url ||  // Most common for users
+        participant?.logo_url ||   // Most common for companies
+        participant?.image ||
+        participant?.imageUrl ||
+        participant?.avatar ||
+        participant?.avatar_url ||
+        participant?.avatarUrl ||
+        participant?.logoUrl;
+      
+      // Method 1b: Try nested participant.user structure if direct check didn't find data
+      // Participant might be nested (participant.user) or direct (participant is the user)
+      let participantUser = participant?.user || participant;
+      if (!userName) {
+        userName = participantUser?.name || participantUser?.id || participant?.user_id;
+      }
+      
+      // If we didn't find image from direct participant check, try participantUser
+      if (!userImage) {
+        userImage = 
+          participantUser?.image_url ||  // Most common for users
+          participantUser?.logo_url ||    // Most common for companies
+          participantUser?.image || 
+          participantUser?.imageUrl || 
+          participantUser?.avatar || 
+          participantUser?.avatar_url ||
+          participantUser?.avatarUrl || 
+          participantUser?.profile_image ||
+          participantUser?.profile_image_url ||
+          participantUser?.profileImage || 
+          participantUser?.profileImageUrl || 
+          participantUser?.photo_url ||
+          participantUser?.photoUrl ||
+          participantUser?.logoUrl;
+      }
+      
+      // Method 2: Try to get from channel members (works even if not watched yet)
+      // This is a critical fallback when participant prop doesn't have complete data
+      // Also use this when we only have conversationId (navigated from conversations list)
+      if (channel && client) {
+        try {
+          const currentUserId = client?.userID;
+          
+          // Try channel.state.members first (most reliable, requires watched channel)
+          let members = channel?.state?.members || {};
+          let otherMember = Object.values(members).find(
+            (member: any) => member.user?.id !== currentUserId
+          );
+          
+          // If no members in state, try channel.data.members as fallback
+          if (!otherMember && channel?.data?.members) {
+            const dataMembers = Array.isArray(channel.data.members) 
+              ? channel.data.members 
+              : Object.values(channel.data.members || {});
+            otherMember = dataMembers.find(
+              (member: any) => {
+                const memberUserId = member.user?.id || member.user_id || member.id;
+                return memberUserId && memberUserId !== currentUserId;
+              }
+            );
+          }
+          
+          if (otherMember?.user) {
+            const channelUser = otherMember.user;
+            
+            // Always prioritize channel member data - it's the most reliable source
+            // Replace defaults even if we have partial participant data
+            const channelUserName = channelUser.name || channelUser.id;
+            if (channelUserName && channelUserName !== 'Chat') {
+              userName = channelUserName;
+            }
+            
+            // Try all possible image fields from channel user, prioritizing most common first
+            const channelUserImage = channelUser.image ||  // StreamChat standard field
                          channelUser.image_url || 
+                         channelUser.logo_url ||  // For companies
                          channelUser.imageUrl ||
                          channelUser.avatar ||
                          channelUser.avatar_url ||
@@ -219,12 +351,38 @@ const ChatPage: React.FC<ChatPageProps> = ({
                          channelUser.profileImageUrl ||
                          channelUser.photo_url ||
                          channelUser.photoUrl ||
-                         channelUser.logo_url ||
                          channelUser.logoUrl;
+            
+            if (channelUserImage) {
+              userImage = channelUserImage;
             }
+            
             if (!participantUser) {
               participantUser = channelUser;
             }
+            
+            if (__DEV__) {
+              console.log('✅ [ChatPage] Extracted from channel member:', {
+                source: otherMember === Object.values(members).find((m: any) => m.user?.id !== currentUserId) 
+                  ? 'channel.state.members' 
+                  : 'channel.data.members',
+                userName: channelUserName,
+                hasImage: !!channelUserImage,
+                imageUrl: channelUserImage,
+                memberCount: Object.keys(members).length,
+                currentUserId,
+                channelWatched: channel.state?.watched,
+              });
+            }
+          } else if (__DEV__) {
+            console.warn('⚠️ [ChatPage] No other member found in channel:', {
+              hasStateMembers: Object.keys(members).length > 0,
+              memberCount: Object.keys(members).length,
+              memberIds: Object.keys(members),
+              hasDataMembers: !!channel?.data?.members,
+              currentUserId,
+              channelWatched: channel.state?.watched,
+            });
           }
         } catch (error) {
           // Channel context not available yet
@@ -234,48 +392,80 @@ const ChatPage: React.FC<ChatPageProps> = ({
         }
       }
       
-      // Method 3: Try channel.data if available (fallback)
-      if ((!userName || !userImage) && channel?.data) {
+      // Method 3: Try channel.data if available (final fallback, works even before channel is watched)
+      // This is important for initial render when channel might not be watched yet
+      if (channel?.data) {
         try {
           const channelData = channel.data;
           
           // Check if channel.data has user info
-          if (channelData.user) {
+          if (channelData.user && (!userName || !userImage)) {
             const dataUser = channelData.user;
-            if (!userName) {
-              userName = dataUser.name || dataUser.id;
+            if (!userName || userName === 'Chat') {
+              const dataUserName = dataUser.name || dataUser.id;
+              if (dataUserName && dataUserName !== 'Chat') {
+                userName = dataUserName;
+              }
             }
             if (!userImage) {
               userImage = dataUser.image || 
                          dataUser.image_url || 
+                         dataUser.logo_url ||  // For companies
                          dataUser.imageUrl ||
                          dataUser.avatar ||
                          dataUser.avatar_url ||
-                         dataUser.avatarUrl;
+                         dataUser.avatarUrl ||
+                         dataUser.logoUrl;
             }
           }
           
-          // Also check channel.data.members array
-          if ((!userName || !userImage) && Array.isArray(channelData.members)) {
+          // Also check channel.data.members array (can be array or object)
+          if ((!userName || userName === 'Chat' || !userImage) && channelData.members) {
             const currentUserId = client?.userID;
-            const otherMember = channelData.members.find(
-              (member: any) => member.user_id !== currentUserId && member.user
+            let membersArray: any[] = [];
+            
+            // Handle both array and object formats
+            if (Array.isArray(channelData.members)) {
+              membersArray = channelData.members;
+            } else if (typeof channelData.members === 'object') {
+              membersArray = Object.values(channelData.members);
+            }
+            
+            const otherMember = membersArray.find(
+              (member: any) => {
+                const memberUserId = member.user?.id || member.user_id || member.id;
+                return memberUserId && memberUserId !== currentUserId;
+              }
             );
             
             if (otherMember?.user) {
               const memberUser = otherMember.user;
-              if (!userName) {
-                userName = memberUser.name || memberUser.id;
+              if (!userName || userName === 'Chat') {
+                const memberUserName = memberUser.name || memberUser.id;
+                if (memberUserName && memberUserName !== 'Chat') {
+                  userName = memberUserName;
+                }
               }
               if (!userImage) {
                 userImage = memberUser.image || 
                            memberUser.image_url || 
+                           memberUser.logo_url ||  // For companies
                            memberUser.imageUrl ||
                            memberUser.avatar ||
                            memberUser.avatar_url ||
-                           memberUser.avatarUrl;
+                           memberUser.avatarUrl ||
+                           memberUser.logoUrl;
               }
             }
+          }
+          
+          if (__DEV__ && (userImage || (userName && userName !== 'Chat'))) {
+            console.log('✅ [ChatPage] Found data from channel.data:', {
+              source: 'channel.data',
+              imageUrl: userImage,
+              userName,
+              hasDataMembers: !!channelData.members,
+            });
           }
         } catch (error) {
           if (__DEV__) {
@@ -294,23 +484,59 @@ const ChatPage: React.FC<ChatPageProps> = ({
     const { userName, userImage, participantUser } = getUserInfo();
     
     // Update ref with latest values - this ensures headerTitle always reads current data
-    // Only update if we found new data - preserve existing values to prevent resetting to defaults
-    // This prevents the avatar from disappearing when the effect re-runs before channel members load
-    const newUserName = (userName && userName !== 'Chat') ? userName : (headerDataRef.current.userName || 'Chat');
-    const newUserImage = userImage ? userImage : (headerDataRef.current.userImage || null);
+    // CRITICAL: Always prioritize extracted data over ref defaults, especially on re-entry
+    // When re-entering chat, ref starts with defaults, so we must replace them with real data
+    const newUserName = userName && userName !== 'Chat' 
+      ? userName 
+      : (headerDataRef.current.userName && headerDataRef.current.userName !== 'Chat' 
+          ? headerDataRef.current.userName 
+          : userName || 'Chat');
     
-    // Only update ref if we have meaningful changes to prevent unnecessary re-renders
-    if (newUserName !== headerDataRef.current.userName || newUserImage !== headerDataRef.current.userImage) {
+    // Prioritize new image if available, otherwise keep existing
+    const newUserImage = userImage || headerDataRef.current.userImage || null;
+    
+    // Reset image load error if image URL changed
+    if (newUserImage !== headerDataRef.current.lastImageUrl) {
+      headerDataRef.current.imageLoadError = false;
+      headerDataRef.current.lastImageUrl = newUserImage;
+    }
+    
+    // Always update ref if we have better data (non-"Chat" name or new image)
+    // CRITICAL: Also update if current ref has defaults and we found any data (even if same)
+    // This ensures re-entry always shows correct data instead of defaults
+    const hasBetterName = newUserName !== 'Chat' && newUserName !== headerDataRef.current.userName;
+    const hasNewImage = newUserImage !== headerDataRef.current.userImage;
+    const nameChanged = newUserName !== headerDataRef.current.userName;
+    const isRefDefault = headerDataRef.current.userName === 'Chat' && !headerDataRef.current.userImage;
+    const hasAnyData = (newUserName !== 'Chat') || !!newUserImage;
+    const shouldUpdate = hasBetterName || hasNewImage || nameChanged || (isRefDefault && hasAnyData);
+    
+    if (shouldUpdate) {
+      const previousData = { ...headerDataRef.current };
       headerDataRef.current = {
+        ...headerDataRef.current,
         userName: newUserName,
         userImage: newUserImage,
       };
       
       if (__DEV__) {
         console.log('🔄 [ChatPage] Header ref updated:', {
-          userName: newUserName,
-          hasUserImage: !!newUserImage,
-          userImage: newUserImage,
+          previous: {
+            userName: previousData.userName,
+            hasUserImage: !!previousData.userImage,
+          },
+          current: {
+            userName: newUserName,
+            hasUserImage: !!newUserImage,
+            userImage: newUserImage,
+          },
+          source: userName && userName !== 'Chat' ? 'channel/participant' : 'default',
+          hasBetterName,
+          hasNewImage,
+          nameChanged,
+          isRefDefault,
+          hasAnyData,
+          reason: isRefDefault && hasAnyData ? 'replacing defaults on re-entry' : 'data update',
         });
       }
     }
@@ -348,11 +574,67 @@ const ChatPage: React.FC<ChatPageProps> = ({
     }
     
     // Force navigation to update header by setting options
+    // CRITICAL: Always call this, even if ref hasn't changed, to ensure header updates on re-entry
     navigation.setOptions({
       headerTitle: () => {
-        // Always read from ref - ensures we get latest values even if component hasn't re-rendered
-        const currentUserName = headerDataRef.current.userName;
-        const currentUserImage = headerDataRef.current.userImage;
+        // CRITICAL: Read directly from channel state if available, fallback to ref
+        // This ensures header updates reactively when channel data loads
+        let currentUserName = headerDataRef.current.userName || 'Chat';
+        let currentUserImage = headerDataRef.current.userImage;
+        
+        // If ref has defaults, try to extract from channel immediately
+        if ((currentUserName === 'Chat' || !currentUserImage) && channel && client) {
+          try {
+            const currentUserId = client.userID;
+            const members = channel?.state?.members || {};
+            const otherMember = Object.values(members).find(
+              (member: any) => member.user?.id !== currentUserId
+            );
+            
+            if (otherMember?.user) {
+              const channelUser = otherMember.user;
+              if (currentUserName === 'Chat') {
+                currentUserName = channelUser.name || channelUser.id || 'Chat';
+              }
+              if (!currentUserImage) {
+                currentUserImage = channelUser.image || 
+                                 channelUser.image_url || 
+                                 channelUser.logo_url ||
+                                 channelUser.imageUrl ||
+                                 channelUser.avatar ||
+                                 channelUser.avatar_url ||
+                                 channelUser.avatarUrl ||
+                                 null;
+              }
+              
+              // Update ref immediately if we found data
+              if (currentUserName !== 'Chat' || currentUserImage) {
+                headerDataRef.current = {
+                  ...headerDataRef.current,
+                  userName: currentUserName,
+                  userImage: currentUserImage,
+                };
+              }
+            }
+          } catch (error) {
+            // Silently fail, use ref values
+          }
+        }
+        
+        if (__DEV__) {
+          // Log when headerTitle renders to debug re-entry issues
+          console.log('🎨 [ChatPage] HeaderTitle rendering:', {
+            userName: currentUserName,
+            hasImage: !!currentUserImage,
+            imageUrl: currentUserImage,
+            source: currentUserName !== 'Chat' ? 'channel/ref' : 'default',
+          });
+        }
+        
+        // Get first letter for placeholder - ensure we have a valid character
+        const firstLetter = currentUserName && currentUserName.length > 0 
+          ? currentUserName.charAt(0).toUpperCase() 
+          : 'C';
         
         const headerStyles = StyleSheet.create({
           headerContent: {
@@ -360,6 +642,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
             alignItems: 'center',
             gap: 12,
             justifyContent: 'center',
+            flex: 1,
           },
           headerAvatar: {
             width: 32,
@@ -389,9 +672,13 @@ const ChatPage: React.FC<ChatPageProps> = ({
           },
         });
         
+        // Check if image failed to load
+        const imageLoadError = headerDataRef.current.imageLoadError;
+        const shouldShowImage = currentUserImage && !imageLoadError;
+        
         return (
           <View style={headerStyles.headerContent}>
-            {currentUserImage ? (
+            {shouldShowImage ? (
               <View style={headerStyles.headerAvatar}>
                 <Image
                   source={{ uri: currentUserImage }}
@@ -402,35 +689,44 @@ const ChatPage: React.FC<ChatPageProps> = ({
                   contentFit="cover"
                   transition={150}
                   onError={(error) => {
+                    // Mark image as failed to load
+                    headerDataRef.current.imageLoadError = true;
                     if (__DEV__) {
                       console.warn('⚠️ [ChatPage] Failed to load avatar image:', {
                         uri: currentUserImage,
-                        error,
+                        error: error?.message || error,
+                        errorType: error?.constructor?.name || typeof error,
+                        userName: currentUserName,
+                        imageSource: 'headerTitle',
                       });
                     }
+                    // Force header update
+                    navigation.setOptions({});
                   }}
                   onLoad={() => {
+                    // Clear error state on successful load
+                    headerDataRef.current.imageLoadError = false;
                     if (__DEV__) {
-                      console.log('✅ [ChatPage] Avatar image loaded successfully:', currentUserImage);
+                      console.log('✅ [ChatPage] Avatar image loaded successfully:', {
+                        uri: currentUserImage,
+                        userName: currentUserName,
+                        imageSource: 'headerTitle',
+                      });
                     }
                   }}
                 />
               </View>
-            ) : (
-              <View style={headerStyles.headerAvatarPlaceholder}>
-                <Text style={headerStyles.headerAvatarText}>
-                  {currentUserName.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
+            ) : null}
             <Text style={headerStyles.headerTitleText} numberOfLines={1}>
               {currentUserName}
             </Text>
           </View>
         );
       },
+      // Explicitly set title to empty string to prevent fallback to "Chat"
+      title: '',
     });
-  }, [participant, channel, client, navigation, channelMembersLoaded]);
+  }, [participant, channel, client, navigation, channelMembersLoaded, headerUpdateTrigger]);
 
   // Try to get chat context - use optional chaining to handle when context isn't ready
   // Note: useChatContext must be called unconditionally
@@ -933,6 +1229,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
           presence: true,
         });
         console.log('✅ [ChatPage] Channel watched successfully');
+        
+        // Mark channel as read when opened/viewed
+        try {
+          await channel.markRead();
+          console.log('✅ [ChatPage] Channel marked as read on open');
+        } catch (readError: any) {
+          console.warn('⚠️ [ChatPage] Failed to mark channel as read:', readError);
+        }
       } catch (err: any) {
           console.error('❌ [ChatPage] Failed to watch channel:', err);
       }
@@ -940,6 +1244,29 @@ const ChatPage: React.FC<ChatPageProps> = ({
     
     watchChannel();
   }, [channel]);
+
+  // Mark channel as read when screen is focused (user is viewing the chat)
+  useFocusEffect(
+    useCallback(() => {
+      if (!channel || !channel.state?.watched) return;
+      
+      // Mark as read when user focuses on the chat screen
+      const markAsRead = async () => {
+        try {
+          await channel.markRead();
+          if (__DEV__) {
+            console.log('✅ [ChatPage] Channel marked as read on focus');
+          }
+        } catch (readError: any) {
+          if (__DEV__) {
+            console.warn('⚠️ [ChatPage] Failed to mark channel as read on focus:', readError);
+          }
+        }
+      };
+      
+      markAsRead();
+    }, [channel])
+  );
 
   // Real-time message event listeners
   useEffect(() => {
@@ -979,12 +1306,28 @@ const ChatPage: React.FC<ChatPageProps> = ({
       console.log('💬 [ChatPage] Typing state:', channel.state?.typing);
     };
 
+    // Listen for channel read state changes - triggers when messages are marked as read
+    const handleChannelRead = () => {
+      console.log('💬 [ChatPage] Channel marked as read - unread count should update');
+      // The unread count will be updated by the ApiContext listener
+    };
+
+    // Listen for channel state changes (includes read state updates)
+    const handleChannelStateChanged = () => {
+      // When channel state changes (including read state), unread count may have changed
+      if (channel.state?.unreadCount !== undefined) {
+        console.log('💬 [ChatPage] Channel unread count changed:', channel.state.unreadCount);
+      }
+    };
+
     // Subscribe to events
     channel.on('message.new', handleNewMessage);
     channel.on('message.updated', handleMessageUpdated);
     channel.on('message.deleted', handleMessageDeleted);
     channel.on('typing.start', handleTypingStart);
     channel.on('typing.stop', handleTypingStop);
+    channel.on('notification.mark_read', handleChannelRead);
+    channel.on('state.changed', handleChannelStateChanged);
 
     // Verify channel state for real-time events
     console.log('💬 [ChatPage] Channel state for real-time:', {
@@ -1015,6 +1358,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
       channel.off('message.deleted', handleMessageDeleted);
       channel.off('typing.start', handleTypingStart);
       channel.off('typing.stop', handleTypingStop);
+      channel.off('notification.mark_read', handleChannelRead);
+      channel.off('state.changed', handleChannelStateChanged);
     };
   }, [channel, client]);
 
@@ -1109,6 +1454,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 presence: true,
               });
               console.log('✅ [ChatPage] Channel watched successfully');
+              
+              // Mark channel as read when opened/viewed
+              try {
+                await channelInstance.markRead();
+                console.log('✅ [ChatPage] Channel marked as read on open');
+              } catch (readError: any) {
+                console.warn('⚠️ [ChatPage] Failed to mark channel as read:', readError);
+              }
+              
               return channelInstance;
             })(),
           ]);
@@ -1385,6 +1739,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
               channel={channel}
               // Hide StreamChat's default header - we're using React Navigation header instead
               ChannelHeader={() => null}
+              // Mark channel as read when component mounts (user is viewing messages)
+              // StreamChat's Channel component handles this automatically, but we ensure it happens
+              onMarkRead={() => {
+                // This callback is called when StreamChat marks the channel as read
+                // The unread count will be updated by the ApiContext listener
+                if (__DEV__) {
+                  console.log('💬 [ChatPage] Channel marked as read via Channel component');
+                }
+              }}
               // Custom reaction options with SVG icons
               supportedReactions={customReactionOptions}
               // Custom overlay - only customizes ReactionPicker, uses default MessageActionList

@@ -7925,8 +7925,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               }
             });
             
+            // Update from backend - this serves as initial value and fallback
+            // StreamChat real-time updates will override this when available
             setUnreadConversationCount(unreadCount);
-            console.log('💬 Unread conversations count:', unreadCount);
+            if (__DEV__) {
+              console.log('💬 Unread conversations count (from backend):', unreadCount, {
+                streamChatConnected: streamChatService.isConnected(),
+              });
+            }
+            
             if (__DEV__ && skippedNotParticipant > 0) {
               console.log('⚠️ Skipped unread-count for conversations not belonging to current profile:', {
                 skipped: skippedNotParticipant,
@@ -8122,6 +8129,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         response = await api.chat.markMessageAsRead(messageId, conversationId);
       } else {
         // Mark all messages in a conversation as read using library method
+      // After marking as read, update unread count
         // markAllAsRead(conversationId: string, messageIds?: string[])
         response = await api.chat.markAllAsRead(conversationId, messageIds);
       }
@@ -8147,6 +8155,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.chat.markMessageAsRead(messageId, conversationId);
       if (response.success) {
         console.log('✅ Message marked as read successfully');
+        // Update unread count after marking as read
+        if (streamChatService.isConnected()) {
+          const newCount = await calculateStreamChatUnreadCount();
+          setUnreadConversationCount(newCount);
+        }
         return response;
       }
       throw new Error(response.error || 'Failed to mark message as read');
@@ -8165,6 +8178,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.chat.markAllAsRead(conversationId, messageIds);
       if (response.success) {
         console.log('✅ All messages marked as read successfully');
+        // Update unread count after marking all as read
+        if (streamChatService.isConnected()) {
+          const newCount = await calculateStreamChatUnreadCount();
+          setUnreadConversationCount(newCount);
+        }
         return response;
       }
       throw new Error(response.error || 'Failed to mark all messages as read');
@@ -9182,6 +9200,97 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     };
   }, [isAuthenticated, user?.id]);
 
+  // Calculate unread count from StreamChat channels
+  const calculateStreamChatUnreadCount = useCallback(async (): Promise<number> => {
+    try {
+      const client = streamChatService.getClient();
+      if (!client || !client.userID) {
+        if (__DEV__) {
+          console.log('💬 [StreamChat] Client not available for unread count calculation');
+        }
+        return 0;
+      }
+
+      const currentUserId = client.userID;
+      
+      // Query all channels where current user is a member
+      // Watch channels to ensure unreadCount is available
+      const filters = {
+        members: { $in: [currentUserId] },
+        type: 'messaging',
+      };
+
+      // Query and watch channels to get accurate unread counts
+      const channels = await client.queryChannels(
+        filters,
+        { last_message_at: -1 }, // Sort by last message
+        { 
+          watch: true, // Watch channels to get real-time unread counts
+          presence: true,
+          state: true, // Ensure state is included
+        }
+      );
+      
+      // Sum up unread counts from all channels
+      let totalUnread = 0;
+      const channelDetails: any[] = [];
+      
+      channels.forEach((channel) => {
+        // Try multiple ways to get unread count
+        // StreamChat stores unread count in channel.state.unreadCount
+        // But we should also check channel.state.read for per-user unread
+        let unreadCount = 0;
+        
+        if (channel.state?.unreadCount !== undefined) {
+          // Primary method: use channel's unreadCount
+          unreadCount = channel.state.unreadCount;
+        } else if (channel.state?.read?.[currentUserId]) {
+          // Fallback: calculate from read state
+          const readState = channel.state.read[currentUserId];
+          if (readState.unread_messages !== undefined) {
+            unreadCount = readState.unread_messages;
+          } else if (readState.last_read && channel.state.messages) {
+            // Calculate unread by comparing last_read with messages
+            const lastReadTime = new Date(readState.last_read).getTime();
+            const unreadMessages = channel.state.messages.filter((msg: any) => {
+              const msgTime = new Date(msg.created_at).getTime();
+              return msgTime > lastReadTime && msg.user?.id !== currentUserId;
+            });
+            unreadCount = unreadMessages.length;
+          }
+        }
+        
+        totalUnread += unreadCount;
+        
+        if (unreadCount > 0) {
+          channelDetails.push({
+            channelId: channel.id,
+            unreadCount,
+            hasState: !!channel.state,
+            hasUnreadCount: channel.state?.unreadCount !== undefined,
+            hasRead: !!channel.state?.read?.[currentUserId],
+          });
+        }
+      });
+
+      if (__DEV__) {
+        console.log('💬 [StreamChat] Calculated unread count:', {
+          totalUnread,
+          channelCount: channels.length,
+          channelsWithUnread: channelDetails.length,
+          channelDetails: channelDetails.slice(0, 5), // Log first 5 for debugging
+        });
+      }
+
+      return totalUnread;
+    } catch (error: any) {
+      if (__DEV__) {
+        console.warn('⚠️ [StreamChat] Failed to calculate unread count:', error);
+      }
+      return 0;
+    }
+  }, []);
+
   // Setup real-time subscription for chat conversations to update unread count
   useEffect(() => {
     if (isAuthenticated && user?.id && supabaseService.isInitialized()) {
@@ -9206,6 +9315,142 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       };
     }
   }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id]);
+
+  // Real-time StreamChat unread count tracking
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setUnreadConversationCount(0);
+      return;
+    }
+
+    let isMounted = true;
+    let client: any = null;
+
+    const updateUnreadCount = async () => {
+      try {
+        // Try StreamChat first (real-time)
+        if (streamChatService.isConnected()) {
+          client = streamChatService.getClient();
+          const streamChatCount = await calculateStreamChatUnreadCount();
+          
+          if (isMounted) {
+            setUnreadConversationCount(streamChatCount);
+            if (__DEV__) {
+              console.log('💬 [UnreadCount] Updated from StreamChat:', streamChatCount);
+            }
+            return;
+          }
+        }
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('⚠️ [UnreadCount] StreamChat calculation failed, using backend fallback');
+        }
+      }
+
+      // Fallback to backend if StreamChat not available
+      // Try to get count from backend API
+      try {
+        if (isMounted) {
+          // Call getConversations to trigger backend count calculation
+          // This will update unreadConversationCount via the existing logic
+          await getConversations({ limit: 1 }); // Minimal call just to trigger count
+        }
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('⚠️ [UnreadCount] Backend fallback also failed');
+        }
+      }
+    };
+
+    // Initial calculation with delay to ensure StreamChat is ready
+    const initialTimeout = setTimeout(() => {
+      updateUnreadCount();
+    }, 1000); // Wait 1 second for StreamChat to be fully connected
+
+    // Set up real-time listeners if StreamChat is connected
+    if (streamChatService.isConnected()) {
+      client = streamChatService.getClient();
+      
+      const handleMessageNew = () => {
+        if (isMounted) {
+          updateUnreadCount();
+        }
+      };
+
+      const handleChannelUpdated = (event: any) => {
+        // Channel updated - could be read state change
+        if (isMounted) {
+          if (__DEV__ && event?.channel?.state?.unreadCount !== undefined) {
+            console.log('💬 [UnreadCount] Channel updated, unreadCount:', event.channel.state.unreadCount);
+          }
+          updateUnreadCount();
+        }
+      };
+      
+      // Listen for read state changes specifically
+      const handleReadStateChanged = () => {
+        // When read state changes, unread count definitely changed
+        if (isMounted) {
+          if (__DEV__) {
+            console.log('💬 [UnreadCount] Read state changed, updating count');
+          }
+          updateUnreadCount();
+        }
+      };
+
+      const handleChannelDeleted = () => {
+        if (isMounted) {
+          updateUnreadCount();
+        }
+      };
+
+      const handleChannelRead = () => {
+        // When a channel is marked as read, update unread count immediately
+        if (isMounted) {
+          if (__DEV__) {
+            console.log('💬 [UnreadCount] Channel marked as read, updating count');
+          }
+          updateUnreadCount();
+        }
+      };
+
+      // Listen to client-level events (affects all channels)
+      client.on('message.new', handleMessageNew);
+      client.on('channel.updated', handleChannelUpdated);
+      client.on('channel.deleted', handleChannelDeleted);
+      client.on('notification.mark_read', handleChannelRead);
+      client.on('notification.read', handleReadStateChanged);
+      
+      // Also listen to channel-specific read events
+      // Note: StreamChat may fire 'notification.mark_read', 'notification.read', or channel state changes
+      // when messages are marked as read
+
+      // Also set up periodic refresh as backup (every 10 seconds for faster updates)
+      const refreshInterval = setInterval(() => {
+        if (isMounted && streamChatService.isConnected()) {
+          updateUnreadCount();
+        }
+      }, 10000); // Check every 10 seconds
+
+      return () => {
+        isMounted = false;
+        if (client) {
+          client.off('message.new', handleMessageNew);
+          client.off('channel.updated', handleChannelUpdated);
+          client.off('channel.deleted', handleChannelDeleted);
+          client.off('notification.mark_read', handleChannelRead);
+          client.off('notification.read', handleReadStateChanged);
+        }
+        clearInterval(refreshInterval);
+        clearTimeout(initialTimeout);
+      };
+    }
+
+    return () => {
+      isMounted = false;
+      clearTimeout(initialTimeout);
+    };
+  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, calculateStreamChatUnreadCount, getConversations]);
 
   // Online status methods
   const getOnlineStatus = async (userId: string) => {
