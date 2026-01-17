@@ -44,3 +44,4 @@ echo "  gcloud builds submit --config=cloudbuild-staging.yaml --project=cool-ste
 echo ""
 
 
+

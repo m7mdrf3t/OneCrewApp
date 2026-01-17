@@ -25,6 +25,32 @@ fi
 echo "✅ EAS CLI ready"
 echo ""
 
+# Verify version configuration
+echo "📋 Verifying version configuration..."
+CURRENT_VERSION=$(grep -E '"version":' app.json | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+CURRENT_BUILD=$(grep -E '"buildNumber":' app.json | head -1 | sed 's/.*"buildNumber": *"\([^"]*\)".*/\1/')
+RUNTIME_VERSION=$(grep -E '"runtimeVersion":' app.json | head -1 | sed 's/.*"runtimeVersion": *"\([^"]*\)".*/\1/')
+
+echo "   Version: $CURRENT_VERSION"
+echo "   Build Number: $CURRENT_BUILD"
+echo "   Runtime Version: $RUNTIME_VERSION"
+echo "   Version Source: local (from app.json)"
+echo ""
+
+if [ -z "$CURRENT_VERSION" ]; then
+    echo "❌ Error: Could not read version from app.json"
+    exit 1
+fi
+
+# Verify eas.json uses local version source
+if ! grep -q '"appVersionSource": "local"' eas.json; then
+    echo "⚠️  Warning: eas.json may not be using local version source"
+    echo "   Expected: \"appVersionSource\": \"local\""
+fi
+
+echo "✅ Version configuration verified"
+echo ""
+
 # Ask user if they want to submit automatically
 read -p "Do you want to automatically submit to TestFlight after build? (y/N): " -n 1 -r
 echo ""
@@ -39,10 +65,12 @@ fi
 
 echo ""
 echo "📦 Starting production build..."
+echo "   Version: $CURRENT_VERSION"
+echo "   Build Number: $CURRENT_BUILD (will auto-increment)"
 echo "   This will take 15-30 minutes"
 echo ""
 
-# Build for production
+# Build for production (uses local version from app.json via eas.json config)
 if eas build --platform ios --profile production; then
     echo ""
     echo "✅ Build completed successfully!"

@@ -4,6 +4,7 @@
  * Custom theme for StreamChat UI components to match OneCrew app design
  */
 
+import { Platform } from 'react-native';
 import { DefaultStreamChatGenerics, Theme } from 'stream-chat-react-native';
 
 export const streamChatTheme: Theme<DefaultStreamChatGenerics> = {
@@ -129,24 +130,155 @@ export const streamChatTheme: Theme<DefaultStreamChatGenerics> = {
       backgroundColor: '#ffffff',
       borderTopWidth: 1,
       borderTopColor: '#e5e7eb',
-      paddingHorizontal: 12,
-      paddingVertical: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      paddingBottom: 16, // Extra padding for better spacing
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: -2,
+      },
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      elevation: 3, // Android shadow
     },
     inputBox: {
       backgroundColor: '#f3f4f6',
-      borderRadius: 20,
+      borderRadius: 24,
       paddingHorizontal: 16,
-      paddingVertical: 10,
-      fontSize: 14,
+      paddingVertical: 12,
+      fontSize: 15,
       color: '#000000',
+      minHeight: 48,
+      maxHeight: 120,
+      borderWidth: 1,
+      borderColor: '#e5e7eb',
+    },
+    inputBoxFocused: {
+      borderColor: '#3b82f6',
+      backgroundColor: '#ffffff',
     },
     sendButton: {
-      backgroundColor: '#3b82f6',
-      borderRadius: 20,
-      width: 36,
-      height: 36,
+      // Native messenger style - transparent background, icon only
+      backgroundColor: 'transparent',
+      width: 44, // Increased for larger touch target
+      height: 44,
+      minWidth: 44,
+      minHeight: 44,
       justifyContent: 'center',
       alignItems: 'center',
+      marginLeft: 4,
+      // No shadows for native look
+      shadowOpacity: 0,
+      elevation: 0,
+      // Platform-specific adjustments
+      ...(Platform.OS === 'android' && {
+        width: 48, // Android Material Design: 48dp for comfortable touch target
+        height: 48,
+        minWidth: 48,
+        minHeight: 48,
+        borderRadius: 24, // Circular for Android ripple effect
+      }),
+    },
+    sendButtonDisabled: {
+      backgroundColor: 'transparent',
+      shadowOpacity: 0,
+      elevation: 0,
+    },
+    sendButtonSending: {
+      backgroundColor: '#60a5fa',
+      opacity: 0.8,
+    },
+    sendButtonContainer: {
+      minWidth: 48,
+      minHeight: 48,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginLeft: 8,
+    },
+  },
+  
+  // Message reactions - INCREASED TOUCH TARGETS AND SPACING
+  messageReactions: {
+    container: {
+      padding: 10, // Increased from 8 for more space
+    },
+    reactionButton: {
+      // Much larger touch targets for easier tapping
+      minWidth: Platform.OS === 'android' ? 64 : 60, // Increased: Android: 64dp, iOS: 60px
+      minHeight: Platform.OS === 'android' ? 64 : 60,
+      padding: 16, // Increased from 14
+      borderRadius: 30, // Increased from 28 for better touch area
+      justifyContent: 'center',
+      alignItems: 'center',
+      // Increased spacing between buttons for easier selection
+      marginHorizontal: 8, // Increased from 6
+      marginVertical: 8, // Increased from 6
+    },
+    reactionBubble: {
+      minWidth: Platform.OS === 'android' ? 64 : 60, // Match button size
+      minHeight: Platform.OS === 'android' ? 64 : 60,
+      paddingHorizontal: 20, // Increased from 18
+      paddingVertical: 14, // Increased from 12
+      borderRadius: 24, // Increased from 22
+      // Add spacing between reaction bubbles
+      marginHorizontal: 6, // Increased from 4
+      marginVertical: 6, // Increased from 4
+    },
+  },
+  
+  // Reaction picker (the menu that appears when you tap "react")
+  reactionPicker: {
+    container: {
+      padding: 16, // Increased padding for the picker container
+      gap: 12, // Large space between reaction items
+    },
+    item: {
+      // Much larger touch targets for reaction picker items
+      minWidth: Platform.OS === 'android' ? 72 : 68, // Even larger: Android: 72dp, iOS: 68px
+      minHeight: Platform.OS === 'android' ? 72 : 68,
+      width: Platform.OS === 'android' ? 72 : 68,
+      height: Platform.OS === 'android' ? 72 : 68,
+      padding: 18, // Increased padding
+      borderRadius: 36, // Larger border radius
+      justifyContent: 'center',
+      alignItems: 'center',
+      // Very large spacing between items for easier selection
+      marginHorizontal: 12, // Increased from 10 - Large spacing between reaction icons
+      marginVertical: 10, // Increased from 8
+    },
+    icon: {
+      width: Platform.OS === 'android' ? 44 : 40, // Even larger icons
+      height: Platform.OS === 'android' ? 44 : 40,
+    },
+  },
+  
+  // Message overlay (the menu that appears on long press)
+  overlay: {
+    container: {
+      elevation: 8, // Android shadow
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+    },
+  },
+  
+  // Message actions list (menu items)
+  messageActions: {
+    container: {
+      backgroundColor: '#ffffff',
+      borderRadius: 14,
+      overflow: 'hidden',
+      paddingVertical: 4,
+    },
+    item: {
+      minHeight: Platform.OS === 'android' ? 56 : 44, // Larger touch targets
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    itemText: {
+      fontSize: 16,
     },
   },
   

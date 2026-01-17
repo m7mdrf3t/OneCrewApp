@@ -1,4 +1,6 @@
 import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
 import ProfileHeaderRight from '../components/ProfileHeaderRight';
@@ -250,7 +252,8 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
         name="chat" 
         component={ChatPage}
         options={{
-          title: 'Chat',
+          // Title will be set dynamically by ChatPage component
+          title: '',
         }}
       />
       <Stack.Screen 

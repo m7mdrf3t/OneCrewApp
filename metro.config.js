@@ -59,9 +59,21 @@ config.resolver.resolveRequest = (context, realModuleName, platform, moduleName)
   return resolve(context, realModuleName, platform);
 };
 
+// Configure resolver for SVG files BEFORE transformer
+const assetExts = config.resolver.assetExts.filter((ext) => ext !== 'svg');
+const sourceExts = [...config.resolver.sourceExts, 'svg'];
+
+config.resolver = {
+  ...config.resolver,
+  assetExts,
+  sourceExts,
+};
+
 // Add transformer options for better compatibility
+// SVG transformer must be set AFTER resolver config
 config.transformer = {
   ...config.transformer,
+  babelTransformerPath: require.resolve('react-native-svg-transformer'),
   minifierConfig: {
     keep_fnames: true,
     mangle: {
