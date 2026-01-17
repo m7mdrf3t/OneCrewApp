@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, Image, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, Image, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity, Animated, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
@@ -24,6 +24,8 @@ interface NewsPost {
   published_at?: string;
   category?: string;
   tags?: string[];
+  like_count?: number;
+  user_liked?: boolean;
 }
 
 const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp }) => {
@@ -31,7 +33,7 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
   // Use prop if provided (for backward compatibility), otherwise use hook
   const onNavigate = onNavigateProp || navigateTo;
 
-  const { getPublishedNews } = useApi();
+  const { getPublishedNews, likeNewsPost, unlikeNewsPost, isAuthenticated, user } = useApi();
   const [newsPosts, setNewsPosts] = useState<NewsPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -158,6 +160,63 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
     }
   }, [onNavigate]);
 
+  const handleLikePress = useCallback(async (post: NewsPost, event: any) => {
+    // Prevent card navigation when like button is pressed
+    event?.stopPropagation?.();
+    
+    if (!isAuthenticated || !user) {
+      Alert.alert(
+        'Login Required',
+        'Please log in to like posts',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    const wasLiked = post.user_liked || false;
+    const currentLikeCount = post.like_count || 0;
+
+    // Optimistic update
+    setNewsPosts(prevPosts => 
+      prevPosts.map(p => 
+        p.id === post.id 
+          ? { 
+              ...p, 
+              user_liked: !wasLiked,
+              like_count: wasLiked ? currentLikeCount - 1 : currentLikeCount + 1
+            }
+          : p
+      )
+    );
+
+    try {
+      if (wasLiked) {
+        await unlikeNewsPost(post.id);
+      } else {
+        await likeNewsPost(post.id);
+      }
+    } catch (error: any) {
+      // Revert optimistic update on error
+      setNewsPosts(prevPosts => 
+        prevPosts.map(p => 
+          p.id === post.id 
+            ? { 
+                ...p, 
+                user_liked: wasLiked,
+                like_count: currentLikeCount
+              }
+            : p
+        )
+      );
+      
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to update like. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  }, [isAuthenticated, user, likeNewsPost, unlikeNewsPost]);
+
   const formatDate = (dateString?: string) => {
     if (!dateString) return '';
     try {
@@ -202,20 +261,39 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
           </Text>
         )}
         <View style={styles.footer}>
-          {post.author && (
-            <Text style={[styles.author, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-              {post.author}
-            </Text>
-          )}
-          {post.published_at && (
-            <Text style={[styles.date, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-              {formatDate(post.published_at)}
-            </Text>
-          )}
+          <View style={styles.footerLeft}>
+            {post.author && (
+              <Text style={[styles.author, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+                {post.author}
+              </Text>
+            )}
+            {post.published_at && (
+              <Text style={[styles.date, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+                {formatDate(post.published_at)}
+              </Text>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.likeButton}
+            onPress={(e) => handleLikePress(post, e)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={post.user_liked ? 'heart' : 'heart-outline'}
+              size={20}
+              color={post.user_liked ? '#ef4444' : (isDark ? '#6b7280' : '#9ca3af')}
+            />
+            {(post.like_count || 0) > 0 && (
+              <Text style={[styles.likeCount, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+                {post.like_count}
+              </Text>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
     </TouchableOpacity>
-  ), [isDark, handleNewsPress]);
+  ), [isDark, handleNewsPress, handleLikePress]);
 
   if (isLoading) {
     return (
@@ -416,12 +494,28 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(156, 163, 175, 0.2)',
   },
+  footerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   author: {
     fontSize: 14,
     fontWeight: '500',
   },
   date: {
     fontSize: 12,
+  },
+  likeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  likeCount: {
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 

@@ -337,6 +337,9 @@ interface ApiContextType {
   unpublishNewsPost: (id: string) => Promise<any>;
   uploadNewsPhoto: (file: any, filename?: string) => Promise<any>;
   uploadNewsThumbnail: (file: any, filename?: string) => Promise<any>;
+  // News like methods
+  likeNewsPost: (postId: string) => Promise<any>;
+  unlikeNewsPost: (postId: string) => Promise<any>;
   // Chat/Messaging methods (v2.5.0)
   getConversations: (params?: {
     page?: number;
@@ -7859,6 +7862,73 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // News like methods
+  const likeNewsPost = async (postId: string) => {
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required to like posts');
+      }
+
+      const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
+      const response = await fetch(`${baseUrl}/api/news/${postId}/like`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Invalidate news caches to ensure fresh data
+        await rateLimiter.clearCacheByPattern('published-news-');
+        await rateLimiter.clearCacheByPattern(`news-post-${postId}`);
+        console.log('✅ News post liked successfully');
+        return data;
+      }
+
+      throw new Error(data.error || data.message || 'Failed to like news post');
+    } catch (error: any) {
+      console.error('❌ Failed to like news post:', error);
+      throw error;
+    }
+  };
+
+  const unlikeNewsPost = async (postId: string) => {
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required to unlike posts');
+      }
+
+      const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
+      const response = await fetch(`${baseUrl}/api/news/${postId}/like`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Invalidate news caches to ensure fresh data
+        await rateLimiter.clearCacheByPattern('published-news-');
+        await rateLimiter.clearCacheByPattern(`news-post-${postId}`);
+        console.log('✅ News post unliked successfully');
+        return data;
+      }
+
+      throw new Error(data.error || data.message || 'Failed to unlike news post');
+    } catch (error: any) {
+      console.error('❌ Failed to unlike news post:', error);
+      throw error;
+    }
+  };
+
   // Chat/Messaging methods (v2.5.0)
   // Real-time data - caching disabled for immediate updates
   const getConversations = async (params?: {
@@ -9882,6 +9952,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     unpublishNewsPost,
     uploadNewsPhoto,
     uploadNewsThumbnail,
+    // News like methods
+    likeNewsPost,
+    unlikeNewsPost,
     // Chat/Messaging methods (v2.5.0)
     getConversations,
     getConversationById,

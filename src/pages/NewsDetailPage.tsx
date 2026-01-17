@@ -10,6 +10,7 @@ import {
   useColorScheme,
   Linking,
   useWindowDimensions,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -40,12 +41,14 @@ interface NewsPost {
   tags?: string[];
   created_at?: string;
   updated_at?: string;
+  like_count?: number;
+  user_liked?: boolean;
 }
 
 const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: initialPostProp, onBack: onBackProp, isDark }) => {
   const navigation = useNavigation();
   const route = useRoute<NewsDetailRouteProp>();
-  const { getNewsPostBySlug } = useApi();
+  const { getNewsPostBySlug, likeNewsPost, unlikeNewsPost, isAuthenticated, user } = useApi();
   
   // Get params from route or props (route takes precedence for React Navigation)
   const slug = route.params?.slug || slugProp;
@@ -108,6 +111,50 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
     }
   };
 
+  const handleLikePress = async () => {
+    if (!post) return;
+
+    if (!isAuthenticated || !user) {
+      Alert.alert(
+        'Login Required',
+        'Please log in to like posts',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    const wasLiked = post.user_liked || false;
+    const currentLikeCount = post.like_count || 0;
+
+    // Optimistic update
+    setPost({
+      ...post,
+      user_liked: !wasLiked,
+      like_count: wasLiked ? currentLikeCount - 1 : currentLikeCount + 1,
+    });
+
+    try {
+      if (wasLiked) {
+        await unlikeNewsPost(post.id);
+      } else {
+        await likeNewsPost(post.id);
+      }
+    } catch (error: any) {
+      // Revert optimistic update on error
+      setPost({
+        ...post,
+        user_liked: wasLiked,
+        like_count: currentLikeCount,
+      });
+      
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to update like. Please try again.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={[styles.container, styles.centerContent, { backgroundColor: darkMode ? '#0b0b0b' : '#f4f4f5' }]}>
@@ -167,6 +214,22 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
           <Text style={[styles.title, { color: darkMode ? '#fff' : '#000' }]}>
             {post.title}
           </Text>
+
+          {/* Like Button */}
+          <TouchableOpacity
+            style={styles.likeButton}
+            onPress={handleLikePress}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={post.user_liked ? 'heart' : 'heart-outline'}
+              size={24}
+              color={post.user_liked ? '#ef4444' : (darkMode ? '#6b7280' : '#9ca3af')}
+            />
+            <Text style={[styles.likeCount, { color: darkMode ? '#6b7280' : '#9ca3af' }]}>
+              {post.like_count || 0} {post.like_count === 1 ? 'like' : 'likes'}
+            </Text>
+          </TouchableOpacity>
 
           {/* Meta Info */}
           <View style={styles.meta}>
@@ -361,6 +424,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
+  },
+  likeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    marginBottom: 16,
+    paddingVertical: 8,
+  },
+  likeCount: {
+    fontSize: 16,
+    fontWeight: '500',
   },
   title: {
     fontSize: 28,
