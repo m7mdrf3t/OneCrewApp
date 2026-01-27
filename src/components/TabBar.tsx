@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { View, TouchableOpacity, Text, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,23 +24,35 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
   const { setShowAccountSwitcher, setShowUserMenu } = useGlobalModals();
   
   // Get profile image - use company logo if on company profile, otherwise user image
-  const profileImageUrl = currentProfileType === 'company' && activeCompany?.logo_url
-    ? activeCompany.logo_url
-    : user?.image_url;
+  // Use useMemo to ensure it updates when activeCompany changes
+  const profileImageUrl = React.useMemo(() => {
+    if (currentProfileType === 'company' && activeCompany?.logo_url) {
+      return activeCompany.logo_url;
+    }
+    return user?.image_url;
+  }, [currentProfileType, activeCompany?.logo_url, activeCompany?.id, user?.image_url]);
   
-  // Get initials for fallback
-  const getInitials = (name?: string) => {
+  // Get initials for fallback - also memoized
+  const getInitials = React.useCallback((name?: string) => {
     if (!name) return '?';
     const parts = name.trim().split(' ');
     if (parts.length >= 2) {
       return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
     return name.substring(0, 2).toUpperCase();
-  };
+  }, []);
   
-  const initials = currentProfileType === 'company' && activeCompany?.name
-    ? getInitials(activeCompany.name)
-    : getInitials(user?.name);
+  const initials = React.useMemo(() => {
+    if (currentProfileType === 'company' && activeCompany?.name) {
+      return getInitials(activeCompany.name);
+    }
+    return getInitials(user?.name);
+  }, [currentProfileType, activeCompany?.name, activeCompany?.id, user?.name, getInitials]);
+  
+  // Create a key for the Image component to force re-render when URL changes
+  const imageKey = React.useMemo(() => {
+    return `${currentProfileType}-${activeCompany?.id || user?.id}-${profileImageUrl || 'no-image'}`;
+  }, [currentProfileType, activeCompany?.id, user?.id, profileImageUrl]);
   const tabs = [
     { key: 'home', label: 'Home', icon: 'home' },
     { key: 'projects', label: 'Projects', icon: 'folder' },
@@ -80,10 +92,12 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
         >
           {profileImageUrl ? (
             <Image
+              key={imageKey} // Force re-render when URL changes
               source={{ uri: profileImageUrl }}
               style={styles.profileImage}
               contentFit="cover"
               transition={200}
+              cachePolicy="memory-disk" // Ensure fresh image loads
             />
           ) : (
             <View style={styles.profileImagePlaceholder}>

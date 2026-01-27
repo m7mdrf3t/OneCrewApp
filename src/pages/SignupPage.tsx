@@ -377,26 +377,36 @@ const SignupPage: React.FC<SignupPageProps> = ({
       }
       
       // Proceed with OAuth (selections will be retrieved in ApiContext)
-      if (pendingAuthProvider === 'google') {
-        setPendingGoogleSignIn(true);
-        await googleSignIn();
-      } else if (pendingAuthProvider === 'apple') {
-        setPendingAppleSignIn(true);
-        await appleSignIn();
-      } else {
-        // Fallback to Google if provider not set
-        setPendingGoogleSignIn(true);
-        await googleSignIn();
-      }
-      
-      // After category selection, user is authenticated - go directly to app
-      // Google/Apple Sign In doesn't require OTP verification (provider already verified email)
-      setPendingAuthProvider(null);
-      if (onLoginSuccess) {
-        onLoginSuccess();
+      // Wrap in try-catch to prevent crashes from native module errors
+      try {
+        if (pendingAuthProvider === 'google') {
+          setPendingGoogleSignIn(true);
+          await googleSignIn();
+        } else if (pendingAuthProvider === 'apple') {
+          setPendingAppleSignIn(true);
+          await appleSignIn();
+        } else {
+          // Fallback to Google if provider not set
+          setPendingGoogleSignIn(true);
+          await googleSignIn();
+        }
+        
+        // After category selection, user is authenticated - go directly to app
+        // Google/Apple Sign In doesn't require OTP verification (provider already verified email)
+        setPendingAuthProvider(null);
+        if (onLoginSuccess) {
+          onLoginSuccess();
+        }
+      } catch (oauthError: any) {
+        // Re-throw to be handled by outer catch block
+        throw oauthError;
       }
     } catch (err: any) {
       console.error('Sign-In error in category select:', err);
+      
+      // Ensure state is reset even on unexpected errors
+      setPendingGoogleSignIn(false);
+      setPendingAppleSignIn(false);
       
       // Clear AsyncStorage on error
       try {

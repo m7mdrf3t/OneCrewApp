@@ -15,6 +15,7 @@ import { GlobalModalsProvider } from './src/contexts/GlobalModalsContext';
 import { StreamChatProvider } from './src/components/StreamChatProvider';
 import pushNotificationService from './src/services/PushNotificationService';
 import { queryClient } from './src/services/queryClient';
+import { initializeWarningSuppressions } from './src/utils/warningSuppression';
 
 // Navigation
 import { AppNavigator } from './src/navigation/AppNavigator';
@@ -1522,6 +1523,12 @@ const CompanyMembersManagementWrapper: React.FC<{
 
 // Main App Component with API Provider
 const App: React.FC = () => {
+  // Initialize warning suppressions once at app startup
+  // This ensures warnings from third-party libraries don't clutter the console
+  React.useEffect(() => {
+    initializeWarningSuppressions();
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>

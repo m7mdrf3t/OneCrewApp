@@ -5740,50 +5740,72 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Profile Switching Methods
   const switchToUserProfile = async () => {
-    // Clear conversation cache for the previous profile
-    const previousProfileType = currentProfileType;
-    const previousProfileId = previousProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
-    if (previousProfileId) {
-      // Clear all conversation-related cache entries
-      const cachePatterns = [
-        `conversations-company-${previousProfileId}`,
-        `conversations-user-${previousProfileId}`,
-      ];
-      for (const pattern of cachePatterns) {
-        await rateLimiter.clearCache(pattern);
-      }
-    }
-    
-    setCurrentProfileType('user');
-    setActiveCompany(null);
-    AsyncStorage.setItem('currentProfileType', 'user');
-    AsyncStorage.removeItem('activeCompanyId');
-    
-    // Reconnect StreamChat with user profile
-    if (user?.id) {
-      try {
-        const streamTokenResponse = await getStreamChatToken({ profile_type: 'user' });
-        if (streamTokenResponse.success && streamTokenResponse.data) {
-          const { token, user_id, api_key } = streamTokenResponse.data as any;
-          // Use user_id from token response (backend knows the correct StreamChat user ID format)
-          await streamChatService.reconnectUser(
-            user_id, // Use user_id from token, not mapped OneCrew ID
-            token,
-            {
-              name: user.name,
-              image: user.image_url,
-            },
-            api_key, // Pass API key from backend if provided
-            'user' // User type for tracking
-          );
-          console.log('✅ StreamChat reconnected with user profile');
+    try {
+      console.log('🔄 [ProfileSwitch] Switching to user profile...');
+      
+      // Clear conversation cache for the previous profile
+      const previousProfileType = currentProfileType;
+      const previousProfileId = previousProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
+      if (previousProfileId) {
+        // Clear all conversation-related cache entries
+        const cachePatterns = [
+          `conversations-company-${previousProfileId}`,
+          `conversations-user-${previousProfileId}`,
+        ];
+        for (const pattern of cachePatterns) {
+          await rateLimiter.clearCache(pattern);
         }
-      } catch (streamError) {
-        console.warn('⚠️ Failed to reconnect StreamChat (non-critical):', streamError);
       }
+      
+      // Update state first (synchronously)
+      setCurrentProfileType('user');
+      setActiveCompany(null);
+      
+      // Update AsyncStorage (non-blocking)
+      AsyncStorage.setItem('currentProfileType', 'user').catch(err => {
+        console.warn('⚠️ Failed to save profile type to storage:', err);
+      });
+      AsyncStorage.removeItem('activeCompanyId').catch(err => {
+        console.warn('⚠️ Failed to remove company ID from storage:', err);
+      });
+      
+      // Reconnect StreamChat with user profile (non-blocking, don't throw)
+      if (user?.id) {
+        // Use setTimeout to defer reconnection slightly, allowing state updates to propagate
+        setTimeout(async () => {
+          try {
+            const streamTokenResponse = await getStreamChatToken({ profile_type: 'user' });
+            if (streamTokenResponse.success && streamTokenResponse.data) {
+              const { token, user_id, api_key } = streamTokenResponse.data as any;
+              // Use user_id from token response (backend knows the correct StreamChat user ID format)
+              await streamChatService.reconnectUser(
+                user_id, // Use user_id from token, not mapped OneCrew ID
+                token,
+                {
+                  name: user.name,
+                  image: user.image_url,
+                },
+                api_key, // Pass API key from backend if provided
+                'user' // User type for tracking
+              );
+              console.log('✅ StreamChat reconnected with user profile');
+            }
+          } catch (streamError: any) {
+            // Don't throw - just log the error
+            console.warn('⚠️ Failed to reconnect StreamChat (non-critical):', streamError?.message || streamError);
+            // StreamChatProvider will handle reconnection automatically
+          }
+        }, 100); // Small delay to allow state updates
+      }
+      
+      console.log('✅ Switched to user profile');
+    } catch (error: any) {
+      // CRITICAL: Never throw errors during profile switch - this can cause app restarts
+      console.error('❌ Error switching to user profile (recovered):', error?.message || error);
+      // Still update state even if there's an error
+      setCurrentProfileType('user');
+      setActiveCompany(null);
     }
-    
-    console.log('✅ Switched to user profile');
   };
 
   const switchToCompanyProfile = async (companyId: string) => {
@@ -5793,8 +5815,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error('User not authenticated');
       }
       
-      // Get user's companies to check ownership or admin status
-      const userCompaniesResponse = await getUserCompanies(user.id);
+      // CRITICAL: Force refresh company list to ensure we have latest membership data
+      // This prevents switching to companies the user no longer has access to
+      console.log('🔄 [ProfileSwitch] Refreshing company list to verify membership...');
+      const userCompaniesResponse = await getUserCompanies(user.id, true); // Force refresh
+      
+      // Extract company data from company list for fallback (name, logo_url)
+      // This ensures avatar updates even if getCompany times out
+      let fallbackCompanyData: { name?: string; logo_url?: string } = {};
+      
       if (userCompaniesResponse.success && userCompaniesResponse.data) {
         const responseData = userCompaniesResponse.data as any;
         const companies = Array.isArray(responseData) 
@@ -5808,13 +5837,34 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         });
         
         if (!companyMember) {
-          throw new Error('Company not found in your companies list');
+          // User is not a member - don't switch, just return
+          console.warn('⚠️ [ProfileSwitch] Company not found in user companies list - user may have lost access');
+          throw new Error('Company not found in your companies list. You may no longer have access to this company.');
         }
         
         const role = companyMember.role || companyMember.member?.role;
         if (role !== 'owner' && role !== 'admin') {
+          // User is not owner/admin - don't switch
+          console.warn('⚠️ [ProfileSwitch] User is not owner/admin of company');
           throw new Error('Only company owners and admins can switch to company profiles');
         }
+        
+        // Extract company data from companyMember for fallback (name, logo_url)
+        const companyFromList = companyMember.companies || companyMember;
+        fallbackCompanyData = {
+          name: companyFromList.name,
+          logo_url: companyFromList.logo_url,
+        };
+        
+        console.log('✅ [ProfileSwitch] Membership verified - user is', role, 'of company');
+        console.log('📦 [ProfileSwitch] Fallback data available:', {
+          hasName: !!fallbackCompanyData.name,
+          hasLogo: !!fallbackCompanyData.logo_url
+        });
+      } else {
+        // If we can't verify membership, don't switch
+        console.warn('⚠️ [ProfileSwitch] Could not verify company membership');
+        throw new Error('Could not verify company membership. Please try again.');
       }
       
       // Clear conversation cache for the previous profile
@@ -5831,48 +5881,148 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
       }
       
-      // Load and switch to company - only fetch minimal fields needed for profile switching (v2.24.0 optimization)
-      const companyResponse = await getCompany(companyId, {
-        fields: ['id', 'name', 'logo_url', 'subcategory', 'approval_status']
+      // OPTIMIZATION: Use company list data immediately, then enhance with getCompany in background
+      // This ensures instant profile switch (< 100ms) while full data loads in background
+      let companyData: any = {
+        id: companyId,
+        name: fallbackCompanyData.name,
+        logo_url: fallbackCompanyData.logo_url,
+        // Use company list data immediately - no waiting for getCompany
+      };
+      
+      // Update state IMMEDIATELY with company list data (no waiting)
+      setActiveCompany(companyData);
+      setCurrentProfileType('company');
+      
+      // Update AsyncStorage (non-blocking)
+      AsyncStorage.setItem('currentProfileType', 'company').catch(err => {
+        console.warn('⚠️ Failed to save profile type to storage:', err);
       });
-      if (companyResponse.success && companyResponse.data) {
-        const companyData = companyResponse.data;
-        setActiveCompany(companyData);
-        setCurrentProfileType('company');
-        await AsyncStorage.setItem('currentProfileType', 'company');
-        await AsyncStorage.setItem('activeCompanyId', companyId);
-        
-        // Reconnect StreamChat with company profile
+      AsyncStorage.setItem('activeCompanyId', companyId).catch(err => {
+        console.warn('⚠️ Failed to save company ID to storage:', err);
+      });
+      
+      console.log('✅ [ProfileSwitch] Profile switched immediately with company list data:', {
+        companyId,
+        hasName: !!companyData.name,
+        hasLogo: !!companyData.logo_url
+      });
+      
+      // Enhance company data in background (non-blocking)
+      // Only fetch if we need additional fields beyond what company list provides
+      (async () => {
         try {
-          const streamTokenResponse = await getStreamChatToken({ 
-            profile_type: 'company', 
-            company_id: companyId 
+          // Reduced timeout to 3 seconds for faster failover
+          const getCompanyPromise = getCompany(companyId, {
+            fields: ['id', 'name', 'logo_url', 'subcategory', 'approval_status']
           });
-          if (streamTokenResponse.success && streamTokenResponse.data) {
-            const { token, user_id, api_key } = streamTokenResponse.data as any;
-            // Use user_id from token response (backend knows the correct StreamChat user ID format)
-            await streamChatService.reconnectUser(
-              user_id, // Use user_id from token, not mapped OneCrew ID
-              token,
-              {
-                name: companyData.name,
-                image: companyData.logo_url,
-              },
-              api_key, // Pass API key from backend if provided
-              'company' // User type for tracking
-            );
-            console.log('✅ StreamChat reconnected with company profile', { user_id });
+          
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Request timeout')), 3000); // Reduced from 10s to 3s
+          });
+          
+          const companyResponse = await Promise.race([getCompanyPromise, timeoutPromise]) as any;
+          
+          if (companyResponse.success && companyResponse.data) {
+            // Enhance company data with fresh data from getCompany
+            const enhancedData = companyResponse.data;
+            // Always update to ensure we have the latest data, but preserve logo_url from company list if getCompany doesn't have it
+            setActiveCompany({
+              ...companyData, // Start with company list data (includes logo_url)
+              ...enhancedData, // Merge fresh data from getCompany
+              // Preserve logo_url from company list if getCompany doesn't return it
+              logo_url: enhancedData.logo_url || companyData.logo_url,
+              // Preserve name from company list if getCompany doesn't return it
+              name: enhancedData.name || companyData.name,
+            });
+            console.log('✅ [ProfileSwitch] Company data enhanced with fresh data', {
+              hasLogo: !!(enhancedData.logo_url || companyData.logo_url),
+              hasName: !!(enhancedData.name || companyData.name),
+            });
           }
-        } catch (streamError) {
-          console.warn('⚠️ Failed to reconnect StreamChat (non-critical):', streamError);
+        } catch (timeoutError: any) {
+          // getCompany failed or timed out - that's OK, we already have company list data
+          console.log('ℹ️ [ProfileSwitch] getCompany not available (using company list data):', timeoutError?.message || timeoutError);
+          // Don't log as warning - this is expected and acceptable
         }
-        console.log('✅ Switched to company profile:', companyId);
+      })(); // Execute in background, don't wait
+      
+      // Reconnect StreamChat with company profile immediately (parallel with state update)
+      // StreamChatProvider will also handle reconnection, but we do it here for faster response
+      (async () => {
+          try {
+            console.log('🔄 [ProfileSwitch] Reconnecting StreamChat with company profile...');
+            const streamTokenResponse = await getStreamChatToken({ 
+              profile_type: 'company', 
+              company_id: companyId 
+            });
+            if (streamTokenResponse.success && streamTokenResponse.data) {
+              const { token, user_id, api_key } = streamTokenResponse.data as any;
+              // Use user_id from token response (backend knows the correct StreamChat user ID format)
+              await streamChatService.reconnectUser(
+                user_id, // Use user_id from token, not mapped OneCrew ID
+                token,
+                {
+                  name: companyData.name || 'Company', // Fallback if name not loaded
+                  image: companyData.logo_url || undefined, // Only set if available
+                },
+                api_key, // Pass API key from backend if provided
+                'company' // User type for tracking
+              );
+              console.log('✅ [ProfileSwitch] StreamChat reconnected with company profile', { 
+                user_id,
+                hasName: !!companyData.name,
+                hasLogo: !!companyData.logo_url
+              });
+            }
+          } catch (streamError: any) {
+            // Check if error is about membership - this means user lost access
+            const errorMessage = streamError?.message || streamError?.toString() || '';
+            const isMembershipError = errorMessage.includes('must be a member') || 
+                                     errorMessage.includes('member of this company') ||
+                                     errorMessage.includes('not a member');
+            
+            if (isMembershipError) {
+              // User lost access - revert to user profile
+              console.warn('⚠️ [ProfileSwitch] User lost access to company - reverting to user profile');
+              // Revert profile switch
+              setCurrentProfileType('user');
+              setActiveCompany(null);
+              AsyncStorage.setItem('currentProfileType', 'user').catch(() => {});
+              AsyncStorage.removeItem('activeCompanyId').catch(() => {});
+              // Don't log as error - this is expected if user lost access
+            } else {
+              // Other errors - don't throw, just log
+              console.warn('⚠️ Failed to reconnect StreamChat (non-critical):', streamError?.message || streamError);
+            }
+            // StreamChatProvider will handle reconnection automatically
+          }
+        })(); // Execute immediately, don't wait
+    } catch (error: any) {
+      // CRITICAL: Never throw errors during profile switch - this can cause app restarts
+      const errorMessage = error?.message || error?.toString() || '';
+      const isMembershipError = errorMessage.includes('not found in your companies') ||
+                               errorMessage.includes('no longer have access') ||
+                               errorMessage.includes('not owner/admin') ||
+                               errorMessage.includes('Could not verify');
+      
+      if (isMembershipError) {
+        // User doesn't have access - don't switch, stay on current profile
+        console.warn('⚠️ [ProfileSwitch] Cannot switch to company - membership issue:', errorMessage);
+        // Don't update state - stay on current profile
+        // Clear any partial state
+        if (activeCompany?.id === companyId) {
+          // If we were already on this company, switch back to user
+          setCurrentProfileType('user');
+          setActiveCompany(null);
+          AsyncStorage.setItem('currentProfileType', 'user').catch(() => {});
+          AsyncStorage.removeItem('activeCompanyId').catch(() => {});
+        }
       } else {
-        throw new Error('Failed to load company');
+        // Other errors - log but don't block
+        console.error('❌ Error switching to company profile (recovered):', errorMessage);
       }
-    } catch (error) {
-      console.error('Failed to switch to company profile:', error);
-      throw error;
+      // Don't throw - let the UI handle the error gracefully
     }
   };
 
@@ -6106,6 +6256,25 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const response = await api.getCompany(companyId, params);
         return response;
       } catch (error: any) {
+        // Check if error is a timeout - these are expected and should be handled gracefully
+        const errorMessage = error?.message || error?.toString() || '';
+        const isTimeout = errorMessage.includes('timeout') ||
+                         errorMessage.includes('Request timeout') ||
+                         errorMessage.includes('ETIMEDOUT') ||
+                         error?.name === 'AbortError';
+        
+        if (isTimeout) {
+          // Timeout errors are expected - log as warning and return minimal company data
+          console.warn('⚠️ Failed to get company (timeout):', errorMessage);
+          // Return minimal company data instead of throwing
+          // This allows the app to continue working even if company details fail to load
+          return {
+            success: true,
+            data: { id: companyId } // Minimal data - just ID
+          };
+        }
+        
+        // Other errors - log as error and throw
         console.error('❌ Failed to get company:', error);
         throw error;
       }
@@ -6416,6 +6585,21 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           console.warn('⚠️ Rate limited on getUserCompanies, returning empty result');
           return { success: true, data: [] };
         }
+        
+        // Network errors are expected in mobile apps - log as warning
+        const errorMessage = error?.message || error?.toString() || '';
+        const isNetworkError = errorMessage.includes('Network error') ||
+                              errorMessage.includes('Network request failed') ||
+                              errorMessage.includes('Failed to fetch') ||
+                              errorMessage.includes('fetch failed') ||
+                              error?.name === 'TypeError' && errorMessage.includes('Network');
+        
+        if (isNetworkError) {
+          console.warn('⚠️ Failed to get user companies (network issue):', errorMessage);
+          // Return empty result for network errors instead of throwing
+          return { success: true, data: [] };
+        }
+        
         console.error('Failed to get user companies:', error);
         throw error;
       }
@@ -6581,15 +6765,82 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getCompanyServices = async (companyId: string) => {
     const cacheKey = `company-services-${companyId}`;
     return rateLimiter.execute(cacheKey, async () => {
-      try {
-        const response = await api.getCompanyServices(companyId);
-        return response;
-      } catch (error: any) {
-        console.error('Failed to get company services:', error);
-        // Handle 401 errors
-        await handle401Error(error);
-        throw error;
+      const maxRetries = 2;
+      let lastError: any = null;
+      
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          // Add timeout handling - use direct fetch with timeout
+          const token = getAccessToken();
+          const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
+          const url = `${baseUrl}/api/companies/${companyId}/services`;
+          
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+          
+          try {
+            const response = await fetch(url, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              signal: controller.signal,
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+              throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+              return data;
+            }
+            throw new Error(data.error || 'Failed to get company services');
+          } catch (fetchError: any) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
+              throw new Error('Request timeout');
+            }
+            throw fetchError;
+          }
+        } catch (error: any) {
+          lastError = error;
+          const isTimeout = error?.message?.includes('timeout') || 
+                           error?.message?.includes('Request timeout') || 
+                           error?.message?.includes('ETIMEDOUT') ||
+                           error?.name === 'AbortError';
+          
+          // If it's a timeout and we have retries left, retry
+          if (isTimeout && attempt < maxRetries) {
+            const waitTime = (attempt + 1) * 1000; // Exponential backoff: 1s, 2s
+            console.warn(`⚠️ Request timeout for company services (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitTime}ms...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            continue;
+          }
+          
+          // If not a timeout, or no retries left, handle the error
+          console.error('❌ Failed to get company services:', error);
+          // Handle 401 errors
+          await handle401Error(error);
+          
+          // For timeout errors after all retries, return empty result instead of throwing
+          if (isTimeout) {
+            console.warn('⚠️ Company services request timed out after retries, returning empty result');
+            return { success: true, data: [] }; // Return empty array instead of throwing
+          }
+          
+          throw error;
+        }
       }
+      
+      // If we exhausted all retries, return empty result
+      console.warn('⚠️ Company services request failed after all retries, returning empty result');
+      return { success: true, data: [] };
     }, { ttl: CacheTTL.MEDIUM }); // Company services change when services are added/removed - 5min TTL
   };
 
@@ -7059,13 +7310,80 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Company Documents Methods
   const getCompanyDocuments = async (companyId: string) => {
-    try {
-      const response = await api.getCompanyDocuments(companyId);
-      return response;
-    } catch (error) {
-      console.error('Failed to get company documents:', error);
-      throw error;
+    const maxRetries = 2;
+    let lastError: any = null;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        // Add timeout handling - use direct fetch with timeout
+        const token = getAccessToken();
+        const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
+        const url = `${baseUrl}/api/companies/${companyId}/documents`;
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+        
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            signal: controller.signal,
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+            throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          const data = await response.json();
+          
+          if (data.success) {
+            return data;
+          }
+          throw new Error(data.error || 'Failed to get company documents');
+        } catch (fetchError: any) {
+          clearTimeout(timeoutId);
+          if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
+            throw new Error('Request timeout');
+          }
+          throw fetchError;
+        }
+      } catch (error: any) {
+        lastError = error;
+        const isTimeout = error?.message?.includes('timeout') || 
+                         error?.message?.includes('Request timeout') || 
+                         error?.message?.includes('ETIMEDOUT') ||
+                         error?.name === 'AbortError';
+        
+        // If it's a timeout and we have retries left, retry
+        if (isTimeout && attempt < maxRetries) {
+          const waitTime = (attempt + 1) * 1000; // Exponential backoff: 1s, 2s
+          console.warn(`⚠️ Request timeout for company documents (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+        
+        // If not a timeout, or no retries left, handle the error
+        console.error('❌ Failed to get company documents:', error);
+        
+        // For timeout errors after all retries, return empty result instead of throwing
+        if (isTimeout) {
+          console.warn('⚠️ Company documents request timed out after retries, returning empty result');
+          return { success: true, data: [] }; // Return empty array instead of throwing
+        }
+        
+        throw error;
+      }
     }
+    
+    // If we exhausted all retries, return empty result
+    console.warn('⚠️ Company documents request failed after all retries, returning empty result');
+    return { success: true, data: [] };
   };
 
   const addCompanyDocument = async (companyId: string, documentData: { document_type: string; file_url: string; file_name?: string; description?: string }) => {
@@ -8090,6 +8408,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.log('✅ Conversations fetched successfully');
         return response;
       } catch (error: any) {
+        // Network errors are expected in mobile apps - log as warning
+        const errorMessage = error?.message || error?.toString() || '';
+        const isNetworkError = errorMessage.includes('Network error') ||
+                              errorMessage.includes('Network request failed') ||
+                              errorMessage.includes('Failed to fetch') ||
+                              errorMessage.includes('fetch failed') ||
+                              error?.name === 'TypeError' && errorMessage.includes('Network');
+        
+        if (isNetworkError) {
+          console.warn('⚠️ Failed to fetch conversations (network issue):', errorMessage);
+          // Return empty result for network errors instead of throwing
+          return { success: true, data: [] };
+        }
+        
         console.error('❌ Failed to fetch conversations:', error);
         // Handle 401 errors
         await handle401Error(error);
@@ -8487,7 +8819,43 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(data.error || 'Failed to get StreamChat token');
     } catch (error: any) {
-      console.error('❌ Failed to get StreamChat token:', error);
+      // Check error type to determine appropriate logging level
+      const errorMessage = error?.message || error?.toString() || '';
+      const errorName = error?.name || '';
+      
+      // Network errors are expected in mobile apps - log as warning
+      const isNetworkError = errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('Network error') ||
+                            errorMessage.includes('network') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('fetch failed') ||
+                            errorName === 'TypeError' && errorMessage.includes('Network') ||
+                            errorName === 'NetworkError';
+      
+      // Membership errors are expected if user lost access - log as warning
+      const isMembershipError = errorMessage.includes('must be a member') || 
+                               errorMessage.includes('member of this company') ||
+                               errorMessage.includes('not a member');
+      
+      // Token expiration errors are expected (token refresh will handle it) - log as warning
+      const isTokenError = errorMessage.includes('Invalid or expired token') ||
+                          errorMessage.includes('expired token') ||
+                          errorMessage.includes('token expired') ||
+                          errorMessage.includes('invalid token');
+      
+      if (isNetworkError) {
+        // Network issues are expected in mobile apps - log as warning (not error)
+        console.warn('⚠️ Failed to get StreamChat token (network issue):', errorMessage);
+      } else if (isTokenError) {
+        // Token expiration is expected - token refresh will handle it
+        console.warn('⚠️ Failed to get StreamChat token (token expired, will retry):', errorMessage);
+      } else if (isMembershipError) {
+        // User lost access - this is expected, log as warning
+        console.warn('⚠️ Failed to get StreamChat token (membership issue):', errorMessage);
+      } else {
+        // Other errors (auth, server errors) - log as error
+        console.error('❌ Failed to get StreamChat token:', error);
+      }
       throw error;
     }
   };
@@ -9007,6 +9375,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(response.error || 'Failed to get unread notification count');
     } catch (error: any) {
+      // Network errors are expected in mobile apps - log as warning
+      const errorMessage = error?.message || error?.toString() || '';
+      const isNetworkError = errorMessage.includes('Network error') ||
+                            errorMessage.includes('Network request failed') ||
+                            errorMessage.includes('Failed to fetch') ||
+                            errorMessage.includes('fetch failed') ||
+                            error?.name === 'TypeError' && errorMessage.includes('Network');
+      
+      if (isNetworkError) {
+        console.warn('⚠️ Failed to get unread notification count (network issue):', errorMessage);
+        // Return 0 for network errors instead of throwing
+        return 0;
+      }
+      
       console.error('Failed to get unread notification count:', error);
       // Handle 401 errors
       await handle401Error(error);
@@ -9433,9 +9815,29 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const calculateStreamChatUnreadCount = useCallback(async (): Promise<number> => {
     try {
       const client = streamChatService.getClient();
+      
+      // CRITICAL: Check if client exists and is connected
       if (!client || !client.userID) {
         if (__DEV__) {
           console.log('💬 [StreamChat] Client not available for unread count calculation');
+        }
+        return 0;
+      }
+      
+      // CRITICAL: Check if client is actually connected (not disconnected)
+      const isConnected = streamChatService.isConnected();
+      if (!isConnected) {
+        if (__DEV__) {
+          console.log('💬 [StreamChat] Client not connected, skipping unread count calculation');
+        }
+        return 0;
+      }
+      
+      // Additional check: verify connection state
+      const connectionState = (client as any)?.connectionState;
+      if (connectionState === 'disconnected' || connectionState === 'offline') {
+        if (__DEV__) {
+          console.log('💬 [StreamChat] Client connection state is disconnected/offline, skipping unread count');
         }
         return 0;
       }
@@ -9513,10 +9915,24 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
       return totalUnread;
     } catch (error: any) {
-      if (__DEV__) {
-        console.warn('⚠️ [StreamChat] Failed to calculate unread count:', error);
+      // CRITICAL: Don't log as error if it's just a connection issue
+      // This happens during profile switching and is expected
+      const isConnectionError = error?.message?.includes('tokens are not set') ||
+                                error?.message?.includes('disconnect was called') ||
+                                error?.message?.includes('connectUser wasn\'t called');
+      
+      if (isConnectionError) {
+        // This is expected during profile switching - don't log as error
+        if (__DEV__) {
+          console.log('💬 [StreamChat] Unread count calculation skipped - client not connected (expected during profile switch)');
+        }
+      } else {
+        // Log other errors as warnings (not errors)
+        if (__DEV__) {
+          console.warn('⚠️ [StreamChat] Failed to calculate unread count:', error?.message || error);
+        }
       }
-      return 0;
+      return 0; // Return 0 instead of throwing - this is non-critical
     }
   }, []);
 

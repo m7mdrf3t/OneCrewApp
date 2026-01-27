@@ -887,14 +887,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         console.warn('⚠️ Could not clear companies list cache:', err);
       }
       
-      Alert.alert(
-        'Success',
-        `Academy is now ${visibility === 'private' ? 'private' : 'published'}. ${
-          visibility === 'private'
-            ? 'Only admins can see it. It will be removed from the directory for regular users.'
-            : 'Everyone can see it in the directory.'
-        }`
-      );
+      // Success - update happens silently without confirmation message
     } catch (error: any) {
       // Revert optimistic update on error
       setCompany({ ...company, visibility: previousVisibility });

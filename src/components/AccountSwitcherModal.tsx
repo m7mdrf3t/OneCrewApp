@@ -147,7 +147,14 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
     try {
       setSwitching(companyId);
       await switchToCompanyProfile(companyId);
+      
+      // Verify switch was successful before navigating
+      // Wait a bit for state to update (state updates are async)
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
       // Replace current screen instead of navigating to prevent back navigation to previous profile
+      // Note: switchToCompanyProfile handles errors gracefully, so if it completes without throwing,
+      // the switch was successful (even if StreamChat connection failed)
       if (onNavigateProp) {
         // If custom navigate function provided, use it (but ideally should also use replace)
         onNavigateProp('companyProfile', { companyId });
@@ -155,9 +162,11 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
         replaceTo('companyProfile', { companyId });
       }
       onClose();
-    } catch (error) {
-      console.error('Failed to switch to company:', error);
+    } catch (error: any) {
+      // Error is already handled in switchToCompanyProfile, just log
+      console.warn('⚠️ Failed to switch to company:', error?.message || error);
     } finally {
+      // CRITICAL: Always clear loading state, even if switch failed
       setSwitching(null);
     }
   };

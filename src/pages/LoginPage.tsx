@@ -155,11 +155,20 @@ const LoginPage: React.FC<LoginPageProps> = ({
       setPendingAuthProvider('google');
       
       // Try OAuth directly (for existing users - no category needed)
-      await googleSignIn();
-      setPendingAuthProvider(null);
-      onLoginSuccess();
+      // Wrap in additional try-catch to prevent crashes
+      try {
+        await googleSignIn();
+        setPendingAuthProvider(null);
+        onLoginSuccess();
+      } catch (signInError: any) {
+        // Re-throw to be caught by outer catch block
+        throw signInError;
+      }
     } catch (err: any) {
       console.error('❌ Google Sign-In error in LoginPage:', err);
+      
+      // Ensure state is reset even on unexpected errors
+      setPendingGoogleSignIn(false);
       
       // Don't show alert if user cancelled - this is expected behavior
       if (err?.message?.toLowerCase().includes('cancelled')) {

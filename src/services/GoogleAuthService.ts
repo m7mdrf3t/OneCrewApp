@@ -67,6 +67,11 @@ export const initializeGoogleSignIn = async () => {
       console.warn('⚠️ See GOOGLE_SIGNIN_SETUP.md for instructions');
     }
 
+    // Validate that GoogleSignin has the configure method
+    if (typeof GoogleSignin.configure !== 'function') {
+      throw new Error('Google Sign-In native module is not properly loaded. The configure method is not available.');
+    }
+
     // Configure Google Sign-In
     const config: any = {
       webClientId: WEB_CLIENT_ID, // Required for backend verification
@@ -80,8 +85,14 @@ export const initializeGoogleSignIn = async () => {
       config.iosClientId = iosClientIdToUse;
     }
 
-    GoogleSignin.configure(config);
-    isInitialized = true;
+    try {
+      GoogleSignin.configure(config);
+      isInitialized = true;
+    } catch (configError: any) {
+      console.error('❌ Failed to configure Google Sign-In:', configError);
+      isInitialized = false;
+      throw new Error(`Failed to configure Google Sign-In: ${configError?.message || 'Configuration error'}`);
+    }
 
     console.log('✅ Google Sign-In initialized successfully');
   } catch (error) {
@@ -141,15 +152,25 @@ export const signInWithGoogle = async (): Promise<string> => {
       }
     }
 
+    // Validate that GoogleSignin has the required methods
+    if (typeof GoogleSignin.signIn !== 'function') {
+      throw new Error('Google Sign-In native module is not properly initialized. The signIn method is not available.');
+    }
+
     // Check if user is already signed in (using getCurrentUser instead of isSignedIn)
     try {
-      const currentUser = await GoogleSignin.getCurrentUser();
-      if (currentUser) {
-        console.log('📋 User already signed in, signing out first...');
-        try {
-          await GoogleSignin.signOut(); // Sign out first to ensure fresh sign-in
-        } catch (signOutError) {
-          console.warn('⚠️ Error signing out previous session:', signOutError);
+      if (typeof GoogleSignin.getCurrentUser === 'function') {
+        const currentUser = await GoogleSignin.getCurrentUser();
+        if (currentUser) {
+          console.log('📋 User already signed in, signing out first...');
+          try {
+            if (typeof GoogleSignin.signOut === 'function') {
+              await GoogleSignin.signOut(); // Sign out first to ensure fresh sign-in
+            }
+          } catch (signOutError) {
+            console.warn('⚠️ Error signing out previous session:', signOutError);
+            // Continue even if sign out fails
+          }
         }
       }
     } catch (checkError) {
@@ -159,7 +180,27 @@ export const signInWithGoogle = async (): Promise<string> => {
 
     // Step 1: Sign in with Google using native SDK (in-app)
     console.log('🔄 Requesting Google Sign-In via native SDK...');
-    const userInfo = await GoogleSignin.signIn();
+    
+    // Additional safety check before calling native method
+    if (!GoogleSignin || typeof GoogleSignin.signIn !== 'function') {
+      throw new Error('Google Sign-In native module is not available or not properly initialized. Please rebuild the app.');
+    }
+    
+    let userInfo;
+    try {
+      userInfo = await GoogleSignin.signIn();
+    } catch (nativeError: any) {
+      // Catch native errors that might not be properly handled
+      console.error('❌ Native Google Sign-In error:', nativeError);
+      
+      // Re-throw with more context
+      if (nativeError?.message) {
+        throw nativeError;
+      }
+      
+      // If error doesn't have a message, create a user-friendly one
+      throw new Error(`Google Sign-In failed: ${nativeError?.toString() || 'Unknown error occurred'}`);
+    }
 
     if (!userInfo) {
       throw new Error('No user info returned from Google Sign-In');
@@ -182,11 +223,30 @@ export const signInWithGoogle = async (): Promise<string> => {
     console.log('✅ Google ID token received, exchanging with Supabase...');
     
     // Step 2: Exchange Google ID token for Supabase access token
-    const supabase = getSupabaseClient();
-    const { data, error } = await supabase.auth.signInWithIdToken({
-      provider: 'google',
-      token: idToken,
-    });
+    let supabase;
+    try {
+      supabase = getSupabaseClient();
+    } catch (supabaseError: any) {
+      console.error('❌ Failed to initialize Supabase client:', supabaseError);
+      throw new Error(`Failed to initialize authentication service: ${supabaseError?.message || 'Supabase configuration error'}`);
+    }
+    
+    if (!supabase || !supabase.auth) {
+      throw new Error('Supabase client is not properly initialized');
+    }
+    
+    let data, error;
+    try {
+      const result = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      });
+      data = result.data;
+      error = result.error;
+    } catch (supabaseCallError: any) {
+      console.error('❌ Supabase signInWithIdToken error:', supabaseCallError);
+      throw new Error(`Failed to exchange Google token with authentication service: ${supabaseCallError?.message || 'Token exchange failed'}`);
+    }
 
     if (error) {
       console.error('❌ Supabase token exchange error:', error);

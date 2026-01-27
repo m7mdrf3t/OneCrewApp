@@ -17,7 +17,6 @@ import {
   Platform,
   ScrollView,
   Dimensions,
-  LogBox,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
@@ -62,15 +61,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
   courseData: courseDataProp,
   onBack: onBackProp,
 }) => {
-  // Suppress key warning from StreamChat's MessageActionList internal implementation
-  // This is a known issue in stream-chat-react-native library (v8.12.0)
-  // The warning comes from MessageActionList's internal ScrollView rendering
-  useEffect(() => {
-    LogBox.ignoreLogs([
-      /Each child in a list should have a unique "key" prop/,
-      /Check the render method of `ScrollView`/,
-    ]);
-  }, []);
+  // Warning suppressions are now handled centrally in src/utils/warningSuppression.ts
+  // No need to suppress warnings here - they're handled at app initialization
 
   const route = useRoute<RootStackScreenProps<'chat'>['route']>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -817,35 +809,35 @@ const ChatPage: React.FC<ChatPageProps> = ({
     );
   };
 
-  // Custom reaction options with SVG icons - larger size for easier tapping
+  // Custom reaction options with SVG icons - compact size
   const customReactionOptions = [
     {
       type: 'like',
-      Icon: () => <LikeReaction size={Platform.OS === 'android' ? 44 : 40} />,
+      Icon: () => <LikeReaction size={32} />,
     },
     {
       type: 'love',
-      Icon: () => <LoveReaction size={Platform.OS === 'android' ? 44 : 40} />,
+      Icon: () => <LoveReaction size={32} />,
     },
     {
       type: 'haha',
-      Icon: () => <HahaReaction size={Platform.OS === 'android' ? 44 : 40} />,
+      Icon: () => <HahaReaction size={32} />,
     },
     {
       type: 'wow',
-      Icon: () => <WowReaction size={Platform.OS === 'android' ? 44 : 40} />,
+      Icon: () => <WowReaction size={32} />,
     },
     {
       type: 'sad',
-      Icon: () => <SadReaction size={Platform.OS === 'android' ? 44 : 40} />,
+      Icon: () => <SadReaction size={32} />,
     },
     {
       type: 'care',
-      Icon: () => <CareReaction size={Platform.OS === 'android' ? 44 : 40} />,
+      Icon: () => <CareReaction size={32} />,
     },
     {
       type: 'angry',
-      Icon: () => <AngryReaction size={Platform.OS === 'android' ? 44 : 40} />,
+      Icon: () => <AngryReaction size={32} />,
     },
   ];
 
@@ -853,19 +845,18 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { height: screenHeight } = Dimensions.get('window');
   const MAX_MENU_HEIGHT = Math.round(screenHeight * 0.5);
 
-  // Custom ReactionPicker with larger touch targets and spacing
+  // Custom ReactionPicker with compact spacing
   const CustomReactionPicker = (props: any) => {
     return (
       <View
         style={{
-          paddingHorizontal: 16, // Increased from 12
-          paddingTop: 16, // Increased from 12
-          paddingBottom: 12, // Increased from 8 - Extra space so it doesn't touch the menu
-          // Add gap between reaction items
+          paddingHorizontal: 12,
+          paddingTop: 12,
+          paddingBottom: 8,
           flexDirection: 'row',
           flexWrap: 'wrap',
           justifyContent: 'center',
-          gap: 12, // Large gap between reaction icons
+          gap: 8, // Compact gap between reaction icons
         }}
       >
         <ReactionPicker
@@ -1219,9 +1210,29 @@ const ChatPage: React.FC<ChatPageProps> = ({
   // Optimized channel watching - single watch call with consistent limits
   useEffect(() => {
     if (!channel || channel.state?.watched) return;
+    
+    // CRITICAL: Check if client is connected before watching channel
+    // This prevents "You can't use a channel after client.disconnect() was called" errors
+    if (!client || !streamChatService.isConnected()) {
+      console.warn('⚠️ [ChatPage] Client not connected, skipping channel watch');
+      return;
+    }
+    
+    // Check connection state explicitly
+    const connectionState = (client as any)?.connectionState;
+    if (connectionState === 'disconnected' || connectionState === 'offline') {
+      console.warn('⚠️ [ChatPage] Client is disconnected, skipping channel watch');
+      return;
+    }
       
     const watchChannel = async () => {
       try {
+        // Double-check connection before watching
+        if (!streamChatService.isConnected()) {
+          console.warn('⚠️ [ChatPage] Client disconnected during watch setup');
+          return;
+        }
+        
         console.log('⏳ [ChatPage] Watching channel...');
         await channel.watch({
           watchers: { limit: 10 },
@@ -1238,12 +1249,19 @@ const ChatPage: React.FC<ChatPageProps> = ({
           console.warn('⚠️ [ChatPage] Failed to mark channel as read:', readError);
         }
       } catch (err: any) {
+        // Handle "disconnect was called" error gracefully
+        if (err.message?.includes('disconnect was called') || 
+            err.message?.includes('can\'t use a channel after')) {
+          console.warn('⚠️ [ChatPage] Channel watch failed - client was disconnected:', err.message);
+          // Don't set error state - this is expected during profile switching
+        } else {
           console.error('❌ [ChatPage] Failed to watch channel:', err);
+        }
       }
     };
     
     watchChannel();
-  }, [channel]);
+  }, [channel, client]);
 
   // Mark channel as read when screen is focused (user is viewing the chat)
   useFocusEffect(
@@ -1667,48 +1685,74 @@ const ChatPage: React.FC<ChatPageProps> = ({
             const watchError = watchResult.reason;
             console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
             
-            // Handle "tokens not set" error - client not connected
+            // Handle "tokens not set" or "disconnect was called" errors
             if (watchError.message?.includes('tokens are not set') || 
                 watchError.message?.includes('connectUser wasn\'t called') ||
-                watchError.message?.includes('disconnect was called')) {
-              console.warn('⚠️ [ChatPage] Client not connected, checking connection state...', {
+                watchError.message?.includes('disconnect was called') ||
+                watchError.message?.includes('can\'t use a channel after')) {
+              console.warn('⚠️ [ChatPage] Client disconnect detected during channel watch:', {
+                error: watchError.message,
                 connectionState: (client as any).connectionState,
                 userID: client.userID,
               });
               
-              // If client is disconnected, we need to reconnect
-              // This shouldn't happen, but if it does, we should trigger a reconnect
+              // If client is disconnected, we need to wait for reconnect
               const connectionState = (client as any).connectionState;
               if (connectionState === 'disconnected' || connectionState === 'offline') {
-                console.error('❌ [ChatPage] Client is disconnected, cannot retry. Please reconnect StreamChat.');
-                setError('StreamChat connection lost. Please try again.');
-                return;
-              }
-              
-              // Wait for connection and retry
-              const isConnected = await waitForConnection(3000);
-              if (isConnected) {
-                try {
-                  console.log('🔄 [ChatPage] Retrying watch after connection...');
-                  await channelInstance.watch({
-                    watchers: { limit: 10 },
-                    messages: { limit: 30 },
-                    presence: true,
-                  });
-                  console.log('✅ [ChatPage] Channel watched after connection');
-                } catch (retryError: any) {
-                  console.error('❌ [ChatPage] Retry failed after connection:', retryError.message);
-                  // If still failing, the client might need to be reconnected
-                  if (retryError.message?.includes('tokens are not set')) {
-                    setError('StreamChat connection issue. Please restart the app or try again later.');
-                  } else {
-                    setError('Failed to load chat. Please try again.');
+                console.log('⏳ [ChatPage] Client is disconnected, waiting for reconnect...');
+                
+                // Wait for connection with longer timeout during profile switch
+                const isConnected = await waitForConnection(5000);
+                if (isConnected) {
+                  try {
+                    // Recreate channel instance after reconnect
+                    console.log('🔄 [ChatPage] Recreating channel after reconnect...');
+                    const newChannelInstance = client.channel(channelType, channelIdOnly);
+                    setChannel(newChannelInstance);
+                    
+                    console.log('🔄 [ChatPage] Retrying watch after connection...');
+                    await newChannelInstance.watch({
+                      watchers: { limit: 10 },
+                      messages: { limit: 30 },
+                      presence: true,
+                    });
+                    console.log('✅ [ChatPage] Channel watched after reconnect');
+                  } catch (retryError: any) {
+                    console.error('❌ [ChatPage] Retry failed after reconnect:', retryError.message);
+                    if (retryError.message?.includes('tokens are not set') || 
+                        retryError.message?.includes('disconnect was called')) {
+                      setError('StreamChat is reconnecting. Please wait a moment and try again.');
+                    } else {
+                      setError('Failed to load chat. Please try again.');
+                    }
+                    return;
                   }
+                } else {
+                  setError('StreamChat connection lost. Please try again.');
                   return;
                 }
               } else {
-                setError('StreamChat is not connected. Please try again.');
-                return;
+                // Connection state says connected, but watch failed - wait and retry
+                console.log('⏳ [ChatPage] Connection state OK, waiting and retrying...');
+                const isConnected = await waitForConnection(3000);
+                if (isConnected) {
+                  try {
+                    console.log('🔄 [ChatPage] Retrying watch after connection check...');
+                    await channelInstance.watch({
+                      watchers: { limit: 10 },
+                      messages: { limit: 30 },
+                      presence: true,
+                    });
+                    console.log('✅ [ChatPage] Channel watched after retry');
+                  } catch (retryError: any) {
+                    console.error('❌ [ChatPage] Retry failed:', retryError.message);
+                    setError('Failed to load chat. Please try again.');
+                    return;
+                  }
+                } else {
+                  setError('StreamChat is not connected. Please try again.');
+                  return;
+                }
               }
             } else {
               setError(watchError.message || 'Failed to load chat');
@@ -2070,6 +2114,11 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 dismissOverlay,  // Also available to close the overlay
                 ...otherActions 
               }) => {
+                // Get current StreamChat user ID to check if message is owned by current user
+                const currentStreamUserId = client?.userID;
+                const messageSenderId = message?.user?.id;
+                const isOwnMessage = currentStreamUserId && messageSenderId && currentStreamUserId === messageSenderId;
+                
                 // Debug logging to verify which actions are available
                 if (__DEV__) {
                   console.log('🔍 [messageActions] Available actions:', {
@@ -2083,6 +2132,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
                     pinMessage: !!pinMessage,
                     hasMessage: !!message,
                     messageText: message?.text || 'NOT FOUND',
+                    currentStreamUserId,
+                    messageSenderId,
+                    isOwnMessage,
                     allActionKeys: Object.keys({ editMessage, deleteMessage, reply, selectReaction, copyMessage, markAsUnread, flagMessage, pinMessage, ...otherActions }),
                   });
                 }
@@ -2129,6 +2181,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 } : null;
                 
                 // Return all actions we want to show
+                // CRITICAL: Only show editMessage and deleteMessage for messages sent by the current user
                 // CustomMessageActionList will intercept copyMessage and use useMessageContext
                 // to get the message text and perform the actual copy
                 const actions = [
@@ -2138,12 +2191,16 @@ const ChatPage: React.FC<ChatPageProps> = ({
                   markAsUnread,
                   flagMessage,
                   pinMessage,
-                  editMessage,
-                  deleteMessage,
+                  // Only include editMessage and deleteMessage if message is owned by current user
+                  ...(isOwnMessage ? [editMessage, deleteMessage] : []),
                 ].filter(Boolean); // Filter out any null/undefined actions
                 
                 if (__DEV__) {
-                  console.log('🔍 [messageActions] Returning actions:', actions.length, 'actions');
+                  console.log('🔍 [messageActions] Returning actions:', actions.length, 'actions', {
+                    isOwnMessage,
+                    includesEdit: actions.includes(editMessage),
+                    includesDelete: actions.includes(deleteMessage),
+                  });
                 }
                 
                 return actions;

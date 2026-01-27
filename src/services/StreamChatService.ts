@@ -134,7 +134,10 @@ class StreamChatService {
     // Disconnect previous user if any
     if (client.userID && client.userID !== streamUserId) {
       console.log('🔄 StreamChat: Disconnecting previous user');
-      await client.disconnectUser();
+      // Use our disconnectUser method which properly releases channels
+      await this.disconnectUser();
+      // Wait for disconnect to complete
+      await new Promise(resolve => setTimeout(resolve, 150));
     }
 
     // Prepare user object for StreamChat
@@ -147,11 +150,16 @@ class StreamChatService {
 
     console.log('🔌 StreamChat: Connecting user', streamUserId);
     await client.connectUser(streamUser, token);
+    
+    // Wait a bit for connection to stabilize
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     console.log('✅ StreamChat: User connected successfully');
   }
 
   /**
    * Disconnect current user from StreamChat
+   * Releases all active channels before disconnecting to prevent "can't use channel after disconnect" errors
    */
   async disconnectUser(): Promise<void> {
     if (!this.client) {
@@ -160,12 +168,41 @@ class StreamChatService {
 
     try {
       console.log('🔌 StreamChat: Disconnecting user');
+      
+      // Release all active channels before disconnecting
+      // This prevents "You can't use a channel after client.disconnect() was called" errors
+      try {
+        const activeChannels = this.client.activeChannels;
+        if (activeChannels && Object.keys(activeChannels).length > 0) {
+          console.log(`🔌 StreamChat: Releasing ${Object.keys(activeChannels).length} active channels before disconnect`);
+          for (const channelId in activeChannels) {
+            try {
+              const channel = activeChannels[channelId];
+              if (channel && typeof channel.release === 'function') {
+                await channel.release();
+              }
+            } catch (channelError) {
+              console.warn(`⚠️ StreamChat: Error releasing channel ${channelId}:`, channelError);
+            }
+          }
+          // Small delay to ensure all channel operations complete
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      } catch (releaseError) {
+        console.warn('⚠️ StreamChat: Error releasing channels (non-critical):', releaseError);
+      }
+      
       await this.client.disconnectUser();
       this.currentUserId = null;
+      
+      // Small delay after disconnect to ensure all operations complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       console.log('✅ StreamChat: User disconnected');
     } catch (error) {
       console.error('❌ StreamChat: Error disconnecting user', error);
-      throw error;
+      // Don't throw - allow reconnect to proceed even if disconnect had issues
+      this.currentUserId = null;
     }
   }
 
@@ -232,7 +269,18 @@ class StreamChatService {
   ): Promise<void> {
     // Disconnect first if connected
     if (this.isConnected()) {
+      console.log('🔄 StreamChat: Reconnecting - disconnecting current user first...');
       await this.disconnectUser();
+      
+      // Wait a bit longer after disconnect to ensure all operations complete
+      // This prevents "can't use channel after disconnect" errors
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Verify disconnect completed
+      const connectionState = (this.client as any)?.connectionState;
+      if (connectionState === 'disconnected' || connectionState === 'offline') {
+        console.log('✅ StreamChat: Disconnect confirmed, proceeding with reconnect');
+      }
     }
 
     // Connect with new user

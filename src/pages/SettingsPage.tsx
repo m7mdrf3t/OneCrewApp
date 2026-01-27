@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,12 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { shareAppInvite } from '../utils/shareAppInvite';
 import { useAppNavigation } from '../navigation/NavigationContext';
+import { ProfileSwitchTest } from '../utils/ProfileSwitchTest';
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -45,6 +47,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const onNavigate = onNavigateProp || navigateTo;
   
   const isDark = theme === 'dark';
+  const [showProfileTest, setShowProfileTest] = useState(false);
 
   const handleInviteFriend = async () => {
     await shareAppInvite();
@@ -152,6 +155,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           action: () => onNavigate('performanceTest'),
           showArrow: true,
         },
+        {
+          id: 'profileSwitchTest',
+          title: 'Profile Switching Test',
+          icon: 'swap-horizontal',
+          action: () => setShowProfileTest(true),
+          showArrow: true,
+        },
       ],
     });
   }
@@ -234,6 +244,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           </View>
         ))}
       </ScrollView>
+      
+      {/* Profile Switching Test Modal - Dev Only */}
+      {__DEV__ && (
+        <Modal
+          visible={showProfileTest}
+          animationType="slide"
+          onRequestClose={() => setShowProfileTest(false)}
+        >
+          <ProfileSwitchTest onClose={() => setShowProfileTest(false)} />
+        </Modal>
+      )}
     </View>
   );
 };
