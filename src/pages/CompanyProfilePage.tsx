@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
+import { useGlobalModals } from '../contexts/GlobalModalsContext';
 import { RootStackScreenProps } from '../navigation/types';
 import SkeletonProfilePage from '../components/SkeletonProfilePage';
 import SkeletonServiceCard from '../components/SkeletonServiceCard';
@@ -118,11 +119,16 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     uploadFile,
     isGuest,
     isAuthenticated,
+    updateAcademyVisibility,
   } = useApi();
+
+  const { setShowAccountSwitcher, setShowUserMenu } = useGlobalModals();
 
   const [company, setCompany] = useState<Company | null>(null);
   const [members, setMembers] = useState<CompanyMember[]>([]);
   const [services, setServices] = useState<CompanyService[]>([]);
+  // Track visibility updates to force cache refresh
+  const [visibilityUpdateTimestamp, setVisibilityUpdateTimestamp] = useState<number>(0);
   const [expandedSection, setExpandedSection] = useState<'services' | 'members' | 'certifications' | null>(null);
   const [certifications, setCertifications] = useState<UserCertification[]>([]);
   // Edit-related state - only initialized when NOT in read-only mode
@@ -157,17 +163,19 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   // Removed lazy loading toggles for better UX with skeleton loading states
 
   const companyCoreQuery = useQuery({
-    queryKey: ['company', companyId, 'core', refreshKey],
+    queryKey: ['company', companyId, 'core', refreshKey, visibilityUpdateTimestamp],
     enabled: !!companyId,
     queryFn: async () => {
-      if (refreshKey > 0) {
-        // Clear legacy rate-limiter cache first to ensure fresh data
+      // Always clear rate-limiter cache to ensure fresh data
+      // This is especially important after visibility updates
         try {
           const { rateLimiter } = await import('../utils/rateLimiter');
           await rateLimiter.clearCacheByPattern(`company-${companyId}`);
+        if (__DEV__) {
+          console.log(`🧹 [CompanyProfile] Cleared rate limiter cache for company: ${companyId}`);
+        }
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
-        }
       }
 
       const coreCompanyResponse = await getCompany(companyId);
@@ -186,14 +194,38 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   }, [companyCoreQuery.data]);
 
+  // Hide React Navigation header - we use custom header
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerShown: false,
+    });
+    if (__DEV__) {
+      console.log('✅ [CompanyProfile] Navigation header hidden, custom header should be visible');
+    }
+  }, [navigation]);
+
   // Refetch company data when screen comes into focus to ensure fresh data after approval
   useFocusEffect(
     React.useCallback(() => {
       // Invalidate and refetch company data when screen is focused
-      // This ensures that after approval, the page shows the updated status and management tools
+      // This ensures that after approval or visibility changes, the page shows the updated status
       if (companyId) {
-        queryClient.invalidateQueries({ queryKey: ['company', companyId, 'core'] });
-        queryClient.refetchQueries({ queryKey: ['company', companyId, 'core'] });
+        // Clear rate limiter cache first to ensure fresh data from backend
+        (async () => {
+          try {
+            const { rateLimiter } = await import('../utils/rateLimiter');
+            await rateLimiter.clearCacheByPattern(`company-${companyId}`);
+            if (__DEV__) {
+              console.log(`🧹 [CompanyProfile] useFocusEffect: Cleared cache for company: ${companyId}`);
+            }
+          } catch (err) {
+            console.warn('⚠️ Could not clear cache in useFocusEffect:', err);
+          }
+        })();
+        
+        // Invalidate React Query cache and refetch
+        queryClient.invalidateQueries({ queryKey: ['company', companyId, 'core'], exact: false });
+        queryClient.refetchQueries({ queryKey: ['company', companyId, 'core'], exact: false });
       }
     }, [companyId, queryClient])
   );
@@ -741,6 +773,138 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     return isOwnerCheck || isActiveCompany || hasEditPermission;
   };
 
+  const checkIsAcademy = () => {
+    return company?.subcategory === 'academy';
+  };
+
+  const handleToggleVisibility = async () => {
+    if (!company || !checkIsAcademy() || !canEdit()) return;
+
+    const currentVisibility = company.visibility || 'published';
+    const newVisibility = currentVisibility === 'private' ? 'published' : 'private';
+
+    // Show confirmation dialog when setting to private
+    if (newVisibility === 'private') {
+      Alert.alert(
+        'Make Academy Private?',
+        'Only admins will be able to see this academy. Regular users will not be able to find it in the directory. Are you sure?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Make Private',
+            style: 'destructive',
+            onPress: async () => {
+              await updateVisibility(newVisibility);
+            },
+          },
+        ]
+      );
+    } else {
+      // No confirmation needed for publishing
+      await updateVisibility(newVisibility);
+    }
+  };
+
+  const updateVisibility = async (visibility: 'private' | 'published') => {
+    if (!company) return;
+
+    const previousVisibility = company.visibility || 'published';
+
+    // Optimistic update
+    setCompany({ ...company, visibility });
+
+    try {
+      // Clear rate limiter cache BEFORE updating to ensure fresh data after
+      try {
+        const { rateLimiter } = await import('../utils/rateLimiter');
+        await rateLimiter.clearCacheByPattern(`company-${company.id}`);
+        if (__DEV__) {
+          console.log(`🧹 [updateVisibility] Cleared rate limiter cache before update`);
+        }
+      } catch (err) {
+        console.warn('⚠️ Could not clear cache before update:', err);
+      }
+
+      await updateAcademyVisibility(company.id, visibility);
+      
+      // Update timestamp to force query key change and cache invalidation
+      const newTimestamp = Date.now();
+      setVisibilityUpdateTimestamp(newTimestamp);
+      
+      // Clear rate limiter cache AGAIN after update to ensure it's fresh
+      try {
+        const { rateLimiter } = await import('../utils/rateLimiter');
+        await rateLimiter.clearCacheByPattern(`company-${company.id}`);
+        await rateLimiter.clearCacheByPattern(`companies-`);
+        if (__DEV__) {
+          console.log(`🧹 [updateVisibility] Cleared rate limiter cache after update`);
+        }
+      } catch (err) {
+        console.warn('⚠️ Could not clear cache after update:', err);
+      }
+      
+      // Invalidate and refetch the company query immediately to get fresh data
+      // The timestamp change will force a new query key, bypassing all caches
+      queryClient.invalidateQueries({ 
+        queryKey: ['company', company.id, 'core'],
+        exact: false
+      });
+      
+      // Force refetch with cache bypass - wait for it to complete
+      await companyCoreQuery.refetch();
+      
+      // Verify the data was updated correctly
+      if (companyCoreQuery.data?.visibility !== visibility) {
+        console.warn('⚠️ [updateVisibility] Visibility mismatch after refetch. Expected:', visibility, 'Got:', companyCoreQuery.data?.visibility);
+        // Force another refetch after a short delay
+        setTimeout(async () => {
+          await companyCoreQuery.refetch();
+        }, 500);
+      }
+      
+      // Invalidate React Query cache for directory companies to refresh the list
+      // This ensures private academies are immediately removed/added from the directory
+      queryClient.invalidateQueries({ 
+        queryKey: ['directoryCompanies'],
+        exact: false // Invalidate all directory company queries
+      });
+      
+      // Also invalidate any other company-related queries
+      queryClient.invalidateQueries({ 
+        queryKey: ['company', company.id],
+        exact: false
+      });
+      
+      // Force clear rate limiter cache for companies list to ensure fresh data
+      // This is critical - the rate limiter cache might still have old data
+      try {
+        const { rateLimiter } = await import('../utils/rateLimiter');
+        await rateLimiter.clearCacheByPattern(`companies-`);
+        if (__DEV__) {
+          console.log(`🧹 [updateVisibility] Cleared companies list cache from rate limiter`);
+        }
+      } catch (err) {
+        console.warn('⚠️ Could not clear companies list cache:', err);
+      }
+      
+      Alert.alert(
+        'Success',
+        `Academy is now ${visibility === 'private' ? 'private' : 'published'}. ${
+          visibility === 'private'
+            ? 'Only admins can see it. It will be removed from the directory for regular users.'
+            : 'Everyone can see it in the directory.'
+        }`
+      );
+    } catch (error: any) {
+      // Revert optimistic update on error
+      setCompany({ ...company, visibility: previousVisibility });
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to update academy visibility. Please try again.'
+      );
+    }
+  };
+
   const getApprovalStatusColor = (status: CompanyApprovalStatus): string => {
     switch (status) {
       case 'approved':
@@ -1037,13 +1201,85 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Company Profile</Text>
+        <Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">Company Profile</Text>
+        <View style={styles.headerActions}>
+          {/* Account Switcher Button - Always visible */}
+          <TouchableOpacity 
+            onPress={() => {
+              if (__DEV__) {
+                console.log('🔀 [CompanyProfile] Account switcher button pressed');
+              }
+              setShowAccountSwitcher(true);
+            }} 
+            style={styles.headerIconButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="swap-horizontal-outline" size={24} color="#000" />
+          </TouchableOpacity>
+          {/* Visibility Toggle Button - Only for academy owners */}
+          {!isReadOnly && canEdit() && company && checkIsAcademy() && (
+            <TouchableOpacity
+              onPress={handleToggleVisibility}
+              style={[
+                styles.visibilityButton,
+                company.visibility === 'private' ? styles.visibilityButtonPrivate : styles.visibilityButtonPublished,
+              ]}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={company.visibility === 'private' ? 'lock-closed' : 'globe-outline'}
+                size={18}
+                color={company.visibility === 'private' ? '#f59e0b' : '#22c55e'}
+              />
+              <Text
+                style={[
+                  styles.visibilityButtonText,
+                  company.visibility === 'private'
+                    ? styles.visibilityButtonTextPrivate
+                    : styles.visibilityButtonTextPublished,
+                ]}
+                numberOfLines={1}
+              >
+                {company.visibility === 'private' ? 'Private' : 'Published'}
+              </Text>
+            </TouchableOpacity>
+          )}
         {/* STRICT READ-ONLY: Edit button completely removed when readOnly is true */}
-        {!isReadOnly && canEdit() && company && (
+          {(() => {
+            const shouldShowEdit = !isReadOnly && canEdit() && company;
+            if (__DEV__ && !shouldShowEdit) {
+              console.log('🔍 [CompanyProfile] Edit button hidden:', {
+                isReadOnly,
+                canEdit: canEdit(),
+                hasCompany: !!company,
+                companyId: company?.id,
+                userId: user?.id,
+                isOwner: isOwner(),
+                isActiveCompany: currentProfileType === 'company' && activeCompany?.id === company?.id,
+                membersCount: members.length,
+                userMember: members.find(m => m.user_id === user?.id),
+              });
+            }
+            return shouldShowEdit ? (
           <TouchableOpacity onPress={() => handleEditCompany(company)} style={styles.editButton}>
             <Ionicons name="create-outline" size={24} color="#000" />
           </TouchableOpacity>
-        )}
+            ) : null;
+          })()}
+          {/* Menu Button - Always visible */}
+          <TouchableOpacity 
+            onPress={() => {
+              if (__DEV__) {
+                console.log('📱 [CompanyProfile] Menu button pressed');
+              }
+              setShowUserMenu(true);
+            }} 
+            style={styles.headerIconButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="menu-outline" size={24} color="#000" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -2093,23 +2329,73 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e4e4e7',
+    minHeight: 44,
+    overflow: 'visible', // Ensure buttons aren't clipped
   },
   backButton: {
     width: 36,
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',
+    flexShrink: 0, // Prevent back button from shrinking
   },
   headerTitle: {
     fontSize: 15,
     fontWeight: '600',
     color: '#000',
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 8,
+    minWidth: 0, // Allow title to shrink if needed
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
+    minWidth: 90, // Ensure minimum space for at least 2 buttons (account switcher + menu)
+  },
+  visibilityButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 16,
+    gap: 4,
+    borderWidth: 1,
+    flexShrink: 1,
+  },
+  visibilityButtonPrivate: {
+    backgroundColor: '#fef3c7',
+    borderColor: '#f59e0b',
+  },
+  visibilityButtonPublished: {
+    backgroundColor: '#d1fae5',
+    borderColor: '#22c55e',
+  },
+  visibilityButtonText: {
+    fontSize: 11,
+    fontWeight: '600',
+    maxWidth: 70,
+  },
+  visibilityButtonTextPrivate: {
+    color: '#92400e',
+  },
+  visibilityButtonTextPublished: {
+    color: '#166534',
   },
   editButton: {
     width: 40,
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
   },
   scrollView: {
     flex: 1,

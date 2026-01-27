@@ -173,7 +173,28 @@ class StreamChatService {
    * Check if user is connected
    */
   isConnected(): boolean {
-    return this.client?.userID !== undefined && this.client?.userID !== null;
+    if (!this.client) {
+      return false;
+    }
+    
+    // Check if userID is set (primary check)
+    const hasUserId = this.client.userID !== undefined && this.client.userID !== null;
+    if (!hasUserId) {
+      return false;
+    }
+    
+    // Bonus check: connectionState (if available)
+    // StreamChat client has connectionState: 'connecting' | 'connected' | 'disconnected' | 'online' | 'offline'
+    const connectionState = (this.client as any).connectionState;
+    
+    // If connectionState is explicitly disconnected/offline, return false
+    if (connectionState === 'disconnected' || connectionState === 'offline') {
+      return false;
+    }
+    
+    // If userID is set and connectionState is not explicitly disconnected, consider it connected
+    // This is more lenient because connectionState might not always be available or accurate
+    return true;
   }
 
   /**

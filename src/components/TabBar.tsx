@@ -1,11 +1,22 @@
 import React from 'react';
-import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, Text, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { TabBarProps } from '../types';
+import { createPlatformStyles } from '../utils/platformStyles';
+import { tabBarCommonStyles } from './TabBar.styles.common';
+import { tabBarIosStyles } from './TabBar.styles.ios';
+import { tabBarAndroidStyles } from './TabBar.styles.android';
 import { useApi } from '../contexts/ApiContext';
 import { useGlobalModals } from '../contexts/GlobalModalsContext';
+
+// Create platform-specific styles (outside component for performance)
+const styles = createPlatformStyles({
+  common: tabBarCommonStyles,
+  ios: tabBarIosStyles,
+  android: tabBarAndroidStyles,
+});
 
 const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => {
   const insets = useSafeAreaInsets();
@@ -37,8 +48,13 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
     { key: 'wall', label: 'Agenda', icon: 'calendar' },
   ];
 
+  // Calculate padding bottom - iOS handles it in styles, Android uses insets
+  const paddingBottom = Platform.OS === 'ios' 
+    ? undefined 
+    : Math.max(insets.bottom, 8);
+
   return (
-    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8) }]}> 
+    <View style={[styles.container, paddingBottom !== undefined && { paddingBottom }]}> 
       {tabs.map((tab) => (
         <TouchableOpacity
           key={tab.key}
@@ -89,80 +105,5 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    backgroundColor: '#000',
-    borderTopWidth: 1,
-    borderTopColor: '#333',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    zIndex: 1000,
-    elevation: 10, // For Android
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  activeTab: {
-    backgroundColor: '#333',
-    borderRadius: 8,
-  },
-  tabLabel: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 4,
-    fontWeight: '500',
-  },
-  activeTabLabel: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  menuTab: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginLeft: 4,
-    borderRadius: 8,
-  },
-  profileTab: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginLeft: 4,
-    borderRadius: 8,
-  },
-  profileImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
-  profileImagePlaceholder: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#333',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
-  profileImageText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-});
 
 export default TabBar;

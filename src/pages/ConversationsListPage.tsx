@@ -46,6 +46,22 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     return client.userID;
   }, [client?.userID]);
 
+  // CRITICAL: Create a key that changes when profile switches
+  // This forces ChannelList to remount and re-query when switching profiles
+  const channelListKey = useMemo(() => {
+    return `${currentStreamUserId || 'no-user'}-${currentProfileType}-${activeCompany?.id || 'no-company'}`;
+  }, [currentStreamUserId, currentProfileType, activeCompany?.id]);
+
+  // Log profile changes for debugging
+  useEffect(() => {
+    console.log('💬 [ConversationsListPage] Profile changed, refreshing channel list...', {
+      currentStreamUserId,
+      currentProfileType,
+      activeCompanyId: activeCompany?.id,
+      channelListKey,
+    });
+  }, [channelListKey, currentStreamUserId, currentProfileType, activeCompany?.id]);
+
   // Handle channel selection - navigate to chat page
   const handleChannelSelect = useCallback((channel: any) => {
     if (!channel) {
@@ -222,6 +238,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   return (
     <View style={styles.container}>
       <ChannelList
+        key={channelListKey}
         filters={filters}
         sort={sort}
         Preview={ChannelPreview}
@@ -238,7 +255,13 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         }}
         // Error handling
         onError={(error) => {
-          console.error('ChannelList error:', error);
+          // Don't log connection errors as they're handled by StreamChatProvider
+          if (error?.message?.includes('tokens are not set') || 
+              error?.message?.includes('connectUser wasn\'t called')) {
+            console.warn('⚠️ [ConversationsListPage] StreamChat not connected yet, will retry...', error);
+            return;
+          }
+          console.error('❌ [ConversationsListPage] ChannelList error:', error);
         }}
         // Empty state
         EmptyStateIndicator={() => (

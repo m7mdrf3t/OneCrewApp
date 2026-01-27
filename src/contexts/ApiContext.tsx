@@ -246,6 +246,7 @@ interface ApiContextType {
   quickCreateCompany: (companyData: any) => Promise<any>;
   getCompany: (companyId: string, params?: { include?: ('members' | 'services' | 'documents' | 'certifications' | 'courses')[]; membersLimit?: number; membersPage?: number; fields?: string[] }) => Promise<any>;
   updateCompany: (companyId: string, updates: any) => Promise<any>;
+  updateAcademyVisibility: (companyId: string, visibility: 'private' | 'published') => Promise<any>;
   uploadCompanyLogo: (companyId: string, file: { uri: string; type: string; name: string }) => Promise<any>;
   uploadCoursePoster: (courseId: string, file: { uri: string; type: string; name: string }) => Promise<any>; // v2.16.0
   uploadCertificateImage: (file: { uri: string; type: string; name: string }) => Promise<any>; // v2.16.0
@@ -386,7 +387,7 @@ interface ApiContextType {
   muteConversation: (conversationId: string, mutedUntil?: string) => Promise<any>;
   sendTypingIndicator: (conversationId: string, isTyping: boolean) => Promise<any>;
   // StreamChat token
-  getStreamChatToken: () => Promise<any>;
+  getStreamChatToken: (options?: { profile_type?: 'user' | 'company'; company_id?: string }) => Promise<any>;
   // Message reactions
   addReaction: (messageId: string, data: { reaction_type: string; conversation_id: string }) => Promise<any>;
   removeReaction: (messageId: string, reactionType: string, conversationId: string) => Promise<any>;
@@ -954,7 +955,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Initialize StreamChat after successful login
       try {
-        const streamTokenResponse = await api.chat.getStreamChatToken();
+        const streamTokenResponse = await getStreamChatToken({ profile_type: 'user' });
         if (streamTokenResponse.success && streamTokenResponse.data) {
           const { token, user_id, api_key } = streamTokenResponse.data as any;
           
@@ -5761,7 +5762,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     // Reconnect StreamChat with user profile
     if (user?.id) {
       try {
-        const streamTokenResponse = await api.chat.getStreamChatToken();
+        const streamTokenResponse = await getStreamChatToken({ profile_type: 'user' });
         if (streamTokenResponse.success && streamTokenResponse.data) {
           const { token, user_id, api_key } = streamTokenResponse.data as any;
           // Use user_id from token response (backend knows the correct StreamChat user ID format)
@@ -5843,7 +5844,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         // Reconnect StreamChat with company profile
         try {
-          const streamTokenResponse = await api.chat.getStreamChatToken();
+          const streamTokenResponse = await getStreamChatToken({ 
+            profile_type: 'company', 
+            company_id: companyId 
+          });
           if (streamTokenResponse.success && streamTokenResponse.data) {
             const { token, user_id, api_key } = streamTokenResponse.data as any;
             // Use user_id from token response (backend knows the correct StreamChat user ID format)
@@ -5857,7 +5861,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               api_key, // Pass API key from backend if provided
               'company' // User type for tracking
             );
-            console.log('✅ StreamChat reconnected with company profile');
+            console.log('✅ StreamChat reconnected with company profile', { user_id });
           }
         } catch (streamError) {
           console.warn('⚠️ Failed to reconnect StreamChat (non-critical):', streamError);
@@ -6122,6 +6126,70 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       return response;
     } catch (error) {
       console.error('Failed to update company:', error);
+      throw error;
+    }
+  };
+
+  const updateAcademyVisibility = async (companyId: string, visibility: 'private' | 'published') => {
+    try {
+      // Validate that visibility is a valid value
+      if (visibility !== 'private' && visibility !== 'published') {
+        throw new Error('Invalid visibility value. Must be "private" or "published"');
+      }
+
+      console.log(`🎓 Updating academy visibility: ${companyId} -> ${visibility}`);
+      
+      // First, get the company to validate it's an academy
+      const companyResponse = await api.getCompany(companyId);
+      if (!companyResponse.success || !companyResponse.data) {
+        throw new Error('Company not found');
+      }
+
+      const company = companyResponse.data;
+      if (company.subcategory !== 'academy') {
+        throw new Error('Visibility settings can only be applied to academies');
+      }
+
+      // Use PUT method directly (backend expects PUT, not PATCH)
+      // Get access token for authenticated request
+      const token = getAccessToken();
+      if (!token) {
+        throw new Error('Authentication required to update academy visibility');
+      }
+
+      const response = await fetch(`${baseUrl}/api/companies/${companyId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ visibility }),
+      });
+
+      const responseData = await response.json();
+
+      if (!response.ok || !responseData.success) {
+        throw new Error(responseData.error || 'Failed to update academy visibility');
+      }
+      
+      // Update active company if it's the current one
+      if (activeCompany?.id === companyId) {
+        setActiveCompany({ ...activeCompany, visibility });
+      }
+      
+      // Invalidate all company-related caches - clear ALL variations
+      // The cache key format is: company-${companyId}-${JSON.stringify(params)}
+      // So we need to clear by pattern to catch all variations
+      await rateLimiter.clearCacheByPattern(`company-${companyId}`);
+      await rateLimiter.clearCacheByPattern(`companies-`);
+      await rateLimiter.clearCacheByPattern(`academy-courses-${companyId}`);
+      await rateLimiter.clearCacheByPattern(`published-news-`);
+      
+      console.log(`✅ Academy visibility updated successfully: ${visibility}`);
+      console.log(`🧹 Cleared rate limiter cache for company: ${companyId}`);
+      return responseData;
+    } catch (error: any) {
+      console.error('❌ Failed to update academy visibility:', error);
       throw error;
     }
   };
@@ -6459,7 +6527,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     sort?: string;
     order?: 'asc' | 'desc';
   }) => {
-    const cacheKey = `companies-${JSON.stringify(params || {})}`;
+    // Include user ID in cache key since results differ by user (for private academies)
+    // Backend filters private academies based on user permissions
+    // Also include a timestamp component to force refresh when visibility changes
+    const userId = getAccessToken() ? 'authenticated' : 'guest';
+    const cacheKey = `companies-${userId}-${JSON.stringify(params || {})}`;
     return performanceMonitor.trackApiCall(
       'Get Companies',
       `${baseUrl}/api/companies`,
@@ -6835,11 +6907,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const response = await api.getPendingCompanyMembers(companyId, apiParams);
         return response;
       } catch (error: any) {
-        console.error('Failed to get pending company members:', error);
-        
-        // Handle 403 (unauthorized) gracefully
-        if (error.status === 403 || error.statusCode === 403) {
-          console.warn('⚠️ Unauthorized to view pending company members (403). Returning empty list.');
+        // Handle 403 (unauthorized) gracefully - don't log as error
+        if (error.status === 403 || error.statusCode === 403 || 
+            error?.message?.includes('403') || error?.message?.includes('owner or admin')) {
+          // Silently handle 403 - this is expected when user is not owner/admin
           return {
             success: true,
             data: {
@@ -6853,6 +6924,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             },
           };
         }
+        
+        // Only log non-403 errors
+        console.error('Failed to get pending company members:', error);
         
         // Handle 404 (endpoint not found) gracefully
         if (error.status === 404 || error.statusCode === 404) {
@@ -8065,20 +8139,72 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       // Ensure participant_ids is an array
+      // CRITICAL: Pass company_id if on company profile so backend uses correct initiator
       const requestData = {
         conversation_type: request.conversation_type,
         participant_ids: Array.isArray(request.participant_ids) ? request.participant_ids : [request.participant_ids],
         ...(request.name && { name: request.name }),
+        // Pass company_id explicitly when on company profile
+        // This ensures backend uses company ID (not user ID) as initiator
+        ...(currentProfileType === 'company' && activeCompany?.id && {
+          company_id: activeCompany.id
+        }),
       };
       console.log('💬 Request data:', requestData);
-      console.log('💬 Calling api.chat.createConversation...');
-      const response = await api.chat.createConversation(requestData);
-      if (response.success) {
-        // Cache invalidation not needed since caching is disabled for conversations
-        console.log('✅ Conversation created successfully');
-        return response;
+      console.log('💬 Profile context:', {
+        currentProfileType,
+        activeCompanyId: activeCompany?.id,
+        passingCompanyId: currentProfileType === 'company' && activeCompany?.id,
+      });
+      
+      // CRITICAL: Use direct fetch with longer timeout for createConversation
+      // Backend needs time to sync users to StreamChat (can take 2-4 seconds)
+      const token = getAccessToken();
+      const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
+      const url = `${baseUrl}/api/chat/conversations`;
+      
+      console.log('💬 Making direct fetch call with extended timeout...');
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+      
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestData),
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+          throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          console.log('✅ Conversation created successfully');
+          return data;
+        }
+        
+        throw new Error(data.error || 'Failed to create conversation');
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        
+        // Handle timeout specifically
+        if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
+          throw new Error('Request timeout - The server is taking longer than expected. Please try again.');
+        }
+        
+        throw fetchError;
       }
-      throw new Error(response.error || 'Failed to create conversation');
     } catch (error: any) {
       console.error('❌ Failed to create conversation:', error);
       throw error;
@@ -8315,18 +8441,51 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // StreamChat token
-  const getStreamChatToken = async () => {
+  const getStreamChatToken = async (options?: { profile_type?: 'user' | 'company'; company_id?: string }) => {
     try {
-      if (!api.chat) {
-        throw new Error('Chat service is not available. Please ensure the API client is initialized.');
+      // Build query parameters if profile type is specified
+      let queryParams = '';
+      if (options?.profile_type === 'company' && options?.company_id) {
+        queryParams = `?profile_type=company&company_id=${encodeURIComponent(options.company_id)}`;
+      } else if (options?.profile_type === 'user') {
+        queryParams = '?profile_type=user';
       }
-      console.log('💬 Getting StreamChat token...');
-      const response = await api.chat.getStreamChatToken();
-      if (response.success) {
-        console.log('✅ StreamChat token retrieved successfully');
-        return response;
+      
+      console.log('💬 Getting StreamChat token...', { 
+        profile_type: options?.profile_type || 'user',
+        company_id: options?.company_id,
+        queryParams 
+      });
+      
+      // Make direct HTTP call to support query parameters
+      // The API client might not support query params, so we'll call the endpoint directly
+      const token = getAccessToken();
+      const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
+      const url = `${baseUrl}/api/chat/token${queryParams}`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to get StreamChat token' }));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
       }
-      throw new Error(response.error || 'Failed to get StreamChat token');
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('✅ StreamChat token retrieved successfully', {
+          user_id: data.data?.user_id,
+          profile_type: options?.profile_type || 'user',
+        });
+        return data;
+      }
+      throw new Error(data.error || 'Failed to get StreamChat token');
     } catch (error: any) {
       console.error('❌ Failed to get StreamChat token:', error);
       throw error;
@@ -9863,6 +10022,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     quickCreateCompany,
     getCompany,
     updateCompany,
+    updateAcademyVisibility,
     uploadCompanyLogo,
     uploadCoursePoster, // v2.16.0
     uploadCertificateImage, // v2.16.0

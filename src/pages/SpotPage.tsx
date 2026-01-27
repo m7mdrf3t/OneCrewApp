@@ -262,16 +262,16 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
         )}
         <View style={styles.footer}>
           <View style={styles.footerLeft}>
-            {post.author && (
-              <Text style={[styles.author, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-                {post.author}
-              </Text>
-            )}
-            {post.published_at && (
-              <Text style={[styles.date, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-                {formatDate(post.published_at)}
-              </Text>
-            )}
+          {post.author && (
+            <Text style={[styles.author, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+              {post.author}
+            </Text>
+          )}
+          {post.published_at && (
+            <Text style={[styles.date, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+              {formatDate(post.published_at)}
+            </Text>
+          )}
           </View>
           <TouchableOpacity
             style={styles.likeButton}

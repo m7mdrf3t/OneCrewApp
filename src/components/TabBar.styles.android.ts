@@ -10,7 +10,7 @@ export const tabBarAndroidStyles = StyleSheet.create({
     backgroundColor: '#000',
     borderTopColor: '#333',
     borderTopWidth: 1, // Material Design uses 1px
-    elevation: 8, // Material elevation
+    elevation: 10, // Material elevation
   } as ViewStyle,
   
   tab: {

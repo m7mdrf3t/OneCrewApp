@@ -187,7 +187,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     );
   }
 
-  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies, getRoles } = useApi();
+  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies, getRoles, user, activeCompany, currentProfileType } = useApi();
   const queryClient = useQueryClient();
   const isCompaniesSection = section.key === 'onehub' || section.key === 'academy';
   const isDirectorySection = section.key === 'directory';
@@ -406,15 +406,33 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     },
   });
 
+  // Include user ID in query key to ensure cache is user-specific
+  // This is important for visibility filtering - different users see different academies
   const directoryCompaniesQueryKey = useMemo(
-    () => ['directoryCompanies', { sectionKey: section.key, search: debouncedSearchQuery }],
-    [section.key, debouncedSearchQuery]
+    () => ['directoryCompanies', { 
+      sectionKey: section.key, 
+      search: debouncedSearchQuery,
+      userId: user?.id || 'guest' // Include user ID to ensure user-specific cache
+    }],
+    [section.key, debouncedSearchQuery, user?.id]
   );
 
   const directoryCompaniesQuery = useQuery<Company[]>({
     queryKey: directoryCompaniesQueryKey,
     enabled: isCompaniesSection,
     queryFn: async () => {
+      // Clear rate limiter cache before fetching to ensure fresh data
+      // This is especially important after visibility changes
+      try {
+        const { rateLimiter } = await import('../utils/rateLimiter');
+        await rateLimiter.clearCacheByPattern(`companies-`);
+        if (__DEV__) {
+          console.log(`🧹 [DirectoryPage] Cleared rate limiter cache before fetching companies`);
+        }
+      } catch (err) {
+        console.warn('⚠️ Could not clear cache:', err);
+      }
+
       // Determine subcategory filter based on section (v2.24.0 optimization - server-side filtering)
       let subcategoryFilter: string | undefined;
       if (section.key === 'onehub') {
@@ -425,7 +443,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
       const response = await getCompanies({
         limit: 100,
-        fields: ['id', 'name', 'logo_url', 'location_text', 'subcategory', 'company_type_info'],
+        fields: ['id', 'name', 'logo_url', 'location_text', 'subcategory', 'company_type_info', 'owner'],
         subcategory: subcategoryFilter,
         sort: 'name',
         order: 'asc',
@@ -442,9 +460,57 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           ? (response.data as any).data
           : [];
 
+      // Backend now handles visibility filtering via Supabase function
+      // No client-side filtering needed - backend returns only visible academies
+      // Keep a development warning if private academies appear unexpectedly
+      if (__DEV__ && section.key === 'academy' && companiesArray.length > 0) {
+        const hasPrivateForNonAdmin = companiesArray.some((company: any) => {
+          if (company.visibility === 'private') {
+            // Check if user is owner
+            const isOwner = company.owner?.id === user?.id || (company as any).owner_id === user?.id;
+            // Check if user is admin (active company match)
+            const isActiveCompany = currentProfileType === 'company' && activeCompany?.id === company.id;
+            // If private academy and user is not owner/admin, log warning
+            return !isOwner && !isActiveCompany;
+          }
+          return false;
+        });
+        
+        if (hasPrivateForNonAdmin && user) {
+          console.warn('⚠️ [DirectoryPage] Backend returned private academies for non-owner/admin user. Backend filtering may need review.');
+        }
+      }
+
       return companiesArray;
     },
   });
+
+  // Refetch directory companies when screen comes into focus
+  // This ensures fresh data after visibility changes
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isCompaniesSection && section.key === 'academy') {
+        // Clear rate limiter cache to ensure fresh data
+        (async () => {
+          try {
+            const { rateLimiter } = await import('../utils/rateLimiter');
+            await rateLimiter.clearCacheByPattern(`companies-`);
+            if (__DEV__) {
+              console.log(`🧹 [DirectoryPage] useFocusEffect: Cleared companies cache`);
+            }
+          } catch (err) {
+            console.warn('⚠️ Could not clear cache in useFocusEffect:', err);
+          }
+        })();
+        
+        // Invalidate and refetch directory companies
+        queryClient.invalidateQueries({ 
+          queryKey: ['directoryCompanies'],
+          exact: false
+        });
+      }
+    }, [isCompaniesSection, section.key, queryClient])
+  );
 
   const teamMembersQueryKey = useMemo(() => ['myTeamMembers'], []);
 

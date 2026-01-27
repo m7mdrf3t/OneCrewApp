@@ -475,6 +475,7 @@ export interface Company {
     tiktok?: string;
   };
   default_course_design?: 'vertical' | 'horizontal' | 'large'; // v2.16.0: Default course design for academy
+  visibility?: 'private' | 'published'; // Only for academies - controls who can see the academy
   approval_status: CompanyApprovalStatus;
   approval_reason?: string;
   approved_at?: string;

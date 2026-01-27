@@ -1375,20 +1375,187 @@ const ChatPage: React.FC<ChatPageProps> = ({
         return;
       }
 
+      // CRITICAL: Wait for client to be connected before trying to watch channels
+      // The "tokens not set" error occurs when trying to watch before connectUser completes
+      const waitForConnection = async (maxWaitMs = 5000): Promise<boolean> => {
+        const startTime = Date.now();
+        while (Date.now() - startTime < maxWaitMs) {
+          // Check userID and service connection status
+          const hasUserId = !!client.userID;
+          const connectionState = (client as any).connectionState;
+          const isActuallyConnected = connectionState === 'connected' || connectionState === 'online';
+          const serviceSaysConnected = streamChatService.isConnected();
+          
+          // If userID is set and service says connected, proceed (connectionState is a bonus check)
+          // This is more lenient because connectionState might not always be available or accurate
+          if (hasUserId && serviceSaysConnected) {
+            // If connectionState is available and says disconnected, wait a bit more
+            if (connectionState && (connectionState === 'disconnected' || connectionState === 'offline')) {
+              console.log('⏳ [ChatPage] Connection state indicates disconnected, waiting...', {
+                connectionState,
+                hasUserId,
+                serviceSaysConnected,
+              });
+              await new Promise(resolve => setTimeout(resolve, 200));
+              continue;
+            }
+            
+            console.log('✅ [ChatPage] Client is connected:', {
+              userId: client.userID,
+              connectionState: connectionState || 'unknown',
+              serviceSaysConnected,
+            });
+            return true;
+          }
+          
+          console.log('⏳ [ChatPage] Waiting for StreamChat connection...', {
+            hasClient: !!client,
+            hasUserId,
+            connectionState: connectionState || 'unknown',
+            isActuallyConnected,
+            serviceSaysConnected,
+          });
+          await new Promise(resolve => setTimeout(resolve, 200)); // Check every 200ms
+        }
+        console.warn('⚠️ [ChatPage] Client connection timeout after', maxWaitMs, 'ms', {
+          hasUserId: !!client.userID,
+          connectionState: (client as any).connectionState || 'unknown',
+          serviceSaysConnected: streamChatService.isConnected(),
+        });
+        return false;
+      };
+
+      const isConnected = await waitForConnection();
+      if (!isConnected) {
+        console.error('❌ [ChatPage] StreamChat client not connected, cannot watch channel');
+        setError('StreamChat is not connected. Please try again.');
+        setLoading(false);
+        return;
+      }
+
       // If no conversationId, try to create conversation from participant
       if (!conversationId && participant) {
         try {
           setLoading(true);
           setError(null);
 
-          // Create conversation first
-          const createResponse = await createConversation({
-            conversation_type: currentProfileType === 'company' ? 'user_company' : 'user_user',
-            participant_ids: [participant.id || participant.user_id],
+          // Validate participant has required ID
+          const participantId = participant.id || participant.user_id;
+          if (!participantId) {
+            throw new Error('Participant ID is required to start a conversation');
+          }
+
+          // Determine conversation type based on both current profile and participant type
+          // Check participant type from category field or infer from data structure
+          const participantType = participant.category === 'company' || participant.logo_url ? 'company' : 'user';
+          const currentType = currentProfileType === 'company' ? 'company' : 'user';
+          
+          let conversationType: 'user_user' | 'user_company' | 'company_company';
+          if (currentType === 'company' && participantType === 'company') {
+            conversationType = 'company_company';
+          } else if (currentType === 'user' && participantType === 'user') {
+            conversationType = 'user_user';
+          } else {
+            // One is company, one is user
+            conversationType = 'user_company';
+          }
+
+          console.log('💬 [ChatPage] Determining conversation type:', {
+            currentType,
+            participantType,
+            conversationType,
+            participantId,
+            participantCategory: participant.category,
           });
 
-          if (!createResponse.success || !createResponse.data) {
-            throw new Error(createResponse.error || 'Failed to create conversation');
+          // Create conversation with retry logic for "user doesn't exist" errors
+          let createResponse;
+          let retryCount = 0;
+          const maxRetries = 3;
+          const retryDelay = 1000; // 1 second delay between retries
+          
+          while (retryCount <= maxRetries) {
+            try {
+              createResponse = await createConversation({
+                conversation_type: conversationType,
+                participant_ids: [participantId],
+              });
+
+              if (!createResponse.success || !createResponse.data) {
+                const errorMsg = createResponse.error || 'Failed to create conversation';
+                
+                // Check if it's a retryable error (including timeout)
+                const isRetryableError = 
+                  errorMsg.includes('don\'t exist in StreamChat yet') || 
+                  errorMsg.includes('Missing:') ||
+                  errorMsg.includes('Failed to add all members') ||
+                  errorMsg.includes('Request timeout') ||
+                  errorMsg.includes('timeout');
+                
+                if (isRetryableError && retryCount < maxRetries) {
+                  retryCount++;
+                  console.log(`🔄 [ChatPage] Retrying conversation creation (attempt ${retryCount}/${maxRetries})...`, {
+                    error: errorMsg,
+                    participantId,
+                  });
+                  
+                  // For timeout errors, wait longer (backend might be syncing user to StreamChat)
+                  const waitTime = errorMsg.includes('timeout') || errorMsg.includes('Request timeout')
+                    ? retryDelay * retryCount * 2 // Wait 2x longer for timeouts
+                    : retryDelay * retryCount;
+                  
+                  console.log(`⏳ [ChatPage] Waiting ${waitTime}ms before retry...`);
+                  await new Promise(resolve => setTimeout(resolve, waitTime));
+                  continue; // Retry
+                }
+                
+                throw new Error(errorMsg);
+              }
+              
+              // Success - break out of retry loop
+              break;
+            } catch (err: any) {
+              const errorMsg = err.message || err.toString() || '';
+              
+              // Check if it's a retryable error (including timeout)
+              const isRetryableError = 
+                errorMsg.includes('don\'t exist in StreamChat yet') || 
+                errorMsg.includes('Missing:') ||
+                errorMsg.includes('Failed to add all members') ||
+                errorMsg.includes('Request timeout') ||
+                errorMsg.includes('timeout') ||
+                errorMsg.includes('ETIMEDOUT') ||
+                err.status === 408 || // Request Timeout
+                err.statusCode === 408;
+              
+              if (isRetryableError && retryCount < maxRetries) {
+                retryCount++;
+                console.log(`🔄 [ChatPage] Retrying conversation creation (attempt ${retryCount}/${maxRetries})...`, {
+                  error: errorMsg,
+                  participantId,
+                  errorType: errorMsg.includes('timeout') ? 'timeout' : 'other',
+                });
+                
+                // For timeout errors, wait longer before retrying (backend might be syncing user)
+                const waitTime = errorMsg.includes('timeout') || errorMsg.includes('Request timeout')
+                  ? retryDelay * retryCount * 2 // Wait 2x longer for timeouts
+                  : retryDelay * retryCount;
+                
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue; // Retry
+              }
+              
+              // Not retryable or max retries reached - throw error
+              throw err;
+            }
+          }
+          
+          if (!createResponse || !createResponse.success || !createResponse.data) {
+            throw new Error(createResponse?.error || 'Failed to create conversation after retries');
+          }
+          
+          if (retryCount > 0) {
+            console.log(`✅ [ChatPage] Conversation created successfully after ${retryCount} retry(ies)`);
           }
 
           // Get the new conversation ID from backend response
@@ -1409,6 +1576,16 @@ const ChatPage: React.FC<ChatPageProps> = ({
           if (!currentStreamUserId) {
             throw new Error('StreamChat user not connected');
           }
+          
+          // Log connection details for debugging
+          console.log('💬 [ChatPage] StreamChat connection details:', {
+            currentStreamUserId,
+            currentProfileType,
+            activeCompanyId: activeCompany?.id,
+            userId: user?.id,
+            expectedType: currentProfileType === 'company' ? 'company' : 'user',
+            expectedPrefix: currentProfileType === 'company' ? 'onecrew_company_' : 'onecrew_user_',
+          });
           
           // Create channel instance using the conversation ID from backend
           // The backend should have already created the channel with proper members
@@ -1447,6 +1624,24 @@ const ChatPage: React.FC<ChatPageProps> = ({
             
             // Watch channel (critical)
             (async () => {
+              // Double-check connection before watching
+              const connectionState = (client as any).connectionState;
+              const isServiceConnected = streamChatService.isConnected();
+              const hasUserId = !!client.userID;
+              
+              // Primary check: userID and service connection status
+              if (!hasUserId || !isServiceConnected) {
+                throw new Error(`StreamChat client not connected. userID: ${hasUserId}, serviceConnected: ${isServiceConnected}`);
+              }
+              
+              // Bonus check: if connectionState says disconnected, warn but try anyway
+              if (connectionState === 'disconnected' || connectionState === 'offline') {
+                console.warn('⚠️ [ChatPage] Connection state indicates disconnected, but proceeding anyway', {
+                  connectionState,
+                  userID: client.userID,
+                });
+              }
+              
               console.log('🔄 [ChatPage] Watching channel...');
               await channelInstance.watch({
                 watchers: { limit: 10 },
@@ -1471,14 +1666,77 @@ const ChatPage: React.FC<ChatPageProps> = ({
           if (watchResult.status === 'rejected') {
             const watchError = watchResult.reason;
             console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
-            setError(watchError.message || 'Failed to load chat');
-            return;
+            
+            // Handle "tokens not set" error - client not connected
+            if (watchError.message?.includes('tokens are not set') || 
+                watchError.message?.includes('connectUser wasn\'t called') ||
+                watchError.message?.includes('disconnect was called')) {
+              console.warn('⚠️ [ChatPage] Client not connected, checking connection state...', {
+                connectionState: (client as any).connectionState,
+                userID: client.userID,
+              });
+              
+              // If client is disconnected, we need to reconnect
+              // This shouldn't happen, but if it does, we should trigger a reconnect
+              const connectionState = (client as any).connectionState;
+              if (connectionState === 'disconnected' || connectionState === 'offline') {
+                console.error('❌ [ChatPage] Client is disconnected, cannot retry. Please reconnect StreamChat.');
+                setError('StreamChat connection lost. Please try again.');
+                return;
+              }
+              
+              // Wait for connection and retry
+              const isConnected = await waitForConnection(3000);
+              if (isConnected) {
+                try {
+                  console.log('🔄 [ChatPage] Retrying watch after connection...');
+                  await channelInstance.watch({
+                    watchers: { limit: 10 },
+                    messages: { limit: 30 },
+                    presence: true,
+                  });
+                  console.log('✅ [ChatPage] Channel watched after connection');
+                } catch (retryError: any) {
+                  console.error('❌ [ChatPage] Retry failed after connection:', retryError.message);
+                  // If still failing, the client might need to be reconnected
+                  if (retryError.message?.includes('tokens are not set')) {
+                    setError('StreamChat connection issue. Please restart the app or try again later.');
+                  } else {
+                    setError('Failed to load chat. Please try again.');
+                  }
+                  return;
+                }
+              } else {
+                setError('StreamChat is not connected. Please try again.');
+                return;
+              }
+            } else {
+              setError(watchError.message || 'Failed to load chat');
+              return;
+            }
           }
           
           // Removed background query - let MessageList pagination handle it for better performance
         } catch (err: any) {
           console.error('Failed to create conversation and channel:', err);
-          setError(err.message || 'Failed to create chat');
+          
+          // Provide user-friendly error messages based on error type
+          let errorMessage = 'Failed to create chat';
+          const errorString = err.message || err.toString() || '';
+          
+          if (errorString.includes('Request timeout') || errorString.includes('timeout') || errorString.includes('ETIMEDOUT')) {
+            errorMessage = 'The server is taking longer than expected. This usually happens when setting up a new conversation. Please try again in a moment.';
+          } else if (errorString.includes('Other participant not found') || errorString.includes('404')) {
+            errorMessage = 'The person you\'re trying to message could not be found. Please try again later.';
+          } else if (errorString.includes('don\'t exist in StreamChat yet') || errorString.includes('Missing:')) {
+            errorMessage = 'Setting up conversation... This may take a moment. Please wait.';
+          } else if (errorString.includes('Failed to add all members')) {
+            errorMessage = 'Setting up conversation... This may take a moment. Please wait.';
+          } else if (err.message) {
+            errorMessage = err.message;
+          }
+          
+          setError(errorMessage);
         } finally {
           setLoading(false);
         }
@@ -1567,6 +1825,24 @@ const ChatPage: React.FC<ChatPageProps> = ({
           
           // Watch channel (critical - must succeed)
           (async () => {
+            // Double-check connection before watching
+            const connectionState = (client as any).connectionState;
+            const isServiceConnected = streamChatService.isConnected();
+            const hasUserId = !!client.userID;
+            
+            // Primary check: userID and service connection status
+            if (!hasUserId || !isServiceConnected) {
+              throw new Error(`StreamChat client not connected. userID: ${hasUserId}, serviceConnected: ${isServiceConnected}`);
+            }
+            
+            // Bonus check: if connectionState says disconnected, warn but try anyway
+            if (connectionState === 'disconnected' || connectionState === 'offline') {
+              console.warn('⚠️ [ChatPage] Connection state indicates disconnected, but proceeding anyway', {
+                connectionState,
+                userID: client.userID,
+              });
+            }
+            
             console.log('🔄 [ChatPage] Watching channel...');
             // Optimized: Load fewer messages initially, pagination will load more
             await channelInstance.watch({
@@ -1584,8 +1860,35 @@ const ChatPage: React.FC<ChatPageProps> = ({
           const watchError = watchResult.reason;
           console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
           
+          // Handle "tokens not set" error - client not connected
+          if (watchError.message?.includes('tokens are not set') || 
+              watchError.message?.includes('connectUser wasn\'t called') ||
+              watchError.message?.includes('disconnect was called')) {
+            console.warn('⚠️ [ChatPage] Client not connected, waiting for connection...');
+            
+            // Wait for connection and retry
+            const isConnected = await waitForConnection(3000);
+            if (isConnected) {
+              try {
+                console.log('🔄 [ChatPage] Retrying watch after connection...');
+                await channelInstance.watch({
+                  watchers: { limit: 10 },
+                  messages: { limit: 30 },
+                  presence: true,
+                });
+                console.log('✅ [ChatPage] Channel watched after connection');
+              } catch (retryError: any) {
+                console.error('❌ [ChatPage] Retry failed after connection:', retryError.message);
+                setError('Failed to load chat. Please try again.');
+                return;
+              }
+            } else {
+              setError('StreamChat is not connected. Please try again.');
+              return;
+            }
+          }
           // If permission error, try backend fix
-          if (watchError.message?.includes('ReadChannel is denied') || 
+          else if (watchError.message?.includes('ReadChannel is denied') || 
               watchError.message?.includes('not allowed') ||
               watchError.message?.includes('not a member') ||
               watchError.message?.includes('error code 17')) {

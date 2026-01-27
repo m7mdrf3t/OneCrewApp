@@ -185,6 +185,10 @@ const GlobalModals: React.FC = () => {
           // Navigate to profile completion - need user data
           // This will be handled by individual pages that have user context
         }}
+        onCreateCompany={() => {
+          setShowUserMenu(false);
+          navTo('companyRegistration');
+        }}
         onHelpSupport={() => {
           setShowUserMenu(false);
           navTo('support');

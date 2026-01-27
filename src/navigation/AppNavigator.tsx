@@ -169,7 +169,7 @@ export const AppNavigator: React.FC<AppNavigatorProps> = () => {
         name="companyProfile" 
         component={CompanyProfilePage}
         options={{
-          title: 'Company',
+          headerShown: false, // Use custom header in CompanyProfilePage
         }}
       />
       <Stack.Screen 

@@ -31,56 +31,93 @@ export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children
         console.log('💬 [StreamChatProvider] Initializing StreamChat...');
         const client = streamChatService.getClient();
         const isConnected = streamChatService.isConnected();
+        const currentConnectedUserId = client?.userID;
         
         console.log('💬 [StreamChatProvider] Client status:', {
           hasClient: !!client,
           isConnected,
-          clientUserId: client?.userID,
+          clientUserId: currentConnectedUserId,
+          currentProfileType,
+          activeCompanyId: activeCompany?.id,
         });
         
-        if (client && isConnected) {
-          console.log('✅ [StreamChatProvider] Client already connected');
-          setClientReady(true);
-        } else {
-          console.log('💬 [StreamChatProvider] Client not connected, fetching token...');
-          // Try to connect if not already connected
-          const tokenResponse = await getStreamChatToken();
-          console.log('💬 [StreamChatProvider] Token response:', {
-            success: tokenResponse.success,
-            hasData: !!tokenResponse.data,
-            hasToken: !!(tokenResponse.data as any)?.token,
-            hasUserId: !!(tokenResponse.data as any)?.user_id,
-            hasApiKey: !!(tokenResponse.data as any)?.api_key,
+        // Always fetch token to get expected user ID for current profile
+        console.log('💬 [StreamChatProvider] Fetching token for current profile...', {
+          currentProfileType,
+          activeCompanyId: activeCompany?.id,
+        });
+        
+        // Pass profile type and company ID to get the correct token
+        const tokenOptions = currentProfileType === 'company' && activeCompany?.id
+          ? { profile_type: 'company' as const, company_id: activeCompany.id }
+          : { profile_type: 'user' as const };
+        
+        const tokenResponse = await getStreamChatToken(tokenOptions);
+        console.log('💬 [StreamChatProvider] Token response:', {
+          success: tokenResponse.success,
+          hasData: !!tokenResponse.data,
+          hasToken: !!(tokenResponse.data as any)?.token,
+          hasUserId: !!(tokenResponse.data as any)?.user_id,
+          hasApiKey: !!(tokenResponse.data as any)?.api_key,
+        });
+        
+        if (!tokenResponse.success || !tokenResponse.data) {
+          console.error('❌ [StreamChatProvider] Token response failed:', tokenResponse);
+          setClientReady(false);
+          return;
+        }
+        
+        const { token, user_id: expectedUserId, api_key } = tokenResponse.data as any;
+        
+        console.log('💬 [StreamChatProvider] Token details:', {
+          expectedUserId,
+          currentConnectedUserId,
+          profileType: currentProfileType,
+          companyId: activeCompany?.id,
+          needsReconnect: !isConnected || currentConnectedUserId !== expectedUserId,
+        });
+        
+        // Check if we need to reconnect (user ID mismatch or not connected)
+        const needsReconnect = !isConnected || currentConnectedUserId !== expectedUserId;
+        
+        if (needsReconnect) {
+          if (isConnected && currentConnectedUserId !== expectedUserId) {
+            console.log('🔄 [StreamChatProvider] Profile changed, reconnecting...', {
+              currentUserId: currentConnectedUserId,
+              expectedUserId,
+            });
+          } else {
+            console.log('💬 [StreamChatProvider] Client not connected, connecting...');
+          }
+          
+          // Use user_id from token response (backend knows the correct StreamChat user ID format)
+          const userType = currentProfileType === 'company' ? 'company' : 'user';
+          const userData = currentProfileType === 'company' && activeCompany
+            ? { name: activeCompany.name, image: activeCompany.logo_url }
+            : { name: user.name, image: user.image_url };
+
+          console.log('💬 [StreamChatProvider] Connecting user...', {
+            userId: expectedUserId,
+            userType,
+            hasApiKey: !!api_key,
           });
           
-          if (tokenResponse.success && tokenResponse.data) {
-            const { token, user_id, api_key } = tokenResponse.data as any;
-            // Use user_id from token response (backend knows the correct StreamChat user ID format)
-            const userType = currentProfileType === 'company' ? 'company' : 'user';
-            const userData = currentProfileType === 'company' && activeCompany
-              ? { name: activeCompany.name, image: activeCompany.logo_url }
-              : { name: user.name, image: user.image_url };
-
-            console.log('💬 [StreamChatProvider] Connecting user...', {
-              userId: user_id,
-              userType,
-              hasApiKey: !!api_key,
-            });
-            
-            await streamChatService.connectUser(user_id, token, userData, api_key, userType);
-            
-            // Verify connection after connectUser
-            const connected = streamChatService.isConnected();
-            console.log('💬 [StreamChatProvider] Connection result:', {
-              connected,
-              clientUserId: streamChatService.getClient()?.userID,
-            });
-            
-            setClientReady(connected);
-          } else {
-            console.error('❌ [StreamChatProvider] Token response failed:', tokenResponse);
-            setClientReady(false);
-          }
+          await streamChatService.connectUser(expectedUserId, token, userData, api_key, userType);
+          
+          // Verify connection after connectUser
+          const connected = streamChatService.isConnected();
+          const finalUserId = streamChatService.getClient()?.userID;
+          console.log('💬 [StreamChatProvider] Connection result:', {
+            connected,
+            clientUserId: finalUserId,
+            expectedUserId,
+            match: finalUserId === expectedUserId,
+          });
+          
+          setClientReady(connected && finalUserId === expectedUserId);
+        } else {
+          console.log('✅ [StreamChatProvider] Client already connected with correct user ID');
+          setClientReady(true);
         }
       } catch (error) {
         console.error('❌ [StreamChatProvider] Failed to initialize:', error);

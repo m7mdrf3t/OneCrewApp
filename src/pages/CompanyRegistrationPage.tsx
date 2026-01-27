@@ -47,6 +47,7 @@ interface CompanyFormData {
   contact_email: string;
   contact_phone: string;
   contact_address: string;
+  visibility?: 'private' | 'published'; // Only for academies
 }
 
 interface DocumentUpload {
@@ -103,6 +104,7 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
     contact_email: '',
     contact_phone: '',
     contact_address: '',
+    visibility: 'published', // Default to published for academies
   });
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
@@ -116,6 +118,16 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
     if (formData.subcategory) {
       loadCompanyTypeServices(formData.subcategory);
       loadCompanyTypeInfo(formData.subcategory);
+      // Reset visibility to published when subcategory changes (only for academies)
+      if (formData.subcategory === 'academy' && !formData.visibility) {
+        setFormData(prev => ({ ...prev, visibility: 'published' }));
+      } else if (formData.subcategory !== 'academy') {
+        // Remove visibility if not academy
+        setFormData(prev => {
+          const { visibility, ...rest } = prev;
+          return rest;
+        });
+      }
     }
   }, [formData.subcategory]);
 
@@ -360,6 +372,10 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
         contact_email: formData.contact_email.trim() || undefined,
         contact_phone: formData.contact_phone.trim() || undefined,
         contact_address: formData.contact_address.trim() || undefined,
+        // Add visibility for academies
+        ...(formData.subcategory === 'academy' && formData.visibility
+          ? { visibility: formData.visibility }
+          : {}),
       };
 
       // Clean up undefined values from the request
@@ -704,6 +720,77 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
           numberOfLines={6}
         />
       </View>
+
+      {/* Visibility selector - Only for academies */}
+      {formData.subcategory === 'academy' && (
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Visibility</Text>
+          <Text style={styles.sectionDescription}>
+            Choose who can see your academy in the directory
+          </Text>
+          <View style={styles.visibilityOptions}>
+            <TouchableOpacity
+              style={[
+                styles.visibilityOption,
+                formData.visibility === 'published' && styles.visibilityOptionSelected,
+              ]}
+              onPress={() => setFormData({ ...formData, visibility: 'published' })}
+            >
+              <Ionicons
+                name="globe-outline"
+                size={24}
+                color={formData.visibility === 'published' ? '#22c55e' : '#71717a'}
+              />
+              <View style={styles.visibilityOptionContent}>
+                <Text
+                  style={[
+                    styles.visibilityOptionTitle,
+                    formData.visibility === 'published' && styles.visibilityOptionTitleSelected,
+                  ]}
+                >
+                  Published
+                </Text>
+                <Text style={styles.visibilityOptionDescription}>
+                  Everyone can see your academy in the directory
+                </Text>
+              </View>
+              {formData.visibility === 'published' && (
+                <Ionicons name="checkmark-circle" size={24} color="#22c55e" />
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.visibilityOption,
+                formData.visibility === 'private' && styles.visibilityOptionSelected,
+              ]}
+              onPress={() => setFormData({ ...formData, visibility: 'private' })}
+            >
+              <Ionicons
+                name="lock-closed"
+                size={24}
+                color={formData.visibility === 'private' ? '#f59e0b' : '#71717a'}
+              />
+              <View style={styles.visibilityOptionContent}>
+                <Text
+                  style={[
+                    styles.visibilityOptionTitle,
+                    formData.visibility === 'private' && styles.visibilityOptionTitleSelected,
+                  ]}
+                >
+                  Private
+                </Text>
+                <Text style={styles.visibilityOptionDescription}>
+                  Only admins can see your academy
+                </Text>
+              </View>
+              {formData.visibility === 'private' && (
+                <Ionicons name="checkmark-circle" size={24} color="#f59e0b" />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
 
@@ -921,6 +1008,12 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
         <Text style={styles.reviewSectionTitle}>Basic Information</Text>
         <ReviewRow label="Company Name" value={formData.name} />
         <ReviewRow label="Company Type" value={selectedType?.name || ''} />
+        {formData.subcategory === 'academy' && formData.visibility && (
+          <ReviewRow
+            label="Visibility"
+            value={formData.visibility === 'private' ? 'Private (Only admins can see)' : 'Published (Everyone can see)'}
+          />
+        )}
         {formData.description && <ReviewRow label="Description" value={formData.description} />}
         {formData.bio && <ReviewRow label="Bio" value={formData.bio} />}
       </View>
@@ -1380,6 +1473,40 @@ const styles = StyleSheet.create({
     color: '#71717a',
     textAlign: 'center',
     marginTop: 40,
+  },
+  visibilityOptions: {
+    gap: 12,
+    marginTop: 8,
+  },
+  visibilityOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#e4e4e7',
+    borderRadius: 8,
+    padding: 16,
+    gap: 12,
+  },
+  visibilityOptionSelected: {
+    borderColor: '#000',
+    backgroundColor: '#f4f4f5',
+  },
+  visibilityOptionContent: {
+    flex: 1,
+  },
+  visibilityOptionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#71717a',
+    marginBottom: 4,
+  },
+  visibilityOptionTitleSelected: {
+    color: '#000',
+  },
+  visibilityOptionDescription: {
+    fontSize: 12,
+    color: '#71717a',
   },
   loadingOverlay: {
     position: 'absolute',
