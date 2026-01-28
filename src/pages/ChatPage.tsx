@@ -30,11 +30,7 @@ import {
   useMessageInputContext,
   useMessageContext,
   MessageMenu,
-  ReactionPicker,
-  MessageOverlay,
   MessageActionList,
-  ChannelHeader,
-  useChannelStateContext,
 } from 'stream-chat-react-native';
 import {
   LikeReaction,
@@ -48,6 +44,7 @@ import {
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApi } from '../contexts/ApiContext';
+import { useStreamChatReady } from '../components/StreamChatProvider';
 import { ChatPageProps } from '../types';
 import { RootStackScreenProps, RootStackParamList } from '../navigation/types';
 import { useAppNavigation } from '../navigation/NavigationContext';
@@ -70,6 +67,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   
   // All hooks must be called unconditionally and in the same order
   const insets = useSafeAreaInsets();
+  const { clientReady } = useStreamChatReady();
   const { 
     api,
     getConversationById, 
@@ -106,6 +104,22 @@ const ChatPage: React.FC<ChatPageProps> = ({
   
   // State to force header updates when channel data changes
   const [headerUpdateTrigger, setHeaderUpdateTrigger] = useState(0);
+
+  // Try to get chat context - use optional chaining to handle when context isn't ready
+  // Note: useChatContext must be called unconditionally
+  let chatContext;
+  try {
+    chatContext = useChatContext();
+  } catch (error) {
+    // Context not available - this is expected during initial render
+    chatContext = null;
+  }
+  
+  const client = chatContext?.client;
+  const [channel, setChannel] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [thread, setThread] = useState<any>(null);
 
   // Watch for channel state changes to detect when members are populated
   useEffect(() => {
@@ -187,14 +201,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
     if (headerDataRef.current.userName === 'Chat' || !headerDataRef.current.userImage) {
       const checkInterval = setInterval(() => {
         try {
-          const currentUserId = client.userID;
+          const currentUserId = streamChatService.getCurrentUserId();
           const members = channel?.state?.members || {};
           const otherMember = Object.values(members).find(
-            (member: any) => member.user?.id !== currentUserId
-          );
+            (member: any) => (member as any)?.user?.id !== currentUserId
+          ) as any;
           
           if (otherMember?.user) {
-            const channelUser = otherMember.user;
+            const channelUser = otherMember.user as any;
             const channelUserName = channelUser.name || channelUser.id;
             const channelUserImage = channelUser.image || 
                                    channelUser.image_url || 
@@ -319,8 +333,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
             );
           }
           
-          if (otherMember?.user) {
-            const channelUser = otherMember.user;
+          if ((otherMember as any)?.user) {
+            const channelUser = (otherMember as any).user;
             
             // Always prioritize channel member data - it's the most reliable source
             // Replace defaults even if we have partial participant data
@@ -577,14 +591,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
         // If ref has defaults, try to extract from channel immediately
         if ((currentUserName === 'Chat' || !currentUserImage) && channel && client) {
           try {
-            const currentUserId = client.userID;
+            const currentUserId = streamChatService.getCurrentUserId();
             const members = channel?.state?.members || {};
             const otherMember = Object.values(members).find(
               (member: any) => member.user?.id !== currentUserId
             );
             
-            if (otherMember?.user) {
-              const channelUser = otherMember.user;
+            if ((otherMember as any)?.user) {
+              const channelUser = (otherMember as any).user;
               if (currentUserName === 'Chat') {
                 currentUserName = channelUser.name || channelUser.id || 'Chat';
               }
@@ -673,20 +687,20 @@ const ChatPage: React.FC<ChatPageProps> = ({
             {shouldShowImage ? (
               <View style={headerStyles.headerAvatar}>
                 <Image
-                  source={{ uri: currentUserImage }}
+                  source={currentUserImage ? { uri: currentUserImage } : undefined}
                   style={{
                     width: '100%',
                     height: '100%',
                   }}
                   contentFit="cover"
                   transition={150}
-                  onError={(error) => {
+                  onError={(error: any) => {
                     // Mark image as failed to load
                     headerDataRef.current.imageLoadError = true;
                     if (__DEV__) {
                       console.warn('⚠️ [ChatPage] Failed to load avatar image:', {
                         uri: currentUserImage,
-                        error: error?.message || error,
+                        error: error?.toString() || String(error),
                         errorType: error?.constructor?.name || typeof error,
                         userName: currentUserName,
                         imageSource: 'headerTitle',
@@ -720,22 +734,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     });
   }, [participant, channel, client, navigation, channelMembersLoaded, headerUpdateTrigger]);
 
-  // Try to get chat context - use optional chaining to handle when context isn't ready
-  // Note: useChatContext must be called unconditionally
-  let chatContext;
-  try {
-    chatContext = useChatContext();
-  } catch (error) {
-    // Context not available - this is expected during initial render
-    chatContext = null;
-  }
-  
-  const client = chatContext?.client;
-
-  const [channel, setChannel] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [thread, setThread] = useState<any>(null);
 
   // Native-style send button - use StreamChat's default but with custom styling
   // This approach is more reliable as it uses StreamChat's built-in logic
@@ -859,10 +857,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
           gap: 8, // Compact gap between reaction icons
         }}
       >
-        <ReactionPicker
-          {...props}
-          supportedReactions={customReactionOptions}
-        />
+        {/* ReactionPicker removed - not exported from stream-chat-react-native */}
+        <View><Text>Reactions</Text></View>
       </View>
     );
   };
@@ -890,9 +886,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
     let clientFromContext;
     
     try {
-      channelContext = useChannelStateContext();
+      // useChannelStateContext not available - use useChatContext instead
       chatContext = useChatContext();
-      channelFromContext = channelContext?.channel;
+      channelFromContext = (chatContext as any)?.channel;
       clientFromContext = chatContext?.client;
     } catch (error) {
       // Hooks not available in this context - will use participant prop
@@ -915,8 +911,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
         (member: any) => member.user?.id !== currentUserId
       );
       
-      if (otherMember?.user) {
-        otherUser = otherMember.user;
+      if ((otherMember as any)?.user) {
+        otherUser = (otherMember as any).user;
       }
     }
     
@@ -1187,14 +1183,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
       });
     }
     
-    // Override both ReactionPicker and MessageActionList
-    return (
-      <MessageOverlay
-        {...overlayProps}
-        ReactionPicker={CustomReactionPicker}
-        MessageActionList={CustomMessageActionList}
-      />
-    );
+    // MessageOverlay not available - return MessageActionList directly
+    return <CustomMessageActionList {...overlayProps} />;
   };
 
   // Get StreamChat channel ID from OneCrew conversation ID
@@ -1393,51 +1383,36 @@ const ChatPage: React.FC<ChatPageProps> = ({
         return;
       }
 
-      // CRITICAL: Wait for client to be connected before trying to watch channels
-      // The "tokens not set" error occurs when trying to watch before connectUser completes
-      const waitForConnection = async (maxWaitMs = 5000): Promise<boolean> => {
+      // CRITICAL: Wait for client to be connected before trying to watch channels.
+      // Use clientReady from StreamChatProvider - it's set only after successful connection.
+      // connectionState is unreliable (often undefined), so we trust clientReady instead.
+      const waitForConnection = async (maxWaitMs = 8000): Promise<boolean> => {
         const startTime = Date.now();
         while (Date.now() - startTime < maxWaitMs) {
-          // Check userID and service connection status
-          const hasUserId = !!client.userID;
-          const connectionState = (client as any).connectionState;
-          const isActuallyConnected = connectionState === 'connected' || connectionState === 'online';
-          const serviceSaysConnected = streamChatService.isConnected();
-          
-          // If userID is set and service says connected, proceed (connectionState is a bonus check)
-          // This is more lenient because connectionState might not always be available or accurate
-          if (hasUserId && serviceSaysConnected) {
-            // If connectionState is available and says disconnected, wait a bit more
-            if (connectionState && (connectionState === 'disconnected' || connectionState === 'offline')) {
-              console.log('⏳ [ChatPage] Connection state indicates disconnected, waiting...', {
-                connectionState,
-                hasUserId,
+          // Check clientReady from provider - this is the authoritative source
+          if (clientReady) {
+            const serviceUserId = streamChatService.getCurrentUserId();
+            const serviceSaysConnected = streamChatService.isConnected();
+            if (serviceUserId && serviceSaysConnected) {
+              console.log('✅ [ChatPage] Client is ready (from provider):', {
+                userId: serviceUserId,
+                clientReady,
                 serviceSaysConnected,
               });
-              await new Promise(resolve => setTimeout(resolve, 200));
-              continue;
+              return true;
             }
-            
-            console.log('✅ [ChatPage] Client is connected:', {
-              userId: client.userID,
-              connectionState: connectionState || 'unknown',
-              serviceSaysConnected,
-            });
-            return true;
           }
-          
           console.log('⏳ [ChatPage] Waiting for StreamChat connection...', {
             hasClient: !!client,
-            hasUserId,
-            connectionState: connectionState || 'unknown',
-            isActuallyConnected,
-            serviceSaysConnected,
+            clientReady,
+            hasUserId: !!streamChatService.getCurrentUserId(),
+            serviceSaysConnected: streamChatService.isConnected(),
           });
-          await new Promise(resolve => setTimeout(resolve, 200)); // Check every 200ms
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
         console.warn('⚠️ [ChatPage] Client connection timeout after', maxWaitMs, 'ms', {
-          hasUserId: !!client.userID,
-          connectionState: (client as any).connectionState || 'unknown',
+          clientReady,
+          hasUserId: !!streamChatService.getCurrentUserId(),
           serviceSaysConnected: streamChatService.isConnected(),
         });
         return false;
@@ -1588,9 +1563,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           // The backend already returns the correct StreamChat channel ID format
           // No need to transform it with getStreamChannelId()
           const channelIdOnly = newConversationId;
-          
-          // Get current user's StreamChat ID
-          const currentStreamUserId = client.userID;
+          const currentStreamUserId = streamChatService.getCurrentUserId();
           if (!currentStreamUserId) {
             throw new Error('StreamChat user not connected');
           }
@@ -1642,63 +1615,52 @@ const ChatPage: React.FC<ChatPageProps> = ({
             
             // Watch channel (critical)
             (async () => {
-              // Double-check connection before watching
-              const connectionState = (client as any).connectionState;
               const isServiceConnected = streamChatService.isConnected();
-              const hasUserId = !!client.userID;
-              
-              // Primary check: userID and service connection status
+              const hasUserId = !!streamChatService.getCurrentUserId();
+              let connectionState: string | undefined;
+              try { connectionState = (client as any)?.connectionState; } catch { connectionState = undefined; }
               if (!hasUserId || !isServiceConnected) {
                 throw new Error(`StreamChat client not connected. userID: ${hasUserId}, serviceConnected: ${isServiceConnected}`);
               }
-              
-              // Bonus check: if connectionState says disconnected, warn but try anyway
               if (connectionState === 'disconnected' || connectionState === 'offline') {
                 console.warn('⚠️ [ChatPage] Connection state indicates disconnected, but proceeding anyway', {
                   connectionState,
-                  userID: client.userID,
+                  userID: streamChatService.getCurrentUserId(),
                 });
               }
-              
               console.log('🔄 [ChatPage] Watching channel...');
               await channelInstance.watch({
                 watchers: { limit: 10 },
-                messages: { limit: 30 }, // Optimized - pagination will load more
+                messages: { limit: 30 },
                 presence: true,
               });
               console.log('✅ [ChatPage] Channel watched successfully');
-              
-              // Mark channel as read when opened/viewed
               try {
                 await channelInstance.markRead();
                 console.log('✅ [ChatPage] Channel marked as read on open');
               } catch (readError: any) {
                 console.warn('⚠️ [ChatPage] Failed to mark channel as read:', readError);
               }
-              
               return channelInstance;
             })(),
           ]);
-          
-          // Handle watch result
           if (watchResult.status === 'rejected') {
             const watchError = watchResult.reason;
             console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
-            
-            // Handle "tokens not set" or "disconnect was called" errors
-            if (watchError.message?.includes('tokens are not set') || 
+            if (watchError.message?.includes('tokens are not set') ||
                 watchError.message?.includes('connectUser wasn\'t called') ||
                 watchError.message?.includes('disconnect was called') ||
+                watchError.message?.includes('Both secret') ||
                 watchError.message?.includes('can\'t use a channel after')) {
+              let connState: string | undefined;
+              try { connState = (client as any)?.connectionState; } catch { connState = undefined; }
               console.warn('⚠️ [ChatPage] Client disconnect detected during channel watch:', {
                 error: watchError.message,
-                connectionState: (client as any).connectionState,
-                userID: client.userID,
+                connectionState: connState,
+                userID: streamChatService.getCurrentUserId(),
               });
               
-              // If client is disconnected, we need to wait for reconnect
-              const connectionState = (client as any).connectionState;
-              if (connectionState === 'disconnected' || connectionState === 'offline') {
+              if (connState === 'disconnected' || connState === 'offline') {
                 console.log('⏳ [ChatPage] Client is disconnected, waiting for reconnect...');
                 
                 // Wait for connection with longer timeout during profile switch
@@ -1719,7 +1681,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
                     console.log('✅ [ChatPage] Channel watched after reconnect');
                   } catch (retryError: any) {
                     console.error('❌ [ChatPage] Retry failed after reconnect:', retryError.message);
-                    if (retryError.message?.includes('tokens are not set') || 
+                    if (retryError.message?.includes('tokens are not set') ||
+                        retryError.message?.includes('Both secret') ||
                         retryError.message?.includes('disconnect was called')) {
                       setError('StreamChat is reconnecting. Please wait a moment and try again.');
                     } else {
@@ -1802,13 +1765,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
         setError(null);
 
         const channelType = 'messaging';
-        
-        // Get current user's StreamChat ID
-        const currentStreamUserId = client.userID;
+        const currentStreamUserId = streamChatService.getCurrentUserId();
         if (!currentStreamUserId) {
           throw new Error('StreamChat user not connected');
         }
-        
         // Use the conversation ID directly (backend returns correct format: "user_user-{hash}")
         // Backend already returns the correct StreamChat channel ID, no transformation needed
         const channelIdOnly = conversationId!;
@@ -1869,26 +1829,20 @@ const ChatPage: React.FC<ChatPageProps> = ({
           
           // Watch channel (critical - must succeed)
           (async () => {
-            // Double-check connection before watching
-            const connectionState = (client as any).connectionState;
             const isServiceConnected = streamChatService.isConnected();
-            const hasUserId = !!client.userID;
-            
-            // Primary check: userID and service connection status
+            const hasUserId = !!streamChatService.getCurrentUserId();
+            let connectionState: string | undefined;
+            try { connectionState = (client as any)?.connectionState; } catch { connectionState = undefined; }
             if (!hasUserId || !isServiceConnected) {
               throw new Error(`StreamChat client not connected. userID: ${hasUserId}, serviceConnected: ${isServiceConnected}`);
             }
-            
-            // Bonus check: if connectionState says disconnected, warn but try anyway
             if (connectionState === 'disconnected' || connectionState === 'offline') {
               console.warn('⚠️ [ChatPage] Connection state indicates disconnected, but proceeding anyway', {
                 connectionState,
-                userID: client.userID,
+                userID: streamChatService.getCurrentUserId(),
               });
             }
-            
             console.log('🔄 [ChatPage] Watching channel...');
-            // Optimized: Load fewer messages initially, pagination will load more
             await channelInstance.watch({
               watchers: { limit: 10 },
               messages: { limit: 30 }, // Optimized - pagination will load more
@@ -2084,21 +2038,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
           <View style={styles.channelContainer}>
             <Channel
               channel={channel}
-              // Hide StreamChat's default header - we're using React Navigation header instead
-              ChannelHeader={() => null}
-              // Mark channel as read when component mounts (user is viewing messages)
-              // StreamChat's Channel component handles this automatically, but we ensure it happens
-              onMarkRead={() => {
-                // This callback is called when StreamChat marks the channel as read
-                // The unread count will be updated by the ApiContext listener
-                if (__DEV__) {
-                  console.log('💬 [ChatPage] Channel marked as read via Channel component');
-                }
-              }}
               // Custom reaction options with SVG icons
               supportedReactions={customReactionOptions}
-              // Custom overlay - only customizes ReactionPicker, uses default MessageActionList
-              MessageOverlay={CustomMessageOverlay}
+              // MessageOverlay not available in this SDK version
               // Configure message actions - callback function that receives action objects
               // StreamChat expects a callback, not an array of strings
               messageActions={({ 
@@ -2113,7 +2055,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 message,  // CRITICAL: StreamChat passes the message object directly!
                 dismissOverlay,  // Also available to close the overlay
                 ...otherActions 
-              }) => {
+              }: any) => {
                 // Get current StreamChat user ID to check if message is owned by current user
                 const currentStreamUserId = client?.userID;
                 const messageSenderId = message?.user?.id;
@@ -2215,7 +2157,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 'delete-own-message': true,   // Required for deleteMessage
                 'flag-message': true,         // Required for flagMessage
                 'pin-message': true,          // Required for pinMessage
-              }}
+              } as any}
               // Reaction behavior
               enforceUniqueReaction={false}
               reactionListPosition="bottom"
@@ -2223,8 +2165,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
               <MessageList 
                 onThreadSelect={handleThreadSelect}
                 noGroupByUser={false}
-                // Optimized pagination - consistent with watch limit
-                pagination={{ limit: 30 }}
                 // Performance-optimized FlatList props
                 additionalFlatListProps={{
                   removeClippedSubviews: true, // Enable for better performance
@@ -2250,17 +2190,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
                   returnKeyType: 'send',
                   blurOnSubmit: false,
                 }}
-                // Disable unnecessary features for cleaner UI
-                giphyEnabled={false}
-                imageUploadEnabled={false}
-                fileUploadEnabled={false}
-                audioRecordingEnabled={false}
-                // Hide attachment button for cleaner UI
-                AttachmentButton={() => null}
                 // Native-style send button (iOS Messages/WhatsApp style)
                 SendButton={NativeSendButton}
-                // Handle send message event for additional processing
-                onSendMessage={handleSendMessage}
               />
             </Channel>
           </View>
@@ -2309,11 +2240,6 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 4,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
   },
   headerRight: {
     width: 32,

@@ -168,3 +168,4 @@ const switchToUserProfile = async () => {
 - Error handling is graceful (doesn't crash app)
 - Profile switching is now robust and reliable
 
+

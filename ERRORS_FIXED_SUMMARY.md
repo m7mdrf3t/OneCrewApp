@@ -94,3 +94,4 @@ Request → Timeout → Retry 1 → Timeout → Retry 2 → Timeout → Return e
 - No user-facing error messages
 - App continues to work normally
 
+

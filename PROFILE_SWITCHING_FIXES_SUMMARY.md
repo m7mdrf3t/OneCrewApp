@@ -193,3 +193,4 @@ A comprehensive test script has been created: `test-profile-switching.sh`
 - All operations are non-blocking - UI remains responsive
 - Profile switch completes in < 500ms (perceived time)
 
+

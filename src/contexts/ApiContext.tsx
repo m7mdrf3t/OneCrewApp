@@ -448,7 +448,8 @@ interface ApiProviderProps {
 export const ApiProvider: React.FC<ApiProviderProps> = ({ 
   children, 
   // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
-  baseUrl = 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
+   baseUrl = 'https://onecrew-backend-staging-309236356616.us-central1.run.app'
+  //  'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
   // Local dev server URL (commented out - using staging instead)
   // baseUrl = Platform.OS === 'android' 
   //   ? 'http://10.0.2.2:3000' // Android emulator special IP for localhost
@@ -9814,35 +9815,29 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Calculate unread count from StreamChat channels
   const calculateStreamChatUnreadCount = useCallback(async (): Promise<number> => {
     try {
-      const client = streamChatService.getClient();
-      
-      // CRITICAL: Check if client exists and is connected
-      if (!client || !client.userID) {
-        if (__DEV__) {
-          console.log('💬 [StreamChat] Client not available for unread count calculation');
-        }
+      let client: any;
+      try {
+        client = streamChatService.getClient();
+      } catch {
+        if (__DEV__) console.log('💬 [StreamChat] Client not available for unread count calculation');
         return 0;
       }
-      
-      // CRITICAL: Check if client is actually connected (not disconnected)
+      const currentUserId = streamChatService.getCurrentUserId();
+      if (!client || !currentUserId) {
+        if (__DEV__) console.log('💬 [StreamChat] Client not available for unread count calculation');
+        return 0;
+      }
       const isConnected = streamChatService.isConnected();
       if (!isConnected) {
-        if (__DEV__) {
-          console.log('💬 [StreamChat] Client not connected, skipping unread count calculation');
-        }
+        if (__DEV__) console.log('💬 [StreamChat] Client not connected, skipping unread count calculation');
         return 0;
       }
-      
-      // Additional check: verify connection state
-      const connectionState = (client as any)?.connectionState;
+      let connectionState: string | undefined;
+      try { connectionState = (client as any)?.connectionState; } catch { connectionState = undefined; }
       if (connectionState === 'disconnected' || connectionState === 'offline') {
-        if (__DEV__) {
-          console.log('💬 [StreamChat] Client connection state is disconnected/offline, skipping unread count');
-        }
+        if (__DEV__) console.log('💬 [StreamChat] Client connection state is disconnected/offline, skipping unread count');
         return 0;
       }
-
-      const currentUserId = client.userID;
       
       // Query all channels where current user is a member
       // Watch channels to ensure unreadCount is available
@@ -9866,7 +9861,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       let totalUnread = 0;
       const channelDetails: any[] = [];
       
-      channels.forEach((channel) => {
+      channels.forEach((channel: any) => {
         // Try multiple ways to get unread count
         // StreamChat stores unread count in channel.state.unreadCount
         // But we should also check channel.state.read for per-user unread
@@ -9919,7 +9914,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // This happens during profile switching and is expected
       const isConnectionError = error?.message?.includes('tokens are not set') ||
                                 error?.message?.includes('disconnect was called') ||
-                                error?.message?.includes('connectUser wasn\'t called');
+                                error?.message?.includes('connectUser wasn\'t called') ||
+                                error?.message?.includes('Both secret');
       
       if (isConnectionError) {
         // This is expected during profile switching - don't log as error
@@ -10007,14 +10003,49 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
     };
 
-    // Initial calculation with delay to ensure StreamChat is ready
-    const initialTimeout = setTimeout(() => {
-      updateUnreadCount();
-    }, 1000); // Wait 1 second for StreamChat to be fully connected
+    // BEST PRACTICE: Use initial unread counts from connectUser response (per Stream docs)
+    // This is faster and more accurate than querying all channels
+    const useInitialUnreadCounts = () => {
+      if (streamChatService.isConnected()) {
+        const initialCounts = streamChatService.getInitialUnreadCounts();
+        if (initialCounts.total_unread_count > 0 || initialCounts.total_unread_count === 0) {
+          if (isMounted) {
+            setUnreadConversationCount(initialCounts.total_unread_count);
+            if (__DEV__) {
+              console.log('💬 [UnreadCount] Using initial counts from connectUser:', initialCounts);
+            }
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    // Try to use initial counts first (faster, per Stream best practices)
+    const hasInitialCounts = useInitialUnreadCounts();
+
+    // If no initial counts, calculate manually (fallback)
+    let initialTimeout: NodeJS.Timeout | null = null;
+    if (!hasInitialCounts) {
+      initialTimeout = setTimeout(() => {
+        updateUnreadCount();
+      }, 1000); // Wait 1 second for StreamChat to be fully connected
+    }
 
     // Set up real-time listeners if StreamChat is connected
     if (streamChatService.isConnected()) {
       client = streamChatService.getClient();
+      
+      // BEST PRACTICE: Listen to unread count events directly (per Stream docs)
+      // This is more efficient than recalculating on every event
+      const handleUnreadUpdate = (event: any) => {
+        if (isMounted && event.total_unread_count !== undefined) {
+          setUnreadConversationCount(event.total_unread_count);
+          if (__DEV__) {
+            console.log('💬 [UnreadCount] Updated from event:', event.total_unread_count);
+          }
+        }
+      };
       
       const handleMessageNew = () => {
         if (isMounted) {
@@ -10059,12 +10090,27 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
       };
 
-      // Listen to client-level events (affects all channels)
-      client.on('message.new', handleMessageNew);
-      client.on('channel.updated', handleChannelUpdated);
-      client.on('channel.deleted', handleChannelDeleted);
-      client.on('notification.mark_read', handleChannelRead);
-      client.on('notification.read', handleReadStateChanged);
+      // BEST PRACTICE: Listen to unread count events directly (per Stream docs)
+      // These events contain total_unread_count and unread_channels
+      const unreadEventListeners = [
+        client.on('notification.mark_read', (event: any) => {
+          handleUnreadUpdate(event);
+          handleChannelRead();
+        }),
+        client.on('notification.message_new', (event: any) => {
+          handleUnreadUpdate(event);
+          handleMessageNew();
+        }),
+        client.on('notification.mark_unread', handleUnreadUpdate),
+      ];
+
+      // Also listen to channel-level events (fallback if event doesn't have unread count)
+      const channelEventListeners = [
+        client.on('message.new', handleMessageNew),
+        client.on('channel.updated', handleChannelUpdated),
+        client.on('channel.deleted', handleChannelDeleted),
+        client.on('notification.read', handleReadStateChanged),
+      ];
       
       // Also listen to channel-specific read events
       // Note: StreamChat may fire 'notification.mark_read', 'notification.read', or channel state changes
@@ -10080,20 +10126,36 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       return () => {
         isMounted = false;
         if (client) {
-          client.off('message.new', handleMessageNew);
-          client.off('channel.updated', handleChannelUpdated);
-          client.off('channel.deleted', handleChannelDeleted);
-          client.off('notification.mark_read', handleChannelRead);
-          client.off('notification.read', handleReadStateChanged);
+          // BEST PRACTICE: Unsubscribe from all listeners (per Stream docs)
+          // Unsubscribe from unread count event listeners
+          unreadEventListeners.forEach(listener => {
+            try {
+              listener.unsubscribe();
+            } catch (error) {
+              console.warn('⚠️ [UnreadCount] Error unsubscribing unread listener:', error);
+            }
+          });
+          // Unsubscribe from channel event listeners
+          channelEventListeners.forEach(listener => {
+            try {
+              listener.unsubscribe();
+            } catch (error) {
+              console.warn('⚠️ [UnreadCount] Error unsubscribing channel listener:', error);
+            }
+          });
         }
         clearInterval(refreshInterval);
-        clearTimeout(initialTimeout);
+        if (initialTimeout !== null) {
+          clearTimeout(initialTimeout);
+        }
       };
     }
 
     return () => {
       isMounted = false;
-      clearTimeout(initialTimeout);
+      if (initialTimeout !== null) {
+        clearTimeout(initialTimeout);
+      }
     };
   }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, calculateStreamChatUnreadCount, getConversations]);
 

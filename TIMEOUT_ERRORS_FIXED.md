@@ -167,3 +167,4 @@ Or if retries succeed:
 - StreamChat connection errors are handled as expected behavior
 - All fixes are backward compatible
 
+

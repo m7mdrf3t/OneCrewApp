@@ -7,6 +7,13 @@
 
 import { StreamChat, User as StreamUser, TokenOrProvider } from 'stream-chat';
 import { getStreamChatApiKey, STREAM_CHAT_CONFIG } from '../config/streamChat';
+import streamChatConnectionMonitor from '../utils/StreamChatConnectionMonitor';
+
+interface UnreadCounts {
+  total_unread_count: number;
+  unread_channels: number;
+  unread_threads: number;
+}
 
 class StreamChatService {
   private client: StreamChat | null = null;
@@ -15,6 +22,11 @@ class StreamChatService {
   private isConnecting: boolean = false;
   private connectionPromise: Promise<void> | null = null;
   private apiKey: string | null = null; // Store API key from backend
+  private connectionListeners: Array<{ unsubscribe: () => void }> = [];
+  private isOnline: boolean = false;
+  private initialUnreadCounts: UnreadCounts | null = null;
+  private isDisconnecting: boolean = false;
+  private disconnectPromise: Promise<void> | null = null;
 
   /**
    * Set API key (should be called with key from backend)
@@ -98,6 +110,14 @@ class StreamChatService {
       return;
     }
 
+    // CRITICAL: If disconnect is in progress, wait for it to complete first
+    // This prevents race conditions where connectUser is called while disconnect is still processing
+    if (this.isDisconnecting && this.disconnectPromise) {
+      console.log('⏳ StreamChat: Disconnect in progress, waiting for it to complete before connecting...');
+      await this.disconnectPromise;
+      console.log('✅ StreamChat: Disconnect completed, proceeding with connect');
+    }
+
     // If connection is in progress, wait for it
     if (this.isConnecting && this.connectionPromise) {
       await this.connectionPromise;
@@ -131,13 +151,63 @@ class StreamChatService {
   ): Promise<void> {
     const client = this.getClient();
 
-    // Disconnect previous user if any
-    if (client.userID && client.userID !== streamUserId) {
-      console.log('🔄 StreamChat: Disconnecting previous user');
+    // OPTIMIZED: Skip disconnect if already connected to same user (instant connection)
+    let currentUserId: string | undefined;
+    try {
+      currentUserId = client.userID;
+      if (currentUserId === streamUserId) {
+        console.log('✅ StreamChat: Already connected to this user - skipping reconnect');
+        // Still set up connection listeners if not already set
+        if (this.connectionListeners.length === 0) {
+          this.setupConnectionListeners(client);
+        }
+        return; // Instant - no disconnect/connect needed!
+      }
+    } catch (error) {
+      // If accessing userID throws, we need to connect - currentUserId remains undefined
+    }
+
+    // CRITICAL: Disconnect previous user if any - must complete fully before connecting
+    if (currentUserId && currentUserId !== streamUserId) {
+      console.log('🔄 StreamChat: Disconnecting previous user before connecting new one');
       // Use our disconnectUser method which properly releases channels
+      // This will wait if a disconnect is already in progress (prevents race conditions)
       await this.disconnectUser();
-      // Wait for disconnect to complete
-      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      // CRITICAL: Additional verification after disconnectUser() returns
+      // Even though disconnectUser() waits internally, we double-check here
+      // This ensures the SDK has fully processed the disconnect before we connect
+      // Increased timeout to 2.5 seconds to match disconnectUser's internal verification
+      let disconnectVerified = false;
+      let attempts = 0;
+      const maxAttempts = 50; // 2.5 seconds max wait (50 * 50ms) - must match disconnectUser's max wait
+      
+      while (!disconnectVerified && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 50)); // Check every 50ms
+        attempts++;
+        
+        // Verify disconnect completed by checking userID is cleared
+        try {
+          const currentUserId = client.userID;
+          if (!currentUserId || currentUserId === null || currentUserId === undefined) {
+            // userID is cleared - disconnect is verified
+            // Since disconnectUser() already verified, this is just a double-check
+            disconnectVerified = true;
+            console.log(`✅ StreamChat: Additional disconnect verification passed after ${attempts * 50}ms`);
+          }
+        } catch (error: any) {
+          // If accessing userID throws (tokens not set), disconnect is complete
+          const errorMsg = error?.message || String(error);
+          if (errorMsg.includes('tokens are not set') || errorMsg.includes('Both secret')) {
+            disconnectVerified = true;
+            console.log(`✅ StreamChat: Additional disconnect verification passed (tokens cleared) after ${attempts * 50}ms`);
+          }
+        }
+      }
+      
+      if (!disconnectVerified) {
+        console.warn('⚠️ StreamChat: Additional disconnect verification timeout, but disconnectUser() already verified - proceeding');
+      }
     }
 
     // Prepare user object for StreamChat
@@ -149,25 +219,158 @@ class StreamChatService {
     };
 
     console.log('🔌 StreamChat: Connecting user', streamUserId);
-    await client.connectUser(streamUser, token);
     
-    // Wait a bit for connection to stabilize
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Monitor: Log connectUser call
+    streamChatConnectionMonitor.logConnectUser(streamUserId, !!token, !!this.apiKey);
+    
+    // Connect user and capture response (contains initial unread counts)
+    let response: any;
+    try {
+      response = await client.connectUser(streamUser, token);
+      streamChatConnectionMonitor.logConnectUserSuccess(streamUserId, response);
+    } catch (error: any) {
+      streamChatConnectionMonitor.logConnectUserError(streamUserId, error);
+      throw error;
+    }
+    
+    // Capture initial unread counts from connectUser response (best practice per Stream docs)
+    if (response?.me) {
+      this.initialUnreadCounts = {
+        total_unread_count: response.me.total_unread_count || 0,
+        unread_channels: response.me.unread_channels || 0,
+        unread_threads: response.me.unread_threads || 0,
+      };
+      console.log('💬 [StreamChat] Initial unread counts from connectUser:', this.initialUnreadCounts);
+    } else {
+      this.initialUnreadCounts = {
+        total_unread_count: 0,
+        unread_channels: 0,
+        unread_threads: 0,
+      };
+    }
+    
+    // Set up connection event listeners (best practice per Stream docs)
+    this.setupConnectionListeners(client);
+    
+    // OPTIMIZED: Reduced wait time for instant connection (200ms instead of 500ms)
+    // The SDK needs minimal time to set up internal token state
+    // The actual readiness is verified by StreamChatProvider via isConnected() check
+    await new Promise(resolve => setTimeout(resolve, 200));
     
     console.log('✅ StreamChat: User connected successfully');
   }
 
   /**
+   * Set up connection event listeners (best practice per Stream Chat docs)
+   * Listens to connection.changed and connection.recovered events
+   */
+  private setupConnectionListeners(client: StreamChat): void {
+    // Clean up existing listeners first
+    this.cleanupConnectionListeners();
+
+    // Listen to connection changes (best practice per Stream docs)
+    const connectionChangedListener = client.on("connection.changed", (e: any) => {
+      this.isOnline = e.online || false;
+      console.log(`💬 [StreamChat] Connection ${this.isOnline ? 'UP' : 'DOWN'}`);
+      // Monitor: Connection state changed
+      streamChatConnectionMonitor.logEvent('connection.changed', {
+        online: this.isOnline,
+        userID: this.currentUserId,
+      });
+    });
+
+    // Listen to connection recovery (best practice per Stream docs)
+    const connectionRecoveredListener = client.on("connection.recovered", () => {
+      this.isOnline = true;
+      console.log('✅ [StreamChat] Connection recovered');
+      // Monitor: Connection recovered
+      streamChatConnectionMonitor.logEvent('connection.recovered', {
+        userID: this.currentUserId,
+      });
+    });
+
+    this.connectionListeners = [
+      connectionChangedListener,
+      connectionRecoveredListener,
+    ];
+  }
+
+  /**
+   * Clean up connection event listeners
+   */
+  private cleanupConnectionListeners(): void {
+    this.connectionListeners.forEach(listener => {
+      try {
+        listener.unsubscribe();
+      } catch (error) {
+        console.warn('⚠️ StreamChat: Error unsubscribing listener:', error);
+      }
+    });
+    this.connectionListeners = [];
+  }
+
+  /**
+   * Get connection state (best practice - use SDK's connection events)
+   */
+  getConnectionState(): { isOnline: boolean } {
+    return { isOnline: this.isOnline };
+  }
+
+  /**
+   * Get initial unread counts from connectUser response (best practice per Stream docs)
+   * These are the counts returned when the user first connects
+   */
+  getInitialUnreadCounts(): UnreadCounts {
+    return this.initialUnreadCounts || {
+      total_unread_count: 0,
+      unread_channels: 0,
+      unread_threads: 0,
+    };
+  }
+
+  /**
    * Disconnect current user from StreamChat
    * Releases all active channels before disconnecting to prevent "can't use channel after disconnect" errors
+   * CRITICAL: This method is now protected against concurrent calls to prevent race conditions
    */
   async disconnectUser(): Promise<void> {
     if (!this.client) {
       return;
     }
 
+    // CRITICAL: If disconnect is already in progress, wait for it to complete
+    if (this.isDisconnecting && this.disconnectPromise) {
+      console.log('⏳ StreamChat: Disconnect already in progress, waiting...');
+      await this.disconnectPromise;
+      return;
+    }
+
+    // Mark as disconnecting and create promise
+    this.isDisconnecting = true;
+    this.disconnectPromise = this._disconnectUser();
+    
+    try {
+      await this.disconnectPromise;
+    } finally {
+      this.isDisconnecting = false;
+      this.disconnectPromise = null;
+    }
+  }
+
+  /**
+   * Internal disconnect implementation
+   */
+  private async _disconnectUser(): Promise<void> {
     try {
       console.log('🔌 StreamChat: Disconnecting user');
+      
+      // Monitor: Log disconnectUser call
+      streamChatConnectionMonitor.logDisconnectUser();
+      
+      // Clean up connection listeners
+      this.cleanupConnectionListeners();
+      this.isOnline = false;
+      this.initialUnreadCounts = null;
       
       // Release all active channels before disconnecting
       // This prevents "You can't use a channel after client.disconnect() was called" errors
@@ -185,18 +388,68 @@ class StreamChatService {
               console.warn(`⚠️ StreamChat: Error releasing channel ${channelId}:`, channelError);
             }
           }
-          // Small delay to ensure all channel operations complete
-          await new Promise(resolve => setTimeout(resolve, 100));
+          // OPTIMIZED: Reduced delay for instant connection (50ms instead of 100ms)
+          await new Promise(resolve => setTimeout(resolve, 50));
         }
       } catch (releaseError) {
         console.warn('⚠️ StreamChat: Error releasing channels (non-critical):', releaseError);
       }
       
+      // CRITICAL: Disconnect and verify it completes
       await this.client.disconnectUser();
       this.currentUserId = null;
       
-      // Small delay after disconnect to ensure all operations complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // CRITICAL: Verify disconnect completed - must be thorough to prevent race conditions
+      // The SDK's disconnectUser() returns immediately but internal cleanup takes time
+      // We need to ensure tokens are actually cleared before proceeding
+      let disconnectComplete = false;
+      let verifyAttempts = 0;
+      const maxVerifyAttempts = 20; // 1 second max (20 * 50ms) - must be thorough
+      
+      while (!disconnectComplete && verifyAttempts < maxVerifyAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 50)); // Check every 50ms
+        verifyAttempts++;
+        
+        // Verify disconnect by checking if userID is cleared
+        // If accessing userID throws with "tokens not set", disconnect is complete
+        try {
+          const userId = this.client.userID;
+          if (!userId || userId === null || userId === undefined) {
+            // userID is cleared - disconnect is complete
+            // Wait at least 2 checks (100ms) to ensure SDK has processed it
+            if (verifyAttempts >= 2) {
+              disconnectComplete = true;
+              console.log(`✅ StreamChat: Disconnect verified internally after ${verifyAttempts * 50}ms`);
+            }
+          } else {
+            // Still has userID - wait more
+            if (verifyAttempts % 4 === 0) {
+              console.log(`⏳ StreamChat: Waiting for disconnect to complete... (${verifyAttempts * 50}ms)`);
+            }
+          }
+        } catch (error: any) {
+          // If accessing userID throws, check if it's a token error
+          const errorMsg = error?.message || String(error);
+          if (errorMsg.includes('tokens are not set') || errorMsg.includes('Both secret')) {
+            // Tokens are cleared - disconnect is complete
+            disconnectComplete = true;
+            console.log(`✅ StreamChat: Disconnect verified (tokens cleared) after ${verifyAttempts * 50}ms`);
+          } else {
+            // Other error accessing userID - assume disconnect is complete after a few attempts
+            if (verifyAttempts >= 3) {
+              disconnectComplete = true;
+              console.log(`✅ StreamChat: Disconnect verified (error accessing userID) after ${verifyAttempts * 50}ms`);
+            }
+          }
+        }
+      }
+      
+      if (!disconnectComplete) {
+        console.warn('⚠️ StreamChat: Disconnect verification timeout after 1 second, but proceeding');
+      }
+      
+      // Monitor: Log disconnectUser success
+      streamChatConnectionMonitor.logDisconnectUserSuccess();
       
       console.log('✅ StreamChat: User disconnected');
     } catch (error) {
@@ -207,38 +460,41 @@ class StreamChatService {
   }
 
   /**
-   * Check if user is connected
+   * Check if user is connected.
+   * Uses try/catch because client.userID can throw "Both secret and user tokens are not set"
+   * when the client exists but connectUser wasn't called or disconnect was called.
    */
   isConnected(): boolean {
-    if (!this.client) {
+    try {
+      if (!this.client) {
+        return false;
+      }
+      // Check if userID is set (primary check) - can throw if tokens not set
+      const hasUserId = this.client.userID !== undefined && this.client.userID !== null;
+      if (!hasUserId) {
+        return false;
+      }
+      // Bonus check: connectionState (if available)
+      const connectionState = (this.client as any).connectionState;
+      if (connectionState === 'disconnected' || connectionState === 'offline') {
+        return false;
+      }
+      return true;
+    } catch {
       return false;
     }
-    
-    // Check if userID is set (primary check)
-    const hasUserId = this.client.userID !== undefined && this.client.userID !== null;
-    if (!hasUserId) {
-      return false;
-    }
-    
-    // Bonus check: connectionState (if available)
-    // StreamChat client has connectionState: 'connecting' | 'connected' | 'disconnected' | 'online' | 'offline'
-    const connectionState = (this.client as any).connectionState;
-    
-    // If connectionState is explicitly disconnected/offline, return false
-    if (connectionState === 'disconnected' || connectionState === 'offline') {
-      return false;
-    }
-    
-    // If userID is set and connectionState is not explicitly disconnected, consider it connected
-    // This is more lenient because connectionState might not always be available or accurate
-    return true;
   }
 
   /**
-   * Get current connected user ID (StreamChat format)
+   * Get current connected user ID (StreamChat format).
+   * Safe: returns null if client absent or tokens not set (can throw).
    */
   getCurrentUserId(): string | null {
-    return this.client?.userID || null;
+    try {
+      return this.client?.userID ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -292,9 +548,12 @@ class StreamChatService {
    */
   async cleanup(): Promise<void> {
     try {
+      this.cleanupConnectionListeners();
       await this.disconnectUser();
       this.client = null;
       this.currentUserId = null;
+      this.isOnline = false;
+      this.initialUnreadCounts = null;
     } catch (error) {
       console.error('❌ StreamChat: Error during cleanup', error);
     }

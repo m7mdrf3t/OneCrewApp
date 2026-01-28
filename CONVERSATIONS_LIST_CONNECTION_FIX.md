@@ -79,3 +79,4 @@ The issue was in the frontend's connection state management and React hooks depe
 
 ✅ **FIXED** - The connection waiting logic now properly handles profile switches and prevents "tokens are not set" errors.
 
+

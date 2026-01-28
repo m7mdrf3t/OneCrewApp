@@ -177,3 +177,4 @@ A comprehensive test script has been created: `test-profile-switching.sh`
 - ChannelList errors during profile switch are suppressed (expected behavior)
 - All operations are non-blocking - UI remains responsive
 
+

@@ -187,7 +187,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     );
   }
 
-  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies, getRoles, user, activeCompany, currentProfileType } = useApi();
+  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies, getRoles, getCompanyTypes, user, activeCompany, currentProfileType } = useApi();
   const queryClient = useQueryClient();
   const isCompaniesSection = section.key === 'onehub' || section.key === 'academy';
   const isDirectorySection = section.key === 'directory';
@@ -407,14 +407,53 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   });
 
   // Include user ID in query key to ensure cache is user-specific
+  // Fetch company types to dynamically determine which types should be shown
+  const companyTypesQuery = useQuery({
+    queryKey: ['companyTypes'],
+    queryFn: async () => {
+      try {
+        const response = await getCompanyTypes();
+        if (response.success && response.data) {
+          return response.data;
+        }
+        return [];
+      } catch (error) {
+        console.warn('Failed to fetch company types, using fallback:', error);
+        return [];
+      }
+    },
+    staleTime: 1000 * 60 * 30, // Cache for 30 minutes
+  });
+
+  // Determine which subcategories should be included in "Studios & Agencies"
+  // This should include all types except 'academy' and 'other'
+  const studiosAndAgenciesSubcategories = useMemo(() => {
+    if (!companyTypesQuery.data || companyTypesQuery.data.length === 0) {
+      // Fallback to hardcoded list if API fails
+      return ['production_house', 'agency', 'casting_agency', 'studio', 'management_company'];
+    }
+    
+    const excludedTypes = ['academy', 'other'];
+    const subcategories = companyTypesQuery.data
+      .filter((type: any) => !excludedTypes.includes(type.code))
+      .map((type: any) => type.code);
+    
+    if (__DEV__) {
+      console.log('📋 [DirectoryPage] Studios & Agencies subcategories:', subcategories);
+    }
+    
+    return subcategories.length > 0 ? subcategories : ['production_house', 'agency', 'casting_agency', 'studio', 'management_company'];
+  }, [companyTypesQuery.data]);
+
   // This is important for visibility filtering - different users see different academies
   const directoryCompaniesQueryKey = useMemo(
     () => ['directoryCompanies', { 
       sectionKey: section.key, 
       search: debouncedSearchQuery,
-      userId: user?.id || 'guest' // Include user ID to ensure user-specific cache
+      userId: user?.id || 'guest', // Include user ID to ensure user-specific cache
+      subcategories: section.key === 'onehub' ? studiosAndAgenciesSubcategories.join(',') : undefined
     }],
-    [section.key, debouncedSearchQuery, user?.id]
+    [section.key, debouncedSearchQuery, user?.id, studiosAndAgenciesSubcategories]
   );
 
   const directoryCompaniesQuery = useQuery<Company[]>({
@@ -436,7 +475,11 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       // Determine subcategory filter based on section (v2.24.0 optimization - server-side filtering)
       let subcategoryFilter: string | undefined;
       if (section.key === 'onehub') {
-        subcategoryFilter = 'production_house,agency,casting_agency,studio,management_company';
+        // Use dynamically determined subcategories from API
+        subcategoryFilter = studiosAndAgenciesSubcategories.join(',');
+        if (__DEV__) {
+          console.log('🔍 [DirectoryPage] Using subcategory filter:', subcategoryFilter);
+        }
       } else if (section.key === 'academy') {
         subcategoryFilter = 'academy';
       }
@@ -645,6 +688,29 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     return null;
   };
 
+  // Create a mapping from subcategory code to type name using fetched company types
+  const subcategoryToNameMap = useMemo(() => {
+    const map: { [key: string]: string } = {};
+    if (companyTypesQuery.data && Array.isArray(companyTypesQuery.data)) {
+      companyTypesQuery.data.forEach((type: any) => {
+        if (type.code && type.name) {
+          map[type.code] = type.name;
+        }
+      });
+    }
+    // Fallback mapping if API data is not available
+    if (Object.keys(map).length === 0) {
+      map['production_house'] = 'Production House';
+      map['agency'] = 'Talent Agency';
+      map['studio'] = 'Studio/Facility';
+      map['casting_agency'] = 'Casting Agency';
+      map['management_company'] = 'Management Company';
+      map['academy'] = 'Academy/School';
+      map['other'] = 'Other';
+    }
+    return map;
+  }, [companyTypesQuery.data]);
+
   // Group companies by type for Studios & Agencies and Academy
   // Note: Companies are already filtered server-side by subcategory (v2.24.0 optimization)
   const filteredCompaniesByType = useMemo(() => {
@@ -656,34 +722,39 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
     companies.forEach(company => {
       const subcategory = company.subcategory || company.company_type_info?.code || '';
+      // Use company_type_info.name if available, otherwise use the mapping from fetched types
+      const typeName = company.company_type_info?.name || subcategoryToNameMap[subcategory] || subcategory;
       
       if (section.key === 'onehub') {
-        // Studios & Agencies: Group by subcategory type
-        // Companies are already filtered server-side to only include: production_house, agency, studio, casting_agency, management_company
-        if (subcategory === 'production_house') {
-          if (!companiesByType['Production Houses']) companiesByType['Production Houses'] = [];
-          companiesByType['Production Houses'].push(company);
-        } else if (subcategory === 'agency' || subcategory === 'casting_agency') {
-          if (!companiesByType['Agency']) companiesByType['Agency'] = [];
-          companiesByType['Agency'].push(company);
-        } else if (subcategory === 'studio') {
-          if (!companiesByType['Studio']) companiesByType['Studio'] = [];
-          companiesByType['Studio'].push(company);
-        } else if (subcategory === 'management_company') {
-          if (!companiesByType['Management Company']) companiesByType['Management Company'] = [];
-          companiesByType['Management Company'].push(company);
+        // Studios & Agencies: Group by company type name
+        // This will use the name from company_type_info if available, otherwise from our mapping
+        if (typeName) {
+          if (!companiesByType[typeName]) companiesByType[typeName] = [];
+          companiesByType[typeName].push(company);
+        } else {
+          // Last resort: format subcategory code
+          const fallbackName = subcategory.split('_').map((word: string) => 
+            word.charAt(0).toUpperCase() + word.slice(1)
+          ).join(' ');
+          if (!companiesByType[fallbackName]) companiesByType[fallbackName] = [];
+          companiesByType[fallbackName].push(company);
         }
       } else if (section.key === 'academy') {
         // Academy: Group by company type name
         // Companies are already filtered server-side to only include academy subcategory
-        const typeName = company.company_type_info?.name || 'Academy';
-        if (!companiesByType[typeName]) companiesByType[typeName] = [];
-        companiesByType[typeName].push(company);
+        const displayName = typeName || 'Academy/School';
+        if (!companiesByType[displayName]) companiesByType[displayName] = [];
+        companiesByType[displayName].push(company);
       }
     });
 
+    if (__DEV__ && section.key === 'onehub') {
+      console.log('📊 [DirectoryPage] Grouped companies by type:', Object.keys(companiesByType));
+      console.log('📋 [DirectoryPage] Subcategory to name map:', subcategoryToNameMap);
+    }
+
     return companiesByType;
-  }, [companies, section.key]);
+  }, [companies, section.key, subcategoryToNameMap]);
 
   // Generate dynamic section items from companies
   const sectionItems = useMemo(() => {

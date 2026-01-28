@@ -235,3 +235,4 @@ setCurrentProfileType('company');
 
 The frontend is now optimized for instant profile switching. Backend optimizations will improve background operations but won't affect perceived performance (already instant).
 
+

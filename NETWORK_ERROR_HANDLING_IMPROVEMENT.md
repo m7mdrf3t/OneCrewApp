@@ -174,3 +174,4 @@ Network Error → Logged as WARNING → Return graceful fallback → App continu
 - Better user experience during poor connectivity
 - Cleaner logs for easier debugging
 
+
