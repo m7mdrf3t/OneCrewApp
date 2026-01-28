@@ -8774,7 +8774,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   };
 
   // StreamChat token
-  const getStreamChatToken = async (options?: { profile_type?: 'user' | 'company'; company_id?: string }) => {
+  // CRITICAL: Memoize this function to prevent infinite loops in StreamChatProvider
+  // Without useCallback, this function is recreated on every render, causing StreamChatProvider's
+  // useEffect to run repeatedly, which can cause flickering, restarts, and server overload
+  const getStreamChatToken = useCallback(async (options?: { profile_type?: 'user' | 'company'; company_id?: string }) => {
     try {
       // Build query parameters if profile type is specified
       let queryParams = '';
@@ -8792,14 +8795,25 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Make direct HTTP call to support query parameters
       // The API client might not support query params, so we'll call the endpoint directly
-      const token = getAccessToken();
+      // Inline getAccessToken call to avoid dependency on unstable function reference
+      let accessToken = '';
+      try {
+        if ((api as any).auth && typeof (api as any).auth.getAuthToken === 'function') {
+          accessToken = (api as any).auth.getAuthToken();
+        } else if ((api as any).getAuthToken && typeof (api as any).getAuthToken === 'function') {
+          accessToken = (api as any).getAuthToken();
+        }
+      } catch (tokenError) {
+        console.warn('⚠️ Failed to get access token:', tokenError);
+      }
+      
       const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
       const url = `${baseUrl}/api/chat/token${queryParams}`;
       
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
       });
@@ -8859,7 +8873,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw error;
     }
-  };
+  }, [api]); // Only depend on api, which is a stable reference (OneCrewApi instance)
 
   // Message reactions
   const addReaction = async (messageId: string, data: { reaction_type: string; conversation_id: string }) => {
