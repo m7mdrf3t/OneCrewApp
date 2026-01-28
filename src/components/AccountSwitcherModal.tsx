@@ -57,9 +57,30 @@ const AccountSwitcherModal: React.FC<AccountSwitcherModalProps> = ({
 
   useEffect(() => {
     if (visible && user?.id) {
-      loadCompanies();
+      // OPTIMIZED: Only fetch if companies list is empty or user changed
+      // Prevents unnecessary fetches when modal is reopened
+      if (companies.length === 0) {
+        loadCompanies();
+      } else {
+        // Verify companies belong to current user (in case user changed)
+        const belongsToUser = companies.some(c => {
+          const companyData = getCompanyData(c);
+          const role = c.role || c.member?.role || c.company_member?.role;
+          return role === 'owner' || role === 'admin' || 
+                 companyData?.owner?.id === user.id ||
+                 (companyData as any)?.owner_id === user.id;
+        });
+        
+        if (!belongsToUser) {
+          // User changed, need to reload
+          console.log('🔄 [AccountSwitcherModal] User changed, reloading companies...');
+          loadCompanies();
+        } else {
+          console.log('✅ [AccountSwitcherModal] Companies already loaded, skipping fetch');
+        }
+      }
     }
-  }, [visible, user?.id]);
+  }, [visible, user?.id]); // Note: companies.length not in deps to avoid infinite loop
 
   const loadCompanies = async (forceRefresh = false) => {
     if (!user?.id) return;

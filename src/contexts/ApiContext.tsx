@@ -134,6 +134,7 @@ interface ApiContextType {
   removeUserSkillNew: (skillId: string) => Promise<any>;
   // Direct fetch methods
   getUsersDirect: (params?: FilterParams & { limit?: number; page?: number }) => Promise<any>;
+  getUserByIdDirect: (userId: string) => Promise<any>;
   fetchCompleteUserProfile: (userId: string, userData?: any) => Promise<any>;
   // Project management methods
   createProject: (projectData: any) => Promise<any>;
@@ -8544,6 +8545,77 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  // Cached wrapper for getUserByIdDirect with request deduplication and rate limit handling
+  // CRITICAL: Prevents 429 errors when fetching multiple users from same company
+  const getUserByIdDirectInFlight = new Map<string, Promise<any>>();
+  const getUserByIdDirect = async (userId: string): Promise<any> => {
+    // Check if there's already an in-flight request for this user
+    if (getUserByIdDirectInFlight.has(userId)) {
+      console.log(`⏳ [getUserByIdDirect] Request already in flight for user ${userId}, waiting...`);
+      return getUserByIdDirectInFlight.get(userId)!;
+    }
+
+    const cacheKey = `user-by-id-${userId}`;
+    const requestPromise = (async () => {
+      try {
+        return await rateLimiter.execute(cacheKey, async () => {
+          try {
+            console.log(`👤 [getUserByIdDirect] Fetching user: ${userId}`);
+            
+            // Use the API client's method
+            const response = await api.getUserByIdDirect(userId);
+            
+            if (response.success && response.data) {
+              console.log(`✅ [getUserByIdDirect] User fetched successfully: ${userId}`);
+              return response;
+            }
+            
+            throw new Error(response.error || 'Failed to fetch user');
+          } catch (error: any) {
+            const errorMessage = error?.message || error?.toString() || '';
+            
+            // Handle 429 rate limit errors with exponential backoff retry
+            if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
+              console.warn(`⚠️ [getUserByIdDirect] Rate limited for user ${userId}, retrying with backoff...`);
+              
+              // Exponential backoff: wait 1s, 2s, 4s
+              for (let attempt = 1; attempt <= 3; attempt++) {
+                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 4000);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                
+                try {
+                  const retryResponse = await api.getUserByIdDirect(userId);
+                  if (retryResponse.success && retryResponse.data) {
+                    console.log(`✅ [getUserByIdDirect] User fetched after retry: ${userId}`);
+                    return retryResponse;
+                  }
+                } catch (retryError) {
+                  if (attempt === 3) {
+                    console.error(`❌ [getUserByIdDirect] Failed after ${attempt} retries for user ${userId}`);
+                    throw retryError;
+                  }
+                }
+              }
+            }
+            
+            throw error;
+          }
+        }, { 
+          ttl: CacheTTL.MEDIUM, // Cache for 5 minutes
+          persistent: true 
+        });
+      } finally {
+        // Remove from in-flight map after completion
+        getUserByIdDirectInFlight.delete(userId);
+      }
+    })();
+
+    // Store the promise in the in-flight map
+    getUserByIdDirectInFlight.set(userId, requestPromise);
+    
+    return requestPromise;
+  };
+
   // Real-time data - caching disabled for immediate updates
   const getMessages = async (
     conversationId: string,
@@ -10445,6 +10517,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     // Direct fetch methods
     getUsersDirect,
     fetchCompleteUserProfile,
+    getUserByIdDirect,
     // Project management methods
     createProject,
     updateProject,

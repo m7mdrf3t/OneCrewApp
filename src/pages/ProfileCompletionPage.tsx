@@ -591,7 +591,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
     };
     
     fetchUserData();
-  }, [visible, currentUser?.id, routeParams.user?.id, userProp?.id, isGuest, isAuthenticated, getAccessToken, getBaseUrl, fetchedUserDetails, fetchedTalentProfile]);
+    // OPTIMIZED: Removed getAccessToken and getBaseUrl from dependencies
+    // These are stable functions that don't need to trigger re-fetches
+  }, [visible, currentUser?.id, routeParams.user?.id, userProp?.id, isGuest, isAuthenticated, fetchedUserDetails, fetchedTalentProfile]);
   
   // Initialize form data when user changes or when fetched data is available
   useEffect(() => {

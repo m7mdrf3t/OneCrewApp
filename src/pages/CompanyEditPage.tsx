@@ -192,14 +192,51 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
     loadServices();
   }, [company.id, isPending, getCompanyServices, getAvailableServicesForCompany]);
 
-  // Reload company data when component mounts to ensure we have the latest data
+  // OPTIMIZED: Only reload company data if we're missing required fields
   useEffect(() => {
+    const requiredFields = ['name', 'description', 'bio', 'website_url', 'location_text', 
+      'address', 'city', 'country', 'email', 'phone', 'establishment_date', 
+      'contact_email', 'contact_phone', 'contact_address', 'social_media_links', 
+      'subcategory', 'approval_status'];
+    
+    // Check if we already have all required fields
+    const hasAllFields = requiredFields.every(field => {
+      const value = (company as any)[field];
+      return value !== undefined && value !== null && value !== '';
+    });
+    
+    if (hasAllFields) {
+      // Already have all data, just update form without fetching
+      console.log('✅ [CompanyEditPage] Company data already complete, skipping fetch');
+      setCurrentCompany(company);
+      setFormData({
+        name: company.name || '',
+        description: company.description || '',
+        bio: company.bio || '',
+        website_url: company.website_url || '',
+        location_text: company.location_text || '',
+        address: company.address || '',
+        city: company.city || '',
+        country: company.country || '',
+        email: company.email || '',
+        phone: company.phone || '',
+        establishment_date: company.establishment_date || '',
+        contact_email: company.contact_email || '',
+        contact_phone: company.contact_phone || '',
+        contact_address: company.contact_address || '',
+        social_media_links: company.social_media_links || {},
+      });
+      setLoading(false);
+      return;
+    }
+    
+    // Only fetch if we're missing required fields
     const loadCompany = async () => {
       try {
         setLoading(true);
-        // Only fetch fields needed for editing form (v2.24.0 optimization)
+        console.log('🔍 [CompanyEditPage] Missing required fields, fetching company data...');
         const response = await getCompany(company.id, {
-          fields: ['id', 'name', 'description', 'bio', 'website_url', 'location_text', 'address', 'city', 'country', 'email', 'phone', 'establishment_date', 'contact_email', 'contact_phone', 'contact_address', 'social_media_links', 'subcategory', 'approval_status']
+          fields: requiredFields
         });
         if (response.success && response.data) {
           const updatedCompany = response.data;
@@ -234,7 +271,7 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
     };
     loadCompany();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id]);
+  }, [company.id, company.name, company.description, company.bio]);
 
   const handleInputChange = (field: keyof CompanyFormData, value: string | any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));

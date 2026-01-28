@@ -166,16 +166,18 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     queryKey: ['company', companyId, 'core', refreshKey, visibilityUpdateTimestamp],
     enabled: !!companyId,
     queryFn: async () => {
-      // Always clear rate-limiter cache to ensure fresh data
-      // This is especially important after visibility updates
+      // OPTIMIZED: Only clear cache when refreshKey changed (user explicitly refreshed)
+      // React Query handles caching, so we don't need to clear on every fetch
+      if (refreshKey > 0) {
         try {
           const { rateLimiter } = await import('../utils/rateLimiter');
           await rateLimiter.clearCacheByPattern(`company-${companyId}`);
-        if (__DEV__) {
-          console.log(`🧹 [CompanyProfile] Cleared rate limiter cache for company: ${companyId}`);
-        }
+          if (__DEV__) {
+            console.log(`🧹 [CompanyProfile] Cleared cache due to refreshKey change: ${companyId}`);
+          }
         } catch (err) {
           console.warn('⚠️ Could not clear cache:', err);
+        }
       }
 
       const coreCompanyResponse = await getCompany(companyId);
