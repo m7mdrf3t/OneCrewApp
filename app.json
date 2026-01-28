@@ -2,7 +2,7 @@
   "expo": {
     "name": "Steps",
     "slug": "one-crew",
-    "version": "1.3.6",
+    "version": "1.3.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -30,7 +30,7 @@
       },
       "appleTeamId": "9MK2V33M87",
       "scheme": "com.minaezzat.onesteps",
-      "buildNumber": "17"
+      "buildNumber": "18"
     },
     "android": {
       "adaptiveIcon": {
@@ -90,7 +90,7 @@
         }
       ]
     ],
-    "runtimeVersion": "1.3.6",
+    "runtimeVersion": "1.3.7",
     "updates": {
       "url": "https://u.expo.dev/bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
     }
