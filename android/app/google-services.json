@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "281166002151",
+    "project_id": "steps-cfc27",
+    "storage_bucket": "steps-cfc27.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:281166002151:android:06a7fd5760361598b66f42",
+        "android_client_info": {
+          "package_name": "com.minaezzat.onesteps"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAJzURQ0RMnrj0LuJSv-ZcybyOknUjExRI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

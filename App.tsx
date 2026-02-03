@@ -8,6 +8,7 @@ import { Image } from 'expo-image';
 import { QueryClientProvider } from '@tanstack/react-query';
 // Firebase Messaging is now used instead of expo-notifications
 // We'll import it dynamically to avoid errors when native modules aren't ready
+import { ensureFirebaseInitialized } from './src/services/FirebaseInitService';
 
 // Context
 import { ApiProvider, useApi } from './src/contexts/ApiContext';
@@ -389,13 +390,24 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     // Delay notification setup to ensure Firebase native modules are ready
-    // Reduced delay since initialization is now more reliable
     const setupNotifications = async () => {
       // Wait for React Native bridge and native modules to initialize
-      // Reduced from 3s to 2s since Firebase initialization is improved
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Initialize push notifications first
+      // Ensure Firebase is initialized before using messaging
+      // This fixes "No Firebase App '[DEFAULT]' has been created" error
+      try {
+        const firebaseReady = await ensureFirebaseInitialized();
+        if (!firebaseReady && __DEV__) {
+          console.warn('⚠️ [App] Firebase not initialized - push notifications may not work');
+        }
+      } catch (firebaseError: any) {
+        if (__DEV__) {
+          console.warn('⚠️ [App] Firebase init check failed:', firebaseError?.message);
+        }
+      }
+      
+      // Initialize push notifications
       try {
         await pushNotificationService.initialize();
         
@@ -457,17 +469,20 @@ const AppContent: React.FC = () => {
 
     // Set up listener for notification taps when app is in background/foreground
     // Firebase handles this via messaging().onNotificationOpenedApp
-    // We delay this significantly to ensure native modules are ready
     let unsubscribeOnNotificationOpened: (() => void) | null = null;
     
-    // Delay to ensure native modules are fully initialized
-    // Reduced from 5s to 3s since initialization is improved
-    console.log('📱 [App] Scheduling notification opened listener setup in 3 seconds...');
-    const setupNotificationListener = setTimeout(() => {
+    const setupNotificationOpenedListener = async () => {
       try {
+        // Ensure Firebase is initialized before accessing messaging
+        const firebaseReady = await ensureFirebaseInitialized();
+        if (!firebaseReady) {
+          if (__DEV__) {
+            console.warn('⚠️ [App] Skipping notification opened listener - Firebase not initialized');
+          }
+          return;
+        }
+        
         console.log('📱 [App] Setting up notification opened listener...');
-        // In Expo dev builds, NativeModules might be empty until bridge is ready
-        // Just try to require the module and handle errors gracefully
         const messagingModule = require('@react-native-firebase/messaging');
         if (messagingModule) {
           console.log('✅ [App] Messaging module loaded');
@@ -490,13 +505,14 @@ const AppContent: React.FC = () => {
           console.error('❌ [App] Messaging module is null or undefined');
         }
       } catch (error: any) {
-        // If error is about NativeEventEmitter, native modules aren't ready
-        // Log for debugging but don't fail
         if (error?.message?.includes('NativeEventEmitter') || 
             error?.message?.includes('non-null') ||
             error?.message?.includes('requires a non-null') ||
             error?.message?.includes('Cannot read property')) {
           console.warn('⚠️ [App] Native modules not ready (NativeEventEmitter error)');
+        } else if (error?.message?.includes('No Firebase App') || 
+                   error?.message?.includes('initializeApp')) {
+          console.warn('⚠️ [App] Firebase not initialized - add GoogleService-Info.plist and google-services.json. See FIREBASE_SETUP_INSTRUCTIONS.md');
         } else {
           console.error('❌ [App] Could not set up Firebase notification opened listener:', error?.message || error);
           if (error?.stack) {
@@ -504,7 +520,13 @@ const AppContent: React.FC = () => {
           }
         }
       }
-    }, 3000); // Delay 3 seconds to let native modules fully initialize
+    };
+    
+    // Delay to ensure native modules and Firebase are fully initialized
+    console.log('📱 [App] Scheduling notification opened listener setup in 4 seconds...');
+    const setupNotificationListener = setTimeout(() => {
+      setupNotificationOpenedListener();
+    }, 4000);
 
     return () => {
       clearTimeout(setupNotificationListener);

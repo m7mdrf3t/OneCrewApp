@@ -2,6 +2,7 @@ import * as Device from 'expo-device';
 import { Platform, PermissionsAndroid, NativeModules } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
+import { ensureFirebaseInitialized } from './FirebaseInitService';
 
 const NOTIFICATION_TOKEN_KEY = '@onecrew:push_token';
 const NOTIFICATION_PERMISSION_KEY = '@onecrew:push_permission';
@@ -25,7 +26,7 @@ if (typeof global !== 'undefined' && !global.__APP_START_TIME__) {
 let messagingModuleCache: any = null;
 let isMessagingModuleLoaded = false;
 let lastLoadAttempt = 0;
-const RETRY_DELAY_MS = 3000; // Retry after 3 seconds if previous attempt failed (reduced from 5s)
+const RETRY_DELAY_MS = 2000; // Retry after 2s so ApiContext retries (2.5s, 5s, 7.5s) each get a real attempt
 const MIN_APP_START_TIME = 2000; // Minimum time before trying to load Firebase (reduced from 5s to 2s)
 
 function getMessagingModule() {
@@ -204,6 +205,9 @@ class PushNotificationService {
         return false;
       }
 
+      // Ensure Firebase is initialized before using messaging
+      await ensureFirebaseInitialized();
+
       if (Platform.OS === 'ios') {
         // iOS: Request permissions via Firebase
         const messagingInstance = getMessaging();
@@ -268,12 +272,17 @@ class PushNotificationService {
     try {
       // Check if device is physical
       if (!Device.isDevice) {
+        console.warn('⚠️ [Token] Skipping push: not a physical device (simulator)');
         return null;
       }
+
+      // Ensure Firebase is initialized
+      await ensureFirebaseInitialized();
 
       // Request permissions first
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
+        console.warn('⚠️ [Token] Push permission not granted');
         return null;
       }
 
@@ -287,6 +296,7 @@ class PushNotificationService {
       // Get FCM token
       const messagingInstance = getMessaging();
       if (!messagingInstance) {
+        console.warn('⚠️ [Token] Firebase messaging not ready (getMessaging() null). Will retry later.');
         return null;
       }
       
@@ -303,6 +313,7 @@ class PushNotificationService {
       const token = await messagingInstance.getToken();
 
       if (!token) {
+        console.warn('⚠️ [Token] getToken() returned null');
         return null;
       }
 
@@ -708,6 +719,7 @@ class PushNotificationService {
    */
   async getInitialNotification(): Promise<any | null> {
     try {
+      await ensureFirebaseInitialized();
       const messagingInstance = getMessaging();
       if (!messagingInstance) {
         return null;

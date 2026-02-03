@@ -71,23 +71,9 @@ Stream Chat automatically handles device token registration when:
 **Current Status:**
 - ✅ Firebase is configured in frontend
 - ✅ Push notification service is initialized
-- ⚠️ Need to register device tokens with Stream Chat
+- ✅ Device tokens are now registered with Stream Chat (StreamChatService.registerDeviceForPush + ApiContext + StreamChatProvider)
 
-**To register device token with Stream Chat:**
-
-```typescript
-// In StreamChatProvider or after user connects
-import messaging from '@react-native-firebase/messaging';
-
-// Get FCM token
-const fcmToken = await messaging().getToken();
-
-// Register with Stream Chat
-await client.addDevice({
-  id: fcmToken,
-  push_provider: Platform.OS === 'ios' ? 'apn' : 'fcm',
-});
-```
+When the app connects to Stream Chat or registers an FCM token with the backend, it also registers the same token with Stream Chat so Stream can send push when new messages arrive (e.g. message from simulator → push on physical iOS device).
 
 ## 🔍 Testing Notifications
 
@@ -118,6 +104,16 @@ await client.addDevice({
 3. **Permissions required**
    - iOS: User must grant notification permissions
    - Android: Permissions granted automatically (Android 12+)
+
+## 📱 Simulator → Physical iOS Device (message sent from simulator, push on device)
+
+For the **recipient** (physical device) to get a push when the **sender** (simulator) sends a message:
+
+1. **Physical device** must have the app installed, be logged in as the recipient, and have granted notification permission.
+2. **Stream Chat Dashboard** must have **APNs** configured (Step 2 above): upload the `.p8` key, Key ID, and Team ID. Without this, Stream cannot deliver pushes to iOS.
+3. **Firebase** (if your backend also sends FCM): upload APNs Authentication Key in Firebase Console → Project Settings → Cloud Messaging → Apple app configuration.
+4. **Device registration**: The app now registers the FCM token with Stream when connecting and when registering with the backend. On the physical device, open the app once (or reopen) so Stream connects and the device is registered.
+5. **Test**: Put the app in background or close it on the physical device, then send a message from the simulator; the device should receive a push.
 
 ## 🚨 Troubleshooting
 

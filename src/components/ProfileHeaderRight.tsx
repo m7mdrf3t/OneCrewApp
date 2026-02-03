@@ -22,6 +22,13 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
   const { unreadNotificationCount, unreadConversationCount } = useApi();
   const { navigateTo } = useAppNavigation();
   
+  // Debug logging for unread count
+  React.useEffect(() => {
+    if (__DEV__) {
+      console.log('📧 [ProfileHeaderRight] Unread conversation count:', unreadConversationCount);
+    }
+  }, [unreadConversationCount]);
+  
   // Use global modals context if available, otherwise use props
   let globalModals: ReturnType<typeof useGlobalModals> | null = null;
   try {

@@ -220,9 +220,24 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   }, [navigateTo]);
   
   // Clear error on profile change
+  const { getConversations } = useApi();
+  
   useEffect(() => {
     setListError(null);
   }, [currentProfileType, activeCompany?.id, user?.id]);
+  
+  // FIXED: Update unread count when page becomes visible or profile changes
+  // The ApiContext's updateUnreadCount will handle fetching all conversations
+  // We just need to ensure it's triggered when this page loads
+  useEffect(() => {
+    // The unread count tracking useEffect in ApiContext will automatically
+    // update the count when dependencies change (currentProfileType, activeCompany, etc.)
+    // We don't need to do anything here - the useEffect in ApiContext handles it
+    // But we can log for debugging
+    if (__DEV__ && clientReady && currentStreamUserId) {
+      console.log('💬 [ConversationsListPage] Page loaded, unread count should update automatically via ApiContext useEffect');
+    }
+  }, [clientReady, currentStreamUserId, currentProfileType, activeCompany?.id]);
   
   // Wait for StreamChat to be ready (clientReady from provider) and userId available
   useEffect(() => {

@@ -8,6 +8,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Chat, OverlayProvider } from 'stream-chat-react-native';
 import { useApi } from '../contexts/ApiContext';
+import pushNotificationService from '../services/PushNotificationService';
 import streamChatService from '../services/StreamChatService';
 import { getStreamChatTheme } from '../themes/streamChatTheme';
 import streamChatConnectionMonitor from '../utils/StreamChatConnectionMonitor';
@@ -131,6 +132,10 @@ export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children
           }
           
           if (actuallyReady) {
+            const pushToken = pushNotificationService.getToken() || (await pushNotificationService.getStoredToken());
+            if (pushToken) {
+              streamChatService.registerDeviceForPush(pushToken).catch(() => {});
+            }
             setClientReady(true);
             try {
               setClient(streamChatService.getClient());
@@ -178,6 +183,11 @@ export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children
           await streamChatService.connectUser(expectedUserId, token, userData, api_key, userType);
           const connected = streamChatService.isConnected();
           const finalUserId = streamChatService.getCurrentUserId();
+          // Register device for push with Stream so recipient gets push when message is sent (e.g. simulator → device)
+          const pushToken = pushNotificationService.getToken() || (await pushNotificationService.getStoredToken());
+          if (pushToken) {
+            streamChatService.registerDeviceForPush(pushToken).catch(() => {});
+          }
           console.log('💬 [StreamChatProvider] Connection result:', {
             connected,
             clientUserId: finalUserId,

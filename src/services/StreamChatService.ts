@@ -5,6 +5,7 @@
  * Provides singleton instance for app-wide use.
  */
 
+import { Platform } from 'react-native';
 import { StreamChat, User as StreamUser, TokenOrProvider } from 'stream-chat';
 import { getStreamChatApiKey, STREAM_CHAT_CONFIG } from '../config/streamChat';
 import streamChatConnectionMonitor from '../utils/StreamChatConnectionMonitor';
@@ -502,6 +503,31 @@ class StreamChatService {
    */
   getCurrentUserType(): 'user' | 'company' {
     return this.currentUserType;
+  }
+
+  /**
+   * Register this device's FCM/APNs token with Stream Chat for push notifications.
+   * When a new message is sent to a channel, Stream will push to registered devices
+   * (recipient must have app in background/closed). Call after connectUser when token is available.
+   * Requires Stream Chat Dashboard to have APNs (iOS) / FCM (Android) credentials configured.
+   */
+  async registerDeviceForPush(fcmToken: string): Promise<void> {
+    if (!fcmToken || fcmToken.trim() === '') {
+      console.warn('⚠️ [StreamChat] Cannot register empty push token');
+      return;
+    }
+    try {
+      if (!this.isConnected() || !this.client) {
+        console.log('📱 [StreamChat] Skipping push device registration (not connected)');
+        return;
+      }
+      const pushProvider = Platform.OS === 'ios' ? 'apn' : 'firebase';
+      await this.client.addDevice(fcmToken, pushProvider);
+      console.log('✅ [StreamChat] Device registered for push notifications with Stream');
+    } catch (error: any) {
+      // Non-fatal: chat works without push; Stream Dashboard may not have APNs/FCM configured yet
+      console.warn('⚠️ [StreamChat] Could not register device for push:', error?.message || error);
+    }
   }
 
   /**

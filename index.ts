@@ -35,12 +35,25 @@ if (typeof global !== 'undefined' && (global as any).ErrorUtils) {
 // However, we delay it to avoid NativeEventEmitter errors during app startup
 // The handler will be set up after a delay to ensure native modules are ready
 
+// Firebase init - must be available before background handler
+let ensureFirebaseInitialized: () => Promise<boolean>;
+try {
+  ensureFirebaseInitialized = require('./src/services/FirebaseInitService').ensureFirebaseInitialized;
+} catch {
+  ensureFirebaseInitialized = async () => false;
+}
+
 // Function to safely set up Firebase background message handler
-function setupFirebaseBackgroundHandler() {
+async function setupFirebaseBackgroundHandler() {
   console.log('📨 [BackgroundHandler] Attempting to set up Firebase background message handler...');
   try {
-    // In Expo dev builds, NativeModules might be empty until bridge is ready
-    // Just try to require the module and handle errors gracefully
+    // Ensure Firebase is initialized before using messaging
+    const firebaseReady = await ensureFirebaseInitialized();
+    if (!firebaseReady) {
+      console.warn('⚠️ [BackgroundHandler] Firebase not initialized - will retry');
+      return false;
+    }
+    
     console.log('📨 [BackgroundHandler] Requiring @react-native-firebase/messaging...');
     const messagingModule = require('@react-native-firebase/messaging');
     if (messagingModule) {
@@ -111,7 +124,7 @@ const maxRetries = 5;
 
 function trySetupBackgroundHandler() {
   console.log(`📨 [BackgroundHandler] Retry attempt ${retryCount + 1}/${maxRetries}`);
-  const success = setupFirebaseBackgroundHandler();
+  setupFirebaseBackgroundHandler().then((success) => {
   if (!success && retryCount < maxRetries) {
     retryCount++;
     const delay = retryCount * 2000; // 2s, 4s, 6s, 8s, 10s
@@ -120,6 +133,7 @@ function trySetupBackgroundHandler() {
   } else if (!success) {
     console.error('❌ [BackgroundHandler] Failed to set up background handler after all retries');
   }
+  });
 }
 
 // Start trying after initial delay (reduced since initialization is improved)

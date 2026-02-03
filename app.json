@@ -2,7 +2,7 @@
   "expo": {
     "name": "Steps",
     "slug": "one-crew",
-    "version": "1.3.8",
+    "version": "1.3.9",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -30,9 +30,10 @@
       },
       "appleTeamId": "9MK2V33M87",
       "scheme": "com.minaezzat.onesteps",
-      "buildNumber": "20"
+      "buildNumber": "24"
     },
     "android": {
+      "versionCode": 23,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -68,7 +69,16 @@
         "projectId": "bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
       },
       "supabaseUrl": "https://uwdzkrferlogqasrxcve.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3ZHprcmZlcmxvZ3Fhc3J4Y3ZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzMzAzOTMsImV4cCI6MjA3NDkwNjM5M30.SKmWMfWFTDgPEsxgUzPi-Y5k9oHMMCFYuLhIXONPTyU"
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV3ZHprcmZlcmxvZ3Fhc3J4Y3ZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkzMzAzOTMsImV4cCI6MjA3NDkwNjM5M30.SKmWMfWFTDgPEsxgUzPi-Y5k9oHMMCFYuLhIXONPTyU",
+      "firebaseConfig": {
+        "apiKey": "AIzaSyAoblukkusgsmS6b-TdhdeJrpkY5qaUczA",
+        "authDomain": "steps-cfc27.firebaseapp.com",
+        "projectId": "steps-cfc27",
+        "storageBucket": "steps-cfc27.firebasestorage.app",
+        "messagingSenderId": "281166002151",
+        "appId": "1:281166002151:ios:bac870e45644d705b66f42",
+        "databaseURL": "https://steps-cfc27-default-rtdb.firebaseio.com"
+      }
     },
     "plugins": [
       "expo-secure-store",
@@ -90,7 +100,7 @@
         }
       ]
     ],
-    "runtimeVersion": "1.3.8",
+    "runtimeVersion": "1.3.9",
     "updates": {
       "url": "https://u.expo.dev/bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
     }

@@ -10,6 +10,7 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		F1A2B3C42D5E6789012345A1 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = F1A2B3C42D5E6789012345A2 /* GoogleService-Info.plist */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 		F3ADCECC163A7C938DCC6112 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4258D7FCC109C2DF4319E464 /* ExpoModulesProvider.swift */; };
 		F9932AB28BDF8D5375151E7A /* libPods-Steps.a in Frameworks */ = {isa = PBXBuildFile; fileRef = D60346189D7E8B494EC535EB /* libPods-Steps.a */; };
@@ -29,6 +30,7 @@
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Steps/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Steps-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Steps-Bridging-Header.h"; path = "Steps/Steps-Bridging-Header.h"; sourceTree = "<group>"; };
+		F1A2B3C42D5E6789012345A2 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "Steps/GoogleService-Info.plist"; sourceTree = "<group>"; };
 		F6B68B2912DFDADB282181DE /* Pods-Steps.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Steps.debug.xcconfig"; path = "Target Support Files/Pods-Steps/Pods-Steps.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -52,6 +54,7 @@
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
+				F1A2B3C42D5E6789012345A2 /* GoogleService-Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				D85945756DA86C719F54E3D3 /* PrivacyInfo.xcprivacy */,
 			);
@@ -195,6 +198,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
+				F1A2B3C42D5E6789012345A1 /* GoogleService-Info.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				FE72811880C8321C651396E6 /* PrivacyInfo.xcprivacy in Resources */,

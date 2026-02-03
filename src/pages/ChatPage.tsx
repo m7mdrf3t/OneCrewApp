@@ -73,6 +73,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     getConversationById, 
     createConversation,
     getAccessToken,
+    getBaseUrl,
     user, 
     currentProfileType, 
     activeCompany 
@@ -1197,9 +1198,13 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return conversationId;
   }, [conversationId]);
 
-  // Optimized channel watching - single watch call with consistent limits
+  // Prevent duplicate watch: main init effect handles the initial watch
+  const initWatchInProgressRef = useRef(false);
+
+  // Fallback channel watch - only if main init did NOT handle it (e.g. channel set elsewhere)
   useEffect(() => {
     if (!channel || channel.state?.watched) return;
+    if (initWatchInProgressRef.current) return; // Main init is handling watch
     
     // CRITICAL: Check if client is connected before watching channel
     // This prevents "You can't use a channel after client.disconnect() was called" errors
@@ -1217,19 +1222,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
       
     const watchChannel = async () => {
       try {
-        // Double-check connection before watching
-        if (!streamChatService.isConnected()) {
-          console.warn('⚠️ [ChatPage] Client disconnected during watch setup');
-          return;
-        }
-        
-        console.log('⏳ [ChatPage] Watching channel...');
-        await channel.watch({
-          watchers: { limit: 10 },
-          messages: { limit: 30 }, // Consistent limit - pagination will load more
-          presence: true,
-        });
-        console.log('✅ [ChatPage] Channel watched successfully');
+        if (!streamChatService.isConnected()) return;
+        console.log('⏳ [ChatPage] Fallback watching channel...');
+        const watchP = channel.watch({ watchers: { limit: 10 }, messages: { limit: 30 }, presence: true });
+        const timeoutP = new Promise<never>((_, r) => setTimeout(() => r(new Error('Watch timeout')), 10000));
+        await Promise.race([watchP, timeoutP]);
+        console.log('✅ [ChatPage] Channel watched (fallback)');
         
         // Mark channel as read when opened/viewed
         try {
@@ -1386,7 +1384,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       // CRITICAL: Wait for client to be connected before trying to watch channels.
       // Use clientReady from StreamChatProvider - it's set only after successful connection.
       // connectionState is unreliable (often undefined), so we trust clientReady instead.
-      const waitForConnection = async (maxWaitMs = 8000): Promise<boolean> => {
+      const waitForConnection = async (maxWaitMs = 5000): Promise<boolean> => {
         const startTime = Date.now();
         while (Date.now() - startTime < maxWaitMs) {
           // Check clientReady from provider - this is the authoritative source
@@ -1425,6 +1423,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
         setLoading(false);
         return;
       }
+
+      initWatchInProgressRef.current = true;
 
       // If no conversationId, try to create conversation from participant
       if (!conversationId && participant) {
@@ -1583,67 +1583,47 @@ const ChatPage: React.FC<ChatPageProps> = ({
           console.log('💬 [ChatPage] Creating channel instance with ID:', channelIdOnly);
           let channelInstance = client.channel(channelType, channelIdOnly);
 
-          // PERFORMANCE OPTIMIZATION: Set channel early and run operations in parallel
+          // PERFORMANCE: Fire-and-forget prepare; only await watch
           setChannel(channelInstance);
-          setLoading(false); // Stop loading spinner early - UI renders immediately
+          setLoading(false);
           
-          // Parallel operations for faster loading
-          const [prepareResult, watchResult] = await Promise.allSettled([
-            // Prepare endpoint (non-blocking)
-            (async () => {
-              try {
-                const token = getAccessToken();
-                const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
-                const prepareUrl = `${baseUrl}/api/chat/conversations/${newConversationId}/prepare`;
-                
-                const response = await fetch(prepareUrl, {
-                  method: 'POST',
-                  headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                  },
-                });
-                
-                if (response.ok) {
-                  await response.json();
-                  console.log('✅ [ChatPage] Conversation prepared successfully');
-                }
-              } catch (error: any) {
-                console.warn('⚠️ [ChatPage] Prepare endpoint error (non-critical):', error.message);
-              }
-            })(),
-            
-            // Watch channel (critical)
-            (async () => {
-              const isServiceConnected = streamChatService.isConnected();
-              const hasUserId = !!streamChatService.getCurrentUserId();
-              let connectionState: string | undefined;
-              try { connectionState = (client as any)?.connectionState; } catch { connectionState = undefined; }
-              if (!hasUserId || !isServiceConnected) {
-                throw new Error(`StreamChat client not connected. userID: ${hasUserId}, serviceConnected: ${isServiceConnected}`);
-              }
-              if (connectionState === 'disconnected' || connectionState === 'offline') {
-                console.warn('⚠️ [ChatPage] Connection state indicates disconnected, but proceeding anyway', {
-                  connectionState,
-                  userID: streamChatService.getCurrentUserId(),
-                });
-              }
-              console.log('🔄 [ChatPage] Watching channel...');
-              await channelInstance.watch({
-                watchers: { limit: 10 },
-                messages: { limit: 30 },
-                presence: true,
+          (async () => {
+            try {
+              const token = getAccessToken();
+              const baseUrl = getBaseUrl();
+              const prepareUrl = `${baseUrl}/api/chat/conversations/${newConversationId}/prepare`;
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 5000);
+              const response = await fetch(prepareUrl, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                signal: controller.signal,
               });
-              console.log('✅ [ChatPage] Channel watched successfully');
-              try {
-                await channelInstance.markRead();
-                console.log('✅ [ChatPage] Channel marked as read on open');
-              } catch (readError: any) {
-                console.warn('⚠️ [ChatPage] Failed to mark channel as read:', readError);
-              }
-              return channelInstance;
-            })(),
-          ]);
+              clearTimeout(timeoutId);
+              if (response.ok) console.log('✅ [ChatPage] Conversation prepared');
+            } catch (e: any) {
+              if (__DEV__) console.warn('⚠️ [ChatPage] Prepare (non-critical):', e.message);
+            }
+          })();
+          
+          const watchPromise = (async () => {
+            const isServiceConnected = streamChatService.isConnected();
+            const hasUserId = !!streamChatService.getCurrentUserId();
+            if (!hasUserId || !isServiceConnected) {
+              throw new Error(`StreamChat client not connected. userID: ${hasUserId}, serviceConnected: ${isServiceConnected}`);
+            }
+            console.log('🔄 [ChatPage] Watching channel...');
+            await channelInstance.watch({ watchers: { limit: 10 }, messages: { limit: 30 }, presence: true });
+            console.log('✅ [ChatPage] Channel watched successfully');
+            try { await channelInstance.markRead(); } catch { /* ignore */ }
+            return channelInstance;
+          })();
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Channel watch timeout after 12s')), 12000)
+          );
+          const watchResult = await Promise.race([watchPromise, timeoutPromise])
+            .then((v) => ({ status: 'fulfilled' as const, value: v }))
+            .catch((e) => ({ status: 'rejected' as const, reason: e }));
           if (watchResult.status === 'rejected') {
             const watchError = watchResult.reason;
             console.error('❌ [ChatPage] Failed to watch channel:', watchError.message);
@@ -1746,22 +1726,20 @@ const ChatPage: React.FC<ChatPageProps> = ({
           setError(errorMessage);
         } finally {
           setLoading(false);
+          initWatchInProgressRef.current = false;
         }
         return;
       }
 
-      // If we have a conversationId, try to load existing channel
       if (!streamChannelId) {
         setLoading(false);
         setError('No conversation ID provided');
+        initWatchInProgressRef.current = false;
         return;
       }
 
       try {
-        // Don't set loading to true if channel already exists (optimization)
-        if (!channel) {
-          setLoading(true);
-        }
+        if (!channel) setLoading(true);
         setError(null);
 
         const channelType = 'messaging';
@@ -1794,64 +1772,53 @@ const ChatPage: React.FC<ChatPageProps> = ({
           conversationId: conversationId,
         });
 
-        // PERFORMANCE OPTIMIZATION: Start watching immediately, prepare in parallel
-        // Set channel early to start rendering UI while data loads
+        // PERFORMANCE OPTIMIZATION: Set channel early, fire-and-forget prepare, await only watch
+        // Prepare is NON-BLOCKING - never wait for it; avoids hang if backend is slow
         setChannel(channelInstance);
         setLoading(false); // Stop loading spinner early
         
-        // Parallel operations for faster loading
-        const [prepareResult, watchResult] = await Promise.allSettled([
-          // Prepare endpoint (non-blocking - real-time will work even if this fails)
-          (async () => {
-            try {
-              const token = getAccessToken();
-              const baseUrl = (api as any).baseUrl || (Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000');
-              const prepareUrl = `${baseUrl}/api/chat/conversations/${conversationId}/prepare`;
-              
-              const response = await fetch(prepareUrl, {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-              });
-              
-              if (response.ok) {
-                const prepareData = await response.json();
-                console.log('✅ [ChatPage] Conversation prepared successfully');
-                return prepareData;
-              }
-            } catch (error: any) {
-              // Non-critical - continue without prepare
-              console.warn('⚠️ [ChatPage] Prepare endpoint error (non-critical):', error.message);
-            }
-          })(),
-          
-          // Watch channel (critical - must succeed)
-          (async () => {
-            const isServiceConnected = streamChatService.isConnected();
-            const hasUserId = !!streamChatService.getCurrentUserId();
-            let connectionState: string | undefined;
-            try { connectionState = (client as any)?.connectionState; } catch { connectionState = undefined; }
-            if (!hasUserId || !isServiceConnected) {
-              throw new Error(`StreamChat client not connected. userID: ${hasUserId}, serviceConnected: ${isServiceConnected}`);
-            }
-            if (connectionState === 'disconnected' || connectionState === 'offline') {
-              console.warn('⚠️ [ChatPage] Connection state indicates disconnected, but proceeding anyway', {
-                connectionState,
-                userID: streamChatService.getCurrentUserId(),
-              });
-            }
-            console.log('🔄 [ChatPage] Watching channel...');
-            await channelInstance.watch({
-              watchers: { limit: 10 },
-              messages: { limit: 30 }, // Optimized - pagination will load more
-              presence: true,
+        // Fire-and-forget prepare (don't block chat opening)
+        (async () => {
+          try {
+            const token = getAccessToken();
+            const baseUrl = getBaseUrl();
+            const prepareUrl = `${baseUrl}/api/chat/conversations/${conversationId}/prepare`;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            const response = await fetch(prepareUrl, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              signal: controller.signal,
             });
-            console.log('✅ [ChatPage] Channel watched successfully');
-            return channelInstance;
-          })(),
-        ]);
+            clearTimeout(timeoutId);
+            if (response.ok) console.log('✅ [ChatPage] Conversation prepared');
+          } catch (e: any) {
+            if (__DEV__) console.warn('⚠️ [ChatPage] Prepare (non-critical):', e.message);
+          }
+        })();
+        
+        // Watch channel (critical - only this blocks; 12s timeout to prevent hang)
+        const watchPromise = (async () => {
+          const isServiceConnected = streamChatService.isConnected();
+          const hasUserId = !!streamChatService.getCurrentUserId();
+          if (!hasUserId || !isServiceConnected) {
+            throw new Error(`StreamChat client not connected. userID: ${hasUserId}, serviceConnected: ${isServiceConnected}`);
+          }
+          console.log('🔄 [ChatPage] Watching channel...');
+          await channelInstance.watch({
+            watchers: { limit: 10 },
+            messages: { limit: 30 },
+            presence: true,
+          });
+          console.log('✅ [ChatPage] Channel watched successfully');
+          return channelInstance;
+        })();
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Channel watch timeout after 12s')), 12000)
+        );
+        const watchResult = await Promise.race([watchPromise, timeoutPromise])
+          .then((v) => ({ status: 'fulfilled' as const, value: v }))
+          .catch((e) => ({ status: 'rejected' as const, reason: e }));
         
         // Handle watch result (critical)
         if (watchResult.status === 'rejected') {
@@ -1919,11 +1886,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
         setError(err.message || 'Failed to load chat. Please try again.');
       } finally {
         setLoading(false);
+        initWatchInProgressRef.current = false;
       }
     };
 
     initializeChannel();
-  }, [client, streamChannelId, conversationId, participant, getConversationById, createConversation, currentProfileType, api, getAccessToken]);
+  }, [client, streamChannelId, conversationId, participant, getConversationById, createConversation, currentProfileType, api, getAccessToken, getBaseUrl]);
 
   // Show loading state if client is not available yet (must be after all hooks)
   if (!client) {
