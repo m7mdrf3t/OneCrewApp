@@ -34,6 +34,8 @@ const NotificationItem: React.FC<NotificationItemProps> = ({
         return 'trophy';
       case 'message_received':
         return 'chatbubble';
+      case 'news_post':
+        return 'newspaper';
       case 'team_member_added':
       case 'team_member_removed':
         return 'people';
@@ -66,6 +68,8 @@ const NotificationItem: React.FC<NotificationItemProps> = ({
         return '#ef4444'; // red
       case 'message_received':
         return '#3b82f6'; // blue
+      case 'news_post':
+        return '#0ea5e9'; // sky
       default:
         return '#6b7280'; // gray
     }

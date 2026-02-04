@@ -28,6 +28,8 @@ class StreamChatService {
   private initialUnreadCounts: UnreadCounts | null = null;
   private isDisconnecting: boolean = false;
   private disconnectPromise: Promise<void> | null = null;
+  /** Last device token we registered with Stream — used to remove before re-register on refresh (reduce duplicates) */
+  private lastRegisteredDeviceToken: string | null = null;
 
   /**
    * Set API key (should be called with key from backend)
@@ -396,6 +398,7 @@ class StreamChatService {
         await this.client.disconnectUser();
       }
       this.currentUserId = null;
+      this.lastRegisteredDeviceToken = null;
       
       // CRITICAL: Verify disconnect completed - must be thorough to prevent race conditions
       // The SDK's disconnectUser() returns immediately but internal cleanup takes time
@@ -454,6 +457,7 @@ class StreamChatService {
       console.error('❌ StreamChat: Error disconnecting user', error);
       // Don't throw - allow reconnect to proceed even if disconnect had issues
       this.currentUserId = null;
+      this.lastRegisteredDeviceToken = null;
     }
   }
 
@@ -506,11 +510,13 @@ class StreamChatService {
    * Register this device with Stream Chat for push notifications.
    * - iOS: must pass APNs device token (provider 'apn'). Do not pass FCM token.
    * - Android: must pass FCM token (provider 'firebase').
+   * On token refresh, removes the previous device from Stream before adding the new one to reduce duplicate devices.
    * Call after connectUser when token is available.
    * Requires Stream Chat Dashboard to have APNs (iOS) / FCM (Android) configured.
    */
   async registerDeviceForPush(deviceToken: string): Promise<void> {
-    if (!deviceToken || deviceToken.trim() === '') {
+    const trimmed = deviceToken?.trim() ?? '';
+    if (!trimmed) {
       console.warn('⚠️ [StreamChat] Cannot register empty push token');
       return;
     }
@@ -521,15 +527,31 @@ class StreamChatService {
       }
       if (Platform.OS === 'ios') {
         // Stream expects APNs token on iOS (hex string, typically 64 chars). Refuse obvious FCM token.
-        const trimmed = deviceToken.trim();
         const looksLikeFcm = trimmed.length > 120 || trimmed.includes(':');
         if (looksLikeFcm) {
           console.warn('⚠️ [StreamChat] iOS requires APNs device token, not FCM token. Skipping registration.');
           return;
         }
       }
+      // Remove previous device token from Stream before adding new one (avoids duplicate devices)
+      if (this.lastRegisteredDeviceToken && this.lastRegisteredDeviceToken !== trimmed) {
+        try {
+          await this.client.removeDevice(this.lastRegisteredDeviceToken);
+          console.log('✅ [StreamChat] Previous device removed from Stream (token refresh cleanup)');
+        } catch (removeErr: unknown) {
+          const removeMsg = removeErr instanceof Error ? removeErr.message : String(removeErr);
+          // 404 or "device not found" is fine — already removed or never existed
+          if (removeMsg.includes('404') || removeMsg.includes('not found') || removeMsg.includes('does not exist')) {
+            console.log('📱 [StreamChat] Previous device already absent from Stream');
+          } else {
+            console.warn('⚠️ [StreamChat] Could not remove previous device (non-critical):', removeMsg);
+          }
+          // Continue to add new device so push still works
+        }
+      }
       const pushProvider = Platform.OS === 'ios' ? 'apn' : 'firebase';
-      await this.client.addDevice(deviceToken, pushProvider);
+      await this.client.addDevice(trimmed, pushProvider);
+      this.lastRegisteredDeviceToken = trimmed;
       console.log('✅ [StreamChat] Device registered for push notifications with Stream');
       if (Platform.OS === 'ios') {
         console.log('✅ [StreamChat] iOS APNs token registered — push should work when app is backgrounded/closed');
@@ -588,6 +610,7 @@ class StreamChatService {
       await this.disconnectUser();
       this.client = null;
       this.currentUserId = null;
+      this.lastRegisteredDeviceToken = null;
       this.isOnline = false;
       this.initialUnreadCounts = null;
     } catch (error) {

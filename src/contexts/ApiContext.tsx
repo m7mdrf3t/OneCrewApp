@@ -9661,12 +9661,23 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Helper function to check if a notification is a message notification
   const isMessageNotification = (notification: Notification): boolean => {
-    if (notification.type === 'message_received') {
+    if (
+      notification.type === 'message_received' ||
+      notification.type === 'reaction_added' ||
+      // Backends may use alternate string types for reactions
+      (notification.type as any) === 'reaction.new' ||
+      (notification.type as any) === 'message_reaction'
+    ) {
       return true;
     }
     // Also check title pattern as fallback
     const titleLower = notification.title?.toLowerCase() || '';
-    if (titleLower.includes('new message from') || titleLower.includes('message from')) {
+    if (
+      titleLower.includes('new message from') ||
+      titleLower.includes('message from') ||
+      titleLower.includes('reacted') ||
+      titleLower.includes('reaction')
+    ) {
       return true;
     }
     return false;

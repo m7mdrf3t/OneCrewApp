@@ -99,6 +99,16 @@ const GlobalModals: React.FC = () => {
       } else if (notification.data?.conversation_id) {
         console.log('💬 [GlobalModals] Navigating to chat:', notification.data.conversation_id);
         navTo('chat', { conversationId: notification.data.conversation_id });
+      } else if (notification.type === 'news_post' || notification.data?.newsPostId || notification.data?.slug) {
+        const slug = notification.data?.slug ?? (typeof notification.link_url === 'string' && notification.link_url.startsWith('/news/')
+          ? notification.link_url.replace(/^\/news\/?/, '').split('?')[0]
+          : null);
+        if (slug) {
+          console.log('📰 [GlobalModals] Navigating to news post:', slug);
+          navTo('newsDetail', { slug });
+        } else {
+          console.log('ℹ️ [GlobalModals] No specific action for notification type:', notification.type);
+        }
       } else {
         console.log('ℹ️ [GlobalModals] No specific action for notification type:', notification.type);
       }

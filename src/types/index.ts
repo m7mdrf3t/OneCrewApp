@@ -588,6 +588,8 @@ export type NotificationType =
   | 'certification_expiring'
   | 'certification_expired'
   | 'message_received'
+  | 'reaction_added'
+  | 'news_post'
   | 'other';
 
 export interface Notification {

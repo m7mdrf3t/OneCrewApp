@@ -346,8 +346,43 @@ const AppContent: React.FC = () => {
       if (data.conversation_id && typeof data.conversation_id === 'string') {
         navigateTo('chat', { conversationId: data.conversation_id as string });
       }
+    } else if (data.type === 'message.new') {
+      // Stream Chat default push payload: type "message.new", channel_id or cid (e.g. "messaging:onecrew_xxx")
+      const channelId = typeof data.channel_id === 'string' ? data.channel_id : null;
+      const cid = typeof data.cid === 'string' ? data.cid : null;
+      const conversationId = channelId || (cid ? cid.replace(/^messaging:/, '') : null);
+      if (conversationId) {
+        navigateTo('chat', { conversationId });
+      }
+    } else if (data.type === 'reaction_added' || data.type === 'reaction.new' || data.type === 'message_reaction') {
+      // Reaction notification payload (backend or Stream webhook → FCM)
+      const channelId = typeof data.channel_id === 'string' ? data.channel_id : null;
+      const cid = typeof data.cid === 'string' ? data.cid : null;
+      const conversationId =
+        (typeof data.conversation_id === 'string' ? data.conversation_id : null) ||
+        channelId ||
+        (cid ? cid.replace(/^messaging:/, '') : null);
+      if (conversationId) {
+        navigateTo('chat', { conversationId });
+      }
+    } else if (data.type === 'news_post' || data.newsPostId || data.slug) {
+      // News post push (admin published post) – open post by slug
+      const slug =
+        (typeof data.slug === 'string' && data.slug) ||
+        (typeof data.link_url === 'string' && data.link_url.startsWith('/news/')
+          ? data.link_url.replace(/^\/news\/?/, '').split('?')[0]
+          : null);
+      if (slug) {
+        navigateTo('newsDetail', { slug });
+      }
+    } else if (data.link_url && typeof data.link_url === 'string' && data.link_url.startsWith('/news/')) {
+      // Fallback: link_url only (e.g. /news/my-post-slug)
+      const slug = data.link_url.replace(/^\/news\/?/, '').split('?')[0];
+      if (slug) {
+        navigateTo('newsDetail', { slug });
+      }
     } else if (data.link_url) {
-      // Handle custom link URLs
+      // Handle other custom link URLs
       console.log('Navigate to:', data.link_url);
     }
   }, [user, getProjectById, navigateTo]);

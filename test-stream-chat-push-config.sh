@@ -148,14 +148,38 @@ else
   exit 1
 fi
 
-# Optional: show Firebase if present
+# Validate Firebase (Android) push config
+EXPECTED_PACKAGE="com.minaezzat.onesteps"
 FIREBASE=$(echo "$HTTP_BODY" | jq -r '.push_providers[]? | select(.type == "firebase") | .' 2>/dev/null)
 if [ -n "$FIREBASE" ] && [ "$FIREBASE" != "null" ]; then
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "🔥 Firebase (Android) push"
+  echo "🔥 Android push (FCM / Firebase)"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  FCM_ENABLED=$(echo "$HTTP_BODY" | jq -r '.push_providers[]? | select(.type == "firebase") | .is_enabled')
+  FCM_CREATED=$(echo "$HTTP_BODY" | jq -r '.push_providers[]? | select(.type == "firebase") | .created_at')
+  echo "  is_enabled:  $FCM_ENABLED"
+  echo "  created_at:  $FCM_CREATED"
+  echo "  (full):"
   echo "$HTTP_BODY" | jq '.push_providers[] | select(.type == "firebase")'
+  ANDROID_FAIL=0
+  if [ "$FCM_ENABLED" != "true" ]; then
+    echo "  ⚠️  is_enabled is not true – enable in Stream Dashboard (Push Notifications → Android / Firebase)"
+    ANDROID_FAIL=1
+  else
+    echo "  ✅ FCM push provider is enabled for Android."
+  fi
+  if [ $ANDROID_FAIL -eq 0 ]; then
+    echo "  ✅ Android FCM config looks valid. Device registration + real message test still required."
+  fi
+else
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "⚠️  No Firebase (Android) push provider found."
+  echo "   For Android chat push: add FCM in Stream Dashboard:"
+  echo "   https://dashboard.getstream.io/ → your app → Push Notifications → Android / Firebase"
+  echo "   (Upload FCM server key or use Firebase v1 credentials.)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 fi
 
 echo ""
