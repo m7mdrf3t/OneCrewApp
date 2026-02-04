@@ -413,10 +413,30 @@ class PushNotificationService {
   }
 
   /**
-   * Get current push token
+   * Get current push token (FCM token)
    */
   getToken(): string | null {
     return this.token;
+  }
+
+  /**
+   * Get APNs device token (iOS only). Stream Chat expects this for iOS push, not the FCM token.
+   * Returns null on Android or if unavailable.
+   */
+  async getAPNSToken(): Promise<string | null> {
+    if (Platform.OS !== 'ios') {
+      return null;
+    }
+    try {
+      const messagingInstance = getMessaging();
+      if (!messagingInstance || typeof messagingInstance.getAPNSToken !== 'function') {
+        return null;
+      }
+      const apnsToken = await messagingInstance.getAPNSToken();
+      return apnsToken || null;
+    } catch {
+      return null;
+    }
   }
 
   /**

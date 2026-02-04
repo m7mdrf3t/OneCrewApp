@@ -6,6 +6,7 @@
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 import { Chat, OverlayProvider } from 'stream-chat-react-native';
 import { useApi } from '../contexts/ApiContext';
 import pushNotificationService from '../services/PushNotificationService';
@@ -134,7 +135,12 @@ export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children
           if (actuallyReady) {
             const pushToken = pushNotificationService.getToken() || (await pushNotificationService.getStoredToken());
             if (pushToken) {
-              streamChatService.registerDeviceForPush(pushToken).catch(() => {});
+              // iOS: Stream expects APNs token; Android: FCM token
+              const streamToken =
+                Platform.OS === 'ios'
+                  ? (await pushNotificationService.getAPNSToken()) || pushToken
+                  : pushToken;
+              streamChatService.registerDeviceForPush(streamToken).catch(() => {});
             }
             setClientReady(true);
             try {
@@ -183,10 +189,14 @@ export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children
           await streamChatService.connectUser(expectedUserId, token, userData, api_key, userType);
           const connected = streamChatService.isConnected();
           const finalUserId = streamChatService.getCurrentUserId();
-          // Register device for push with Stream so recipient gets push when message is sent (e.g. simulator → device)
+          // Register device for push with Stream. iOS: Stream expects APNs token; Android: FCM token
           const pushToken = pushNotificationService.getToken() || (await pushNotificationService.getStoredToken());
           if (pushToken) {
-            streamChatService.registerDeviceForPush(pushToken).catch(() => {});
+            const streamToken =
+              Platform.OS === 'ios'
+                ? (await pushNotificationService.getAPNSToken()) || pushToken
+                : pushToken;
+            streamChatService.registerDeviceForPush(streamToken).catch(() => {});
           }
           console.log('💬 [StreamChatProvider] Connection result:', {
             connected,

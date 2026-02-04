@@ -72,6 +72,7 @@ Stream Chat automatically handles device token registration when:
 - ✅ Firebase is configured in frontend
 - ✅ Push notification service is initialized
 - ✅ Device tokens are now registered with Stream Chat (StreamChatService.registerDeviceForPush + ApiContext + StreamChatProvider)
+- ✅ **iOS**: Stream is given the **APNs device token** (not FCM token) so Stream can deliver push via APNs. Backend still receives FCM token.
 
 When the app connects to Stream Chat or registers an FCM token with the backend, it also registers the same token with Stream Chat so Stream can send push when new messages arrive (e.g. message from simulator → push on physical iOS device).
 

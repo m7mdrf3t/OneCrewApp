@@ -9641,10 +9641,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       console.log('✅ [Backend] Push token registered successfully via API client');
 
-      // Register same token with Stream Chat so it can send push when new messages arrive
-      // (e.g. simulator sends message → Stream pushes to physical device)
+      // Register device with Stream Chat for push. iOS: Stream expects APNs token, not FCM token.
       if (streamChatService.isConnected()) {
-        streamChatService.registerDeviceForPush(token).catch(() => {});
+        const streamToken =
+          Platform.OS === 'ios'
+            ? (await pushNotificationService.getAPNSToken()) || token
+            : token;
+        if (streamToken) {
+          streamChatService.registerDeviceForPush(streamToken).catch(() => {});
+        }
       }
     } catch (error: any) {
       // Don't throw - push token registration is not critical for app functionality

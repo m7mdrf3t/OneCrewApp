@@ -7,7 +7,7 @@
 
 import { Platform } from 'react-native';
 import { StreamChat, User as StreamUser, TokenOrProvider } from 'stream-chat';
-import { getStreamChatApiKey, STREAM_CHAT_CONFIG } from '../config/streamChat';
+import { getStreamChatApiKey } from '../config/streamChat';
 import streamChatConnectionMonitor from '../utils/StreamChatConnectionMonitor';
 
 interface UnreadCounts {
@@ -65,10 +65,7 @@ class StreamChatService {
       }
       
       console.log('🔑 StreamChat: Creating client with API key:', apiKey.substring(0, 10) + '...');
-      this.client = StreamChat.getInstance(apiKey, {
-        logLevel: STREAM_CHAT_CONFIG.logLevel as any,
-        enableOfflineSupport: STREAM_CHAT_CONFIG.enableOfflineSupport,
-      });
+      this.client = StreamChat.getInstance(apiKey);
     }
     return this.client;
   }
@@ -373,31 +370,31 @@ class StreamChatService {
       this.isOnline = false;
       this.initialUnreadCounts = null;
       
-      // Release all active channels before disconnecting
-      // This prevents "You can't use a channel after client.disconnect() was called" errors
+      // Disconnect all active channels before disconnecting user (SDK uses _disconnect on each channel)
       try {
-        const activeChannels = this.client.activeChannels;
+        const activeChannels = this.client?.activeChannels;
         if (activeChannels && Object.keys(activeChannels).length > 0) {
-          console.log(`🔌 StreamChat: Releasing ${Object.keys(activeChannels).length} active channels before disconnect`);
+          console.log(`🔌 StreamChat: Disconnecting ${Object.keys(activeChannels).length} active channels before disconnect`);
           for (const channelId in activeChannels) {
             try {
               const channel = activeChannels[channelId];
-              if (channel && typeof channel.release === 'function') {
-                await channel.release();
+              if (channel && typeof (channel as any)._disconnect === 'function') {
+                (channel as any)._disconnect();
               }
             } catch (channelError) {
-              console.warn(`⚠️ StreamChat: Error releasing channel ${channelId}:`, channelError);
+              console.warn(`⚠️ StreamChat: Error disconnecting channel ${channelId}:`, channelError);
             }
           }
-          // OPTIMIZED: Reduced delay for instant connection (50ms instead of 100ms)
           await new Promise(resolve => setTimeout(resolve, 50));
         }
       } catch (releaseError) {
-        console.warn('⚠️ StreamChat: Error releasing channels (non-critical):', releaseError);
+        console.warn('⚠️ StreamChat: Error disconnecting channels (non-critical):', releaseError);
       }
       
       // CRITICAL: Disconnect and verify it completes
-      await this.client.disconnectUser();
+      if (this.client) {
+        await this.client.disconnectUser();
+      }
       this.currentUserId = null;
       
       // CRITICAL: Verify disconnect completed - must be thorough to prevent race conditions
@@ -414,7 +411,7 @@ class StreamChatService {
         // Verify disconnect by checking if userID is cleared
         // If accessing userID throws with "tokens not set", disconnect is complete
         try {
-          const userId = this.client.userID;
+          const userId = this.client?.userID;
           if (!userId || userId === null || userId === undefined) {
             // userID is cleared - disconnect is complete
             // Wait at least 2 checks (100ms) to ensure SDK has processed it
@@ -428,9 +425,9 @@ class StreamChatService {
               console.log(`⏳ StreamChat: Waiting for disconnect to complete... (${verifyAttempts * 50}ms)`);
             }
           }
-        } catch (error: any) {
+        } catch (error: unknown) {
           // If accessing userID throws, check if it's a token error
-          const errorMsg = error?.message || String(error);
+          const errorMsg = (error instanceof Error ? error.message : String(error));
           if (errorMsg.includes('tokens are not set') || errorMsg.includes('Both secret')) {
             // Tokens are cleared - disconnect is complete
             disconnectComplete = true;
@@ -506,13 +503,14 @@ class StreamChatService {
   }
 
   /**
-   * Register this device's FCM/APNs token with Stream Chat for push notifications.
-   * When a new message is sent to a channel, Stream will push to registered devices
-   * (recipient must have app in background/closed). Call after connectUser when token is available.
-   * Requires Stream Chat Dashboard to have APNs (iOS) / FCM (Android) credentials configured.
+   * Register this device with Stream Chat for push notifications.
+   * - iOS: must pass APNs device token (provider 'apn'). Do not pass FCM token.
+   * - Android: must pass FCM token (provider 'firebase').
+   * Call after connectUser when token is available.
+   * Requires Stream Chat Dashboard to have APNs (iOS) / FCM (Android) configured.
    */
-  async registerDeviceForPush(fcmToken: string): Promise<void> {
-    if (!fcmToken || fcmToken.trim() === '') {
+  async registerDeviceForPush(deviceToken: string): Promise<void> {
+    if (!deviceToken || deviceToken.trim() === '') {
       console.warn('⚠️ [StreamChat] Cannot register empty push token');
       return;
     }
@@ -521,12 +519,24 @@ class StreamChatService {
         console.log('📱 [StreamChat] Skipping push device registration (not connected)');
         return;
       }
+      if (Platform.OS === 'ios') {
+        // Stream expects APNs token on iOS (hex string, typically 64 chars). Refuse obvious FCM token.
+        const trimmed = deviceToken.trim();
+        const looksLikeFcm = trimmed.length > 120 || trimmed.includes(':');
+        if (looksLikeFcm) {
+          console.warn('⚠️ [StreamChat] iOS requires APNs device token, not FCM token. Skipping registration.');
+          return;
+        }
+      }
       const pushProvider = Platform.OS === 'ios' ? 'apn' : 'firebase';
-      await this.client.addDevice(fcmToken, pushProvider);
+      await this.client.addDevice(deviceToken, pushProvider);
       console.log('✅ [StreamChat] Device registered for push notifications with Stream');
-    } catch (error: any) {
-      // Non-fatal: chat works without push; Stream Dashboard may not have APNs/FCM configured yet
-      console.warn('⚠️ [StreamChat] Could not register device for push:', error?.message || error);
+      if (Platform.OS === 'ios') {
+        console.log('✅ [StreamChat] iOS APNs token registered — push should work when app is backgrounded/closed');
+      }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn('⚠️ [StreamChat] Could not register device for push:', msg);
     }
   }
 
