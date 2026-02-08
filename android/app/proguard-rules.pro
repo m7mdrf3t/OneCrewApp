@@ -11,4 +11,14 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
+# React Native / Hermes (needed when minifyEnabled true)
+-keep class com.facebook.hermes.unicode.** { *; }
+-keep class com.facebook.jni.** { *; }
+-keep class com.facebook.react.** { *; }
+-keepclassmembers class * { @com.facebook.react.uimanager.annotations.ReactProp <methods>; }
+-keepclassmembers class * { @com.facebook.react.uimanager.annotations.ReactPropGroup <methods>; }
+
+# Expo / native modules
+-keep class expo.modules.** { *; }
+
 # Add any project specific keep options here:

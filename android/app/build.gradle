@@ -93,8 +93,8 @@ android {
         applicationId 'com.minaezzat.onesteps'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 24
-        versionName "1.3.10"
+        versionCode 25
+        versionName "1.3.11"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -105,15 +105,34 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Release: MYAPP_RELEASE_* in gradle.properties; passwords from env or properties.
+        // Key verified: SHA1 08:80:0A:A7:53:30:75:B2:FA:C3:CC:65:8D:57:AA:E8:A9:DD:60:A5 (Play).
+        if (project.hasProperty('MYAPP_RELEASE_STORE_FILE')) {
+            def releaseStorePass = System.getenv("MYAPP_RELEASE_STORE_PASSWORD") ?: findProperty('MYAPP_RELEASE_STORE_PASSWORD')
+            def releaseKeyPass = System.getenv("MYAPP_RELEASE_KEY_PASSWORD") ?: findProperty('MYAPP_RELEASE_KEY_PASSWORD')
+            if (!releaseStorePass || !releaseKeyPass) {
+                throw new RuntimeException(
+                    "Release keystore is set but passwords are missing. Set env vars:\n  export MYAPP_RELEASE_STORE_PASSWORD=your-store-password\n  export MYAPP_RELEASE_KEY_PASSWORD=your-key-password\nThen run: ./gradlew bundleRelease"
+                )
+            }
+            release {
+                storeFile file(MYAPP_RELEASE_STORE_FILE)
+                storePassword releaseStorePass
+                keyAlias MYAPP_RELEASE_KEY_ALIAS
+                keyPassword releaseKeyPass
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (project.hasProperty('MYAPP_RELEASE_STORE_FILE')) {
+                signingConfig signingConfigs.release
+            } else {
+                signingConfig signingConfigs.debug
+            }
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
@@ -130,6 +149,24 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+// Copy R8 mapping file to a versioned name for Play Console deobfuscation upload
+gradle.taskGraph.whenReady { graph ->
+    if (graph.hasTask(":app:signReleaseBundle")) {
+        tasks.named("signReleaseBundle").configure { task ->
+            task.doLast {
+                def mapping = file("${project.buildDir}/outputs/mapping/release/mapping.txt")
+                if (mapping.exists()) {
+                    def vName = android.defaultConfig.versionName
+                    def vCode = android.defaultConfig.versionCode
+                    def dest = file("${project.buildDir}/outputs/mapping/release/mapping-${vName}-${vCode}.txt")
+                    ant.copy(file: mapping, tofile: dest)
+                    println "\nDeobfuscation file for Play Console: ${dest}\n"
+                }
+            }
+        }
     }
 }
 
