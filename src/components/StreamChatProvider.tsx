@@ -16,6 +16,19 @@ import streamChatConnectionMonitor from '../utils/StreamChatConnectionMonitor';
 // Import helper to expose monitor to console
 import '../utils/StreamChatMonitorHelper';
 
+// One-time diagnostic at load time: verify voice recording native modules (Stream Chat uses these for mic button)
+if (typeof __DEV__ !== 'undefined' && __DEV__) {
+  try {
+    const RAR = require('react-native-audio-recorder-player');
+    const Blob = require('react-native-blob-util');
+    const hasAudio = !!(RAR?.default || RAR);
+    const hasBlob = !!(Blob?.default || Blob?.fs);
+    console.log('💬 [Voice recording] native modules at load:', { hasAudio, hasBlob, voiceAvailable: hasAudio && hasBlob });
+  } catch (e) {
+    console.warn('💬 [Voice recording] native modules check failed:', (e as Error)?.message);
+  }
+}
+
 interface StreamChatProviderProps {
   children: React.ReactNode;
 }

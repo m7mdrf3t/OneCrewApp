@@ -365,6 +365,12 @@ const AppContent: React.FC = () => {
       if (conversationId) {
         navigateTo('chat', { conversationId });
       }
+    } else if (data.type === 'company_approved') {
+      // Company approval push (admin approved company) – open company profile
+      const companyId = typeof data.company_id === 'string' ? data.company_id : null;
+      if (companyId) {
+        navigateTo('companyProfile', { companyId });
+      }
     } else if (data.type === 'news_post' || data.newsPostId || data.slug) {
       // News post push (admin published post) – open post by slug
       const slug =

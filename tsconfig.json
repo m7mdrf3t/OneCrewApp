@@ -4,6 +4,22 @@
     "strict": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "jsx": "react-jsx"
-  }
+    "jsx": "react-jsx",
+    "target": "ESNext",
+    "lib": [
+      "ESNext"
+    ],
+    "types": [
+      "node"
+    ],
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "global.d.ts"
+  ]
 }

@@ -99,6 +99,12 @@ const GlobalModals: React.FC = () => {
       } else if (notification.data?.conversation_id) {
         console.log('💬 [GlobalModals] Navigating to chat:', notification.data.conversation_id);
         navTo('chat', { conversationId: notification.data.conversation_id });
+      } else if (notification.type === 'company_approved' || notification.data?.company_id) {
+        const companyId = notification.data?.company_id;
+        if (companyId) {
+          console.log('🏢 [GlobalModals] Navigating to company profile:', companyId);
+          navTo('companyProfile', { companyId });
+        }
       } else if (notification.type === 'news_post' || notification.data?.newsPostId || notification.data?.slug) {
         const slug = notification.data?.slug ?? (typeof notification.link_url === 'string' && notification.link_url.startsWith('/news/')
           ? notification.link_url.replace(/^\/news\/?/, '').split('?')[0]

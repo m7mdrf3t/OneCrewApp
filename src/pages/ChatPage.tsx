@@ -31,6 +31,7 @@ import {
   useMessageContext,
   MessageMenu,
   MessageActionList,
+  InputButtons as DefaultInputButtons,
 } from 'stream-chat-react-native';
 import {
   LikeReaction,
@@ -41,6 +42,7 @@ import {
   CareReaction,
   AngryReaction,
 } from '../components/ReactionIcons';
+import { ChatVoiceRecordButton } from '../components/ChatVoiceRecordButton';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApi } from '../contexts/ApiContext';
@@ -807,6 +809,18 @@ const ChatPage: React.FC<ChatPageProps> = ({
       </TouchableOpacity>
     );
   };
+
+  // Custom input buttons: on Android only, add voice record button (SDK mic often unavailable on Android; iOS uses SDK native mic only)
+  const CustomInputButtons = () => (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <DefaultInputButtons />
+      {Platform.OS === 'android' ? (
+        <View style={{ minWidth: 44, justifyContent: 'center', alignItems: 'center' }}>
+          <ChatVoiceRecordButton />
+        </View>
+      ) : null}
+    </View>
+  );
 
   // Custom reaction options with SVG icons - compact size
   const customReactionOptions = [
@@ -2004,8 +2018,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
       <View style={styles.container}>
         {channel ? (
           <View style={styles.channelContainer}>
+            {/* Voice notes: recording + playback use SDK default (react-native-video: AVPlayer on iOS, ExoPlayer on Android) */}
             <Channel
               channel={channel}
+              audioRecordingEnabled={true}
+              asyncMessagesMultiSendEnabled={true}
+              InputButtons={CustomInputButtons}
               // Custom reaction options with SVG icons
               supportedReactions={customReactionOptions}
               // MessageOverlay not available in this SDK version

@@ -282,6 +282,49 @@ export const streamChatTheme: Theme<DefaultStreamChatGenerics> = {
     },
   },
   
+  // Voice note / audio attachment (inline player in chat like WhatsApp/Messenger)
+  audioAttachment: {
+    container: {
+      borderRadius: 12,
+      borderWidth: 1,
+      minHeight: 56,
+      maxWidth: '100%',
+    },
+    leftContainer: {
+      marginRight: 8,
+    },
+    playPauseButton: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      padding: 4,
+    },
+    progressControlContainer: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      minHeight: 24,
+    },
+    progressDurationText: {
+      fontSize: 12,
+      marginRight: 8,
+    },
+    rightContainer: {
+      marginLeft: 8,
+    },
+    speedChangeButton: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 20,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    speedChangeButtonText: {
+      fontSize: 12,
+    },
+  },
+
   // Message list
   messageList: {
     container: {
