@@ -7,6 +7,7 @@ interface UserMenuModalProps {
   visible: boolean;
   onClose: () => void;
   onMyTeam: () => void;
+  onAllMembers?: () => void;
   onSettings: () => void;
   onProfileEdit: () => void;
   onHelpSupport: () => void;
@@ -24,6 +25,7 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
   visible,
   onClose,
   onMyTeam,
+  onAllMembers,
   onSettings,
   onProfileEdit,
   onHelpSupport,
@@ -66,6 +68,7 @@ const UserMenuModal: React.FC<UserMenuModalProps> = ({
         { id: 'profileEdit', label: 'Profile Edit', icon: 'create', onPress: onProfileEdit },
       ] : []),
       { id: 'createCompany', label: 'Create Company', icon: 'business', onPress: onCreateCompany || (() => {}) },
+      ...(onAllMembers ? [{ id: 'allMembers', label: 'All Members', icon: 'people-outline', onPress: onAllMembers }] : []),
     ]),
     { id: 'settings', label: 'Settings', icon: 'settings', onPress: onSettings },
     { id: 'inviteFriend', label: 'Invite a friend', icon: 'share-social', onPress: handleInviteFriend, shouldCloseOnPress: false },

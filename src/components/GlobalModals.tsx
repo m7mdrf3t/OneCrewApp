@@ -192,6 +192,10 @@ const GlobalModals: React.FC = () => {
           setShowMyTeam(true);
           console.log('🔵 [GlobalModals] setShowMyTeam(true) called');
         }}
+        onAllMembers={() => {
+          setShowUserMenu(false);
+          navTo('sectionServices', { key: 'directory' });
+        }}
         onSettings={() => {
           setShowUserMenu(false);
           navTo('settings');

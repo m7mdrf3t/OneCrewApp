@@ -21,9 +21,10 @@ export const tabBarCommonStyles = {
   
   tab: {
     flex: 1,
+    minWidth: 56,
     alignItems: 'center' as const,
     paddingVertical: semanticSpacing.buttonPadding,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
   } as ViewStyle,
   
   activeTab: {
@@ -32,10 +33,14 @@ export const tabBarCommonStyles = {
   } as ViewStyle,
   
   tabLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#999',
     marginTop: 4,
     fontWeight: '500' as const,
+  } as TextStyle,
+
+  tabLabelSingleLine: {
+    flexShrink: 0,
   } as TextStyle,
   
   activeTabLabel: {

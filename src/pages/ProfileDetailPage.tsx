@@ -2054,6 +2054,10 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
             navigateTo('myTeam');
           }
         }}
+        onAllMembers={() => {
+          setShowUserMenu(false);
+          navigateTo('sectionServices', { key: 'directory' });
+        }}
         onSettings={() => {
           setShowUserMenu(false);
           navigateTo('settings');

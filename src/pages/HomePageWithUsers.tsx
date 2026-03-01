@@ -14,6 +14,9 @@ import { spacing, semanticSpacing } from '../constants/spacing';
 import { getRoleName, filterRolesByCategory } from '../utils/roleCategorizer';
 import { filterAndSortUsers } from '../utils/searchUtils';
 
+/** When false, "All Members" is hidden from the Home tab and only accessible via the three-lines (hamburger) menu. Set to true to show it on Home again. */
+const SHOW_ALL_MEMBERS_ON_HOME = false;
+
 interface User {
   id: string;
   name: string;
@@ -585,12 +588,12 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     return counts;
   }, [usersByCategory?.crew]);
 
-  // Filter sections to only show: onehub (Studios & Agencies), academy, directory
+  // Filter sections: Academy first, then Studios & Agencies (onehub); optionally directory (All Members) when SHOW_ALL_MEMBERS_ON_HOME
   // Note: 'talent', 'individuals' (Crew), and 'custom' are hidden but functionality remains intact
-  const allowedSectionKeys = ['onehub', 'academy', 'directory'];
+  const allowedSectionKeys = ['academy', 'onehub'];
   
   const filteredSections = useMemo(() => {
-    // Add "All Members" directory section dynamically
+    // Add "All Members" directory section only when shown on Home (otherwise accessible via hamburger menu)
     const directorySection = {
       key: 'directory',
       title: 'All Members',
@@ -600,9 +603,11 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     };
     
     const allowedSections = SECTIONS.filter(section => allowedSectionKeys.includes(section.key));
+    // Order sections: Academy first, then Studios & Agencies (onehub)
+    allowedSections.sort((a, b) => allowedSectionKeys.indexOf(a.key) - allowedSectionKeys.indexOf(b.key));
     
-    // Combine directory section with allowed sections
-    const allSections = [directorySection, ...allowedSections];
+    // Combine directory section with allowed sections only when showing All Members on Home
+    const allSections = SHOW_ALL_MEMBERS_ON_HOME ? [directorySection, ...allowedSections] : allowedSections;
     
     // Dynamically update the crew (individuals) and talent sections with API roles
     // But only if roles have loaded, otherwise use original section items

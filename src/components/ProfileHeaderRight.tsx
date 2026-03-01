@@ -9,6 +9,7 @@ import { spacing } from '../constants/spacing';
 interface ProfileHeaderRightProps {
   onShowNotifications?: () => void;
   onShowMessages?: () => void;
+  onShowAgenda?: () => void;
   onShowAccountSwitcher?: () => void;
   onShowMenu?: () => void;
 }
@@ -16,18 +17,12 @@ interface ProfileHeaderRightProps {
 const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
   onShowNotifications,
   onShowMessages,
+  onShowAgenda,
   onShowAccountSwitcher,
   onShowMenu,
 }) => {
-  const { unreadNotificationCount, unreadConversationCount } = useApi();
+  const { unreadNotificationCount } = useApi();
   const { navigateTo } = useAppNavigation();
-  
-  // Debug logging for unread count
-  React.useEffect(() => {
-    if (__DEV__) {
-      console.log('📧 [ProfileHeaderRight] Unread conversation count:', unreadConversationCount);
-    }
-  }, [unreadConversationCount]);
   
   // Use global modals context if available, otherwise use props
   let globalModals: ReturnType<typeof useGlobalModals> | null = null;
@@ -45,11 +40,11 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
     }
   };
 
-  const handleMessages = () => {
-    if (onShowMessages) {
-      onShowMessages();
+  const handleAgenda = () => {
+    if (onShowAgenda) {
+      onShowAgenda();
     } else {
-      navigateTo('conversations');
+      navigateTo('wall');
     }
   };
 
@@ -88,17 +83,10 @@ const ProfileHeaderRight: React.FC<ProfileHeaderRightProps> = ({
 
       <TouchableOpacity
         style={styles.iconButton}
-        onPress={handleMessages}
+        onPress={handleAgenda}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
-        <Ionicons name="mail-outline" size={20} color="#000000" />
-        {unreadConversationCount > 0 && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {unreadConversationCount > 99 ? '99+' : unreadConversationCount}
-            </Text>
-          </View>
-        )}
+        <Ionicons name="calendar-outline" size={20} color="#000000" />
       </TouchableOpacity>
     </View>
   );

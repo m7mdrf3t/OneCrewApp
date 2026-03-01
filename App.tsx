@@ -146,7 +146,7 @@ const AppContent: React.FC = () => {
 
   // Track current route to update tab and show/hide TabBar
   const [currentRoute, setCurrentRoute] = useState<string>('spot');
-  const mainTabRoutes = ['home', 'projects', 'spot', 'wall'];
+  const mainTabRoutes = ['home', 'projects', 'spot', 'conversations'];
   
   // Function to get current route from navigation state
   const getCurrentRouteFromState = useCallback(() => {
@@ -1133,8 +1133,8 @@ const AppContent: React.FC = () => {
       });
     }
 
-    // Show prompt for guest users accessing projects or wall (Agenda) pages
-    if (isGuest && (newTab === 'projects' || newTab === 'wall') && !guestPromptShownRef.current) {
+    // Show prompt for guest users accessing projects or Messages pages
+    if (isGuest && (newTab === 'projects' || newTab === 'conversations') && !guestPromptShownRef.current) {
       setShowGuestPrompt(true);
       guestPromptShownRef.current = true;
       pendingTabChangeRef.current = newTab; // Store the tab they wanted to navigate to

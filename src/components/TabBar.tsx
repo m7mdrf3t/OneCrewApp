@@ -11,6 +11,8 @@ import { tabBarAndroidStyles } from './TabBar.styles.android';
 import { useApi } from '../contexts/ApiContext';
 import { useGlobalModals } from '../contexts/GlobalModalsContext';
 
+const messagesIcon = require('../../assets/Messages-icon.jpeg');
+
 // Create platform-specific styles (outside component for performance)
 const styles = createPlatformStyles({
   common: tabBarCommonStyles,
@@ -57,7 +59,7 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
     { key: 'home', label: 'Home', icon: 'home' },
     { key: 'projects', label: 'Projects', icon: 'folder' },
     { key: 'spot', label: 'Spot', icon: 'search' },
-    { key: 'wall', label: 'Agenda', icon: 'calendar' },
+    { key: 'conversations', label: 'Messages', icon: 'mail-outline', imageSource: messagesIcon },
   ];
 
   // Calculate padding bottom - iOS handles it in styles, Android uses insets
@@ -73,12 +75,27 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
           style={[styles.tab, active === tab.key && styles.activeTab]}
           onPress={() => onChange(tab.key)}
         >
-          <Ionicons
-            name={tab.icon as any}
-            size={20}
-            color={active === tab.key ? '#fff' : '#999'}
-          />
-          <Text style={[styles.tabLabel, active === tab.key && styles.activeTabLabel]}>
+          {'imageSource' in tab && tab.imageSource ? (
+            <Image
+              source={tab.imageSource}
+              style={{ width: 22, height: 22, opacity: active === tab.key ? 1 : 0.6 }}
+              contentFit="contain"
+            />
+          ) : (
+            <Ionicons
+              name={(tab as { icon: string }).icon as any}
+              size={20}
+              color={active === tab.key ? '#fff' : '#999'}
+            />
+          )}
+          <Text
+            style={[
+              styles.tabLabel,
+              active === tab.key && styles.activeTabLabel,
+              tab.key === 'conversations' && styles.tabLabelSingleLine,
+            ]}
+            numberOfLines={1}
+          >
             {tab.label}
           </Text>
         </TouchableOpacity>

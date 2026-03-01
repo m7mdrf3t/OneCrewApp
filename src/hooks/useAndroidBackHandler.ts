@@ -25,7 +25,7 @@ export const useAndroidBackHandler = () => {
   } = useGlobalModals();
 
   // Root screens that should navigate to home when back is pressed
-  const rootScreens = ['spot', 'projects', 'wall', 'profile'];
+  const rootScreens = ['spot', 'projects', 'conversations', 'profile'];
   const homeScreen = 'home';
 
   // Helper function to get the current active route name
