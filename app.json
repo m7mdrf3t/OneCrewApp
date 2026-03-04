@@ -33,7 +33,7 @@
       "buildNumber": "33"
     },
     "android": {
-      "versionCode": 26,
+      "versionCode": 27,
       "adaptiveIcon": {
         "foregroundImage": "./assets/Steps.png",
         "backgroundColor": "#000000"
