@@ -55,6 +55,85 @@ So: the **store** already shows the right logo (three-bars). The **on-device** l
 
 ---
 
+## Verify the new icon before submitting (recommended)
+
+**Yes – build and install a release build on a real Android device before you submit to Play.** That way you confirm the launcher shows the **Steps.png** (three-bars) icon and the name **Steps**, so the store and the app match.
+
+### Option A: Install the release APK on your device (simplest)
+
+1. **Build a release APK** (same code as the AAB, different format for direct install):
+   ```bash
+   cd android
+   ./gradlew assembleRelease
+   ```
+   Output: `android/app/build/outputs/apk/release/app-release.apk`
+
+2. **Copy the APK to your phone** (USB, cloud, or email) and **install** it (allow “Install from unknown sources” if prompted).
+
+3. **Check on the home screen / app drawer:**
+   - App name under the icon = **Steps**
+   - Launcher icon = **three-bars** (Steps.png), **not** the old ONE CREW circle.
+
+4. Open the app and do a quick sanity check. If everything looks good, the **same** AAB you built with `bundleRelease` is safe to upload to Play.
+
+### Option B: Use Internal testing track (optional)
+
+1. In Play Console: **Test and release** → **Testing** → **Internal testing**.
+2. Create a new release and **upload the same AAB** you will use for Production.
+3. Add yourself (and testers) and install from the internal testing link.
+4. Confirm launcher icon = three-bars and name = **Steps**, then use that AAB for Production.
+
+**Recommendation:** Do **Option A** once (build APK → install → verify icon and name), then submit the AAB to Production. No need to build a separate “test” AAB – the release AAB and the release APK use the same native icon.
+
+---
+
+## Google Play Console: step-by-step submission
+
+Use this after you’ve verified the new icon on a device (see above).
+
+### 1. Open your app in Play Console
+
+- Go to [Play Console](https://play.google.com/console).
+- Select the app **Steps** (com.minaezzat.onesteps).
+
+### 2. (Optional) Align store listing with the new icon
+
+- Go to **Store presence** → **Main store listing**.
+- Under **Graphics**:
+  - **App icon**: upload a **512×512 PNG** of **Steps.png** (three-bars). If it’s already correct, leave it.
+  - **Hi-res icon (en-US)**: upload the **same** 512×512 PNG.
+- **App name**: **Steps** (max 30 characters). **Save** if you changed anything.
+
+### 3. Upload the new release (AAB)
+
+- In the left menu: **Test and release** → **Production** (or the track that was rejected).
+- Click **Create new release** (or **Create release** / **New release**).
+- In the release:
+  - **App bundles**: click **Upload** and choose your **app-release.aab** from:
+    - `android/app/build/outputs/bundle/release/app-release.aab`
+  - Add **Release name** (e.g. “Icon fix – three-bars launcher”) and/or **Release notes** for “What’s new” if needed.
+- Click **Save** (or **Next**).
+
+### 4. Complete the release
+
+- Resolve any warnings (e.g. permissions, target API) if shown.
+- Click **Review release** (or **Next** until you reach the review step).
+- Confirm the new version (versionCode **27**) and the bundle are the one you tested.
+
+### 5. Send for review
+
+- Go to **Publishing overview** (left menu or top).
+- You should see pending changes (e.g. “Production release ready”).
+- Click **Send for review** (or **Start rollout to Production** / equivalent).
+- Submit. Google will review the new build and store listing (icon/name match).
+
+### 6. After approval
+
+- The new version will replace the rejected one on Production.
+- New installs will see the **Steps.png** launcher icon and name **Steps**, matching the store.
+
+**Summary:** Verify on device with the release APK (or internal testing) that the launcher shows the three-bars icon and “Steps”, then in Play Console upload the **same** AAB to Production (or the rejected track), fix store graphics if needed, and **Send for review**.
+
 ---
 
 ## Current State in Your Repo

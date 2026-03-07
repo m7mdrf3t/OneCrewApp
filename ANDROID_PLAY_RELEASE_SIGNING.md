@@ -4,58 +4,47 @@
 
 Google Play rejected the bundle because it was signed with the **wrong key**:
 
-- **Play expects:** `SHA1: 9E:18:23:93:BF:9A:C2:5F:63:F0:57:82:89:CF:3F:9A:94:20:2E:FE`
-- **Your upload had:** `SHA1: 08:80:0A:A7:...` (that’s the **debug** keystore)
+- **Play expects:** `SHA1: 08:80:0A:A7:53:30:75:B2:FA:C3:CC:65:8D:57:AA:E8:A9:DD:60:A5`
+- **Your upload had:** `SHA1: 5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`
 
-Release builds were using the debug keystore. They need to use the **same** keystore that was used for the first upload to Play (the one with the expected SHA1 above).
+You must sign the app bundle with the keystore that has the **expected** SHA1 (the one Play has on file). The upload was signed with a different key (e.g. EAS default credentials or another keystore).
 
 ---
 
 ## 1. Find the correct keystore
 
-You need the `.jks` file that was used when the app was first published to Play (the one with fingerprint `9E:18:23:93:BF:9A:...`).
+You need the `.jks` / `.keystore` file whose certificate has this SHA1:
 
-Check each keystore’s SHA1 (e.g. if your keystore is in Downloads):
+`08:80:0A:A7:53:30:75:B2:FA:C3:CC:65:8D:57:AA:E8:A9:DD:60:A5`
+
+Check each keystore’s SHA1 (e.g. if your keystore is in the project or Downloads):
 
 ```bash
-keytool -list -v -keystore /Users/aghone01/Downloads/your-keystore.jks -alias YOUR_KEY_ALIAS
+keytool -list -v -keystore /path/to/your.keystore -alias YOUR_KEY_ALIAS
 ```
 
 (Replace `YOUR_KEY_ALIAS` with the alias you used when creating the keystore. You’ll be prompted for the keystore password.)
 
-In the output, find **SHA1:** and compare to:
+In the output, find **SHA1:** and compare to the expected value above.
 
-`9E:18:23:93:BF:9A:C2:5F:63:F0:57:82:89:CF:3F:9A:94:20:2E:FE`
-
-If you have `@m7mdrf3t__one-crew_OLD_1.jks`, run the same command for it and see which one matches.
+If you have `@m7mdrf3t__one-crew.jks` or `@m7mdrf3t__one-crew_OLD_1.jks`, run the same command for each and see which one matches the expected SHA1.
 
 ---
 
 ## 2. Configure release signing
 
-1. Open **`android/gradle.properties`**.
-2. At the bottom there are commented lines for release signing. **Uncomment** and set them:
+**Which key was used for the last `bundleRelease`?**  
+If `MYAPP_RELEASE_*` were not set in `android/gradle.properties`, the last local `bundleRelease` used the **debug** keystore (so the AAB had the wrong SHA1). The key Play expects (SHA1 `08:80:0A:A7:...`) is the one you created and is in **`@m7mdrf3t__one-crew.jks`** at the project root.
 
-   - **`MYAPP_RELEASE_STORE_FILE`** – path to your `.jks`.  
-     If the keystore is in Downloads:  
-     `MYAPP_RELEASE_STORE_FILE=/Users/aghone01/Downloads/your-keystore.jks`  
-     (Replace `your-keystore.jks` with the actual filename.)
-   - **`MYAPP_RELEASE_STORE_PASSWORD`** – keystore password.
-   - **`MYAPP_RELEASE_KEY_ALIAS`** – alias of the key you use for release.
-   - **`MYAPP_RELEASE_KEY_PASSWORD`** – key password.
+The project is wired to use that keystore for release. **Secrets are kept in a gitignored file** so they are never committed.
 
-3. **Do not commit real passwords.** Prefer:
-   - Keeping them only in local `gradle.properties` (ensure it’s in `.gitignore` if you add secrets there), or
-   - Using environment variables and reading them in `build.gradle` (e.g. `System.getenv("MYAPP_RELEASE_STORE_PASSWORD")`).
-
-Example (replace with your real values and do not commit if the file is tracked):
-
-```properties
-MYAPP_RELEASE_STORE_FILE=/Users/aghone01/Downloads/your-keystore.jks
-MYAPP_RELEASE_STORE_PASSWORD=your-store-password
-MYAPP_RELEASE_KEY_ALIAS=your-key-alias
-MYAPP_RELEASE_KEY_PASSWORD=your-key-password
-```
+1. Copy **`android/gradle-secrets.properties.example`** to **`android/gradle-secrets.properties`** (the latter is in `.gitignore`).
+2. Edit **`android/gradle-secrets.properties`** and set:
+   - **`MYAPP_RELEASE_STORE_PASSWORD`** – keystore password
+   - **`MYAPP_RELEASE_KEY_ALIAS`** – alias (run `keytool -list -keystore ../../@m7mdrf3t__one-crew.jks` to see it)
+   - **`MYAPP_RELEASE_KEY_PASSWORD`** – key password  
+   (`MYAPP_RELEASE_STORE_FILE` is already set in the example.)
+3. Do not commit `gradle-secrets.properties`; it is gitignored.
 
 ---
 
@@ -69,19 +58,22 @@ cd android && ./gradlew bundleRelease && cd ..
 
 The AAB will be at: **`android/app/build/outputs/bundle/release/app-release.aab`**.
 
-Upload this file to the **Create open testing release** (or your chosen track) in Play Console. It must be signed with the keystore that has SHA1 `9E:18:23:93:BF:9A:...`.
+Upload this file to the **Create open testing release** (or your chosen track) in Play Console. It must be signed with the keystore that has SHA1 `08:80:0A:A7:53:30:75:B2:FA:C3:CC:65:8D:57:AA:E8:A9:DD:60:A5`.
 
 ---
 
 ## 4. If you build with EAS
 
-If you use **EAS Build** (`eas build --platform android --profile production`), the same `build.gradle` and `gradle.properties` are used. As long as the release signing properties are set in `gradle.properties` (or via env in your build), the EAS-built AAB will be signed with your release key.
+If you use **EAS Build** (`eas build --platform android --profile production`), EAS uses its own credentials by default (which produced the wrong SHA1). To fix:
+
+- **Option A – Use your own keystore in EAS:** Run `eas credentials` → Android → production → Set up a new upload key, then upload the keystore that has SHA1 `08:80:0A:A7:53:30:75:B2:FA:C3:CC:65:8D:57:AA:E8:A9:DD:60:A5` (or configure EAS to use the same `MYAPP_RELEASE_*` env vars / gradle.properties in the cloud build).
+- **Option B – Build the AAB locally:** Set the release signing properties in `gradle.properties` (see section 2), then run `cd android && ./gradlew bundleRelease` and upload `android/app/build/outputs/bundle/release/app-release.aab` to Play Console.
 
 ---
 
 ## 5. If you don’t have the original keystore
 
-If you no longer have the keystore with SHA1 `9E:18:23:93:BF:9A:...`:
+If you no longer have the keystore with SHA1 `08:80:0A:A7:53:30:75:B2:FA:C3:CC:65:8D:57:AA:E8:A9:DD:60:A5`:
 
 - You **cannot** sign new builds for that app with a different key unless Play allows a **signing key reset**.
 - In Play Console: **Setup → App integrity → App signing** (or **Change signing key**). There you can request to use a new key; Google will re-sign your uploads. Only do this if you’ve lost the original key.

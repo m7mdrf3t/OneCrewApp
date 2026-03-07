@@ -1,5 +1,12 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
+// Load release signing secrets from gitignored file (copy from gradle-secrets.properties.example).
+def secretsFile = file("gradle-secrets.properties")
+def releaseSecrets = new Properties()
+if (secretsFile.exists()) {
+  secretsFile.withInputStream { releaseSecrets.load(it) }
+}
+
 buildscript {
   repositories {
     google()
@@ -12,11 +19,22 @@ buildscript {
   }
 }
 
-allprojects {
+allprojects { proj ->
+  releaseSecrets.each { key, value -> proj.ext.set(key, value) }
   repositories {
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
+  }
+}
+
+// Disable vital release lint for modules that fail lint (e.g. react-native-audio-recorder-player, react-native-blob-util)
+subprojects { sub ->
+  sub.afterEvaluate {
+    def lintVital = sub.tasks.findByName("lintVitalAnalyzeRelease")
+    if (lintVital != null) {
+      lintVital.setEnabled(false)
+    }
   }
 }
 

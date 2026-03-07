@@ -22,7 +22,13 @@
       "distribution": "store",
       "developmentClient": false,
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "ios": {
+        "image": "latest"
+      },
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      }
     },
     "production-apk": {
       "extends": "production",

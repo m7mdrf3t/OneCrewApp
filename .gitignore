@@ -53,6 +53,7 @@ android/build/
 android/app/build/
 android/.idea/
 android/local.properties
+android/gradle-secrets.properties
 android/*.iml
 android/.cxx/
 android/.externalNativeBuild/
