@@ -13,7 +13,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   Dimensions,
@@ -123,6 +122,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [thread, setThread] = useState<any>(null);
+  const courseMessageSentRef = useRef(false);
 
   // Watch for channel state changes to detect when members are populated
   useEffect(() => {
@@ -1265,6 +1265,64 @@ const ChatPage: React.FC<ChatPageProps> = ({
     watchChannel();
   }, [channel, client]);
 
+  // Auto-send course registration message when channel is ready and courseData is present
+  useEffect(() => {
+    if (!channel || !courseData || courseMessageSentRef.current) return;
+
+    const sendCourseMessage = async () => {
+      try {
+        await channel.watch();
+      } catch {
+        // already watched — ignore
+      }
+
+      if (courseMessageSentRef.current) return;
+      courseMessageSentRef.current = true;
+
+      const { title, price, start_date, end_date, duration, primary_lecturer } = courseData;
+
+      const lines: string[] = [
+        `Hi! I'd like to register for the following course:`,
+        ``,
+        `📚 Course: ${title}`,
+      ];
+
+      if (price !== undefined && price !== null) {
+        lines.push(`💰 Price: $${price}`);
+      }
+      if (start_date) {
+        const formatted = new Date(start_date).toLocaleDateString('en-US', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        });
+        lines.push(`📅 Start Date: ${formatted}`);
+      }
+      if (end_date) {
+        const formatted = new Date(end_date).toLocaleDateString('en-US', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        });
+        lines.push(`🏁 End Date: ${formatted}`);
+      }
+      if (duration) {
+        lines.push(`⏱ Duration: ${duration}`);
+      }
+      if (primary_lecturer?.name) {
+        lines.push(`👨‍🏫 Instructor: ${primary_lecturer.name}`);
+      }
+
+      lines.push(``);
+      lines.push(`Please let me know the next steps to complete my registration. Thank you!`);
+
+      try {
+        await channel.sendMessage({ text: lines.join('\n') });
+      } catch (err) {
+        courseMessageSentRef.current = false; // allow retry if send failed
+        if (__DEV__) console.warn('⚠️ [ChatPage] Failed to send course registration message:', err);
+      }
+    };
+
+    sendCourseMessage();
+  }, [channel, courseData]);
+
   // Mark channel as read when screen is focused (user is viewing the chat)
   useFocusEffect(
     useCallback(() => {
@@ -2010,13 +2068,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
   }
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-    >
-      <View style={styles.container}>
-        {channel ? (
+    <View style={styles.container}>
+      {channel ? (
           <View style={styles.channelContainer}>
             {/* Voice notes: recording + playback use SDK default (react-native-video: AVPlayer on iOS, ExoPlayer on Android) */}
             <Channel
@@ -2200,9 +2253,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
               <Text style={styles.retryButtonText}>Retry</Text>
             </TouchableOpacity>
           </View>
-        )}
-      </View>
-    </KeyboardAvoidingView>
+      )}
+    </View>
   );
 };
 

@@ -647,7 +647,7 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
                 <>
                   <Ionicons name="person-add-outline" size={20} color="#fff" />
                   <Text style={styles.actionButtonText}>
-                    {isFull ? 'Course Full' : 'Register Now'}
+                    {isFull ? 'Course Full' : 'Reach Out'}
                   </Text>
                 </>
               )}
