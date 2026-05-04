@@ -830,6 +830,7 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     <SectionCard
       key={section.key}
       section={section}
+      featured={section.key === 'academy'}
       onClick={() => onNavigate('sectionServices', section)}
     />
   ), [onNavigate]);

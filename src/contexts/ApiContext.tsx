@@ -467,7 +467,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     
     // Verify new methods are available
     if (typeof apiClient.getPendingCompanyMembers !== 'function') {
-      console.warn('⚠️ getPendingCompanyMembers method not found on API instance. Package may need update or cache clear.');
+      console.warn('   getPendingCompanyMembers method not found on API instance. Package may need update or cache clear.');
     }
     
     return apiClient;
@@ -490,7 +490,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const [notificationChannelId, setNotificationChannelId] = useState<string | null>(null);
   // Chat unread count state
   const [unreadConversationCount, setUnreadConversationCount] = useState(0);
-  const [shouldPollPendingCompanies, setShouldPollPendingCompanies] = useState(false);
   // Social links refresh trigger (increments when social links are updated)
   const [socialLinksRefreshTrigger, setSocialLinksRefreshTrigger] = useState(0);
   // Heartbeat state
@@ -524,7 +523,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         try {
           await AsyncStorage.removeItem(key);
         } catch (err) {
-          console.warn(`⚠️ Failed to remove ${key} from AsyncStorage:`, err);
+          console.warn(`   Failed to remove ${key} from AsyncStorage:`, err);
         }
       }
 
@@ -543,7 +542,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           (api.auth as any).accessToken = null;
           (api.auth as any).currentUser = null;
         } catch (err) {
-          console.warn('⚠️ Error clearing API auth state:', err);
+          console.warn('   Error clearing API auth state:', err);
         }
       }
 
@@ -561,7 +560,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
       }
 
-      console.log('✅ All authentication data cleared');
+      console.log('    All authentication data cleared');
     } catch (err) {
       console.error('Error clearing auth data:', err);
     }
@@ -585,15 +584,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       return;
     }
 
-    // Check if this is a token invalidation error
+    // Check if this is a token invalidation error.
+    // NOTE: Plain "unauthorized" is intentionally excluded — a generic 401 usually means the
+    // token expired after long inactivity, not that it was explicitly revoked by the server.
+    // Only signing out on explicit invalidation messages prevents unwanted logouts when the
+    // app hasn't been opened for a while.
     if (error?.status === 401 || error?.statusCode === 401) {
-      const isTokenInvalidated = 
+      const isTokenInvalidated =
         errorMessage.toLowerCase().includes('token has been invalidated') ||
         errorMessage.toLowerCase().includes('invalidated') ||
         errorMessage.toLowerCase().includes('please sign in again') ||
         errorMessage.toLowerCase().includes('invalid token') ||
-        errorMessage.toLowerCase().includes('token is invalid') ||
-        errorMessage.toLowerCase().includes('unauthorized');
+        errorMessage.toLowerCase().includes('token is invalid');
 
       if (isTokenInvalidated) {
         isHandling401Ref.current = true;
@@ -633,18 +635,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
     }
   };
-
-  const updatePendingCompaniesFlag = useCallback((response: any): boolean => {
-    const companiesList = Array.isArray(response?.data)
-      ? response.data
-      : response?.data?.data || [];
-    const hasPending = companiesList.some((company: any) => {
-      const approvalStatus = company.approval_status || company.company?.approval_status;
-      return approvalStatus === 'pending';
-    });
-    setShouldPollPendingCompanies(hasPending);
-    return hasPending;
-  }, []);
 
   // Test network connectivity - try multiple endpoints
   const testConnectivity = async () => {
@@ -693,19 +683,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Initialize API client
   useEffect(() => {
     const initializeApi = async () => {
-      void testConnectivity();
+      // Test connectivity (non-blocking - if it fails, we'll still try to initialize)
+      await testConnectivity();
       
       try {
         await api.initialize();
-        console.log('✅ API client initialized successfully');
+        console.log('    API client initialized successfully');
         
         // Verify chat service is available
         if (api.chat) {
-          console.log('✅ Chat service is available');
-          console.log('💬 Chat service methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(api.chat)).filter(m => m !== 'constructor'));
+          console.log('    Chat service is available');
+          console.log('    Chat service methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(api.chat)).filter(m => m !== 'constructor'));
         } else {
-          console.warn('⚠️ Chat service is not available after initialization');
-          console.warn('⚠️ API object keys:', Object.keys(api));
+          console.warn('   Chat service is not available after initialization');
+          console.warn('   API object keys:', Object.keys(api));
         }
         
         // Clear any previous connectivity errors since initialization succeeded
@@ -716,7 +707,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Initialize ReferenceDataService with the API
         ReferenceDataService.setApi(api);
         
-        // Auth provider setup is not needed for first paint, so initialize it in the background.
+        // Auth provider setup is not needed for first paint, so initialize it in the background
         InteractionManager.runAfterInteractions(() => {
           Promise.resolve()
             .then(async () => {
@@ -728,15 +719,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             });
         });
         
-        const storageEntries = await AsyncStorage.multiGet([
-          'passwordResetFlag',
-          'currentProfileType',
-          'activeCompanyId',
-        ]);
-        const passwordResetFlag = storageEntries[0]?.[1];
-        const savedProfileType = storageEntries[1]?.[1];
-        const savedCompanyId = storageEntries[2]?.[1];
-
+        // Check if password was recently reset - if so, don't restore tokens
+        const passwordResetFlag = await AsyncStorage.getItem('passwordResetFlag');
         if (passwordResetFlag === 'true') {
           // Clear any tokens that might have been restored by API client
           await clearAllAuthData();
@@ -751,7 +735,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           pushNotificationService.setOnTokenRefreshCallback((newToken) => {
             if (api.auth.isAuthenticated()) {
               registerPushToken(newToken).catch((error) => {
-                console.warn('⚠️ Failed to re-register token after refresh:', error);
+                console.warn('   Failed to re-register token after refresh:', error);
               });
             }
           });
@@ -766,50 +750,43 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 return;
               }
             } catch (error) {
-              console.error('❌ Failed to register push notifications for authenticated user:', error);
+              console.error('  Failed to register push notifications for authenticated user:', error);
               return;
             }
             if (attempt < maxAttempts) {
-              console.log(`📱 [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
+              console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
               setTimeout(() => tryRegisterPush(attempt + 1, maxAttempts, delayMs), delayMs);
             } else {
-              console.warn('⚠️ [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for ⚠️ [Token] reason. Push may not work until next launch.');
+              console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason. Push may not work until next launch.');
             }
           };
           setTimeout(() => tryRegisterPush(1, 4, 2500), 2500);
           
+          // Restore profile type and active company from storage
+          const savedProfileType = await AsyncStorage.getItem('currentProfileType');
+          const savedCompanyId = await AsyncStorage.getItem('activeCompanyId');
+          
           if (savedProfileType === 'company' && savedCompanyId) {
-            setCurrentProfileType('user');
-            setActiveCompany(null);
-            InteractionManager.runAfterInteractions(() => {
-              Promise.resolve()
-                .then(async () => {
-                  try {
-                    const companyResponse = await api.getCompany(savedCompanyId);
-                    if (companyResponse.success && companyResponse.data) {
-                      setActiveCompany(companyResponse.data);
-                      setCurrentProfileType('company');
-                    } else {
-                      await AsyncStorage.setItem('currentProfileType', 'user');
-                      await AsyncStorage.removeItem('activeCompanyId');
-                    }
-                  } catch (restoreError) {
-                    console.warn('Failed to restore company profile:', restoreError);
-                    await AsyncStorage.setItem('currentProfileType', 'user');
-                    await AsyncStorage.removeItem('activeCompanyId');
-                  }
-                })
-                .catch((restoreError) => {
-                  console.warn('Failed to restore company profile:', restoreError);
-                });
-            });
+            try {
+              const companyResponse = await api.getCompany(savedCompanyId);
+              if (companyResponse.success && companyResponse.data) {
+                setActiveCompany(companyResponse.data);
+                setCurrentProfileType('company');
+              } else {
+                // Company not found or access denied, switch to user profile
+                await AsyncStorage.setItem('currentProfileType', 'user');
+                await AsyncStorage.removeItem('activeCompanyId');
+                setCurrentProfileType('user');
+              }
+            } catch (error) {
+              console.warn('Failed to restore company profile:', error);
+              await AsyncStorage.setItem('currentProfileType', 'user');
+              await AsyncStorage.removeItem('activeCompanyId');
+              setCurrentProfileType('user');
+            }
           } else {
             setCurrentProfileType('user');
-            setActiveCompany(null);
           }
-        } else {
-          setCurrentProfileType('user');
-          setActiveCompany(null);
         }
       } catch (err) {
         console.warn('Failed to initialize API:', err);
@@ -894,7 +871,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         authResponse = JSON.parse(responseText);
       } catch (parseError: any) {
         // If JSON parsing fails, it's likely a text error message
-        console.error('❌ Failed to parse response as JSON:', responseText);
+        console.error('  Failed to parse response as JSON:', responseText);
         throw new Error(responseText || 'Server returned invalid JSON response');
       }
       
@@ -977,7 +954,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           (api as any).apiClient.defaultHeaders = {};
         }
         (api as any).apiClient.defaultHeaders['Authorization'] = `Bearer ${token}`;
-        console.log('✅ API client headers updated with new token');
+        console.log('    API client headers updated with new token');
       }
       
       // Also update auth service properties directly to ensure immediate availability
@@ -989,7 +966,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Mark recent login FIRST to prevent immediate 401 handling (before setIsAuthenticated triggers API calls)
       recentLoginRef.current = Date.now();
-      console.log('✅ Recent login timestamp set - 401 handling will be skipped for', RECENT_LOGIN_WINDOW, 'ms');
+      console.log('    Recent login timestamp set - 401 handling will be skipped for', RECENT_LOGIN_WINDOW, 'ms');
       
       // Update user state
       setUser(userData);
@@ -1002,7 +979,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           const { token, user_id, api_key } = streamTokenResponse.data as any;
           
           // Log token response for debugging
-          console.log('💬 StreamChat token response:', {
+          console.log('    StreamChat token response:', {
             hasToken: !!token,
             hasUserId: !!user_id,
             hasApiKey: !!api_key,
@@ -1021,12 +998,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             api_key, // Pass API key from backend if provided
             'user' // User type for tracking
           );
-          console.log('✅ StreamChat initialized after login');
+          console.log('    StreamChat initialized after login');
         } else {
-          console.error('❌ StreamChat token response failed:', streamTokenResponse);
+          console.error('  StreamChat token response failed:', streamTokenResponse);
         }
       } catch (streamError) {
-        console.error('❌ Failed to initialize StreamChat:', streamError);
+        console.error('  Failed to initialize StreamChat:', streamError);
         // Don't block login if StreamChat fails, but log the error
       }
       
@@ -1034,7 +1011,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       pushNotificationService.setOnTokenRefreshCallback((newToken) => {
         if (api.auth.isAuthenticated()) {
           registerPushToken(newToken).catch((error) => {
-            console.warn('⚠️ Failed to re-register token after refresh:', error);
+            console.warn('   Failed to re-register token after refresh:', error);
           });
         }
       });
@@ -1049,14 +1026,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             return;
           }
         } catch (error) {
-          console.error('❌ Failed to register push notifications:', error);
+          console.error('  Failed to register push notifications:', error);
           return;
         }
         if (attempt < maxAttempts) {
-          console.log(`📱 [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
+          console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
           setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
         } else {
-          console.warn('⚠️ [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for ⚠️ [Token] reason.');
+          console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
         }
       };
       setTimeout(() => tryRegisterPushAfterLogin(1, 4, 2500), 500);
@@ -1089,7 +1066,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           setIsAuthenticated(true);
           return authResponse;
         } catch (apiErr: any) {
-          console.error('❌ API client also failed:', apiErr);
+          console.error('  API client also failed:', apiErr);
           
           // Check for account lockout in API client error
           const errorLower = apiErr.message?.toLowerCase() || '';
@@ -1148,7 +1125,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // If the library throws a SecureStore error, it means signup succeeded but saving failed
         // The response should be accessible from the library's internal state or error object
         if (libraryErr.message?.includes('SecureStore') || libraryErr.message?.includes('JSON-encoding')) {
-          console.warn('⚠️ Library threw SecureStore error, but signup likely succeeded');
+          console.warn('   Library threw SecureStore error, but signup likely succeeded');
           
           // Try to get the response from various possible locations
           // The response structure from logs shows: {"data": {"message": "...", "user": {...}}}
@@ -1207,8 +1184,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // If it's a SecureStore error, it means something tried to save during signup
       // This shouldn't happen, but if it does, we'll handle it gracefully
       if (err.message?.includes('SecureStore') || err.message?.includes('JSON-encoding')) {
-        console.error('⚠️ SecureStore error during signup - something tried to save data (this shouldn\'t happen)');
-        console.error('⚠️ The library\'s signup() method should NOT save anything - token only comes after OTP verification');
+        console.error('   SecureStore error during signup - something tried to save data (this shouldn\'t happen)');
+        console.error('   The library\'s signup() method should NOT save anything - token only comes after OTP verification');
         
         // Try to extract the response if signup actually succeeded
         // The response structure from logs shows: {"data": {"message": "...", "user": {...}}}
@@ -1337,7 +1314,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         authResponse = JSON.parse(responseText);
       } catch (parseError: any) {
-        console.error('❌ Failed to parse response as JSON:', responseText);
+        console.error('  Failed to parse response as JSON:', responseText);
         throw new Error(responseText || 'Server returned invalid JSON response');
       }
       
@@ -1442,7 +1419,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       pushNotificationService.setOnTokenRefreshCallback((newToken) => {
         if (api.auth.isAuthenticated()) {
           registerPushToken(newToken).catch((error) => {
-            console.warn('⚠️ Failed to re-register token after refresh:', error);
+            console.warn('   Failed to re-register token after refresh:', error);
           });
         }
       });
@@ -1457,14 +1434,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             return;
           }
         } catch (error) {
-          console.error('❌ Failed to register push notifications:', error);
+          console.error('  Failed to register push notifications:', error);
           return;
         }
         if (attempt < maxAttempts) {
-          console.log(`📱 [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
+          console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
           setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
         } else {
-          console.warn('⚠️ [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for ⚠️ [Token] reason.');
+          console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
         }
       };
       setTimeout(() => tryRegisterPushAfterLogin(1, 4, 2500), 500);
@@ -1487,7 +1464,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       } as AuthResponse;
       
     } catch (err: any) {
-      console.error('❌ Google Sign-In failed:', err);
+      console.error('  Google Sign-In failed:', err);
       
       // Clear AsyncStorage on error (unless it's a cancellation)
       if (!err?.message?.toLowerCase().includes('cancelled')) {
@@ -1495,7 +1472,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           await AsyncStorage.removeItem('pending_category');
           await AsyncStorage.removeItem('pending_role');
         } catch (clearErr) {
-          console.warn('⚠️ Failed to clear AsyncStorage on error:', clearErr);
+          console.warn('   Failed to clear AsyncStorage on error:', clearErr);
         }
       }
       
@@ -1520,9 +1497,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     
     try {
       // Step 1: Get Supabase access token via Apple OAuth
-      console.log('📱 Requesting Apple Sign-In via Supabase OAuth...');
+      console.log('    Requesting Apple Sign-In via Supabase OAuth...');
       const accessToken = await signInWithApple();
-      console.log('✅ Supabase access token received');
+      console.log('    Supabase access token received');
       
       // Step 2: Retrieve category and role from AsyncStorage (stored before OAuth)
       let storedCategory: string | null = null;
@@ -1535,7 +1512,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           role: storedRole || 'not found',
         });
       } catch (storageErr) {
-        console.warn('⚠️ Failed to retrieve category/role from AsyncStorage:', storageErr);
+        console.warn('   Failed to retrieve category/role from AsyncStorage:', storageErr);
       }
       
       // Use stored values if available, otherwise fall back to function parameters
@@ -1565,7 +1542,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           if (response.success === false || (response.error && !response.user)) {
             // Extract error message from response
             const errorMsg = response?.message || response?.error || response?.data?.error || 'Apple Sign-In failed';
-            console.error('❌ API client returned unsuccessful response:', {
+            console.error('  API client returned unsuccessful response:', {
               success: response?.success,
               message: response?.message,
               error: response?.error,
@@ -1617,7 +1594,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           }
           
           if (!userData || !token) {
-            console.error('❌ Missing user data or token in response');
+            console.error('  Missing user data or token in response');
             throw new Error('Invalid response format: missing user data or token');
           }
         } catch (apiError: any) {
@@ -1740,7 +1717,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         try {
           authResponse = JSON.parse(responseText);
         } catch (parseError: any) {
-          console.error('❌ Failed to parse response as JSON:', responseText);
+          console.error('  Failed to parse response as JSON:', responseText);
           throw new Error(responseText || 'Server returned invalid JSON response');
         }
         
@@ -1843,7 +1820,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       pushNotificationService.setOnTokenRefreshCallback((newToken) => {
         if (api.auth.isAuthenticated()) {
           registerPushToken(newToken).catch((error) => {
-            console.warn('⚠️ Failed to re-register token after refresh:', error);
+            console.warn('   Failed to re-register token after refresh:', error);
           });
         }
       });
@@ -1858,14 +1835,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             return;
           }
         } catch (error) {
-          console.error('❌ Failed to register push notifications:', error);
+          console.error('  Failed to register push notifications:', error);
           return;
         }
         if (attempt < maxAttempts) {
-          console.log(`📱 [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
+          console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
           setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
         } else {
-          console.warn('⚠️ [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for ⚠️ [Token] reason.');
+          console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
         }
       };
       setTimeout(() => tryRegisterPushAfterLogin(1, 4, 2500), 500);
@@ -1888,7 +1865,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       } as AuthResponse;
       
     } catch (err: any) {
-      console.error('❌ Apple Sign-In failed:', err);
+      console.error('  Apple Sign-In failed:', err);
       
       // Clear AsyncStorage on error (unless it's a cancellation)
       if (!err?.message?.toLowerCase().includes('cancelled')) {
@@ -1896,7 +1873,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           await AsyncStorage.removeItem('pending_category');
           await AsyncStorage.removeItem('pending_role');
         } catch (clearErr) {
-          console.warn('⚠️ Failed to clear AsyncStorage on error:', clearErr);
+          console.warn('   Failed to clear AsyncStorage on error:', clearErr);
         }
       }
       
@@ -1922,9 +1899,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Disconnect StreamChat
       try {
         await streamChatService.disconnectUser();
-        console.log('✅ StreamChat disconnected');
+        console.log('    StreamChat disconnected');
       } catch (streamError) {
-        console.warn('⚠️ Failed to disconnect StreamChat (non-critical):', streamError);
+        console.warn('   Failed to disconnect StreamChat (non-critical):', streamError);
       }
       
       // Unsubscribe from real-time notifications
@@ -1937,12 +1914,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         const currentToken = await pushNotificationService.getStoredToken();
         if (currentToken) {
-          console.log('📱 Unregistering push token from backend...');
+          console.log('    Unregistering push token from backend...');
           await api.pushNotifications.unregisterDeviceToken(currentToken);
-          console.log('✅ Push token unregistered from backend');
+          console.log('    Push token unregistered from backend');
         }
       } catch (tokenError) {
-        console.warn('⚠️ Failed to unregister push token (non-critical):', tokenError);
+        console.warn('   Failed to unregister push token (non-critical):', tokenError);
       }
       
       // Clear push notification token locally
@@ -1958,9 +1935,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                               logoutError?.statusCode === 401 ||
                               (logoutError?.message || logoutError?.error || '').toLowerCase().includes('invalid token');
         if (isInvalidToken) {
-          console.log('⚠️ Logout API call failed due to invalid token (expected) - continuing with cleanup');
+          console.log('   Logout API call failed due to invalid token (expected) - continuing with cleanup');
         } else {
-          console.warn('⚠️ Logout API call failed (non-critical):', logoutError);
+          console.warn('   Logout API call failed (non-critical):', logoutError);
         }
       }
       
@@ -1980,7 +1957,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         await clearAllAuthData();
       } catch (clearError) {
-        console.error('❌ Error clearing auth data during logout:', clearError);
+        console.error('  Error clearing auth data during logout:', clearError);
       }
       
       // Clear local state even if API call fails
@@ -2026,18 +2003,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Check if the method exists
       if (!api.auth || typeof api.auth.requestPasswordReset !== 'function') {
         const errorMsg = 'Password reset method not available. Please check API client version.';
-        console.error('❌', errorMsg);
+        console.error(' ', errorMsg);
         setError(errorMsg);
         throw new Error(errorMsg);
       }
       
       const response = await api.auth.requestPasswordReset(email);
       console.log('📧 API Response:', response);
-      console.log('✅ Password reset OTP sent successfully');
+      console.log('    Password reset OTP sent successfully');
     } catch (err: any) {
       const errorMessage = err.message || err.response?.data?.message || 'Failed to send reset email. Please try again.';
-      console.error('❌ Password reset request failed:', err);
-      console.error('❌ Error details:', {
+      console.error('  Password reset request failed:', err);
+      console.error('  Error details:', {
         message: err.message,
         response: err.response,
         status: err.response?.status,
@@ -2063,7 +2040,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Check if the method exists
       if (!api.auth) {
         const errorMsg = 'API auth object not available. Please check API client initialization.';
-        console.error('❌', errorMsg);
+        console.error(' ', errorMsg);
         setError(errorMsg);
         throw new Error(errorMsg);
       }
@@ -2075,29 +2052,29 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Method 1: Try calling directly (even if typeof says undefined, it might work)
       try {
-        console.log('✅ Attempting to call authService.verifyResetOtp() directly');
+        console.log('    Attempting to call authService.verifyResetOtp() directly');
         result = await authService.verifyResetOtp(email.trim().toLowerCase(), otpCode);
-        console.log('✅ API client method call successful');
+        console.log('    API client method call successful');
       } catch (directCallError: any) {
-        console.log('⚠️ Direct call failed, trying via prototype:', directCallError.message);
+        console.log('   Direct call failed, trying via prototype:', directCallError.message);
         
         // Method 2: Try calling via prototype
         try {
           const prototype = Object.getPrototypeOf(authService);
           if (prototype && typeof prototype.verifyResetOtp === 'function') {
-            console.log('✅ Calling via prototype');
+            console.log('    Calling via prototype');
             result = await prototype.verifyResetOtp.call(authService, email.trim().toLowerCase(), otpCode);
-            console.log('✅ Prototype call successful');
+            console.log('    Prototype call successful');
           } else {
             throw new Error('Method not found on prototype');
           }
         } catch (prototypeError: any) {
-          console.log('⚠️ Prototype call failed, using apiClient.post:', prototypeError.message);
+          console.log('   Prototype call failed, using apiClient.post:', prototypeError.message);
           
           // Method 3: Use apiClient.post directly (this should work)
           const apiClient = authService?.apiClient || (api as any).apiClient;
           if (apiClient && typeof apiClient.post === 'function') {
-            console.log('✅ Using apiClient.post directly');
+            console.log('    Using apiClient.post directly');
             try {
               const response = await apiClient.post('/api/auth/verify-reset-otp', {
                 email: email.trim().toLowerCase(),
@@ -2112,7 +2089,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 throw new Error(response.error || 'OTP verification failed');
               }
             } catch (apiClientError: any) {
-              console.error('❌ apiClient.post failed:', apiClientError);
+              console.error('  apiClient.post failed:', apiClientError);
               
               // If 404, the backend route isn't deployed yet
               if (apiClientError.message?.includes('404') || apiClientError.message?.includes('not found')) {
@@ -2128,7 +2105,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       console.log('🔐 API Response:', result);
-      console.log('✅ OTP verified successfully, reset token obtained');
+      console.log('    OTP verified successfully, reset token obtained');
       
       // Ensure result has resetToken
       if (!result || !result.resetToken) {
@@ -2138,8 +2115,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       return result; // Returns { resetToken: "..." }
     } catch (err: any) {
       const errorMessage = err.message || err.response?.data?.message || 'Invalid or expired OTP code. Please try again.';
-      console.error('❌ OTP verification failed:', err);
-      console.error('❌ Error details:', {
+      console.error('  OTP verification failed:', err);
+      console.error('  Error details:', {
         message: err.message,
         response: err.response,
         status: err.response?.status,
@@ -2157,7 +2134,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      console.log('🔑 Confirming password reset with reset token');
+      console.log('    Confirming password reset with reset token');
       
       // API client has a bug - it sends "token" instead of "resetToken"
       // Use direct API call with correct field name
@@ -2192,7 +2169,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       const responseData = await response.json();
-      console.log('✅ Password reset successfully:', responseData);
+      console.log('    Password reset successfully:', responseData);
       
       // Password reset invalidates all sessions - clear auth state completely
       console.log('🧹 Clearing auth state after password reset...');
@@ -2228,27 +2205,27 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Set password reset flag to prevent token restoration on next app start
       try {
         await AsyncStorage.setItem('passwordResetFlag', 'true');
-        console.log('✅ Password reset flag set - tokens will not be restored on next app start');
+        console.log('    Password reset flag set - tokens will not be restored on next app start');
       } catch (err) {
-        console.warn('⚠️ Failed to set password reset flag:', err);
+        console.warn('   Failed to set password reset flag:', err);
       }
       
       // Try logout API call (may fail since token is invalidated, that's OK)
       try {
         await api.auth.logout().catch(() => {
-          console.log('⚠️ Logout API call failed (expected - token already invalidated)');
+          console.log('   Logout API call failed (expected - token already invalidated)');
         });
       } catch (err) {
-        console.log('⚠️ Error during logout API call (non-critical):', err);
+        console.log('   Error during logout API call (non-critical):', err);
       }
       
-      console.log('✅ Auth state cleared - user must sign in with new password');
+      console.log('    Auth state cleared - user must sign in with new password');
     } catch (err: any) {
       const errorMessage = err.message || err.response?.data?.message || 'Failed to reset password';
       const statusCode = err.status || err.response?.status || err.statusCode;
       
-      console.error('❌ Password reset confirmation failed:', err);
-      console.error('❌ Error details:', {
+      console.error('  Password reset confirmation failed:', err);
+      console.error('  Error details:', {
         message: errorMessage,
         status: statusCode,
         response: err.response,
@@ -2287,7 +2264,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Check if the method exists
       if (!api.auth) {
         const errorMsg = 'API auth object not available. Please check API client initialization.';
-        console.error('❌', errorMsg);
+        console.error(' ', errorMsg);
         setError(errorMsg);
         throw new Error(errorMsg);
       }
@@ -2299,32 +2276,32 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Method 1: Try calling directly
       try {
         if (typeof authService.verifySignupOtp === 'function') {
-          console.log('✅ Attempting to call authService.verifySignupOtp() directly');
+          console.log('    Attempting to call authService.verifySignupOtp() directly');
           authResponse = await authService.verifySignupOtp(email.trim().toLowerCase(), token);
-          console.log('✅ API client method call successful');
+          console.log('    API client method call successful');
         } else {
           throw new Error('Method not available directly');
         }
       } catch (directCallError: any) {
-        console.log('⚠️ Direct call failed, trying via prototype:', directCallError.message);
+        console.log('   Direct call failed, trying via prototype:', directCallError.message);
         
         // Method 2: Try calling via prototype
         try {
           const prototype = Object.getPrototypeOf(authService);
           if (prototype && typeof prototype.verifySignupOtp === 'function') {
-            console.log('✅ Calling via prototype');
+            console.log('    Calling via prototype');
             authResponse = await prototype.verifySignupOtp.call(authService, email.trim().toLowerCase(), token);
-            console.log('✅ Prototype call successful');
+            console.log('    Prototype call successful');
           } else {
             throw new Error('Method not found on prototype');
           }
         } catch (prototypeError: any) {
-          console.log('⚠️ Prototype call failed, using apiClient.post:', prototypeError.message);
+          console.log('   Prototype call failed, using apiClient.post:', prototypeError.message);
           
           // Method 3: Use apiClient.post directly
           const apiClient = authService?.apiClient || (api as any).apiClient;
           if (apiClient && typeof apiClient.post === 'function') {
-            console.log('✅ Using apiClient.post directly for verify-signup-otp');
+            console.log('    Using apiClient.post directly for verify-signup-otp');
             try {
               const response = await apiClient.post('/api/auth/verify-signup-otp', {
                 email: email.trim().toLowerCase(),
@@ -2339,7 +2316,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 throw new Error(response.error || response.message || 'OTP verification failed');
               }
             } catch (apiClientError: any) {
-              console.error('❌ apiClient.post failed:', apiClientError);
+              console.error('  apiClient.post failed:', apiClientError);
               
               // If 404, the backend route isn't deployed yet
               if (apiClientError.message?.includes('404') || apiClientError.message?.includes('not found')) {
@@ -2354,7 +2331,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
       }
       
-      console.log('✅ Signup OTP verified successfully:', authResponse);
+      console.log('    Signup OTP verified successfully:', authResponse);
       
       // IMPORTANT: Save the token and user data to SecureStore
       // This is the ONLY place where we save auth data - NOT during signup, ONLY after OTP verification
@@ -2363,14 +2340,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const userData = authResponse.user;
         
         if (token && userData) {
-          console.log('🔑 Storing access token and user data after OTP verification');
+          console.log('    Storing access token and user data after OTP verification');
           
           // Clear any existing tokens before storing new ones
           await clearAllAuthData();
           
           // Use the AuthService's setAuthData method to properly store the token
           if (typeof authService.setAuthData === 'function') {
-            console.log('🔑 Using AuthService.setAuthData to store token...');
+            console.log('    Using AuthService.setAuthData to store token...');
             await authService.setAuthData({
               token: token,
               user: userData
@@ -2396,10 +2373,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               (api as any).apiClient.defaultHeaders = {};
             }
             (api as any).apiClient.defaultHeaders['Authorization'] = `Bearer ${token}`;
-            console.log('✅ API client headers updated with new token');
+            console.log('    API client headers updated with new token');
           }
           
-          console.log('🔑 Token has been saved to SecureStore');
+          console.log('    Token has been saved to SecureStore');
         }
       }
       
@@ -2407,14 +2384,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (authResponse.user) {
         setUser(authResponse.user);
         setIsAuthenticated(true);
-        console.log('✅ User authenticated after OTP verification - token is now saved');
+        console.log('    User authenticated after OTP verification - token is now saved');
         return authResponse;
       } else {
         throw new Error('User data not found in response');
       }
     } catch (err: any) {
       const errorMessage = err.message || err.response?.data?.message || 'Invalid or expired OTP code. Please try again.';
-      console.error('❌ Signup OTP verification failed:', err);
+      console.error('  Signup OTP verification failed:', err);
       setError(errorMessage);
       setIsAuthenticated(false);
       setUser(null);
@@ -2501,7 +2478,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.requestAccountDeletion(password);
       
       if (response.success && response.data) {
-        console.log('✅ Account deletion requested successfully');
+        console.log('    Account deletion requested successfully');
         console.log('📅 Expiration date:', response.data.expirationDate);
         console.log('⏰ Days remaining:', response.data.daysRemaining);
         
@@ -2514,7 +2491,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to request account deletion';
-      console.error('❌ Account deletion request failed:', err);
+      console.error('  Account deletion request failed:', err);
       setError(errorMessage);
       
       // Handle password mismatch
@@ -2536,13 +2513,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.restoreAccount();
       
       if (response.success) {
-        console.log('✅ Account restored successfully');
+        console.log('    Account restored successfully');
       } else {
         throw new Error('Failed to restore account');
       }
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to restore account';
-      console.error('❌ Account restoration failed:', err);
+      console.error('  Account restoration failed:', err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -2557,7 +2534,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.getAccountDeletionStatus();
       
       if (response.success && response.data) {
-        console.log('✅ Account deletion status retrieved');
+        console.log('    Account deletion status retrieved');
         return {
           isPending: response.data.isPending,
           expirationDate: response.data.expirationDate,
@@ -2568,7 +2545,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to get account deletion status';
-      console.error('❌ Failed to get account deletion status:', err);
+      console.error('  Failed to get account deletion status:', err);
       // Don't set global error for read operations - let the component handle errors
       throw err;
     }
@@ -2576,13 +2553,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateProfile = async (profileData: any) => {
     console.log('📝 Updating profile:', profileData);
-    console.log('👤 Current user ID:', user?.id);
+    console.log('    Current user ID:', user?.id);
     setIsLoading(true);
     setError(null);
     try {
       const userId = user?.id;
       if (!userId) {
-        console.error('❌ User ID not available, current user:', user);
+        console.error('  User ID not available, current user:', user);
         throw new Error('User ID not available. Please log in again.');
       }
 
@@ -2591,11 +2568,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const validationErrors = validateProfileData(profileData);
       if (validationErrors.length > 0) {
         const errorMessage = `Profile validation failed:\n${validationErrors.join('\n')}`;
-        console.error('❌ Profile validation failed:', validationErrors);
+        console.error('  Profile validation failed:', validationErrors);
         setError(errorMessage);
         throw new Error(errorMessage);
       }
-      console.log('✅ Profile data validation passed');
+      console.log('    Profile data validation passed');
 
       // Skip the API client method since it's using the wrong endpoint
       // and go directly to the correct endpoints
@@ -2612,9 +2589,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         ...(profileData.specialty && profileData.specialty.trim() ? { specialty: profileData.specialty.trim() } : {}),
         // Only include location_text if it has a value (it's optional)
         ...(profileData.location_text && profileData.location_text.trim() ? { location_text: profileData.location_text.trim() } : {}),
-        // Role: allow user to change category and primary_role from profile edit
-        ...(profileData.category && (profileData.category === 'crew' || profileData.category === 'talent') ? { category: profileData.category } : {}),
-        ...(profileData.primary_role && profileData.primary_role.trim() ? { primary_role: profileData.primary_role.trim() } : {}),
       };
       
       // Add image_url only if it has a valid value (don't send empty strings)
@@ -2686,25 +2660,24 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('📥 Profile update response status:', basicResponse.status);
       
       if (!basicResponse.ok) {
-        console.error('❌ Basic profile update failed:', basicResult);
+        console.error('  Basic profile update failed:', basicResult);
         if (basicResult.errors) {
-          console.error('❌ Validation errors:', basicResult.errors);
+          console.error('  Validation errors:', basicResult.errors);
           throw new Error(`Profile validation failed: ${Object.values(basicResult.errors).join(', ')}`);
         }
         throw new Error(basicResult.error || 'Failed to update basic profile');
       }
 
-      console.log('✅ Basic profile updated successfully:', basicResult);
+      console.log('    Basic profile updated successfully:', basicResult);
 
       // Only update talent profile if user is a talent AND there's meaningful data to send
-      // Use category from this update if provided, so switching to talent in profile edit is applied
       let talentResult = { data: {} };
-      const userCategory = (profileData.category || user?.category) as string | undefined;
+      const userCategory = user?.category as string | undefined;
       const isTalent = userCategory?.toLowerCase() === 'talent';
       
       if (isTalent && Object.keys(cleanedTalentData).length > 0) {
         console.log('🎭 Updating talent profile with data:', cleanedTalentData);
-        console.log('👤 User category is talent, proceeding with talent profile update');
+        console.log('    User category is talent, proceeding with talent profile update');
         
         const talentResponse = await fetch(`${baseUrl}/api/talent/profile`, {
           method: 'PUT',
@@ -2728,12 +2701,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             const errorMessages = Object.entries((talentResult as any).errors).map(([field, message]) => 
               `${field}: ${message}`
             ).join(', ');
-            console.warn(`⚠️ Talent profile validation failed: ${errorMessages}`);
+            console.warn(`   Talent profile validation failed: ${errorMessages}`);
           }
           // Don't throw error, just log warning and continue
-          console.warn('⚠️ Continuing without talent profile update');
+          console.warn('   Continuing without talent profile update');
         } else {
-          console.log('✅ Talent profile updated successfully:', talentResult);
+          console.log('    Talent profile updated successfully:', talentResult);
         }
       } else {
         if (!isTalent) {
@@ -2756,7 +2729,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           currentSkills = currentSkillsResponse.data || [];
           console.log('🔍 Current user skills:', currentSkills);
         } catch (getSkillsError: any) {
-          console.warn('⚠️ Failed to get current skills, assuming empty:', getSkillsError.message);
+          console.warn('   Failed to get current skills, assuming empty:', getSkillsError.message);
           currentSkills = [];
         }
         
@@ -2814,7 +2787,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Remove skills that are no longer selected
         const removePromises = skillIdsToRemove.map(skillId => 
           api.removeUserSkill(skillId).catch((err: unknown) => {
-            console.warn(`⚠️ Failed to remove skill ${skillId}:`, err);
+            console.warn(`   Failed to remove skill ${skillId}:`, err);
             return null;
           })
         );
@@ -2826,7 +2799,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         const addPromises = skillsToActuallyAdd.map((skillId: string) => 
           api.addUserSkill(skillId as string).catch((err: unknown) => {
-            console.warn(`⚠️ Failed to add skill ${skillId}:`, err);
+            console.warn(`   Failed to add skill ${skillId}:`, err);
             return null;
           })
         );
@@ -2838,7 +2811,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const successfulRemoves = removeResults.filter(Boolean);
         const successfulAdds = addResults.filter(Boolean);
         
-        console.log('✅ Skills updated successfully:', {
+        console.log('    Skills updated successfully:', {
           removed: successfulRemoves.length,
           added: successfulAdds.length,
           totalRequested: skillsData.skills.length,
@@ -2847,15 +2820,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         });
         
         if (skillIdsToAdd.length === 0 && skillsData.skills.length > 0) {
-          console.warn('⚠️ Warning: No skill IDs were found for the provided skill names. Available skills might not match.');
-          console.warn('⚠️ Provided skills:', skillsData.skills);
-          console.warn('⚠️ Available skill names (first 10):', availableSkills.slice(0, 10).map((s: { id: string; name?: string }) => s.name));
+          console.warn('   Warning: No skill IDs were found for the provided skill names. Available skills might not match.');
+          console.warn('   Provided skills:', skillsData.skills);
+          console.warn('   Available skill names (first 10):', availableSkills.slice(0, 10).map((s: { id: string; name?: string }) => s.name));
         }
       } catch (skillsError: any) {
-        console.error('❌ Skills update failed:', skillsError);
-        console.error('❌ Error details:', JSON.stringify(skillsError, null, 2));
+        console.error('  Skills update failed:', skillsError);
+        console.error('  Error details:', JSON.stringify(skillsError, null, 2));
         // Don't throw - allow profile update to continue
-        console.warn('⚠️ Continuing without skills update - profile may not have skills saved');
+        console.warn('   Continuing without skills update - profile may not have skills saved');
       }
 
       // Update the current user data - ensure ID is preserved
@@ -2871,7 +2844,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             ...talentResult.data
           }
         };
-        console.log('👤 Updated user data with preserved ID:', updatedUser.id);
+        console.log('    Updated user data with preserved ID:', updatedUser.id);
         setUser(updatedUser as any);
       }
       
@@ -2885,7 +2858,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         } 
       };
     } catch (err: any) {
-      console.error('❌ Profile update failed:', err);
+      console.error('  Profile update failed:', err);
       setError(err.message || 'Failed to update profile');
       throw err;
     } finally {
@@ -2895,13 +2868,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateSkills = async (skills: string[]) => {
     console.log('🎯 Updating skills:', skills);
-    console.log('👤 Current user ID:', user?.id);
+    console.log('    Current user ID:', user?.id);
     setIsLoading(true);
     setError(null);
     try {
       const userId = user?.id;
       if (!userId) {
-        console.error('❌ User ID not available, current user:', user);
+        console.error('  User ID not available, current user:', user);
         throw new Error('User ID not available. Please log in again.');
       }
 
@@ -2932,7 +2905,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Add each skill individually
         const addPromises = skillIdsToAdd.map(skillId => 
           api.addUserSkill(skillId as string).catch((err: unknown) => {
-            console.warn(`⚠️ Failed to add skill ${skillId}:`, err);
+            console.warn(`   Failed to add skill ${skillId}:`, err);
             return null;
           })
         );
@@ -2940,7 +2913,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const results = await Promise.all(addPromises);
         const successfulAdds = results.filter(Boolean);
         
-        console.log('✅ Skills added successfully:', successfulAdds.length);
+        console.log('    Skills added successfully:', successfulAdds.length);
         
         // Update the current user data
         if (user) {
@@ -2949,7 +2922,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         return { success: true, data: { skills } };
       } catch (apiError: any) {
-        console.log('⚠️ New skill methods failed, trying direct fetch:', apiError.message);
+        console.log('   New skill methods failed, trying direct fetch:', apiError.message);
         
         // Fallback to direct fetch call
         const accessToken = getAccessToken();
@@ -2971,7 +2944,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           throw new Error(result.error || 'Failed to update skills');
         }
 
-        console.log('✅ Skills updated successfully:', result);
+        console.log('    Skills updated successfully:', result);
 
         // Update the current user data - ensure ID is preserved
         if (user) {
@@ -2980,14 +2953,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             id: user.id, // Ensure ID is preserved
             skills: result.data?.skills || skills 
           };
-          console.log('👤 Updated user skills with preserved ID:', updatedUser.id);
+          console.log('    Updated user skills with preserved ID:', updatedUser.id);
           setUser(updatedUser as any);
         }
         
         return result;
       }
     } catch (err: any) {
-      console.error('❌ Skills update failed:', err);
+      console.error('  Skills update failed:', err);
       setError(err.message || 'Failed to update skills');
       throw err;
     } finally {
@@ -3009,10 +2982,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           missingFields: ['bio', 'specialty']
         }
       };
-      console.log('✅ Profile completeness retrieved:', mockResponse);
+      console.log('    Profile completeness retrieved:', mockResponse);
       return mockResponse;
     } catch (err: any) {
-      console.error('❌ Failed to get profile completeness:', err);
+      console.error('  Failed to get profile completeness:', err);
       setError(err.message || 'Failed to get profile completeness');
       throw err;
     } finally {
@@ -3086,7 +3059,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // First, try the AuthService's getAuthToken method
       if ((api as any).auth && typeof (api as any).auth.getAuthToken === 'function') {
         accessToken = (api as any).auth.getAuthToken();
-        console.log('🔑 Token from AuthService.getAuthToken():', accessToken ? accessToken.substring(0, 20) + '...' : 'null');
+        console.log('    Token from AuthService.getAuthToken():', accessToken ? accessToken.substring(0, 20) + '...' : 'null');
       }
       
       // Fallback: Check API client's stored token
@@ -3094,7 +3067,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const authHeader = (api as any).apiClient.defaultHeaders['Authorization'];
         if (authHeader && authHeader.startsWith('Bearer ')) {
           accessToken = authHeader.substring(7);
-          console.log('🔑 Token from API client headers:', accessToken.substring(0, 20) + '...');
+          console.log('    Token from API client headers:', accessToken.substring(0, 20) + '...');
         }
       }
       
@@ -3106,18 +3079,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                      (api as any).token || 
                      (api as any).getToken?.() || 
                      '';
-        console.log('🔑 Token from auth service properties:', accessToken ? accessToken.substring(0, 20) + '...' : 'null');
+        console.log('    Token from auth service properties:', accessToken ? accessToken.substring(0, 20) + '...' : 'null');
       }
       
       if (!accessToken) {
-        console.error('❌ No access token found in any location');
+        console.error('  No access token found in any location');
         throw new Error('Access token not found. Please log in again.');
       }
       
-      console.log('✅ Access token found:', accessToken.substring(0, 20) + '...');
+      console.log('    Access token found:', accessToken.substring(0, 20) + '...');
       return accessToken;
     } catch (tokenError) {
-      console.error('❌ Failed to get access token:', tokenError);
+      console.error('  Failed to get access token:', tokenError);
       throw new Error('Access token required. Please log in again.');
     }
   };
@@ -3127,10 +3100,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🔄 Fetching skin tones using API client...');
       const response = await api.getAvailableSkinTones();
-      console.log('✅ Skin tones fetched successfully:', response.data?.length || 0);
+      console.log('    Skin tones fetched successfully:', response.data?.length || 0);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to fetch skin tones via API client:', error);
+      console.error('  Failed to fetch skin tones via API client:', error);
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
@@ -3146,10 +3119,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         
         const result = await response.json();
-        console.log('✅ Skin tones fetched via fallback:', result);
+        console.log('    Skin tones fetched via fallback:', result);
         return result;
       } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError);
+        console.error('  Fallback also failed:', fallbackError);
         throw fallbackError;
       }
     }
@@ -3159,10 +3132,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🔄 Fetching hair colors using API client...');
       const response = await api.getAvailableHairColors();
-      console.log('✅ Hair colors fetched successfully:', response.data?.length || 0);
+      console.log('    Hair colors fetched successfully:', response.data?.length || 0);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to fetch hair colors via API client:', error);
+      console.error('  Failed to fetch hair colors via API client:', error);
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
@@ -3178,10 +3151,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         
         const result = await response.json();
-        console.log('✅ Hair colors fetched via fallback:', result);
+        console.log('    Hair colors fetched via fallback:', result);
         return result;
       } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError);
+        console.error('  Fallback also failed:', fallbackError);
         throw fallbackError;
       }
     }
@@ -3191,10 +3164,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🔄 Fetching skills using API client...');
       const response = await api.getAvailableSkills();
-      console.log('✅ Skills fetched successfully:', response.data?.length || 0);
+      console.log('    Skills fetched successfully:', response.data?.length || 0);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to fetch skills via API client:', error);
+      console.error('  Failed to fetch skills via API client:', error);
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
@@ -3210,10 +3183,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         
         const result = await response.json();
-        console.log('✅ Skills fetched via fallback:', result);
+        console.log('    Skills fetched via fallback:', result);
         return result;
       } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError);
+        console.error('  Fallback also failed:', fallbackError);
         throw fallbackError;
       }
     }
@@ -3223,10 +3196,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🔄 Fetching abilities using API client...');
       const response = await api.getAvailableAbilities();
-      console.log('✅ Abilities fetched successfully:', response.data?.length || 0);
+      console.log('    Abilities fetched successfully:', response.data?.length || 0);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to fetch abilities via API client:', error);
+      console.error('  Failed to fetch abilities via API client:', error);
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
@@ -3242,10 +3215,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         
         const result = await response.json();
-        console.log('✅ Abilities fetched via fallback:', result);
+        console.log('    Abilities fetched via fallback:', result);
         return result;
       } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError);
+        console.error('  Fallback also failed:', fallbackError);
         throw fallbackError;
       }
     }
@@ -3255,10 +3228,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🔄 Fetching languages using API client...');
       const response = await api.getAvailableLanguages();
-      console.log('✅ Languages fetched successfully:', response.data?.length || 0);
+      console.log('    Languages fetched successfully:', response.data?.length || 0);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to fetch languages via API client:', error);
+      console.error('  Failed to fetch languages via API client:', error);
       // Fallback to direct fetch
       try {
         console.log('🔄 Trying direct fetch fallback...');
@@ -3274,10 +3247,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         
         const result = await response.json();
-        console.log('✅ Languages fetched via fallback:', result);
+        console.log('    Languages fetched via fallback:', result);
         return result;
       } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError);
+        console.error('  Fallback also failed:', fallbackError);
         throw fallbackError;
       }
     }
@@ -3298,10 +3271,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       const result = await response.json();
-      console.log('✅ Services fetched:', result);
+      console.log('    Services fetched:', result);
       return result;
     } catch (err: any) {
-      console.error('❌ Failed to fetch services:', err);
+      console.error('  Failed to fetch services:', err);
       // Return mock services as fallback
       return {
         success: true,
@@ -3359,23 +3332,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           const extractRoleName = (role: any): string => {
             if (typeof role === 'string') return role;
             if (!role || typeof role !== 'object') return '';
-            // Prefer label (display name), then common fields
-            if (typeof role.label === 'string') return role.label;
+            // Try common fields
             if (typeof role.name === 'string') return role.name;
             if (typeof role.role === 'string') return role.role;
             if (typeof role.title === 'string') return role.title;
             if (typeof role.role_name === 'string') return role.role_name;
             return '';
-          };
-
-          /** Prefer code/value as id so primary_role is sent and stored as code (backend contract). */
-          const extractRoleCode = (role: any): string | undefined => {
-            // GET /api/roles returns string[] (role codes) - use string as code so id is never index
-            if (typeof role === 'string' && role.trim()) return role.trim();
-            if (!role || typeof role !== 'object') return undefined;
-            if (typeof role.code === 'string' && role.code.trim()) return role.code.trim();
-            if (typeof role.value === 'string' && role.value.trim()) return role.value.trim();
-            return undefined;
           };
 
           const toRoleObjects = (raw: any): Array<{ id: string; name: string; category?: string }> => {
@@ -3385,12 +3347,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             arr.forEach((item: any, index: number) => {
               const name = extractRoleName(item).trim();
               if (!name) return;
-              const code = extractRoleCode(item);
               const id =
-                code ||
-                (item && typeof item === 'object' && (typeof item.id === 'string' || typeof item.id === 'number')
+                (item && typeof item === 'object' && (typeof item.id === 'string' || typeof item.id === 'number'))
                   ? String(item.id)
-                  : String(index + 1));
+                  : String(index + 1);
               const itemCategory =
                 item && typeof item === 'object' ? normalizeCategory(item.category) : undefined;
               const category = options?.category || itemCategory || getRoleCategory(name);
@@ -3423,7 +3383,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             const queryString = params.toString();
             const url = `/api/roles${queryString ? `?${queryString}` : ''}`;
             const response = await (api as any).apiClient.get(url);
-            console.log('✅ Direct API call successful:', response);
+            console.log('    Direct API call successful:', response);
             // Normalize into consistent shape for the app
             if (response?.success && response?.data) {
               return { success: true, data: toRoleObjects(response.data) };
@@ -3437,7 +3397,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Normalize API response into object array format (supports string[] OR object[])
         const rolesData = toRoleObjects(response.data);
         
-        console.log('✅ Roles fetched:', rolesData);
+        console.log('    Roles fetched:', rolesData);
         return {
           success: true,
           data: rolesData
@@ -3446,7 +3406,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to fetch roles');
       }
         } catch (err: any) {
-          console.error('❌ Failed to fetch roles:', err);
+          console.error('  Failed to fetch roles:', err);
           // Custom roles should fail "quietly" (backend may not support it yet) and should not fall back to mock roles.
           if (options?.category === 'custom') {
             return { success: true, data: [] };
@@ -3506,7 +3466,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (typeof api.getCategories !== 'function') {
         console.log('🔍 getCategories method not available, using direct API call...');
         const response = await (api as any).apiClient.get('/api/categories');
-        console.log('✅ Direct categories API call successful:', response);
+        console.log('    Direct categories API call successful:', response);
         return response;
       }
       
@@ -3520,7 +3480,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           description: `${category} roles`
         }));
         
-        console.log('✅ Categories fetched:', categoriesData);
+        console.log('    Categories fetched:', categoriesData);
         return {
           success: true,
           data: categoriesData
@@ -3529,7 +3489,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to fetch categories');
       }
     } catch (err: any) {
-      console.error('❌ Failed to fetch categories:', err);
+      console.error('  Failed to fetch categories:', err);
       // Return mock categories as fallback
       return {
         success: true,
@@ -3565,7 +3525,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           category: options?.category || getRoleCategory(role.value)
         }));
         
-        console.log('✅ Roles with descriptions fetched:', rolesData);
+        console.log('    Roles with descriptions fetched:', rolesData);
         return {
           success: true,
           data: rolesData
@@ -3574,7 +3534,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to fetch roles with descriptions');
       }
     } catch (err: any) {
-      console.error('❌ Failed to fetch roles with descriptions:', err);
+      console.error('  Failed to fetch roles with descriptions:', err);
       return getRoles(options); // Fallback to basic roles with same options
     }
   };
@@ -3594,7 +3554,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(response.error || 'Failed to create custom role');
     } catch (error: any) {
-      console.error('❌ Failed to create custom role:', error);
+      console.error('  Failed to create custom role:', error);
       throw error;
     }
   };
@@ -3613,7 +3573,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           description: category.description
         }));
         
-        console.log('✅ Categories with descriptions fetched:', categoriesData);
+        console.log('    Categories with descriptions fetched:', categoriesData);
         return {
           success: true,
           data: categoriesData
@@ -3622,7 +3582,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to fetch categories with descriptions');
       }
     } catch (err: any) {
-      console.error('❌ Failed to fetch categories with descriptions:', err);
+      console.error('  Failed to fetch categories with descriptions:', err);
       return getCategories(); // Fallback to basic categories
     }
   };
@@ -3636,7 +3596,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (typeof api.getUsersByRole !== 'function') {
         console.log('🔍 getUsersByRole method not available, using direct API call...');
         const response = await (api as any).apiClient.get(`/api/users/by-role/${encodeURIComponent(role)}`);
-        console.log('✅ Direct getUsersByRole API call successful:', response);
+        console.log('    Direct getUsersByRole API call successful:', response);
         return response;
       }
       
@@ -3645,7 +3605,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (response.success && response.data) {
         // Handle both array and paginated response
         const users = Array.isArray(response.data) ? response.data : response.data.data || [];
-        console.log('✅ Users by role fetched:', users.length);
+        console.log('    Users by role fetched:', users.length);
         return {
           success: true,
           data: users
@@ -3654,7 +3614,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to fetch users by role');
       }
     } catch (err: any) {
-      console.error('❌ Failed to fetch users by role:', err);
+      console.error('  Failed to fetch users by role:', err);
       // Fallback to getUsersDirect with role filtering
       try {
         const users = await getUsersDirect();
@@ -3665,7 +3625,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         );
         return { success: true, data: filteredUsers };
       } catch (fallbackErr) {
-        console.error('❌ Fallback also failed:', fallbackErr);
+        console.error('  Fallback also failed:', fallbackErr);
         return { success: false, data: [], error: 'Failed to fetch users' };
       }
     }
@@ -3679,7 +3639,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (response.success && response.data) {
         // Handle both array and paginated response
         const users = Array.isArray(response.data) ? response.data : response.data.data || [];
-        console.log('✅ Users by category fetched:', users.length);
+        console.log('    Users by category fetched:', users.length);
         return {
           success: true,
           data: users
@@ -3688,7 +3648,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to fetch users by category');
       }
     } catch (err: any) {
-      console.error('❌ Failed to fetch users by category:', err);
+      console.error('  Failed to fetch users by category:', err);
       // Fallback to getUsersDirect with category filtering
       try {
         const users = await getUsersDirect();
@@ -3697,7 +3657,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         );
         return { success: true, data: filteredUsers };
       } catch (fallbackErr) {
-        console.error('❌ Fallback also failed:', fallbackErr);
+        console.error('  Fallback also failed:', fallbackErr);
         return { success: false, data: [], error: 'Failed to fetch users' };
       }
     }
@@ -3711,7 +3671,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (response.success && response.data) {
         // Handle both array and paginated response
         const users = Array.isArray(response.data) ? response.data : response.data.data || [];
-        console.log('✅ Users by location fetched:', users.length);
+        console.log('    Users by location fetched:', users.length);
         return {
           success: true,
           data: users
@@ -3720,7 +3680,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to fetch users by location');
       }
     } catch (err: any) {
-      console.error('❌ Failed to fetch users by location:', err);
+      console.error('  Failed to fetch users by location:', err);
       // Fallback to getUsersDirect with location filtering
       try {
         const users = await getUsersDirect();
@@ -3729,7 +3689,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         );
         return { success: true, data: filteredUsers };
       } catch (fallbackErr) {
-        console.error('❌ Fallback also failed:', fallbackErr);
+        console.error('  Fallback also failed:', fallbackErr);
         return { success: false, data: [], error: 'Failed to fetch users' };
       }
     }
@@ -3742,7 +3702,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.getMyTeam();
       
       if (response.success && response.data) {
-        console.log('✅ Personal team fetched:', response.data);
+        console.log('    Personal team fetched:', response.data);
         return {
           success: true,
           data: response.data
@@ -3751,7 +3711,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to fetch personal team');
       }
     } catch (err: any) {
-      console.error('❌ Failed to fetch personal team:', err);
+      console.error('  Failed to fetch personal team:', err);
       return { success: false, data: null, error: 'Failed to fetch personal team' };
     }
   };
@@ -3762,7 +3722,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.addToMyTeam(userId, role);
       
       if (response.success && response.data) {
-        console.log('✅ User added to personal team:', response.data);
+        console.log('    User added to personal team:', response.data);
         // Clear cache to force fresh data on next fetch
         await rateLimiter.clearCache('my-team-members');
         return {
@@ -3773,7 +3733,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to add user to personal team');
       }
     } catch (err: any) {
-      console.error('❌ Failed to add user to personal team:', err);
+      console.error('  Failed to add user to personal team:', err);
       return { success: false, data: null, error: 'Failed to add user to personal team' };
     }
   };
@@ -3784,7 +3744,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.removeFromMyTeam(userId);
       
       if (response.success) {
-        console.log('✅ User removed from personal team');
+        console.log('    User removed from personal team');
         // Clear cache to force fresh data on next fetch
         await rateLimiter.clearCache('my-team-members');
         return {
@@ -3795,7 +3755,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(response.error || 'Failed to remove user from personal team');
       }
     } catch (err: any) {
-      console.error('❌ Failed to remove user from personal team:', err);
+      console.error('  Failed to remove user from personal team:', err);
       return { success: false, data: null, error: 'Failed to remove user from personal team' };
     }
   };
@@ -3808,7 +3768,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const response = await api.getMyTeamMembers();
         
         if (response.success && response.data) {
-          console.log('✅ Personal team members fetched:', response.data.length);
+          console.log('    Personal team members fetched:', response.data.length);
           return {
             success: true,
             data: response.data
@@ -3819,10 +3779,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       } catch (err: any) {
         // Handle rate limiting gracefully
         if (err.status === 429 || err.statusCode === 429 || err.message?.includes('429')) {
-          console.warn('⚠️ Rate limited on getMyTeamMembers, returning empty result');
+          console.warn('   Rate limited on getMyTeamMembers, returning empty result');
           return { success: true, data: [] };
         }
-        console.error('❌ Failed to fetch personal team members:', err);
+        console.error('  Failed to fetch personal team members:', err);
         return { success: false, data: [], error: 'Failed to fetch personal team members' };
       }
     }, { ttl: CacheTTL.MEDIUM, persistent: true }); // Team members change when users join/leave - 5min TTL with persistence
@@ -3924,10 +3884,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🔄 Fetching available skills using API client...');
       const response = await api.getAvailableSkills();
-      console.log('✅ Available skills fetched:', response.data?.length || 0);
+      console.log('    Available skills fetched:', response.data?.length || 0);
       return response;
     } catch (error) {
-      console.error('❌ Failed to fetch available skills:', error);
+      console.error('  Failed to fetch available skills:', error);
       throw error;
     }
   };
@@ -3940,22 +3900,22 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       await new Promise(resolve => setTimeout(resolve, 200));
       
       const response = await api.getUserSkills();
-      console.log('✅ User skills fetched:', response.data?.length || 0);
+      console.log('    User skills fetched:', response.data?.length || 0);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to fetch user skills:', error);
+      console.error('  Failed to fetch user skills:', error);
       
       // If rate limited, wait and retry once
       if (error.message?.includes('429') || error.status === 429) {
-        console.log('⚠️ Rate limited, waiting 2 seconds before retry...');
+        console.log('   Rate limited, waiting 2 seconds before retry...');
         await new Promise(resolve => setTimeout(resolve, 2000));
         
         try {
           const retryResponse = await api.getUserSkills();
-          console.log('✅ User skills fetched on retry:', retryResponse.data?.length || 0);
+          console.log('    User skills fetched on retry:', retryResponse.data?.length || 0);
           return retryResponse;
         } catch (retryError) {
-          console.error('❌ Retry also failed:', retryError);
+          console.error('  Retry also failed:', retryError);
           return { success: true, data: [] };
         }
       }
@@ -3969,10 +3929,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🔄 Fetching user skills using API client...');
       const response = await api.getUserSkills();
-      console.log('✅ User skills fetched:', response.data?.length || 0);
+      console.log('    User skills fetched:', response.data?.length || 0);
       return response;
     } catch (error) {
-      console.error('❌ Failed to fetch user skills:', error);
+      console.error('  Failed to fetch user skills:', error);
       // Return empty array if there's an error
       return { success: true, data: [] };
     }
@@ -3982,7 +3942,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🔄 Adding user skill:', skillId);
       const response = await api.addUserSkill(skillId);
-      console.log('✅ User skill added:', response.data);
+      console.log('    User skill added:', response.data);
       
       // Update the current user data - ensure ID is preserved
       if (user) {
@@ -3992,13 +3952,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           id: user.id, // Ensure ID is preserved
           skills: updatedSkills 
         };
-        console.log('👤 Added skill with preserved ID:', updatedUser.id);
+        console.log('    Added skill with preserved ID:', updatedUser.id);
         setUser(updatedUser as any);
       }
       
       return response;
     } catch (error) {
-      console.error('❌ Failed to add user skill:', error);
+      console.error('  Failed to add user skill:', error);
       throw error;
     }
   };
@@ -4007,7 +3967,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🔄 Removing user skill:', skillId);
       const response = await api.removeUserSkill(skillId);
-      console.log('✅ User skill removed:', response);
+      console.log('    User skill removed:', response);
       
       // Update the current user data - ensure ID is preserved
       if (user) {
@@ -4017,13 +3977,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           id: user.id, // Ensure ID is preserved
           skills: updatedSkills 
         };
-        console.log('👤 Removed skill with preserved ID:', updatedUser.id);
+        console.log('    Removed skill with preserved ID:', updatedUser.id);
         setUser(updatedUser as any);
       }
       
       return response;
     } catch (error) {
-      console.error('❌ Failed to remove user skill:', error);
+      console.error('  Failed to remove user skill:', error);
       throw error;
     }
   };
@@ -4037,7 +3997,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       'GET',
       () => rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('👤 Fetching complete user profile for:', userId);
+        console.log('    Fetching complete user profile for:', userId);
         const accessToken = getAccessToken();
         
         // First, fetch the user's basic info from users list
@@ -4058,17 +4018,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               const users = Array.isArray(usersData.data) ? usersData.data : (usersData.data?.data || []);
               userBasicInfo = users.find((u: any) => u.id === userId);
             } else if (usersResponse.status === 429) {
-              console.warn('⚠️ Rate limited on fetchCompleteUserProfile (users list)');
+              console.warn('   Rate limited on fetchCompleteUserProfile (users list)');
               return userData || null;
             }
           } catch (err) {
-            console.warn('⚠️ Failed to fetch user from users list:', err);
+            console.warn('   Failed to fetch user from users list:', err);
           }
         }
         
         // If still not found, return null
         if (!userBasicInfo || userBasicInfo.id !== userId) {
-          console.warn(`⚠️ User ${userId} not found in users list`);
+          console.warn(`   User ${userId} not found in users list`);
           return null;
         }
         
@@ -4089,7 +4049,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           const detailsData = await userDetailsResponse.json();
           userDetails = detailsData.data || detailsData;
         } else if (userDetailsResponse.status === 429) {
-          console.warn('⚠️ Rate limited on fetchCompleteUserProfile (user details)');
+          console.warn('   Rate limited on fetchCompleteUserProfile (user details)');
         }
 
         // Add delay before next request
@@ -4111,10 +4071,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               const talentData = await talentResponse.json();
               talentProfile = talentData.data || talentData;
             } else if (talentResponse.status === 429) {
-              console.warn('⚠️ Rate limited on fetchCompleteUserProfile (talent profile)');
+              console.warn('   Rate limited on fetchCompleteUserProfile (talent profile)');
             }
           } catch (err) {
-            console.warn('⚠️ Failed to fetch talent profile:', err);
+            console.warn('   Failed to fetch talent profile:', err);
           }
         }
 
@@ -4128,7 +4088,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
         return completeUser;
       } catch (err: any) {
-        console.error('❌ Failed to fetch complete user profile:', err);
+        console.error('  Failed to fetch complete user profile:', err);
         // Return existing userData if available, otherwise null
         return userData || null;
       }
@@ -4166,11 +4126,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (params.limit) queryParams.append('limit', params.limit.toString());
         if (params.page) queryParams.append('page', params.page.toString());
         
-        // Basic filters (q = smart/full-text search on backend)
+        // Basic filters
         if (params.search) queryParams.append('q', params.search);
         if (params.category) queryParams.append('category', params.category);
         if (params.role) queryParams.append('role', params.role);
-        if (params.location || params.currentLocation) queryParams.append('location', (params.location || params.currentLocation) as string);
+        if (params.location) queryParams.append('location', params.location);
         
         // Physical Attributes
         if (params.height !== undefined) queryParams.append('height', params.height.toString());
@@ -4201,9 +4161,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Personal Details
         if (params.gender) queryParams.append('gender', params.gender);
         if (params.nationality) queryParams.append('nationality', params.nationality);
-        if (params.nationalities && params.nationalities.length > 0) {
-          params.nationalities.forEach((nat: string) => queryParams.append('nationalities[]', nat));
-        }
         
         // Professional Preferences
         if (params.union_member !== undefined) queryParams.append('union_member', params.union_member.toString());
@@ -4233,7 +4190,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (!response.ok) {
           // Handle rate limiting
           if (response.status === 429) {
-            console.warn('⚠️ Rate limited on getUsersDirect');
+            console.warn('   Rate limited on getUsersDirect');
             throw new Error('Rate limited. Please try again later.');
           }
           const errorData = await response.json().catch(() => ({}));
@@ -4241,13 +4198,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
 
         const result = await response.json();
-        console.log('✅ Users fetched successfully:', result);
+        console.log('    Users fetched successfully:', result);
         return result;
       } catch (err: any) {
-        console.error('❌ Failed to fetch users:', err);
+        console.error('  Failed to fetch users:', err);
         // If rate limited, return empty result
         if (err.message?.includes('429') || err.message?.includes('Rate limited')) {
-          console.warn('⚠️ Rate limited on getUsersDirect, returning empty result');
+          console.warn('   Rate limited on getUsersDirect, returning empty result');
           return { success: true, data: [] };
         }
         throw err;
@@ -4404,10 +4361,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🖼️ Fetching user portfolio...');
       const response = await api.getUserPortfolio();
-      console.log('✅ Portfolio fetched successfully:', response.data?.length || 0, 'items');
+      console.log('    Portfolio fetched successfully:', response.data?.length || 0, 'items');
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to fetch portfolio:', error);
+      console.error('  Failed to fetch portfolio:', error);
       throw error;
     }
   };
@@ -4416,10 +4373,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('➕ Adding portfolio item:', item.kind, item.url);
       const response = await api.addPortfolioItem(item);
-      console.log('✅ Portfolio item added successfully:', response.data);
+      console.log('    Portfolio item added successfully:', response.data);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to add portfolio item:', error);
+      console.error('  Failed to add portfolio item:', error);
       throw error;
     }
   };
@@ -4428,10 +4385,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('✏️ Updating portfolio item:', itemId, updates);
       const response = await api.updatePortfolioItem(itemId, updates);
-      console.log('✅ Portfolio item updated successfully:', response.data);
+      console.log('    Portfolio item updated successfully:', response.data);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to update portfolio item:', error);
+      console.error('  Failed to update portfolio item:', error);
       throw error;
     }
   };
@@ -4440,10 +4397,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🗑️ Removing portfolio item:', itemId);
       const response = await api.removePortfolioItem(itemId);
-      console.log('✅ Portfolio item removed successfully');
+      console.log('    Portfolio item removed successfully');
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to remove portfolio item:', error);
+      console.error('  Failed to remove portfolio item:', error);
       throw error;
     }
   };
@@ -4482,7 +4439,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const result = await response.json();
         
         if (!response.ok) {
-          console.error('❌ Failed to fetch social links:', result);
+          console.error('  Failed to fetch social links:', result);
           throw new Error(result.error || 'Failed to fetch social links');
         }
 
@@ -4493,20 +4450,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           if (firstLink.user_id) {
             console.log('🔍 [DEBUG] First link user_id:', firstLink.user_id, 'Expected:', targetUserId);
             if (firstLink.user_id !== targetUserId) {
-              console.error('❌ [BUG DETECTED] Backend returned wrong user\'s social links!');
+              console.error('  [BUG DETECTED] Backend returned wrong user\'s social links!');
               console.error('   Expected user_id:', targetUserId);
               console.error('   Got user_id:', firstLink.user_id);
               console.error('   This is a BACKEND bug - the API is ignoring the user_id parameter');
             } else {
-              console.log('✅ [DEBUG] Backend returned correct user\'s social links');
+              console.log('    [DEBUG] Backend returned correct user\'s social links');
             }
           }
         }
 
-        console.log('✅ Social links fetched successfully for user', targetUserId || 'current', ':', result.data?.length || 0, 'links');
+        console.log('    Social links fetched successfully for user', targetUserId || 'current', ':', result.data?.length || 0, 'links');
         return result;
       } catch (error: any) {
-        console.error('❌ Failed to fetch social links for user', targetUserId || 'current', ':', error);
+        console.error('  Failed to fetch social links for user', targetUserId || 'current', ':', error);
         throw error;
       }
     };
@@ -4543,7 +4500,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const result = await response.json();
       
       if (!response.ok) {
-        console.error('❌ Failed to add social link:', result);
+        console.error('  Failed to add social link:', result);
         throw new Error(result.error || 'Failed to add social link');
       }
 
@@ -4553,10 +4510,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Trigger refresh in components that display social links
       setSocialLinksRefreshTrigger(prev => prev + 1);
       
-      console.log('✅ Social link added successfully:', result.data);
+      console.log('    Social link added successfully:', result.data);
       return result;
     } catch (error: any) {
-      console.error('❌ Failed to add social link:', error);
+      console.error('  Failed to add social link:', error);
       throw error;
     }
   };
@@ -4577,7 +4534,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const result = await response.json();
       
       if (!response.ok) {
-        console.error('❌ Failed to update social link:', result);
+        console.error('  Failed to update social link:', result);
         throw new Error(result.error || 'Failed to update social link');
       }
 
@@ -4587,10 +4544,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Trigger refresh in components that display social links
       setSocialLinksRefreshTrigger(prev => prev + 1);
       
-      console.log('✅ Social link updated successfully:', result.data);
+      console.log('    Social link updated successfully:', result.data);
       return result;
     } catch (error: any) {
-      console.error('❌ Failed to update social link:', error);
+      console.error('  Failed to update social link:', error);
       throw error;
     }
   };
@@ -4610,7 +4567,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const result = await response.json();
       
       if (!response.ok) {
-        console.error('❌ Failed to delete social link:', result);
+        console.error('  Failed to delete social link:', result);
         throw new Error(result.error || 'Failed to delete social link');
       }
 
@@ -4620,10 +4577,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Trigger refresh in components that display social links
       setSocialLinksRefreshTrigger(prev => prev + 1);
       
-      console.log('✅ Social link deleted successfully');
+      console.log('    Social link deleted successfully');
       return result;
     } catch (error: any) {
-      console.error('❌ Failed to delete social link:', error);
+      console.error('  Failed to delete social link:', error);
       throw error;
     }
   };
@@ -4635,10 +4592,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         console.log('🖼️ Fetching profile pictures for user:', userId);
         const response = await api.getUserProfilePictures(userId);
-        console.log('✅ Profile pictures fetched successfully:', response.data?.length || 0, 'pictures');
+        console.log('    Profile pictures fetched successfully:', response.data?.length || 0, 'pictures');
         return response;
       } catch (error: any) {
-        console.error('❌ Failed to fetch profile pictures:', error);
+        console.error('  Failed to fetch profile pictures:', error);
         throw error;
       }
     }, { ttl: CacheTTL.MEDIUM, persistent: false }); // Pictures change occasionally; cache briefly to speed profile loads
@@ -4648,7 +4605,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('📤 Uploading profile picture, isMain:', isMain);
       const response = await api.uploadProfilePicture(file, isMain);
-      console.log('✅ Profile picture uploaded successfully');
+      console.log('    Profile picture uploaded successfully');
       // Invalidate profile pictures cache (current user)
       const targetUserId = (response as any)?.data?.user_id || user?.id;
       if (targetUserId) {
@@ -4658,7 +4615,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to upload profile picture:', error);
+      console.error('  Failed to upload profile picture:', error);
       throw error;
     }
   };
@@ -4667,11 +4624,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('⭐ Setting main profile picture:', pictureId, 'for user:', userId);
       const response = await api.setMainProfilePicture(userId, pictureId);
-      console.log('✅ Main profile picture set successfully');
+      console.log('    Main profile picture set successfully');
       await rateLimiter.clearCache(`user-profile-pictures-${userId}`);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to set main profile picture:', error);
+      console.error('  Failed to set main profile picture:', error);
       throw error;
     }
   };
@@ -4680,11 +4637,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       console.log('🗑️ Deleting profile picture:', pictureId, 'for user:', userId);
       const response = await api.deleteProfilePicture(userId, pictureId);
-      console.log('✅ Profile picture deleted successfully');
+      console.log('    Profile picture deleted successfully');
       await rateLimiter.clearCache(`user-profile-pictures-${userId}`);
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to delete profile picture:', error);
+      console.error('  Failed to delete profile picture:', error);
       throw error;
     }
   };
@@ -4731,12 +4688,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const result = await response.json();
       
       if (!response.ok) {
-        console.error('❌ Upload failed with status:', response.status);
-        console.error('❌ Response:', result);
+        console.error('  Upload failed with status:', response.status);
+        console.error('  Response:', result);
         throw new Error(result.error || `Upload failed with status ${response.status}`);
       }
 
-      console.log('✅ File uploaded successfully:', result);
+      console.log('    File uploaded successfully:', result);
       
       // The backend returns the URL in result.data.file_url, not result.data.url
       const uploadResponse = {
@@ -4752,7 +4709,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         data: uploadResponse 
       };
     } catch (error: any) {
-      console.error('❌ Failed to upload file:', error);
+      console.error('  Failed to upload file:', error);
       throw error;
     }
   };
@@ -4822,10 +4779,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const createProject = async (projectData: any) => {
     try {
       const response = await api.createProject(projectData);
-      if (response.success && response.data) {
-        await rateLimiter.clearCacheByPattern('projects-');
-        await rateLimiter.clearCacheByPattern('pending-assignments-');
-      }
       return response;
     } catch (error) {
       console.error('Failed to create project:', error);
@@ -4837,9 +4790,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       const response = await api.updateProject(projectId, updates);
       if (response.success && response.data) {
-        await rateLimiter.clearCacheByPattern(`project-${projectId}`);
-        await rateLimiter.clearCacheByPattern('projects-');
-        await rateLimiter.clearCacheByPattern('pending-assignments-');
         return response;
       } else {
         throw new Error(response.error || 'Failed to update project');
@@ -4930,7 +4880,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             } else if ((response.data as any).items && Array.isArray((response.data as any).items)) {
               projects = (response.data as any).items;
             } else {
-              console.warn('⚠️ Unexpected response structure from getMyProjects:', Object.keys(response.data));
+              console.warn('   Unexpected response structure from getMyProjects:', Object.keys(response.data));
               return [];
             }
             
@@ -4942,11 +4892,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             
             return projects;
           } else {
-            console.warn('⚠️ Backend returned unsuccessful response or no data');
+            console.warn('   Backend returned unsuccessful response or no data');
             return [];
           }
         } catch (error) {
-          console.error('❌ Failed to get my projects:', error);
+          console.error('  Failed to get my projects:', error);
           return [];
         }
       }
@@ -4969,94 +4919,125 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       'GET',
       async () => {
         try {
-          const params: any = {
-            minimal: filters?.minimal !== undefined ? filters.minimal : true,
-            ...(filters?.role && { role: filters.role }),
-            ...(filters?.is_owner !== undefined && { is_owner: filters.is_owner }),
-            ...(filters?.status && { status: filters.status }),
-            ...(filters?.search && { search: filters.search }),
-            ...(filters?.type && { type: filters.type }),
-            ...(filters?.page && { page: filters.page }),
-            ...(filters?.limit && { limit: filters.limit }),
-          };
-          const profileCacheScope = currentProfileType === 'company'
-            ? `company-${activeCompany?.id || 'none'}`
-            : `user-${user?.id || 'anonymous'}`;
-          const cacheKey = `projects-${profileCacheScope}-${JSON.stringify(params)}`;
-
-          return rateLimiter.execute(cacheKey, async () => {
-            let projects: any[] = [];
-            try {
-              const myProjectsResponse = await api.getMyProjects(params);
-
-              console.log('📥 getMyProjects (minimal) response received:', {
+          // Backend now includes project_members in the response, eliminating N+1 queries
+          // No need to enrich each project with separate API calls
+          let projects: any[] = [];
+          try {
+            // Use minimal=true by default for backward compatibility, but allow override
+            // Apply server-side filtering parameters
+            const params: any = {
+              minimal: filters?.minimal !== undefined ? filters.minimal : true,
+              ...(filters?.role && { role: filters.role }),
+              ...(filters?.is_owner !== undefined && { is_owner: filters.is_owner }),
+              ...(filters?.status && { status: filters.status }),
+              ...(filters?.search && { search: filters.search }),
+              ...(filters?.type && { type: filters.type }),
+              ...(filters?.page && { page: filters.page }),
+              ...(filters?.limit && { limit: filters.limit }),
+            };
+            
+            // Use minimal=true to get lightweight project data (no tasks, minimal member info)
+            // This significantly reduces network payload and improves performance
+            const myProjectsResponse = await api.getMyProjects(params);
+            
+            console.log('📥 getMyProjects (minimal) response received:', {
+              success: myProjectsResponse.success,
+              hasData: !!myProjectsResponse.data,
+              dataType: Array.isArray(myProjectsResponse.data) ? 'array' : typeof myProjectsResponse.data,
+            });
+            
+            if (myProjectsResponse.success && myProjectsResponse.data) {
+              // Handle paginated response structure: response.data.data is the array
+              if (Array.isArray(myProjectsResponse.data)) {
+                projects = myProjectsResponse.data;
+                console.log(`📦 Found ${projects.length} projects in array response`);
+              } else if (myProjectsResponse.data.data && Array.isArray(myProjectsResponse.data.data)) {
+                projects = myProjectsResponse.data.data;
+                console.log(`📦 Found ${projects.length} projects in paginated response (data.data)`);
+              } else if ((myProjectsResponse.data as any).items && Array.isArray((myProjectsResponse.data as any).items)) {
+                projects = (myProjectsResponse.data as any).items;
+                console.log(`📦 Found ${projects.length} projects in items response`);
+              } else {
+                console.warn('   Unexpected response structure:', Object.keys(myProjectsResponse.data));
+              }
+              
+              // Backend now returns minimal data (no tasks, lightweight members)
+              // Map project_members/users to members for backward compatibility
+              projects = projects.map((project: any) => {
+                // Log raw project structure to understand what minimal endpoint returns
+                if (projects.indexOf(project) === 0) {
+                  console.log('🔍 Raw project from minimal endpoint:', {
+                    id: project.id,
+                    title: project.title,
+                    has_project_members: !!project.project_members,
+                    has_members: !!project.members,
+                    has_users: !!project.users,
+                    users_type: Array.isArray(project.users) ? 'array' : typeof project.users,
+                    users_length: Array.isArray(project.users) ? project.users.length : 'N/A',
+                    project_keys: Object.keys(project),
+                  });
+                }
+                
+                // Minimal endpoint may return members in different field names
+                // Check: project_members, members, or users (for minimal endpoint)
+                let members = project.project_members || project.members || [];
+                
+                // If members is empty but users exists, check if it's the members array
+                // (minimal endpoint might use 'users' field for members)
+                if (members.length === 0 && project.users && Array.isArray(project.users)) {
+                  // Check if users array contains member objects (with role, user_id)
+                  const firstUser = project.users[0];
+                  if (firstUser && (firstUser.role || firstUser.user_id)) {
+                    members = project.users;
+                    console.log(`    Found members in 'users' field for project ${project.id}:`, members.length);
+                  }
+                }
+                
+                return {
+                  ...project,
+                  members,
+                  // Ensure tasks is empty array for UI consistency (minimal endpoint doesn't include tasks)
+                  tasks: [],
+                };
+              });
+              
+              console.log(`    Loaded ${projects.length} projects (minimal data from backend)`);
+              
+              // Debug: Log first project structure (should be lightweight)
+              if (projects.length > 0) {
+                console.log('📋 Sample project structure (minimal):', {
+                  id: projects[0].id,
+                  title: projects[0].title,
+                  is_deleted: projects[0].is_deleted,
+                  deleted_at: projects[0].deleted_at,
+                  created_by: projects[0].created_by,
+                  members_count: projects[0].members?.length || 0,
+                  has_tasks: projects[0].tasks?.length > 0,
+                  member_keys: projects[0].members?.[0] ? Object.keys(projects[0].members[0]) : [],
+                });
+              } else {
+                console.warn('   No projects returned from backend - this might indicate:');
+                console.warn('   1. All projects are soft-deleted');
+                console.warn('   2. Backend filtering is too aggressive');
+                console.warn('   3. User has no projects');
+                console.warn('   4. Backend bug in getMyProjects()');
+              }
+            } else {
+              console.warn('   Backend returned unsuccessful response or no data');
+              console.log('Response summary:', {
                 success: myProjectsResponse.success,
                 hasData: !!myProjectsResponse.data,
-                dataType: Array.isArray(myProjectsResponse.data) ? 'array' : typeof myProjectsResponse.data,
+                error: (myProjectsResponse as any).error,
               });
-
-              if (myProjectsResponse.success && myProjectsResponse.data) {
-                if (Array.isArray(myProjectsResponse.data)) {
-                  projects = myProjectsResponse.data;
-                  console.log(`📦 Found ${projects.length} projects in array response`);
-                } else if (myProjectsResponse.data.data && Array.isArray(myProjectsResponse.data.data)) {
-                  projects = myProjectsResponse.data.data;
-                  console.log(`📦 Found ${projects.length} projects in paginated response (data.data)`);
-                } else if ((myProjectsResponse.data as any).items && Array.isArray((myProjectsResponse.data as any).items)) {
-                  projects = (myProjectsResponse.data as any).items;
-                  console.log(`📦 Found ${projects.length} projects in items response`);
-                } else {
-                  console.warn('⚠️ Unexpected response structure:', Object.keys(myProjectsResponse.data));
-                }
-
-                projects = projects.map((project: any, index: number) => {
-                  if (index === 0) {
-                    console.log('🔍 Raw project from minimal endpoint:', {
-                      id: project.id,
-                      title: project.title,
-                      has_project_members: !!project.project_members,
-                      has_members: !!project.members,
-                      has_users: !!project.users,
-                      users_type: Array.isArray(project.users) ? 'array' : typeof project.users,
-                      users_length: Array.isArray(project.users) ? project.users.length : 'N/A',
-                      project_keys: Object.keys(project),
-                    });
-                  }
-
-                  let members = project.project_members || project.members || [];
-                  if (members.length === 0 && project.users && Array.isArray(project.users)) {
-                    const firstUser = project.users[0];
-                    if (firstUser && (firstUser.role || firstUser.user_id)) {
-                      members = project.users;
-                      console.log(`✅ Found members in 'users' field for project ${project.id}:`, members.length);
-                    }
-                  }
-
-                  return {
-                    ...project,
-                    members,
-                    tasks: [],
-                  };
-                });
-
-                console.log(`✅ Loaded ${projects.length} projects (minimal data from backend)`);
-              } else {
-                console.warn('⚠️ Backend returned unsuccessful response or no data');
-                console.log('Response summary:', {
-                  success: myProjectsResponse.success,
-                  hasData: !!myProjectsResponse.data,
-                  error: (myProjectsResponse as any).error,
-                });
-              }
-            } catch (err) {
-              console.error('❌ Failed to get my projects:', err);
-              throw err;
             }
-
-            return projects;
-          }, { ttl: CacheTTL.SHORT, persistent: false });
+          } catch (err) {
+            console.error('  Failed to get my projects:', err);
+            throw err;
+          }
+          
+          return projects;
         } catch (error) {
-          console.error('❌ Failed to get all user projects:', error);
+          console.error('  Failed to get all user projects:', error);
           throw error;
         }
       }
@@ -5160,11 +5141,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             } else if ((response.data as any).items && Array.isArray((response.data as any).items)) {
               projects = (response.data as any).items;
             } else {
-              console.warn('⚠️ Unexpected response structure from getDeletedProjects:', Object.keys(response.data));
+              console.warn('   Unexpected response structure from getDeletedProjects:', Object.keys(response.data));
               return [];
             }
             
-            console.log(`✅ Loaded ${projects.length} deleted projects using API client`);
+            console.log(`    Loaded ${projects.length} deleted projects using API client`);
             
             // Map project_members to members for consistency
             projects = projects.map((project: any) => ({
@@ -5174,12 +5155,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             
             return projects;
           } else {
-            console.warn('⚠️ Backend returned unsuccessful response or no data');
+            console.warn('   Backend returned unsuccessful response or no data');
             console.log('Response:', response);
             return [];
           }
         } catch (error) {
-          console.error('❌ Failed to get deleted projects:', error);
+          console.error('  Failed to get deleted projects:', error);
           // Return empty array instead of throwing - recycle bin can show empty state
           return [];
         }
@@ -5225,9 +5206,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         } catch (error: any) {
           // Log error with more context
           if (error?.message?.includes('Access denied') || error?.message?.includes('403')) {
-            console.error(`❌ Access denied for project ${projectId}:`, error.message);
+            console.error(`  Access denied for project ${projectId}:`, error.message);
           } else {
-            console.error(`❌ Failed to get project details for ${projectId}:`, error);
+            console.error(`  Failed to get project details for ${projectId}:`, error);
           }
           throw error;
         }
@@ -5248,7 +5229,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(response.error || 'Failed to get project stats');
     } catch (error: any) {
-      console.error('❌ Failed to get project stats:', error);
+      console.error('  Failed to get project stats:', error);
       throw error;
     }
   };
@@ -5270,7 +5251,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(response.error || 'Failed to restore project');
     } catch (error: any) {
-      console.error('❌ Failed to restore project:', error);
+      console.error('  Failed to restore project:', error);
       throw error;
     }
   };
@@ -5316,7 +5297,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(response.error || 'Failed to get project roles');
     } catch (error: any) {
-      console.error('❌ Failed to get project roles:', error);
+      console.error('  Failed to get project roles:', error);
       throw error;
     }
   };
@@ -5339,65 +5320,63 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       `${baseUrl}/api/projects/${projectId}/pending-assignments`,
       'GET',
       async () => {
-        const profileCacheScope = currentProfileType === 'company'
-          ? `company-${activeCompany?.id || 'none'}`
-          : `user-${user?.id || 'anonymous'}`;
-        const cacheKey = `pending-assignments-${profileCacheScope}-${projectId}-${userId}`;
-
-        return rateLimiter.execute(cacheKey, async () => {
+        try {
+          // Try lightweight endpoint first (if backend supports it)
           try {
-            try {
-              const token = await AsyncStorage.getItem('accessToken');
-              const response = await fetch(
-                `${baseUrl}/api/projects/${projectId}/pending-assignments?userId=${userId}`,
-                {
-                  method: 'GET',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                  },
-                }
-              );
-
-              if (response.ok) {
-                const data = await response.json();
-                if (data.hasPending !== undefined) {
-                  console.log(`✅ Using lightweight endpoint for pending check: ${projectId}`);
-                  return {
-                    hasPending: data.hasPending || false,
-                    count: data.count,
-                  };
-                }
+            const token = await AsyncStorage.getItem('accessToken');
+            const response = await fetch(
+              `${baseUrl}/api/projects/${projectId}/pending-assignments?userId=${userId}`,
+              {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
               }
-            } catch (lightweightError) {
-              console.log(`⚠️ Lightweight endpoint not available, using fallback for project ${projectId}`);
-            }
+            );
 
-            const tasks = await getProjectTasks(projectId);
-            let pendingCount = 0;
-
-            for (const task of tasks) {
-              const assignments = task.assignments || [];
-              const hasPending = assignments.some((assignment: any) => {
-                const assignmentUserId = assignment.user_id || assignment.user?.id;
-                const assignmentStatus = assignment.status || 'pending';
-                return assignmentUserId === userId && assignmentStatus === 'pending';
-              });
-
-              if (hasPending) {
-                pendingCount++;
+            if (response.ok) {
+              const data = await response.json();
+              if (data.hasPending !== undefined) {
+                console.log(`    Using lightweight endpoint for pending check: ${projectId}`);
+                return {
+                  hasPending: data.hasPending || false,
+                  count: data.count,
+                };
               }
             }
-
-            return {
-              hasPending: pendingCount > 0,
-              count: pendingCount,
-            };
-          } catch (error) {
-            console.error(`Failed to check pending assignments for project ${projectId}:`, error);
-            return { hasPending: false, count: 0 };
+          } catch (lightweightError) {
+            // Endpoint doesn't exist yet, fall back to checking tasks
+            console.log(`   Lightweight endpoint not available, using fallback for project ${projectId}`);
           }
-        }, { ttl: CacheTTL.SHORT, persistent: false });
+
+          // Fallback: Check tasks (less efficient but works with current backend)
+          // This will be replaced once backend implements the lightweight endpoint
+          const tasks = await getProjectTasks(projectId);
+          let pendingCount = 0;
+
+          for (const task of tasks) {
+            const assignments = task.assignments || [];
+            const hasPending = assignments.some((assignment: any) => {
+              const assignmentUserId = assignment.user_id || assignment.user?.id;
+              const assignmentStatus = assignment.status || 'pending';
+              return assignmentUserId === userId && assignmentStatus === 'pending';
+            });
+            
+            if (hasPending) {
+              pendingCount++;
+            }
+          }
+
+          return {
+            hasPending: pendingCount > 0,
+            count: pendingCount,
+          };
+        } catch (error) {
+          console.error(`Failed to check pending assignments for project ${projectId}:`, error);
+          // Return false on error to prevent blocking UI
+          return { hasPending: false, count: 0 };
+        }
       }
     );
   };
@@ -5412,14 +5391,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           data: response.data
         };
       } else {
-        console.error('❌ Failed to create task:', response.error);
+        console.error('  Failed to create task:', response.error);
         return {
           success: false,
           error: response.error || 'Failed to create task'
         };
       }
     } catch (error) {
-      console.error('❌ Error creating task:', error);
+      console.error('  Error creating task:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to create task'
@@ -5451,7 +5430,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         data: data.data || data
       };
     } catch (error: any) {
-      console.error('❌ Failed to update task:', error);
+      console.error('  Failed to update task:', error);
       throw error;
     }
   };
@@ -5473,7 +5452,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
       }
     } catch (error: any) {
-      console.error('❌ Failed to delete task:', error);
+      console.error('  Failed to delete task:', error);
       throw error;
     }
   };
@@ -5522,7 +5501,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.assignTaskService(projectId, taskId, apiAssignment);
       
       if (response.success && response.data) {
-        console.log('✅ Task assignment successful:', response.data);
+        console.log('    Task assignment successful:', response.data);
         // Handle both array and single object response
         if (Array.isArray(response.data)) {
           return response.data;
@@ -5535,12 +5514,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           return Array.isArray(nestedData) ? nestedData : [nestedData];
         } else {
           // Fallback: return empty array (shouldn't happen)
-          console.warn('⚠️ Unexpected response.data format:', response.data);
+          console.warn('   Unexpected response.data format:', response.data);
           return [];
         }
       } else {
         const errorMessage = response.error || 'Failed to assign task service';
-        console.error('❌ Assignment failed:', {
+        console.error('  Assignment failed:', {
           error: errorMessage,
           response: response,
           assignment: apiAssignment
@@ -5548,7 +5527,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error(errorMessage);
       }
     } catch (error: any) {
-      console.error('❌ Failed to assign task service:', {
+      console.error('  Failed to assign task service:', {
         error: error.message || error,
         errorDetails: error.response || error.data || error,
         projectId,
@@ -5612,7 +5591,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error('You do not have permission to remove this assignment');
       } else if (response.status === 404) {
         // Assignment not found - might already be deleted (per guide)
-        console.warn('⚠️ Assignment not found (404), may already be deleted');
+        console.warn('   Assignment not found (404), may already be deleted');
         return {
           success: true,
           data: null,
@@ -5620,7 +5599,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         };
       } else if (!response.ok) {
         const errorMessage = data.error || data.message || `HTTP ${response.status}: ${response.statusText}`;
-        console.error('❌ HTTP Error deleting assignment:', {
+        console.error('  HTTP Error deleting assignment:', {
           status: response.status,
           error: errorMessage,
           data
@@ -5630,20 +5609,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       if (!data.success) {
         const errorMessage = data.error || data.message || 'Failed to delete assignment';
-        console.error('❌ API Error deleting assignment:', {
+        console.error('  API Error deleting assignment:', {
           error: errorMessage,
           data
         });
         throw new Error(errorMessage);
       }
       
-      console.log('✅ Assignment successfully deleted from backend');
+      console.log('    Assignment successfully deleted from backend');
       return {
         success: true,
         data: data.data || data
       };
     } catch (error: any) {
-      console.error('❌ Failed to delete task assignment:', {
+      console.error('  Failed to delete task assignment:', {
         error: error.message || error,
         projectId,
         taskId,
@@ -5687,29 +5666,29 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       });
 
       const data = await response.json();
-      console.log('✅ Response received:', JSON.stringify(data).substring(0, 200));
+      console.log('    Response received:', JSON.stringify(data).substring(0, 200));
       
       if (!response.ok) {
         const errorMessage = data.error || data.message || `HTTP ${response.status}: ${response.statusText}`;
-        console.error('❌ HTTP Error:', response.status, errorMessage);
-        console.error('❌ Full error response:', JSON.stringify(data));
+        console.error('  HTTP Error:', response.status, errorMessage);
+        console.error('  Full error response:', JSON.stringify(data));
         throw new Error(errorMessage);
       }
       
       if (!data.success) {
         const errorMessage = data.error || data.message || 'Failed to update assignment status';
-        console.error('❌ API Error:', errorMessage);
-        console.error('❌ Full error response:', JSON.stringify(data));
+        console.error('  API Error:', errorMessage);
+        console.error('  Full error response:', JSON.stringify(data));
         throw new Error(errorMessage);
       }
       
-      console.log('✅ Task assignment status updated successfully');
+      console.log('    Task assignment status updated successfully');
       return {
         success: true,
         data: data.data || data
       };
     } catch (error: any) {
-      console.error('❌ Failed to update assignment status:', {
+      console.error('  Failed to update assignment status:', {
         error: error.message || error,
         projectId,
         taskId,
@@ -5741,7 +5720,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       return data;
     } catch (error: any) {
-      console.error('❌ Failed to update task status:', error);
+      console.error('  Failed to update task status:', error);
       throw error;
     }
   };
@@ -5762,7 +5741,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(response.error || 'Failed to unassign task service');
     } catch (error: any) {
-      console.error('❌ Failed to unassign task service:', error);
+      console.error('  Failed to unassign task service:', error);
       throw error;
     }
   };
@@ -5780,7 +5759,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(response.error || 'Failed to get task');
     } catch (error: any) {
-      console.error('❌ Failed to get task:', error);
+      console.error('  Failed to get task:', error);
       throw error;
     }
   };
@@ -5836,10 +5815,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Update AsyncStorage (non-blocking)
       AsyncStorage.setItem('currentProfileType', 'user').catch(err => {
-        console.warn('⚠️ Failed to save profile type to storage:', err);
+        console.warn('   Failed to save profile type to storage:', err);
       });
       AsyncStorage.removeItem('activeCompanyId').catch(err => {
-        console.warn('⚠️ Failed to remove company ID from storage:', err);
+        console.warn('   Failed to remove company ID from storage:', err);
       });
       
       // Reconnect StreamChat with user profile (non-blocking, don't throw)
@@ -5861,7 +5840,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 api_key, // Pass API key from backend if provided
                 'user' // User type for tracking
               );
-              console.log('✅ StreamChat reconnected with user profile');
+              console.log('    StreamChat reconnected with user profile');
               
               // FIXED: Update unread count after reconnection for new profile
               // The unread count tracking useEffect will handle this automatically
@@ -5872,16 +5851,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                   // But we can also call getConversations to ensure it's updated
                   await getUnreadConversationCount();
                   if (__DEV__) {
-                    console.log('💬 [ProfileSwitch] Updated unread count after switch to user profile');
+                    console.log('    [ProfileSwitch] Updated unread count after switch to user profile');
                   }
                 } catch (err) {
-                  console.warn('⚠️ Failed to update unread count after profile switch:', err);
+                  console.warn('   Failed to update unread count after profile switch:', err);
                 }
               }, 500); // Wait for StreamChat to be fully connected
             }
           } catch (streamError: any) {
             // Don't throw - just log the error
-            console.warn('⚠️ Failed to reconnect StreamChat (non-critical):', streamError?.message || streamError);
+            console.warn('   Failed to reconnect StreamChat (non-critical):', streamError?.message || streamError);
             // StreamChatProvider will handle reconnection automatically
           }
         }, 100); // Small delay to allow state updates
@@ -5893,17 +5872,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         try {
           await getUnreadConversationCount();
           if (__DEV__) {
-            console.log('💬 [ProfileSwitch] Updated unread count immediately after switch to user profile');
+            console.log('    [ProfileSwitch] Updated unread count immediately after switch to user profile');
           }
         } catch (err) {
-          console.warn('⚠️ Failed to update unread count immediately after profile switch:', err);
+          console.warn('   Failed to update unread count immediately after profile switch:', err);
         }
       }, 200);
       
-      console.log('✅ Switched to user profile');
+      console.log('    Switched to user profile');
     } catch (error: any) {
       // CRITICAL: Never throw errors during profile switch - this can cause app restarts
-      console.error('❌ Error switching to user profile (recovered):', error?.message || error);
+      console.error('  Error switching to user profile (recovered):', error?.message || error);
       // Still update state even if there's an error
       setCurrentProfileType('user');
       setActiveCompany(null);
@@ -5940,14 +5919,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         if (!companyMember) {
           // User is not a member - don't switch, just return
-          console.warn('⚠️ [ProfileSwitch] Company not found in user companies list - user may have lost access');
+          console.warn('   [ProfileSwitch] Company not found in user companies list - user may have lost access');
           throw new Error('Company not found in your companies list. You may no longer have access to this company.');
         }
         
         const role = companyMember.role || companyMember.member?.role;
         if (role !== 'owner' && role !== 'admin') {
           // User is not owner/admin - don't switch
-          console.warn('⚠️ [ProfileSwitch] User is not owner/admin of company');
+          console.warn('   [ProfileSwitch] User is not owner/admin of company');
           throw new Error('Only company owners and admins can switch to company profiles');
         }
         
@@ -5958,14 +5937,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           logo_url: companyFromList.logo_url,
         };
         
-        console.log('✅ [ProfileSwitch] Membership verified - user is', role, 'of company');
+        console.log('    [ProfileSwitch] Membership verified - user is', role, 'of company');
         console.log('📦 [ProfileSwitch] Fallback data available:', {
           hasName: !!fallbackCompanyData.name,
           hasLogo: !!fallbackCompanyData.logo_url
         });
       } else {
         // If we can't verify membership, don't switch
-        console.warn('⚠️ [ProfileSwitch] Could not verify company membership');
+        console.warn('   [ProfileSwitch] Could not verify company membership');
         throw new Error('Could not verify company membership. Please try again.');
       }
       
@@ -5998,13 +5977,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Update AsyncStorage (non-blocking)
       AsyncStorage.setItem('currentProfileType', 'company').catch(err => {
-        console.warn('⚠️ Failed to save profile type to storage:', err);
+        console.warn('   Failed to save profile type to storage:', err);
       });
       AsyncStorage.setItem('activeCompanyId', companyId).catch(err => {
-        console.warn('⚠️ Failed to save company ID to storage:', err);
+        console.warn('   Failed to save company ID to storage:', err);
       });
       
-      console.log('✅ [ProfileSwitch] Profile switched immediately with company list data:', {
+      console.log('    [ProfileSwitch] Profile switched immediately with company list data:', {
         companyId,
         hasName: !!companyData.name,
         hasLogo: !!companyData.logo_url
@@ -6037,7 +6016,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               // Preserve name from company list if getCompany doesn't return it
               name: enhancedData.name || companyData.name,
             });
-            console.log('✅ [ProfileSwitch] Company data enhanced with fresh data', {
+            console.log('    [ProfileSwitch] Company data enhanced with fresh data', {
               hasLogo: !!(enhancedData.logo_url || companyData.logo_url),
               hasName: !!(enhancedData.name || companyData.name),
             });
@@ -6071,7 +6050,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 api_key, // Pass API key from backend if provided
                 'company' // User type for tracking
               );
-              console.log('✅ [ProfileSwitch] StreamChat reconnected with company profile', { 
+              console.log('    [ProfileSwitch] StreamChat reconnected with company profile', { 
                 user_id,
                 hasName: !!companyData.name,
                 hasLogo: !!companyData.logo_url
@@ -6083,10 +6062,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 try {
                   await getUnreadConversationCount();
                   if (__DEV__) {
-                    console.log('💬 [ProfileSwitch] Updated unread count after switch to company profile');
+                    console.log('    [ProfileSwitch] Updated unread count after switch to company profile');
                   }
                 } catch (err) {
-                  console.warn('⚠️ Failed to update unread count after profile switch:', err);
+                  console.warn('   Failed to update unread count after profile switch:', err);
                 }
               }, 500); // Wait for StreamChat to be fully connected
             }
@@ -6099,7 +6078,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             
             if (isMembershipError) {
               // User lost access - revert to user profile
-              console.warn('⚠️ [ProfileSwitch] User lost access to company - reverting to user profile');
+              console.warn('   [ProfileSwitch] User lost access to company - reverting to user profile');
               // Revert profile switch
               setCurrentProfileType('user');
               setActiveCompany(null);
@@ -6108,7 +6087,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               // Don't log as error - this is expected if user lost access
             } else {
               // Other errors - don't throw, just log
-              console.warn('⚠️ Failed to reconnect StreamChat (non-critical):', streamError?.message || streamError);
+              console.warn('   Failed to reconnect StreamChat (non-critical):', streamError?.message || streamError);
             }
             // StreamChatProvider will handle reconnection automatically
           }
@@ -6120,10 +6099,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         try {
           await getUnreadConversationCount();
           if (__DEV__) {
-            console.log('💬 [ProfileSwitch] Updated unread count immediately after switch to company profile');
+            console.log('    [ProfileSwitch] Updated unread count immediately after switch to company profile');
           }
         } catch (err) {
-          console.warn('⚠️ Failed to update unread count immediately after profile switch:', err);
+          console.warn('   Failed to update unread count immediately after profile switch:', err);
         }
       }, 200);
     } catch (error: any) {
@@ -6136,7 +6115,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       if (isMembershipError) {
         // User doesn't have access - don't switch, stay on current profile
-        console.warn('⚠️ [ProfileSwitch] Cannot switch to company - membership issue:', errorMessage);
+        console.warn('   [ProfileSwitch] Cannot switch to company - membership issue:', errorMessage);
         // Don't update state - stay on current profile
         // Clear any partial state
         if (activeCompany?.id === companyId) {
@@ -6148,7 +6127,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
       } else {
         // Other errors - log but don't block
-        console.error('❌ Error switching to company profile (recovered):', errorMessage);
+        console.error('  Error switching to company profile (recovered):', errorMessage);
       }
       // Don't throw - let the UI handle the error gracefully
     }
@@ -6211,7 +6190,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Handle successful response (should have success: true and data)
       if (response && response.success && response.data) {
-        console.log('✅ Company created successfully:', response.data);
+        console.log('    Company created successfully:', response.data);
         
         // Clear the user companies cache so the new company appears immediately
         if (user?.id) {
@@ -6234,7 +6213,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       // Unexpected response format
-      console.warn('⚠️ Unexpected response format:', response);
+      console.warn('   Unexpected response format:', response);
       return {
         success: false,
         error: 'Unexpected response from server',
@@ -6303,7 +6282,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Handle successful response
       if (response && response.success && response.data) {
-        console.log('✅ Company quick created successfully:', response.data);
+        console.log('    Company quick created successfully:', response.data);
         
         // Clear the user companies cache so the new company appears immediately
         if (user?.id) {
@@ -6326,7 +6305,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       // Unexpected response format
-      console.warn('⚠️ Unexpected response format:', response);
+      console.warn('   Unexpected response format:', response);
       return {
         success: false,
         error: 'Unexpected response from server',
@@ -6393,7 +6372,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         if (isTimeout) {
           // Timeout errors are expected - log as warning and return minimal company data
-          console.warn('⚠️ Failed to get company (timeout):', errorMessage);
+          console.warn('   Failed to get company (timeout):', errorMessage);
           // Return minimal company data instead of throwing
           // This allows the app to continue working even if company details fail to load
           return {
@@ -6403,7 +6382,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         
         // Other errors - log as error and throw
-        console.error('❌ Failed to get company:', error);
+        console.error('  Failed to get company:', error);
         throw error;
       }
     }, { ttl: CacheTTL.LONG, persistent: true }); // Company data changes rarely - 30min TTL with persistence
@@ -6482,11 +6461,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       await rateLimiter.clearCacheByPattern(`academy-courses-${companyId}`);
       await rateLimiter.clearCacheByPattern(`published-news-`);
       
-      console.log(`✅ Academy visibility updated successfully: ${visibility}`);
+      console.log(`    Academy visibility updated successfully: ${visibility}`);
       console.log(`🧹 Cleared rate limiter cache for company: ${companyId}`);
       return responseData;
     } catch (error: any) {
-      console.error('❌ Failed to update academy visibility:', error);
+      console.error('  Failed to update academy visibility:', error);
       throw error;
     }
   };
@@ -6511,7 +6490,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       let fileUri = file.uri;
       if (Platform.OS === 'android' && fileUri.startsWith('content://')) {
         // Android content URI - should work as is
-        console.log('📱 Using Android content URI');
+        console.log('    Using Android content URI');
       } else if (fileUri.startsWith('file://')) {
         // File URI - should work as is
         console.log('📁 Using file URI');
@@ -6550,13 +6529,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const result = await response.json();
       
       if (!response.ok) {
-        console.error('❌ Company logo upload failed with status:', response.status);
-        console.error('❌ Response:', result);
-        console.error('❌ Full error details:', JSON.stringify(result, null, 2));
+        console.error('  Company logo upload failed with status:', response.status);
+        console.error('  Response:', result);
+        console.error('  Full error details:', JSON.stringify(result, null, 2));
         throw new Error(result.error || result.message || `Upload failed with status ${response.status}`);
       }
 
-      console.log('✅ Company logo uploaded successfully:', result);
+      console.log('    Company logo uploaded successfully:', result);
       
       // Invalidate company cache to refresh with new logo
       await rateLimiter.clearCache(`company-${companyId}`);
@@ -6576,8 +6555,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         message: result.message || 'Company logo uploaded successfully',
       };
     } catch (error: any) {
-      console.error('❌ Failed to upload company logo:', error);
-      console.error('❌ Error stack:', error.stack);
+      console.error('  Failed to upload company logo:', error);
+      console.error('  Error stack:', error.stack);
       throw error;
     }
   };
@@ -6612,11 +6591,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const result = await response.json();
       
       if (!response.ok) {
-        console.error('❌ Course poster upload failed with status:', response.status);
+        console.error('  Course poster upload failed with status:', response.status);
         throw new Error(result.error || result.message || `Upload failed with status ${response.status}`);
       }
 
-      console.log('✅ Course poster uploaded successfully:', result);
+      console.log('    Course poster uploaded successfully:', result);
       
       // Invalidate course cache
       await rateLimiter.clearCacheByPattern(`academy-courses-`);
@@ -6633,7 +6612,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         message: result.message || 'Course poster uploaded successfully',
       };
     } catch (error: any) {
-      console.error('❌ Failed to upload course poster:', error);
+      console.error('  Failed to upload course poster:', error);
       throw error;
     }
   };
@@ -6667,11 +6646,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const result = await response.json();
       
       if (!response.ok) {
-        console.error('❌ Certificate image upload failed with status:', response.status);
+        console.error('  Certificate image upload failed with status:', response.status);
         throw new Error(result.error || result.message || `Upload failed with status ${response.status}`);
       }
 
-      console.log('✅ Certificate image uploaded successfully:', result);
+      console.log('    Certificate image uploaded successfully:', result);
       
       return {
         success: true,
@@ -6682,7 +6661,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         message: result.message || 'Certificate image uploaded successfully',
       };
     } catch (error: any) {
-      console.error('❌ Failed to upload certificate image:', error);
+      console.error('  Failed to upload certificate image:', error);
       throw error;
     }
   };
@@ -6705,12 +6684,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       } catch (error: any) {
         // Handle 403 (Unauthorized) - users can only view their own companies
         if (error.status === 403 || error.statusCode === 403 || error.message?.includes('403') || error.message?.includes('Unauthorized')) {
-          console.warn('⚠️ Unauthorized to view companies for this user (403). Only showing companies for own profile.');
+          console.warn('   Unauthorized to view companies for this user (403). Only showing companies for own profile.');
           return { success: true, data: [] };
         }
         // If rate limited, return empty result instead of throwing
         if (error.status === 429 || error.message?.includes('429')) {
-          console.warn('⚠️ Rate limited on getUserCompanies, returning empty result');
+          console.warn('   Rate limited on getUserCompanies, returning empty result');
           return { success: true, data: [] };
         }
         
@@ -6723,7 +6702,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                               error?.name === 'TypeError' && errorMessage.includes('Network');
         
         if (isNetworkError) {
-          console.warn('⚠️ Failed to get user companies (network issue):', errorMessage);
+          console.warn('   Failed to get user companies (network issue):', errorMessage);
           // Return empty result for network errors instead of throwing
           return { success: true, data: [] };
         }
@@ -6869,7 +6848,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         } catch (error: any) {
           // Handle rate limiting gracefully
           if (error.status === 429 || error.statusCode === 429 || error.message?.includes('429')) {
-            console.warn('⚠️ Rate limited on getCompanies, returning empty result');
+            console.warn('   Rate limited on getCompanies, returning empty result');
             return { success: true, data: [] };
           }
           console.error('Failed to get companies:', error);
@@ -6946,19 +6925,19 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           // If it's a timeout and we have retries left, retry
           if (isTimeout && attempt < maxRetries) {
             const waitTime = (attempt + 1) * 1000; // Exponential backoff: 1s, 2s
-            console.warn(`⚠️ Request timeout for company services (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitTime}ms...`);
+            console.warn(`   Request timeout for company services (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitTime}ms...`);
             await new Promise(resolve => setTimeout(resolve, waitTime));
             continue;
           }
           
           // If not a timeout, or no retries left, handle the error
-          console.error('❌ Failed to get company services:', error);
+          console.error('  Failed to get company services:', error);
           // Handle 401 errors
           await handle401Error(error);
           
           // For timeout errors after all retries, return empty result instead of throwing
           if (isTimeout) {
-            console.warn('⚠️ Company services request timed out after retries, returning empty result');
+            console.warn('   Company services request timed out after retries, returning empty result');
             return { success: true, data: [] }; // Return empty array instead of throwing
           }
           
@@ -6967,7 +6946,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       // If we exhausted all retries, return empty result
-      console.warn('⚠️ Company services request failed after all retries, returning empty result');
+      console.warn('   Company services request failed after all retries, returning empty result');
       return { success: true, data: [] };
     }, { ttl: CacheTTL.MEDIUM }); // Company services change when services are added/removed - 5min TTL
   };
@@ -7009,7 +6988,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (response && !response.success && response.error) {
         const errorMsg = response.error || '';
         if (errorMsg.includes('duplicate key') || errorMsg.includes('company_members_pkey')) {
-          console.warn('⚠️ Duplicate key error detected - member record may still exist');
+          console.warn('   Duplicate key error detected - member record may still exist');
           return {
             success: false,
             error: 'This user was previously a member. The record may still exist in the database. Please contact support or wait a moment before trying again.',
@@ -7028,7 +7007,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       return response;
     } catch (error: any) {
-      console.error('❌ Failed to add company member:', error);
+      console.error('  Failed to add company member:', error);
       
       // Check if error response contains the duplicate key error
       // Handle different error formats (ApiError, fetch error, etc.)
@@ -7054,7 +7033,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       if (errorMsg.includes('duplicate key') || errorMsg.includes('company_members_pkey')) {
-        console.warn('⚠️ Duplicate key error detected - member record may still exist');
+        console.warn('   Duplicate key error detected - member record may still exist');
         return {
           success: false,
           error: 'This user was previously a member. The record may still exist in the database. Please contact support or wait a moment before trying again.',
@@ -7081,14 +7060,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         // If response has success: false, check if it's a 500 error
         if (response && response.success === false && response.error?.includes('500')) {
-          console.warn('⚠️ Server error fetching members (500). Returning empty list.');
+          console.warn('   Server error fetching members (500). Returning empty list.');
           return { success: true, data: [] };
         }
         return response;
       } catch (error: any) {
         // Handle errors from library method
         if (error.status === 500 || error.statusCode === 500 || error.message?.includes('500') || error.message?.includes('Failed to fetch members')) {
-          console.warn('⚠️ Server error fetching members (500). Returning empty list.');
+          console.warn('   Server error fetching members (500). Returning empty list.');
           return { success: true, data: [] };
         }
         throw error;
@@ -7121,7 +7100,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         retries: 0 // Disable retries - we'll handle errors ourselves
       });
       
-      console.log('✅ Company members response:', {
+      console.log('    Company members response:', {
         success: response?.success,
         hasData: !!response?.data,
         dataType: Array.isArray(response?.data) ? 'array' : typeof response?.data,
@@ -7138,7 +7117,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (response && response.success === false) {
         // Check if it's a 500 error or any server error
         const errorMessage = response.error || '';
-        console.error('❌ API returned error response:', {
+        console.error('  API returned error response:', {
           success: response.success,
           error: errorMessage,
           fullResponse: JSON.stringify(response, null, 2)
@@ -7149,8 +7128,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             errorMessage.includes('Server error') ||
             errorMessage.toLowerCase().includes('internal server error')) {
           // Return gracefully for server errors - don't propagate the error
-          console.warn('⚠️ Server error from API response (500). Returning empty list.');
-          console.warn('⚠️ This is likely a backend issue. Check backend logs for:', {
+          console.warn('   Server error from API response (500). Returning empty list.');
+          console.warn('   This is likely a backend issue. Check backend logs for:', {
             endpoint: `/api/companies/${companyId}/members`,
             params: params,
             companyId
@@ -7172,7 +7151,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (error instanceof ApiError) {
         // Check for 404 - endpoint not found
         if (error.statusCode === 404) {
-          console.warn('⚠️ Company members endpoint not found (404). Returning empty list.');
+          console.warn('   Company members endpoint not found (404). Returning empty list.');
           return {
             success: true, // Return success with empty data
             data: []
@@ -7181,15 +7160,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         // For 500 errors or other server errors, return empty array gracefully
         if (error.statusCode === 500 || (error.statusCode && error.statusCode >= 500)) {
-          console.error('❌ HTTP 500 Error fetching company members:', {
+          console.error('  HTTP 500 Error fetching company members:', {
             companyId,
             params,
             errorMessage: error.message,
             statusCode: error.statusCode,
             fullError: JSON.stringify(error, null, 2)
           });
-          console.warn('⚠️ Server error fetching members (500). Returning empty list.');
-          console.warn('⚠️ POTENTIAL BACKEND ISSUES:');
+          console.warn('   Server error fetching members (500). Returning empty list.');
+          console.warn('   POTENTIAL BACKEND ISSUES:');
           console.warn('   - Database query might be failing');
           console.warn('   - Invalid sort parameter (joined_at might not exist)');
           console.warn('   - Missing database relationships');
@@ -7202,7 +7181,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         // For 403 (Unauthorized) - user might not have permission
         if (error.statusCode === 403) {
-          console.warn('⚠️ Unauthorized to view company members (403). Returning empty list.');
+          console.warn('   Unauthorized to view company members (403). Returning empty list.');
           return {
             success: true,
             data: []
@@ -7212,7 +7191,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // Check for error status in error object (from direct apiClient call)
       if (error.status === 500 || error.statusCode === 500 || error.message?.includes('500') || error.message?.includes('Failed to fetch members')) {
-        console.warn('⚠️ Server error fetching members (500). Returning empty list.');
+        console.warn('   Server error fetching members (500). Returning empty list.');
         return {
           success: true,
           data: []
@@ -7221,7 +7200,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // For 404 - endpoint not found
       if (error.status === 404 || error.statusCode === 404) {
-        console.warn('⚠️ Company members endpoint not found (404). Returning empty list.');
+        console.warn('   Company members endpoint not found (404). Returning empty list.');
         return {
           success: true,
           data: []
@@ -7230,7 +7209,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       // For 403 - unauthorized
       if (error.status === 403 || error.statusCode === 403) {
-        console.warn('⚠️ Unauthorized to view company members (403). Returning empty list.');
+        console.warn('   Unauthorized to view company members (403). Returning empty list.');
         return {
           success: true,
           data: []
@@ -7238,7 +7217,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       // Log other errors but still return gracefully
-      console.warn('⚠️ Error fetching company members:', error.message || error);
+      console.warn('   Error fetching company members:', error.message || error);
       
       // For any other error, return empty array gracefully
       return {
@@ -7260,7 +7239,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         // Check if method exists (in case package wasn't updated or cached)
         if (typeof api.getPendingCompanyMembers !== 'function') {
-          console.warn('⚠️ getPendingCompanyMembers method not available. Package may need to be updated or app restarted.');
+          console.warn('   getPendingCompanyMembers method not available. Package may need to be updated or app restarted.');
           // Return empty list gracefully
           return {
             success: true,
@@ -7309,7 +7288,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         // Handle 404 (endpoint not found) gracefully
         if (error.status === 404 || error.statusCode === 404) {
-          console.warn('⚠️ Pending company members endpoint not found (404). Returning empty list.');
+          console.warn('   Pending company members endpoint not found (404). Returning empty list.');
           return {
             success: true,
             data: {
@@ -7491,17 +7470,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // If it's a timeout and we have retries left, retry
         if (isTimeout && attempt < maxRetries) {
           const waitTime = (attempt + 1) * 1000; // Exponential backoff: 1s, 2s
-          console.warn(`⚠️ Request timeout for company documents (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitTime}ms...`);
+          console.warn(`   Request timeout for company documents (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitTime}ms...`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
           continue;
         }
         
         // If not a timeout, or no retries left, handle the error
-        console.error('❌ Failed to get company documents:', error);
+        console.error('  Failed to get company documents:', error);
         
         // For timeout errors after all retries, return empty result instead of throwing
         if (isTimeout) {
-          console.warn('⚠️ Company documents request timed out after retries, returning empty result');
+          console.warn('   Company documents request timed out after retries, returning empty result');
           return { success: true, data: [] }; // Return empty array instead of throwing
         }
         
@@ -7510,7 +7489,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
     
     // If we exhausted all retries, return empty result
-    console.warn('⚠️ Company documents request failed after all retries, returning empty result');
+    console.warn('   Company documents request failed after all retries, returning empty result');
     return { success: true, data: [] };
   };
 
@@ -7697,14 +7676,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (response.success && response.data) {
         const data = response.data as any;
         const result = Array.isArray(data) ? data : (data.data || []);
-        console.log('✅ API: Returning authorized certifications:', result.length);
+        console.log('    API: Returning authorized certifications:', result.length);
         return result;
       }
       
-      console.warn('⚠️ API: Response indicates failure:', response.error);
+      console.warn('   API: Response indicates failure:', response.error);
       throw new Error(response.error || 'Failed to get authorized certifications');
     } catch (error: any) {
-      console.error('❌ API: Failed to get authorized certifications:', {
+      console.error('  API: Failed to get authorized certifications:', {
         message: error.message,
         statusCode: error.statusCode,
         status: error.status
@@ -7800,7 +7779,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         console.error('Failed to get user certifications:', error);
         // If rate limited, return empty array instead of throwing
         if (error.status === 429 || error.message?.includes('429')) {
-          console.warn('⚠️ Rate limited on getUserCertifications, returning empty array');
+          console.warn('   Rate limited on getUserCertifications, returning empty array');
           return [];
         }
         throw error;
@@ -7812,7 +7791,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getAcademyCourses = async (companyId: string, filters?: { status?: CourseStatus; category?: string }) => {
     // Validate companyId before making the request - return empty array if invalid instead of throwing
     if (!companyId || (typeof companyId === 'string' && companyId.trim() === '')) {
-      console.warn('⚠️ getAcademyCourses called with invalid companyId, returning empty array');
+      console.warn('   getAcademyCourses called with invalid companyId, returning empty array');
       return [];
     }
 
@@ -7830,14 +7809,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
         // Check if it's a "Company not found" error
         if (response.error?.includes('Company not found') || response.error?.includes('404')) {
-          console.warn(`⚠️ Company not found or not accessible: ${companyId}`);
+          console.warn(`   Company not found or not accessible: ${companyId}`);
           throw new Error(response.error || 'Company not found');
         }
         throw new Error(response.error || 'Failed to get academy courses');
       } catch (error: any) {
         // Log the error with more context
         if (error?.message?.includes('Company not found') || error?.message?.includes('404')) {
-          console.warn(`⚠️ Company not found when fetching courses: ${companyId}`, error);
+          console.warn(`   Company not found when fetching courses: ${companyId}`, error);
         } else {
           console.error('Failed to get academy courses:', error);
         }
@@ -7850,7 +7829,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const createCourse = async (companyId: string, courseData: CreateCourseRequest) => {
     // Validate companyId before making the request
     if (!companyId || (typeof companyId === 'string' && companyId.trim() === '')) {
-      console.warn('⚠️ createCourse called with invalid companyId');
+      console.warn('   createCourse called with invalid companyId');
       return {
         success: false,
         error: 'Company ID is required',
@@ -7882,7 +7861,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           response.error?.includes('403') ||
           response.error?.includes('permission') ||
           response.error?.includes('not authorized')) {
-        console.warn(`⚠️ Permission denied when creating course for company: ${companyId}`);
+        console.warn(`   Permission denied when creating course for company: ${companyId}`);
         return {
           success: false,
           error: 'You do not have permission to create courses. Only company owners and admins can create courses.',
@@ -7896,7 +7875,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           error?.message?.includes('403') ||
           error?.message?.includes('permission') ||
           error?.message?.includes('not authorized')) {
-        console.warn(`⚠️ Permission denied when creating course for company: ${companyId}`, error);
+        console.warn(`   Permission denied when creating course for company: ${companyId}`, error);
         return {
           success: false,
           error: 'You do not have permission to create courses. Only company owners and admins can create courses.',
@@ -8175,12 +8154,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = `published-news-${JSON.stringify(filters || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 Fetching published news...', filters);
+        console.log('    Fetching published news...', filters);
         const response = await api.getPublishedNews(filters);
-        console.log('✅ Published news fetched successfully:', response.data?.pagination?.total || 0, 'posts');
+        console.log('    Published news fetched successfully:', response.data?.pagination?.total || 0, 'posts');
         return response;
       } catch (error: any) {
-        console.error('❌ Failed to fetch published news:', error);
+        console.error('  Failed to fetch published news:', error);
         throw error;
       }
     }, { ttl: CacheTTL.MEDIUM, persistent: true }); // News posts change when published/updated - 5min TTL with persistence
@@ -8190,12 +8169,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = `news-post-${slug}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 Fetching news post by slug:', slug);
+        console.log('    Fetching news post by slug:', slug);
         const response = await api.getNewsPostBySlug(slug);
-        console.log('✅ News post fetched successfully');
+        console.log('    News post fetched successfully');
         return response;
       } catch (error: any) {
-        console.error('❌ Failed to fetch news post:', error);
+        console.error('  Failed to fetch news post:', error);
         throw error;
       }
     }, { ttl: CacheTTL.MEDIUM, persistent: true }); // Individual news posts change when edited - 5min TTL with persistence
@@ -8205,12 +8184,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = 'news-categories';
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 Fetching news categories...');
+        console.log('    Fetching news categories...');
         const response = await api.getNewsCategories();
-        console.log('✅ News categories fetched successfully:', response.data?.length || 0, 'categories');
+        console.log('    News categories fetched successfully:', response.data?.length || 0, 'categories');
         return response;
       } catch (error: any) {
-        console.error('❌ Failed to fetch news categories:', error);
+        console.error('  Failed to fetch news categories:', error);
         throw error;
       }
     }, { ttl: CacheTTL.VERY_LONG, persistent: true }); // News categories are static reference data - 1hr TTL with persistence
@@ -8220,12 +8199,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = 'news-tags';
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 Fetching news tags...');
+        console.log('    Fetching news tags...');
         const response = await api.getNewsTags();
-        console.log('✅ News tags fetched successfully:', response.data?.length || 0, 'tags');
+        console.log('    News tags fetched successfully:', response.data?.length || 0, 'tags');
         return response;
       } catch (error: any) {
-        console.error('❌ Failed to fetch news tags:', error);
+        console.error('  Failed to fetch news tags:', error);
         throw error;
       }
     }, { ttl: CacheTTL.VERY_LONG, persistent: true }); // News tags are static reference data - 1hr TTL with persistence
@@ -8236,12 +8215,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = `admin-news-${JSON.stringify(filters || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 [Admin] Fetching news posts...', filters);
+        console.log('    [Admin] Fetching news posts...', filters);
         const response = await api.getAdminNewsPosts(filters);
-        console.log('✅ [Admin] News posts fetched successfully');
+        console.log('    [Admin] News posts fetched successfully');
         return response;
       } catch (error: any) {
-        console.error('❌ [Admin] Failed to fetch news posts:', error);
+        console.error('  [Admin] Failed to fetch news posts:', error);
         throw error;
       }
     }, { ttl: CacheTTL.SHORT, persistent: false });
@@ -8251,12 +8230,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = `admin-news-${id}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 [Admin] Fetching news post by ID:', id);
+        console.log('    [Admin] Fetching news post by ID:', id);
         const response = await api.getAdminNewsPostById(id);
-        console.log('✅ [Admin] News post fetched successfully');
+        console.log('    [Admin] News post fetched successfully');
         return response;
       } catch (error: any) {
-        console.error('❌ [Admin] Failed to fetch news post:', error);
+        console.error('  [Admin] Failed to fetch news post:', error);
         throw error;
       }
     }, { ttl: CacheTTL.SHORT, persistent: false });
@@ -8264,120 +8243,120 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const createNewsPost = async (data: any) => {
     try {
-      console.log('📰 [Admin] Creating news post...');
+      console.log('    [Admin] Creating news post...');
       const response = await api.createNewsPost(data);
       if (response.success) {
         // Invalidate news caches
         await rateLimiter.clearCacheByPattern('published-news');
         await rateLimiter.clearCacheByPattern('admin-news');
-        console.log('✅ [Admin] News post created successfully');
+        console.log('    [Admin] News post created successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to create news post');
     } catch (error: any) {
-      console.error('❌ [Admin] Failed to create news post:', error);
+      console.error('  [Admin] Failed to create news post:', error);
       throw error;
     }
   };
 
   const updateNewsPost = async (id: string, data: any) => {
     try {
-      console.log('📰 [Admin] Updating news post:', id);
+      console.log('    [Admin] Updating news post:', id);
       const response = await api.updateNewsPost(id, data);
       if (response.success) {
         // Invalidate news caches
         await rateLimiter.clearCacheByPattern('published-news');
         await rateLimiter.clearCacheByPattern(`admin-news-${id}`);
-        console.log('✅ [Admin] News post updated successfully');
+        console.log('    [Admin] News post updated successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to update news post');
     } catch (error: any) {
-      console.error('❌ [Admin] Failed to update news post:', error);
+      console.error('  [Admin] Failed to update news post:', error);
       throw error;
     }
   };
 
   const deleteNewsPost = async (id: string) => {
     try {
-      console.log('📰 [Admin] Deleting news post:', id);
+      console.log('    [Admin] Deleting news post:', id);
       const response = await api.deleteNewsPost(id);
       if (response.success) {
         // Invalidate news caches
         await rateLimiter.clearCacheByPattern('published-news');
         await rateLimiter.clearCacheByPattern(`admin-news-${id}`);
-        console.log('✅ [Admin] News post deleted successfully');
+        console.log('    [Admin] News post deleted successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to delete news post');
     } catch (error: any) {
-      console.error('❌ [Admin] Failed to delete news post:', error);
+      console.error('  [Admin] Failed to delete news post:', error);
       throw error;
     }
   };
 
   const publishNewsPost = async (id: string) => {
     try {
-      console.log('📰 [Admin] Publishing news post:', id);
+      console.log('    [Admin] Publishing news post:', id);
       const response = await api.publishNewsPost(id);
       if (response.success) {
         // Invalidate news caches
         await rateLimiter.clearCacheByPattern('published-news');
         await rateLimiter.clearCacheByPattern(`admin-news-${id}`);
-        console.log('✅ [Admin] News post published successfully');
+        console.log('    [Admin] News post published successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to publish news post');
     } catch (error: any) {
-      console.error('❌ [Admin] Failed to publish news post:', error);
+      console.error('  [Admin] Failed to publish news post:', error);
       throw error;
     }
   };
 
   const unpublishNewsPost = async (id: string) => {
     try {
-      console.log('📰 [Admin] Unpublishing news post:', id);
+      console.log('    [Admin] Unpublishing news post:', id);
       const response = await api.unpublishNewsPost(id);
       if (response.success) {
         // Invalidate news caches
         await rateLimiter.clearCacheByPattern('published-news');
         await rateLimiter.clearCacheByPattern(`admin-news-${id}`);
-        console.log('✅ [Admin] News post unpublished successfully');
+        console.log('    [Admin] News post unpublished successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to unpublish news post');
     } catch (error: any) {
-      console.error('❌ [Admin] Failed to unpublish news post:', error);
+      console.error('  [Admin] Failed to unpublish news post:', error);
       throw error;
     }
   };
 
   const uploadNewsPhoto = async (file: any, filename?: string) => {
     try {
-      console.log('📰 [Admin] Uploading news photo...');
+      console.log('    [Admin] Uploading news photo...');
       const response = await api.uploadNewsPhoto(file, filename);
       if (response.success) {
-        console.log('✅ [Admin] News photo uploaded successfully');
+        console.log('    [Admin] News photo uploaded successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to upload news photo');
     } catch (error: any) {
-      console.error('❌ [Admin] Failed to upload news photo:', error);
+      console.error('  [Admin] Failed to upload news photo:', error);
       throw error;
     }
   };
 
   const uploadNewsThumbnail = async (file: any, filename?: string) => {
     try {
-      console.log('📰 [Admin] Uploading news thumbnail...');
+      console.log('    [Admin] Uploading news thumbnail...');
       const response = await api.uploadNewsThumbnail(file, filename);
       if (response.success) {
-        console.log('✅ [Admin] News thumbnail uploaded successfully');
+        console.log('    [Admin] News thumbnail uploaded successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to upload news thumbnail');
     } catch (error: any) {
-      console.error('❌ [Admin] Failed to upload news thumbnail:', error);
+      console.error('  [Admin] Failed to upload news thumbnail:', error);
       throw error;
     }
   };
@@ -8405,13 +8384,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Invalidate news caches to ensure fresh data
         await rateLimiter.clearCacheByPattern('published-news-');
         await rateLimiter.clearCacheByPattern(`news-post-${postId}`);
-        console.log('✅ News post liked successfully');
+        console.log('    News post liked successfully');
         return data;
       }
 
       throw new Error(data.error || data.message || 'Failed to like news post');
     } catch (error: any) {
-      console.error('❌ Failed to like news post:', error);
+      console.error('  Failed to like news post:', error);
       throw error;
     }
   };
@@ -8438,13 +8417,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Invalidate news caches to ensure fresh data
         await rateLimiter.clearCacheByPattern('published-news-');
         await rateLimiter.clearCacheByPattern(`news-post-${postId}`);
-        console.log('✅ News post unliked successfully');
+        console.log('    News post unliked successfully');
         return data;
       }
 
       throw new Error(data.error || data.message || 'Failed to unlike news post');
     } catch (error: any) {
-      console.error('❌ Failed to unlike news post:', error);
+      console.error('  Failed to unlike news post:', error);
       throw error;
     }
   };
@@ -8471,7 +8450,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           setUnreadConversationCount(count);
           
           if (__DEV__) {
-            console.log('💬 [UnreadCount] ✅ Updated from API client:', {
+            console.log('    [UnreadCount]     Updated from API client:', {
               count,
               profile_type: params.profile_type,
               cached: response.data.cached || false,
@@ -8501,7 +8480,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const url = `${baseUrl}/api/chat/conversations/unread-count?${queryString}`;
       
       if (__DEV__) {
-        console.log('💬 [UnreadCount] Calling backend directly:', url);
+        console.log('    [UnreadCount] Calling backend directly:', url);
       }
       
       const response = await fetch(url, {
@@ -8523,7 +8502,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         setUnreadConversationCount(count);
         
         if (__DEV__) {
-          console.log('💬 [UnreadCount] ✅ Updated from direct backend call:', {
+          console.log('    [UnreadCount]     Updated from direct backend call:', {
             count,
             profile_type: params.profile_type,
             profile_id: params.company_id || user?.id,
@@ -8546,14 +8525,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       if (isNetworkError) {
         if (__DEV__) {
-          console.warn('⚠️ Failed to get unread conversation count (network issue):', errorMessage);
+          console.warn('   Failed to get unread conversation count (network issue):', errorMessage);
         }
         // Don't throw - let fallback handle it
         throw error;
       }
       
       if (__DEV__) {
-        console.warn('⚠️ Failed to get unread conversation count:', errorMessage);
+        console.warn('   Failed to get unread conversation count:', errorMessage);
       }
       // Don't call handle401Error here - let updateUnreadCount handle fallback
       throw error;
@@ -8589,7 +8568,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             ? { company_id: params?.company_id ?? activeCompany.id }
             : {}),
         };
-        console.log('💬 Fetching conversations...', scopedParams);
+        console.log('    Fetching conversations...', scopedParams);
         const response = await api.chat.getConversations(scopedParams);
         if (response.success && response.data) {
           // Calculate unread count
@@ -8638,7 +8617,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             if (shouldUpdateCount) {
               setUnreadConversationCount(unreadCount);
               if (__DEV__) {
-                console.log('💬 Unread conversations count (from backend, full fetch):', unreadCount, {
+                console.log('    Unread conversations count (from backend, full fetch):', unreadCount, {
                   streamChatConnected: streamChatService.isConnected(),
                   totalConversations: rawConversations.length,
                   limit: limitValue,
@@ -8646,12 +8625,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               }
             } else {
               if (__DEV__) {
-                console.log('💬 Skipped unread count update (partial fetch, limit:', limitValue, 'conversations:', rawConversations.length, ')');
+                console.log('    Skipped unread count update (partial fetch, limit:', limitValue, 'conversations:', rawConversations.length, ')');
               }
             }
             
             if (__DEV__ && skippedNotParticipant > 0) {
-              console.log('⚠️ Skipped unread-count for conversations not belonging to current profile:', {
+              console.log('   Skipped unread-count for conversations not belonging to current profile:', {
                 skipped: skippedNotParticipant,
                 currentProfileType: currentUserType,
                 currentProfileId: currentUserId,
@@ -8659,7 +8638,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             }
           }
         }
-        console.log('✅ Conversations fetched successfully');
+        console.log('    Conversations fetched successfully');
         return response;
       } catch (error: any) {
         // Network errors are expected in mobile apps - log as warning
@@ -8671,12 +8650,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                               error?.name === 'TypeError' && errorMessage.includes('Network');
         
         if (isNetworkError) {
-          console.warn('⚠️ Failed to fetch conversations (network issue):', errorMessage);
+          console.warn('   Failed to fetch conversations (network issue):', errorMessage);
           // Return empty result for network errors instead of throwing
           return { success: true, data: [] };
         }
         
-        console.error('❌ Failed to fetch conversations:', error);
+        console.error('  Failed to fetch conversations:', error);
         // Handle 401 errors
         await handle401Error(error);
         throw error;
@@ -8691,12 +8670,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (!api.chat) {
           throw new Error('Chat service is not available. Please ensure the API client is initialized.');
         }
-        console.log('💬 Fetching conversation:', conversationId);
+        console.log('    Fetching conversation:', conversationId);
         const response = await api.chat.getConversationById(conversationId);
-        console.log('✅ Conversation fetched successfully');
+        console.log('    Conversation fetched successfully');
         return response;
       } catch (error: any) {
-        console.error('❌ Failed to fetch conversation:', error);
+        console.error('  Failed to fetch conversation:', error);
         throw error;
       }
     }, { useCache: false }); // Disabled caching for real-time data
@@ -8707,20 +8686,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Log profile context for verification
       const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
       const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
-      console.log('💬 Creating conversation...', {
+      console.log('    Creating conversation...', {
         ...request,
         currentProfileType: currentUserType,
         currentProfileId: currentUserId,
       });
-      console.log('💬 API object:', api);
-      console.log('💬 API.chat:', api.chat);
-      console.log('💬 API keys:', Object.keys(api));
+      console.log('    API object:', api);
+      console.log('    API.chat:', api.chat);
+      console.log('    API keys:', Object.keys(api));
       
       // Check if chat service is available
       if (!api.chat) {
-        console.error('❌ Chat service is undefined!');
-        console.error('❌ API object:', api);
-        console.error('❌ Available properties:', Object.keys(api));
+        console.error('  Chat service is undefined!');
+        console.error('  API object:', api);
+        console.error('  Available properties:', Object.keys(api));
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
       
@@ -8736,8 +8715,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           company_id: activeCompany.id
         }),
       };
-      console.log('💬 Request data:', requestData);
-      console.log('💬 Profile context:', {
+      console.log('    Request data:', requestData);
+      console.log('    Profile context:', {
         currentProfileType,
         activeCompanyId: activeCompany?.id,
         passingCompanyId: currentProfileType === 'company' && activeCompany?.id,
@@ -8749,7 +8728,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
       const url = `${baseUrl}/api/chat/conversations`;
       
-      console.log('💬 Making direct fetch call with extended timeout...');
+      console.log('    Making direct fetch call with extended timeout...');
       
       // Create AbortController for timeout
       const controller = new AbortController();
@@ -8776,7 +8755,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const data = await response.json();
         
         if (data.success) {
-          console.log('✅ Conversation created successfully');
+          console.log('    Conversation created successfully');
           return data;
         }
         
@@ -8792,7 +8771,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw fetchError;
       }
     } catch (error: any) {
-      console.error('❌ Failed to create conversation:', error);
+      console.error('  Failed to create conversation:', error);
       throw error;
     }
   };
@@ -8812,13 +8791,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         return await rateLimiter.execute(cacheKey, async () => {
           try {
-            console.log(`👤 [getUserByIdDirect] Fetching user: ${userId}`);
+            console.log(`    [getUserByIdDirect] Fetching user: ${userId}`);
             
             // Use the API client's method
             const response = await api.getUserByIdDirect(userId);
             
             if (response.success && response.data) {
-              console.log(`✅ [getUserByIdDirect] User fetched successfully: ${userId}`);
+              console.log(`    [getUserByIdDirect] User fetched successfully: ${userId}`);
               return response;
             }
             
@@ -8828,7 +8807,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             
             // Handle 429 rate limit errors with exponential backoff retry
             if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
-              console.warn(`⚠️ [getUserByIdDirect] Rate limited for user ${userId}, retrying with backoff...`);
+              console.warn(`   [getUserByIdDirect] Rate limited for user ${userId}, retrying with backoff...`);
               
               // Exponential backoff: wait 1s, 2s, 4s
               for (let attempt = 1; attempt <= 3; attempt++) {
@@ -8838,12 +8817,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 try {
                   const retryResponse = await api.getUserByIdDirect(userId);
                   if (retryResponse.success && retryResponse.data) {
-                    console.log(`✅ [getUserByIdDirect] User fetched after retry: ${userId}`);
+                    console.log(`    [getUserByIdDirect] User fetched after retry: ${userId}`);
                     return retryResponse;
                   }
                 } catch (retryError) {
                   if (attempt === 3) {
-                    console.error(`❌ [getUserByIdDirect] Failed after ${attempt} retries for user ${userId}`);
+                    console.error(`  [getUserByIdDirect] Failed after ${attempt} retries for user ${userId}`);
                     throw retryError;
                   }
                 }
@@ -8890,12 +8869,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (!api.chat) {
           throw new Error('Chat service is not available. Please ensure the API client is initialized.');
         }
-        console.log('💬 Fetching messages for conversation:', conversationId);
+        console.log('    Fetching messages for conversation:', conversationId);
         const response = await api.chat.getMessages(conversationId, params);
-        console.log('✅ Messages fetched successfully');
+        console.log('    Messages fetched successfully');
         return response;
       } catch (error: any) {
-        console.error('❌ Failed to fetch messages:', error);
+        console.error('  Failed to fetch messages:', error);
         throw error;
       }
     }, { useCache: false }); // Disabled caching for real-time data
@@ -8906,11 +8885,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Sending message to conversation:', conversationId);
+      console.log('    Sending message to conversation:', conversationId);
       const response = await api.chat.sendMessage(conversationId, messageData);
       if (response.success) {
         // Cache invalidation not needed since caching is disabled for real-time data
-        console.log('✅ Message sent successfully');
+        console.log('    Message sent successfully');
         // FIXED: Backend automatically invalidates cache when message is sent
         // The unread count will be updated by event handlers, but we can trigger immediate update
         // Note: The recipient's count will update, not the sender's
@@ -8918,7 +8897,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(response.error || 'Failed to send message');
     } catch (error: any) {
-      console.error('❌ Failed to send message:', error);
+      console.error('  Failed to send message:', error);
       throw error;
     }
   };
@@ -8928,16 +8907,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Editing message:', messageId);
+      console.log('    Editing message:', messageId);
       const response = await api.chat.editMessage(messageId, data);
       if (response.success) {
         // Cache invalidation not needed since caching is disabled for real-time data
-        console.log('✅ Message edited successfully');
+        console.log('    Message edited successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to edit message');
     } catch (error: any) {
-      console.error('❌ Failed to edit message:', error);
+      console.error('  Failed to edit message:', error);
       throw error;
     }
   };
@@ -8947,16 +8926,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Deleting message:', messageId, 'from conversation:', conversationId);
+      console.log('    Deleting message:', messageId, 'from conversation:', conversationId);
       const response = await api.chat.deleteMessage(messageId, conversationId);
       if (response.success) {
         // Cache invalidation not needed since caching is disabled for real-time data
-        console.log('✅ Message deleted successfully');
+        console.log('    Message deleted successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to delete message');
     } catch (error: any) {
-      console.error('❌ Failed to delete message:', error);
+      console.error('  Failed to delete message:', error);
       throw error;
     }
   };
@@ -8969,7 +8948,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Log profile context for verification
       const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
       const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
-      console.log('💬 Marking message as read:', { 
+      console.log('    Marking message as read:', { 
         conversationId, 
         messageId, 
         messageIds,
@@ -8991,20 +8970,20 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       if (response.success) {
-        console.log('✅ Message(s) marked as read successfully');
+        console.log('    Message(s) marked as read successfully');
         // FIXED: Update unread count using lightweight endpoint (instant update)
         // Backend cache is invalidated automatically, so we get fresh count
         try {
           await getUnreadConversationCount();
         } catch (countError) {
-          console.warn('⚠️ Failed to update unread count after readMessage:', countError);
+          console.warn('   Failed to update unread count after readMessage:', countError);
         }
         return response;
       }
       
       throw new Error(response.error || 'Failed to mark message as read');
     } catch (error: any) {
-      console.error('❌ Failed to mark message as read:', error);
+      console.error('  Failed to mark message as read:', error);
       throw error;
     }
   };
@@ -9014,22 +8993,22 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Marking message as read:', messageId);
+      console.log('    Marking message as read:', messageId);
       const response = await api.chat.markMessageAsRead(messageId, conversationId);
       if (response.success) {
-        console.log('✅ Message marked as read successfully');
+        console.log('    Message marked as read successfully');
         // FIXED: Update unread count using lightweight endpoint (instant update)
         // Backend cache is invalidated automatically, so we get fresh count
         try {
           await getUnreadConversationCount();
         } catch (countError) {
-          console.warn('⚠️ Failed to update unread count after marking as read:', countError);
+          console.warn('   Failed to update unread count after marking as read:', countError);
         }
         return response;
       }
       throw new Error(response.error || 'Failed to mark message as read');
     } catch (error: any) {
-      console.error('❌ Failed to mark message as read:', error);
+      console.error('  Failed to mark message as read:', error);
       throw error;
     }
   };
@@ -9039,22 +9018,22 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Marking all messages as read in conversation:', conversationId);
+      console.log('    Marking all messages as read in conversation:', conversationId);
       const response = await api.chat.markAllAsRead(conversationId, messageIds);
       if (response.success) {
-        console.log('✅ All messages marked as read successfully');
+        console.log('    All messages marked as read successfully');
         // FIXED: Update unread count using lightweight endpoint (instant update)
         // Backend cache is invalidated automatically, so we get fresh count
         try {
           await getUnreadConversationCount();
         } catch (countError) {
-          console.warn('⚠️ Failed to update unread count after marking all as read:', countError);
+          console.warn('   Failed to update unread count after marking all as read:', countError);
         }
         return response;
       }
       throw new Error(response.error || 'Failed to mark all messages as read');
     } catch (error: any) {
-      console.error('❌ Failed to mark all messages as read:', error);
+      console.error('  Failed to mark all messages as read:', error);
       throw error;
     }
   };
@@ -9064,15 +9043,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Leaving conversation:', conversationId);
+      console.log('    Leaving conversation:', conversationId);
       const response = await api.chat.leaveConversation(conversationId);
       if (response.success) {
-        console.log('✅ Left conversation successfully');
+        console.log('    Left conversation successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to leave conversation');
     } catch (error: any) {
-      console.error('❌ Failed to leave conversation:', error);
+      console.error('  Failed to leave conversation:', error);
       throw error;
     }
   };
@@ -9082,15 +9061,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Muting conversation:', conversationId, mutedUntil ? `until ${mutedUntil}` : 'indefinitely');
+      console.log('    Muting conversation:', conversationId, mutedUntil ? `until ${mutedUntil}` : 'indefinitely');
       const response = await api.chat.muteConversation(conversationId, mutedUntil);
       if (response.success) {
-        console.log('✅ Conversation muted successfully');
+        console.log('    Conversation muted successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to mute conversation');
     } catch (error: any) {
-      console.error('❌ Failed to mute conversation:', error);
+      console.error('  Failed to mute conversation:', error);
       throw error;
     }
   };
@@ -9106,7 +9085,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       throw new Error(response.error || 'Failed to send typing indicator');
     } catch (error: any) {
-      console.error('❌ Failed to send typing indicator:', error);
+      console.error('  Failed to send typing indicator:', error);
       throw error;
     }
   };
@@ -9125,7 +9104,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         queryParams = '?profile_type=user';
       }
       
-      console.log('💬 Getting StreamChat token...', { 
+      console.log('    Getting StreamChat token...', { 
         profile_type: options?.profile_type || 'user',
         company_id: options?.company_id,
         queryParams 
@@ -9142,7 +9121,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           accessToken = (api as any).getAuthToken();
         }
       } catch (tokenError) {
-        console.warn('⚠️ Failed to get access token:', tokenError);
+        console.warn('   Failed to get access token:', tokenError);
       }
       
       const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
@@ -9164,7 +9143,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const data = await response.json();
       
       if (data.success) {
-        console.log('✅ StreamChat token retrieved successfully', {
+        console.log('    StreamChat token retrieved successfully', {
           user_id: data.data?.user_id,
           profile_type: options?.profile_type || 'user',
         });
@@ -9198,16 +9177,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       if (isNetworkError) {
         // Network issues are expected in mobile apps - log as warning (not error)
-        console.warn('⚠️ Failed to get StreamChat token (network issue):', errorMessage);
+        console.warn('   Failed to get StreamChat token (network issue):', errorMessage);
       } else if (isTokenError) {
         // Token expiration is expected - token refresh will handle it
-        console.warn('⚠️ Failed to get StreamChat token (token expired, will retry):', errorMessage);
+        console.warn('   Failed to get StreamChat token (token expired, will retry):', errorMessage);
       } else if (isMembershipError) {
         // User lost access - this is expected, log as warning
-        console.warn('⚠️ Failed to get StreamChat token (membership issue):', errorMessage);
+        console.warn('   Failed to get StreamChat token (membership issue):', errorMessage);
       } else {
         // Other errors (auth, server errors) - log as error
-        console.error('❌ Failed to get StreamChat token:', error);
+        console.error('  Failed to get StreamChat token:', error);
       }
       throw error;
     }
@@ -9219,15 +9198,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Adding reaction to message:', messageId);
+      console.log('    Adding reaction to message:', messageId);
       const response = await api.chat.addReaction(messageId, data);
       if (response.success) {
-        console.log('✅ Reaction added successfully');
+        console.log('    Reaction added successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to add reaction');
     } catch (error: any) {
-      console.error('❌ Failed to add reaction:', error);
+      console.error('  Failed to add reaction:', error);
       throw error;
     }
   };
@@ -9237,15 +9216,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Removing reaction from message:', messageId);
+      console.log('    Removing reaction from message:', messageId);
       const response = await api.chat.removeReaction(messageId, reactionType, conversationId);
       if (response.success) {
-        console.log('✅ Reaction removed successfully');
+        console.log('    Reaction removed successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to remove reaction');
     } catch (error: any) {
-      console.error('❌ Failed to remove reaction:', error);
+      console.error('  Failed to remove reaction:', error);
       throw error;
     }
   };
@@ -9255,14 +9234,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting reactions for message:', messageId);
+      console.log('    Getting reactions for message:', messageId);
       const response = await api.chat.getReactions(messageId, conversationId);
       if (response.success) {
         return response;
       }
       throw new Error(response.error || 'Failed to get reactions');
     } catch (error: any) {
-      console.error('❌ Failed to get reactions:', error);
+      console.error('  Failed to get reactions:', error);
       throw error;
     }
   };
@@ -9273,15 +9252,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Creating thread reply to message:', parentMessageId);
+      console.log('    Creating thread reply to message:', parentMessageId);
       const response = await api.chat.createThreadReply(parentMessageId, conversationId, data);
       if (response.success) {
-        console.log('✅ Thread reply created successfully');
+        console.log('    Thread reply created successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to create thread reply');
     } catch (error: any) {
-      console.error('❌ Failed to create thread reply:', error);
+      console.error('  Failed to create thread reply:', error);
       throw error;
     }
   };
@@ -9291,14 +9270,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting thread replies for message:', parentMessageId);
+      console.log('    Getting thread replies for message:', parentMessageId);
       const response = await api.chat.getThreadReplies(parentMessageId, conversationId, params);
       if (response.success) {
         return response;
       }
       throw new Error(response.error || 'Failed to get thread replies');
     } catch (error: any) {
-      console.error('❌ Failed to get thread replies:', error);
+      console.error('  Failed to get thread replies:', error);
       throw error;
     }
   };
@@ -9309,15 +9288,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Pinning message:', messageId);
+      console.log('    Pinning message:', messageId);
       const response = await api.chat.pinMessage(messageId, conversationId);
       if (response.success) {
-        console.log('✅ Message pinned successfully');
+        console.log('    Message pinned successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to pin message');
     } catch (error: any) {
-      console.error('❌ Failed to pin message:', error);
+      console.error('  Failed to pin message:', error);
       throw error;
     }
   };
@@ -9327,15 +9306,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Unpinning message:', messageId);
+      console.log('    Unpinning message:', messageId);
       const response = await api.chat.unpinMessage(messageId, conversationId);
       if (response.success) {
-        console.log('✅ Message unpinned successfully');
+        console.log('    Message unpinned successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to unpin message');
     } catch (error: any) {
-      console.error('❌ Failed to unpin message:', error);
+      console.error('  Failed to unpin message:', error);
       throw error;
     }
   };
@@ -9345,14 +9324,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting pinned messages for conversation:', conversationId);
+      console.log('    Getting pinned messages for conversation:', conversationId);
       const response = await api.chat.getPinnedMessages(conversationId);
       if (response.success) {
         return response;
       }
       throw new Error(response.error || 'Failed to get pinned messages');
     } catch (error: any) {
-      console.error('❌ Failed to get pinned messages:', error);
+      console.error('  Failed to get pinned messages:', error);
       throw error;
     }
   };
@@ -9363,14 +9342,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Searching messages:', params);
+      console.log('    Searching messages:', params);
       const response = await api.chat.searchMessages(params);
       if (response.success) {
         return response;
       }
       throw new Error(response.error || 'Failed to search messages');
     } catch (error: any) {
-      console.error('❌ Failed to search messages:', error);
+      console.error('  Failed to search messages:', error);
       throw error;
     }
   };
@@ -9380,14 +9359,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Searching messages in conversation:', conversationId);
+      console.log('    Searching messages in conversation:', conversationId);
       const response = await api.chat.searchInConversation(conversationId, params);
       if (response.success) {
         return response;
       }
       throw new Error(response.error || 'Failed to search in conversation');
     } catch (error: any) {
-      console.error('❌ Failed to search in conversation:', error);
+      console.error('  Failed to search in conversation:', error);
       throw error;
     }
   };
@@ -9398,15 +9377,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Updating channel:', conversationId);
+      console.log('    Updating channel:', conversationId);
       const response = await api.chat.updateChannel(conversationId, data);
       if (response.success) {
-        console.log('✅ Channel updated successfully');
+        console.log('    Channel updated successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to update channel');
     } catch (error: any) {
-      console.error('❌ Failed to update channel:', error);
+      console.error('  Failed to update channel:', error);
       throw error;
     }
   };
@@ -9416,15 +9395,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Adding member to channel:', conversationId);
+      console.log('    Adding member to channel:', conversationId);
       const response = await api.chat.addMember(conversationId, userId);
       if (response.success) {
-        console.log('✅ Member added successfully');
+        console.log('    Member added successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to add member');
     } catch (error: any) {
-      console.error('❌ Failed to add member:', error);
+      console.error('  Failed to add member:', error);
       throw error;
     }
   };
@@ -9434,15 +9413,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Removing member from channel:', conversationId);
+      console.log('    Removing member from channel:', conversationId);
       const response = await api.chat.removeMember(conversationId, userId);
       if (response.success) {
-        console.log('✅ Member removed successfully');
+        console.log('    Member removed successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to remove member');
     } catch (error: any) {
-      console.error('❌ Failed to remove member:', error);
+      console.error('  Failed to remove member:', error);
       throw error;
     }
   };
@@ -9452,14 +9431,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting channel members:', conversationId);
+      console.log('    Getting channel members:', conversationId);
       const response = await api.chat.getMembers(conversationId);
       if (response.success) {
         return response;
       }
       throw new Error(response.error || 'Failed to get members');
     } catch (error: any) {
-      console.error('❌ Failed to get members:', error);
+      console.error('  Failed to get members:', error);
       throw error;
     }
   };
@@ -9470,15 +9449,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Adding moderator to channel:', conversationId);
+      console.log('    Adding moderator to channel:', conversationId);
       const response = await api.chat.addModerator(conversationId, userId);
       if (response.success) {
-        console.log('✅ Moderator added successfully');
+        console.log('    Moderator added successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to add moderator');
     } catch (error: any) {
-      console.error('❌ Failed to add moderator:', error);
+      console.error('  Failed to add moderator:', error);
       throw error;
     }
   };
@@ -9488,15 +9467,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Removing moderator from channel:', conversationId);
+      console.log('    Removing moderator from channel:', conversationId);
       const response = await api.chat.removeModerator(conversationId, userId);
       if (response.success) {
-        console.log('✅ Moderator removed successfully');
+        console.log('    Moderator removed successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to remove moderator');
     } catch (error: any) {
-      console.error('❌ Failed to remove moderator:', error);
+      console.error('  Failed to remove moderator:', error);
       throw error;
     }
   };
@@ -9506,15 +9485,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Banning user from channel:', conversationId);
+      console.log('    Banning user from channel:', conversationId);
       const response = await api.chat.banUser(conversationId, data);
       if (response.success) {
-        console.log('✅ User banned successfully');
+        console.log('    User banned successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to ban user');
     } catch (error: any) {
-      console.error('❌ Failed to ban user:', error);
+      console.error('  Failed to ban user:', error);
       throw error;
     }
   };
@@ -9524,15 +9503,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Unbanning user from channel:', conversationId);
+      console.log('    Unbanning user from channel:', conversationId);
       const response = await api.chat.unbanUser(conversationId, userId);
       if (response.success) {
-        console.log('✅ User unbanned successfully');
+        console.log('    User unbanned successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to unban user');
     } catch (error: any) {
-      console.error('❌ Failed to unban user:', error);
+      console.error('  Failed to unban user:', error);
       throw error;
     }
   };
@@ -9542,15 +9521,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Muting user in channel:', conversationId);
+      console.log('    Muting user in channel:', conversationId);
       const response = await api.chat.muteUser(conversationId, data);
       if (response.success) {
-        console.log('✅ User muted successfully');
+        console.log('    User muted successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to mute user');
     } catch (error: any) {
-      console.error('❌ Failed to mute user:', error);
+      console.error('  Failed to mute user:', error);
       throw error;
     }
   };
@@ -9560,15 +9539,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Unmuting user in channel:', conversationId);
+      console.log('    Unmuting user in channel:', conversationId);
       const response = await api.chat.unmuteUser(conversationId, userId);
       if (response.success) {
-        console.log('✅ User unmuted successfully');
+        console.log('    User unmuted successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to unmute user');
     } catch (error: any) {
-      console.error('❌ Failed to unmute user:', error);
+      console.error('  Failed to unmute user:', error);
       throw error;
     }
   };
@@ -9578,15 +9557,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Flagging message:', messageId);
+      console.log('    Flagging message:', messageId);
       const response = await api.chat.flagMessage(messageId, conversationId);
       if (response.success) {
-        console.log('✅ Message flagged successfully');
+        console.log('    Message flagged successfully');
         return response;
       }
       throw new Error(response.error || 'Failed to flag message');
     } catch (error: any) {
-      console.error('❌ Failed to flag message:', error);
+      console.error('  Failed to flag message:', error);
       throw error;
     }
   };
@@ -9596,14 +9575,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting flagged messages');
+      console.log('    Getting flagged messages');
       const response = await api.chat.getFlaggedMessages(params);
       if (response.success) {
         return response;
       }
       throw new Error(response.error || 'Failed to get flagged messages');
     } catch (error: any) {
-      console.error('❌ Failed to get flagged messages:', error);
+      console.error('  Failed to get flagged messages:', error);
       throw error;
     }
   };
@@ -9614,14 +9593,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Translating message:', messageId, 'to', targetLanguage);
+      console.log('    Translating message:', messageId, 'to', targetLanguage);
       const response = await api.chat.translateMessage(messageId, conversationId, targetLanguage);
       if (response.success) {
         return response;
       }
       throw new Error(response.error || 'Failed to translate message');
     } catch (error: any) {
-      console.error('❌ Failed to translate message:', error);
+      console.error('  Failed to translate message:', error);
       throw error;
     }
   };
@@ -9630,9 +9609,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Uses onecrew-api-client's pushNotifications.registerDeviceToken() method
   const registerPushToken = async (token: string) => {
     try {
-      console.log('📱 [Backend] Registering FCM token with backend using API client...');
-      console.log('📱 [Backend] Token (first 20 chars):', token.substring(0, 20) + '...');
-      console.log('🔑 [FCM] Full token (copy for Firebase Console → Send test message):', token);
+      console.log('    [Backend] Registering FCM token with backend using API client...');
+      console.log('    [Backend] Token (first 20 chars):', token.substring(0, 20) + '...');
+      console.log('    [FCM] Full token (copy for Firebase Console → Send test message):', token);
       
       // Get platform
       const platform = Platform.OS === 'ios' ? 'ios' : 'android';
@@ -9646,12 +9625,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           // Generate a simple device identifier as last resort
           deviceId = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
           await AsyncStorage.setItem('@onecrew:device_id', deviceId);
-          console.log('📱 [Backend] Generated new device ID:', deviceId);
+          console.log('    [Backend] Generated new device ID:', deviceId);
         } else {
-          console.log('📱 [Backend] Using stored device ID:', deviceId);
+          console.log('    [Backend] Using stored device ID:', deviceId);
         }
       } else {
-        console.log('📱 [Backend] Using device model name:', deviceId);
+        console.log('    [Backend] Using device model name:', deviceId);
       }
       
       // Get app version
@@ -9666,7 +9645,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         appVersion
       );
       
-      console.log('✅ [Backend] Push token registered successfully via API client');
+      console.log('    [Backend] Push token registered successfully via API client');
 
       // Register device with Stream Chat for push. iOS: Stream expects APNs token, not FCM token.
       if (streamChatService.isConnected()) {
@@ -9681,7 +9660,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     } catch (error: any) {
       // Don't throw - push token registration is not critical for app functionality
       if (error?.stack) {
-        console.error('❌ [Backend] Stack trace:', error.stack.substring(0, 300));
+        console.error('  [Backend] Stack trace:', error.stack.substring(0, 300));
       }
     }
   };
@@ -9760,7 +9739,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                             error?.name === 'TypeError' && errorMessage.includes('Network');
       
       if (isNetworkError) {
-        console.warn('⚠️ Failed to get unread notification count (network issue):', errorMessage);
+        console.warn('   Failed to get unread notification count (network issue):', errorMessage);
         // Return 0 for network errors instead of throwing
         return 0;
       }
@@ -9839,11 +9818,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const sendHeartbeat = async () => {
     try {
       if (!api.chat) {
-        console.warn('⚠️ Chat service not available for heartbeat');
+        console.warn('   Chat service not available for heartbeat');
         return;
       }
       await api.chat.sendHeartbeat();
-      console.log('✅ Heartbeat sent');
+      console.log('    Heartbeat sent');
     } catch (error: any) {
       // Handle 404 gracefully - endpoint might not exist on local dev server
       if (error?.status === 404 || 
@@ -9860,13 +9839,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (errorMessage.toLowerCase().includes('token has been invalidated') ||
             errorMessage.toLowerCase().includes('invalidated') ||
             errorMessage.toLowerCase().includes('please sign in again')) {
-          console.warn('⚠️ Heartbeat failed due to token invalidation - clearing auth state');
+          console.warn('   Heartbeat failed due to token invalidation - clearing auth state');
           await handle401Error(error);
           return;
         }
       }
       // Silently fail for other errors - heartbeat is not critical
-      console.warn('⚠️ Heartbeat failed (non-critical):', error.message || error);
+      console.warn('   Heartbeat failed (non-critical):', error.message || error);
     }
   };
 
@@ -9899,42 +9878,28 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   useEffect(() => {
     if (!isAuthenticated || !user || !isAppBootCompleted) return;
 
-    let warmupTimeout: ReturnType<typeof setTimeout> | null = null;
     const task = InteractionManager.runAfterInteractions(() => {
-      void Promise.allSettled([
-        getUnreadNotificationCount(),
-        getConversations({ page: 1, limit: 25 }),
-      ]);
+      // Unread badges (lightweight endpoints)
+      getUnreadNotificationCount();
+      // Chat unread conversations count
+      getConversations({ page: 1, limit: 50 });
 
-      warmupTimeout = setTimeout(() => {
-        if (!user.id) {
-          return;
+      // Cache warming: pre-fetch frequently accessed data (non-blocking)
+      setTimeout(() => {
+        try {
+          if (user.id) {
+            getUserCompanies(user.id);
+            getUserCertifications(user.id);
+            getMyTeamMembers();
+          }
+        } catch (error) {
+          console.warn('Cache warming failed:', error);
         }
-
-        Promise.allSettled([
-          getUserCompanies(user.id),
-          getUserCertifications(user.id),
-          getMyTeamMembers(),
-        ])
-          .then((results) => {
-            const companiesResult = results[0];
-            if (companiesResult.status === 'fulfilled') {
-              updatePendingCompaniesFlag(companiesResult.value);
-            }
-          })
-          .catch((error) => {
-            console.warn('Cache warming failed:', error);
-          });
-      }, 1500);
+      }, 250);
     });
 
-    return () => {
-      task.cancel();
-      if (warmupTimeout) {
-        clearTimeout(warmupTimeout);
-      }
-    };
-  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, isAppBootCompleted, updatePendingCompaniesFlag]);
+    return () => task.cancel();
+  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, isAppBootCompleted]);
 
   // Manage heartbeat based on authentication state and app state
   useEffect(() => {
@@ -9969,7 +9934,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       stopHeartbeat();
       subscription.remove();
     };
-  }, [isAuthenticated, user?.id, api.chat, isAppBootCompleted]);
+  }, [isAuthenticated, user?.id, api.chat]);
 
   // Track app background time and refresh company data when app comes to foreground
   const appBackgroundTimeRef = useRef<number | null>(null);
@@ -10022,9 +9987,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Poll for pending company approval status changes
   useEffect(() => {
-    let initialCheckTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    if (!isAuthenticated || !user || !isAppBootCompleted || !shouldPollPendingCompanies) {
+    if (!isAuthenticated || !user || !isAppBootCompleted) {
       if (companyPollingIntervalRef.current) {
         clearInterval(companyPollingIntervalRef.current);
         companyPollingIntervalRef.current = null;
@@ -10036,12 +9999,22 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const checkAndRefreshPendingCompanies = async () => {
       try {
         const response = await getUserCompanies(user.id);
-        const hasPendingCompanies = updatePendingCompaniesFlag(response);
+        if (response.success && response.data) {
+          const companiesList = Array.isArray(response.data)
+            ? response.data
+            : (response.data as any)?.data || [];
+          
+          // Check if any companies are pending approval
+          const hasPendingCompanies = companiesList.some((company: any) => {
+            const approvalStatus = company.approval_status || company.company?.approval_status;
+            return approvalStatus === 'pending';
+          });
 
-        if (hasPendingCompanies) {
-          const refreshedResponse = await getUserCompanies(user.id, true);
-          updatePendingCompaniesFlag(refreshedResponse);
-          console.log('🔄 Refreshed pending company approval status');
+          if (hasPendingCompanies) {
+            // Force refresh to get latest approval status
+            await getUserCompanies(user.id, true);
+            console.log('🔄 Refreshed pending company approval status');
+          }
         }
       } catch (error) {
         console.warn('Failed to check pending company status:', error);
@@ -10055,7 +10028,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       // Initial check after 5 seconds
-      initialCheckTimeout = setTimeout(checkAndRefreshPendingCompanies, 5000);
+      setTimeout(checkAndRefreshPendingCompanies, 5000);
       
       // Then poll every 30 seconds
       companyPollingIntervalRef.current = setInterval(() => {
@@ -10089,21 +10062,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
     return () => {
-      if (initialCheckTimeout) {
-        clearTimeout(initialCheckTimeout);
-      }
       if (companyPollingIntervalRef.current) {
         clearInterval(companyPollingIntervalRef.current);
         companyPollingIntervalRef.current = null;
       }
       subscription.remove();
     };
-  }, [isAuthenticated, user?.id, isAppBootCompleted, shouldPollPendingCompanies, updatePendingCompaniesFlag]);
+  }, [isAuthenticated, user?.id, isAppBootCompleted]);
 
   // Setup real-time subscription for notifications
   useEffect(() => {
-    let activeNotificationChannelId: string | null = null;
-
     if (isAuthenticated && user?.id) {
       // Initialize Supabase if not already initialized
       // Note: Supabase URL and key should be set via environment variables or config
@@ -10121,9 +10089,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           
           if (supabaseUrl && supabaseKey) {
             supabaseService.initialize(supabaseUrl, supabaseKey);
-            console.log('✅ Supabase initialized for real-time notifications');
+            console.log('    Supabase initialized for real-time notifications');
           } else {
-            console.warn('⚠️ Supabase credentials not configured. Real-time notifications will not work.');
+            console.warn('   Supabase credentials not configured. Real-time notifications will not work.');
             console.warn('Set SUPABASE_URL and SUPABASE_ANON_KEY in app.json extra section or as environment variables.');
           }
         }
@@ -10164,20 +10132,24 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               
               if (isCompanyRelated) {
                 console.log('🔄 Company-related notification received - refreshing company data');
-                getUserCompanies(user.id, true)
-                  .then((response) => {
-                    updatePendingCompaniesFlag(response);
-                  })
-                  .catch(err => {
+                // Refresh company data in background (non-blocking)
+                setTimeout(() => {
+                  getUserCompanies(user.id, true).catch(err => {
                     console.warn('Failed to refresh company data after notification:', err);
                   });
+                }, 1000);
               }
+
+              // Refresh notifications list and count asynchronously to avoid race conditions
+              setTimeout(() => {
+              getNotifications({ limit: 20, page: 1 });
+              getUnreadNotificationCount();
+              }, 500);
             }
           );
 
-          activeNotificationChannelId = channelId;
           setNotificationChannelId(channelId);
-          console.log('✅ Real-time notification subscription established');
+          console.log('    Real-time notification subscription established');
         }
       } catch (error) {
         console.error('Failed to setup real-time notifications:', error);
@@ -10186,13 +10158,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
     // Cleanup subscription on unmount or when user changes
     return () => {
-      if (activeNotificationChannelId) {
-        supabaseService.unsubscribe(activeNotificationChannelId);
+      if (notificationChannelId) {
+        supabaseService.unsubscribe(notificationChannelId);
         setNotificationChannelId(null);
         console.log('🔌 Unsubscribed from real-time notifications');
       }
     };
-  }, [isAuthenticated, user?.id, updatePendingCompaniesFlag]);
+  }, [isAuthenticated, user?.id]);
 
   // Calculate unread count from StreamChat channels
   // FIXED: Now filters channels based on current profile type (user vs company)
@@ -10202,23 +10174,23 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         client = streamChatService.getClient();
       } catch {
-        if (__DEV__) console.log('💬 [StreamChat] Client not available for unread count calculation');
+        if (__DEV__) console.log('    [StreamChat] Client not available for unread count calculation');
         return 0;
       }
       const currentUserId = streamChatService.getCurrentUserId();
       if (!client || !currentUserId) {
-        if (__DEV__) console.log('💬 [StreamChat] Client not available for unread count calculation');
+        if (__DEV__) console.log('    [StreamChat] Client not available for unread count calculation');
         return 0;
       }
       const isConnected = streamChatService.isConnected();
       if (!isConnected) {
-        if (__DEV__) console.log('💬 [StreamChat] Client not connected, skipping unread count calculation');
+        if (__DEV__) console.log('    [StreamChat] Client not connected, skipping unread count calculation');
         return 0;
       }
       let connectionState: string | undefined;
       try { connectionState = (client as any)?.connectionState; } catch { connectionState = undefined; }
       if (connectionState === 'disconnected' || connectionState === 'offline') {
-        if (__DEV__) console.log('💬 [StreamChat] Client connection state is disconnected/offline, skipping unread count');
+        if (__DEV__) console.log('    [StreamChat] Client connection state is disconnected/offline, skipping unread count');
         return 0;
       }
       
@@ -10227,7 +10199,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const currentProfileTypeForFilter = currentProfileType;
       
       if (!currentProfileId) {
-        if (__DEV__) console.log('💬 [StreamChat] No current profile ID, skipping unread count calculation');
+        if (__DEV__) console.log('    [StreamChat] No current profile ID, skipping unread count calculation');
         return 0;
       }
       
@@ -10267,7 +10239,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Backend correctly filters by profile_type and participant_id
       
       if (__DEV__) {
-        console.log('💬 [StreamChat] Using backend for unread count (profile-aware filtering)');
+        console.log('    [StreamChat] Using backend for unread count (profile-aware filtering)');
       }
       
       // Return 0 here - backend getConversations will set the correct count
@@ -10283,12 +10255,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (isConnectionError) {
         // This is expected during profile switching - don't log as error
         if (__DEV__) {
-          console.log('💬 [StreamChat] Unread count calculation skipped - client not connected (expected during profile switch)');
+          console.log('    [StreamChat] Unread count calculation skipped - client not connected (expected during profile switch)');
         }
       } else {
         // Log other errors as warnings (not errors)
         if (__DEV__) {
-          console.warn('⚠️ [StreamChat] Failed to calculate unread count:', error?.message || error);
+          console.warn('   [StreamChat] Failed to calculate unread count:', error?.message || error);
         }
       }
       return 0; // Return 0 instead of throwing - this is non-critical
@@ -10298,13 +10270,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Setup real-time subscription for chat conversations to update unread count
   useEffect(() => {
     if (isAuthenticated && user?.id && supabaseService.isInitialized()) {
-      console.log('💬 Setting up real-time subscription for chat unread count updates');
+      console.log('    Setting up real-time subscription for chat unread count updates');
       
       // Subscribe to conversation updates to refresh unread count when new messages arrive
       const channelId = supabaseService.subscribeToConversations(
         user.id,
         (updatedConversation: any) => {
-          console.log('💬 Conversation updated via real-time (unread count update):', updatedConversation);
+          console.log('    Conversation updated via real-time (unread count update):', updatedConversation);
           // Update unread count based on the updated conversation
           // We'll recalculate when conversations are explicitly fetched, not on every update
           // This prevents unnecessary API calls and refreshes
@@ -10332,6 +10304,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     let rateLimitedUntil = 0;
     let lastUpdateAttempt = 0;
     const THROTTLE_MS = 15000;
+    const NORMAL_POLL_MS = 30000;
     const RATE_LIMIT_BACKOFF_MS = 60000;
 
     const is429 = (err: any) => {
@@ -10355,7 +10328,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           // If we got here, the method exists and returned successfully
           // Count can be 0 (no unread messages) or > 0 (has unread messages)
           if (__DEV__) {
-            console.log('💬 [UnreadCount] Updated from lightweight endpoint:', {
+            console.log('    [UnreadCount] Updated from lightweight endpoint:', {
               count,
               currentProfileType,
               currentProfileId: currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id,
@@ -10366,10 +10339,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       } catch (error) {
         if (is429(error)) {
           rateLimitedUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
-          if (__DEV__) console.warn('⚠️ [UnreadCount] Rate limited (429), backing off 60s');
+          if (__DEV__) console.warn('   [UnreadCount] Rate limited (429), backing off 60s');
         }
         if (__DEV__) {
-          console.warn('⚠️ [UnreadCount] Lightweight endpoint failed:', error);
+          console.warn('   [UnreadCount] Lightweight endpoint failed:', error);
         }
 
         // SKIP pagination fallback on 429 - it triggers many more requests
@@ -10379,7 +10352,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               client = streamChatService.getClient();
               const streamChatCount = await calculateStreamChatUnreadCount();
               setUnreadConversationCount(streamChatCount);
-              if (__DEV__) console.warn('⚠️ [UnreadCount] StreamChat fallback (rate limited):', streamChatCount);
+              if (__DEV__) console.warn('   [UnreadCount] StreamChat fallback (rate limited):', streamChatCount);
             }
           } catch {
             /* keep existing count */
@@ -10448,7 +10421,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             if (isMounted) {
               setUnreadConversationCount(unreadCount);
               if (__DEV__) {
-                console.log('💬 [UnreadCount] Updated from pagination fallback:', {
+                console.log('    [UnreadCount] Updated from pagination fallback:', {
                   unreadCount,
                   totalConversations: allConversations.length,
                 });
@@ -10456,7 +10429,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             }
           }
         } catch (fallbackError) {
-          if (__DEV__) console.warn('⚠️ [UnreadCount] Pagination fallback failed:', fallbackError);
+          if (__DEV__) console.warn('   [UnreadCount] Pagination fallback failed:', fallbackError);
           if (is429(fallbackError)) {
             rateLimitedUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
           }
@@ -10467,29 +10440,52 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               const streamChatCount = await calculateStreamChatUnreadCount();
               setUnreadConversationCount(streamChatCount);
               if (__DEV__) {
-                console.warn('⚠️ [UnreadCount] Using StreamChat fallback (may not be profile-aware):', streamChatCount);
+                console.warn('   [UnreadCount] Using StreamChat fallback (may not be profile-aware):', streamChatCount);
               }
             }
           } catch (streamError) {
             if (__DEV__) {
-              console.warn('⚠️ [UnreadCount] All methods failed');
+              console.warn('   [UnreadCount] All methods failed');
             }
           }
         }
       }
     };
 
+    // FIXED: Don't use StreamChat's initial unread counts directly
+    // They include ALL channels regardless of current profile
+    // Instead, fetch from backend which correctly filters by profile
+    const useInitialUnreadCounts = () => {
+      // Skip StreamChat initial counts - they're not profile-aware
+      // Backend getConversations will set the correct count
+      return false;
+    };
+
+    // Always fetch from backend for accurate profile-aware count
+    const hasInitialCounts = false;
+
+    // FIXED: Always call updateUnreadCount immediately and on interval
+    // This ensures we get the correct count even if getConversations was called with a limit
+    let initialTimeout: NodeJS.Timeout | null = null;
+    
     // FIXED: Call updateUnreadCount immediately to get accurate count
     // This ensures count is correct even if other parts of the app call getConversations with limits
     // Don't wait for StreamChat - backend API works independently
     if (isMounted) {
       updateUnreadCount(true).catch(err => {
-        if (__DEV__) console.warn('⚠️ [UnreadCount] Immediate update failed:', err);
+        if (__DEV__) console.warn('   [UnreadCount] Immediate update failed:', err);
       });
     }
 
+    initialTimeout = setTimeout(() => {
+      if (isMounted) {
+        updateUnreadCount().catch(err => {
+          if (__DEV__) console.warn('   [UnreadCount] Backup update failed:', err);
+        });
+      }
+    }, 5000);
+
     // Set up real-time listeners if StreamChat is connected
-    let refreshInterval: NodeJS.Timeout | null = null;
     if (streamChatService.isConnected()) {
       client = streamChatService.getClient();
       
@@ -10501,53 +10497,124 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           // Trigger backend recalculation instead of using event count
           updateUnreadCount();
           if (__DEV__) {
-            console.log('💬 [UnreadCount] Event received, recalculating from backend (profile-aware)');
+            console.log('    [UnreadCount] Event received, recalculating from backend (profile-aware)');
           }
         }
       };
       
+      const handleMessageNew = () => {
+        if (isMounted) {
+          updateUnreadCount();
+        }
+      };
+
+      const handleChannelUpdated = (event: any) => {
+        // Channel updated - could be read state change
+        if (isMounted) {
+          if (__DEV__ && event?.channel?.state?.unreadCount !== undefined) {
+            console.log('    [UnreadCount] Channel updated, unreadCount:', event.channel.state.unreadCount);
+          }
+          updateUnreadCount();
+        }
+      };
+      
+      // Listen for read state changes specifically
+      const handleReadStateChanged = () => {
+        // When read state changes, unread count definitely changed
+        if (isMounted) {
+          if (__DEV__) {
+            console.log('    [UnreadCount] Read state changed, updating count');
+          }
+          updateUnreadCount();
+        }
+      };
+
+      const handleChannelDeleted = () => {
+        if (isMounted) {
+          updateUnreadCount();
+        }
+      };
+
+      const handleChannelRead = () => {
+        // When a channel is marked as read, update unread count immediately
+        if (isMounted) {
+          if (__DEV__) {
+            console.log('    [UnreadCount] Channel marked as read, updating count');
+          }
+          updateUnreadCount();
+        }
+      };
+
       // FIXED: Listen to events but recalculate from backend (profile-aware)
       // StreamChat events include total_unread_count but it's not profile-filtered
       const unreadEventListeners = [
         client.on('notification.mark_read', (event: any) => {
+          // Recalculate from backend instead of using event.total_unread_count
           handleUnreadUpdate(event);
+          handleChannelRead();
         }),
         client.on('notification.message_new', (event: any) => {
+          // Recalculate from backend instead of using event.total_unread_count
           handleUnreadUpdate(event);
+          handleMessageNew();
         }),
         client.on('notification.mark_unread', (event: any) => {
+          // Recalculate from backend instead of using event.total_unread_count
           handleUnreadUpdate(event);
         }),
       ];
 
-      // Keep a slower backup poll for cases where realtime events are missed.
-      refreshInterval = setInterval(() => {
-        if (isMounted && AppState.currentState === 'active' && streamChatService.isConnected()) {
+      // Also listen to channel-level events (fallback if event doesn't have unread count)
+      const channelEventListeners = [
+        client.on('message.new', handleMessageNew),
+        client.on('channel.updated', handleChannelUpdated),
+        client.on('channel.deleted', handleChannelDeleted),
+        client.on('notification.read', handleReadStateChanged),
+      ];
+      
+      // Also listen to channel-specific read events
+      // Note: StreamChat may fire 'notification.mark_read', 'notification.read', or channel state changes
+      // when messages are marked as read
+
+      // Poll every 30s; throttle prevents extra calls from event bursts
+      const refreshInterval = setInterval(() => {
+        if (isMounted && streamChatService.isConnected()) {
           updateUnreadCount();
         }
-      }, 60000);
+      }, NORMAL_POLL_MS);
 
       return () => {
         isMounted = false;
         if (client) {
+          // BEST PRACTICE: Unsubscribe from all listeners (per Stream docs)
+          // Unsubscribe from unread count event listeners
           unreadEventListeners.forEach(listener => {
             try {
               listener.unsubscribe();
             } catch (error) {
-              console.warn('⚠️ [UnreadCount] Error unsubscribing unread listener:', error);
+              console.warn('   [UnreadCount] Error unsubscribing unread listener:', error);
+            }
+          });
+          // Unsubscribe from channel event listeners
+          channelEventListeners.forEach(listener => {
+            try {
+              listener.unsubscribe();
+            } catch (error) {
+              console.warn('   [UnreadCount] Error unsubscribing channel listener:', error);
             }
           });
         }
-        if (refreshInterval !== null) {
-          clearInterval(refreshInterval);
+        clearInterval(refreshInterval);
+        if (initialTimeout !== null) {
+          clearTimeout(initialTimeout);
         }
       };
     }
 
     return () => {
       isMounted = false;
-      if (refreshInterval !== null) {
-        clearInterval(refreshInterval);
+      if (initialTimeout !== null) {
+        clearTimeout(initialTimeout);
       }
     };
   }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, calculateStreamChatUnreadCount, getConversations]);
@@ -10572,7 +10639,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       return data;
     } catch (error: any) {
-      console.error('❌ Failed to get online status:', error);
+      console.error('  Failed to get online status:', error);
       throw error;
     }
   };
@@ -10597,7 +10664,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       return data;
     } catch (error: any) {
-      console.error('❌ Failed to get online statuses:', error);
+      console.error('  Failed to get online statuses:', error);
       throw error;
     }
   };
@@ -10622,7 +10689,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.getEvents(params);
     } catch (error: any) {
-      console.error('❌ Failed to get agenda events:', error);
+      console.error('  Failed to get agenda events:', error);
       throw error;
     }
   };
@@ -10631,7 +10698,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.getEvent(eventId);
     } catch (error: any) {
-      console.error('❌ Failed to get agenda event:', error);
+      console.error('  Failed to get agenda event:', error);
       throw error;
     }
   };
@@ -10640,7 +10707,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.createEvent(eventData);
     } catch (error: any) {
-      console.error('❌ Failed to create agenda event:', error);
+      console.error('Failed to create agenda event:', error);
       throw error;
     }
   };
@@ -10649,7 +10716,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.updateEvent(eventId, updates);
     } catch (error: any) {
-      console.error('❌ Failed to update agenda event:', error);
+      console.error('Failed to update agenda event:', error);
       throw error;
     }
   };
@@ -10658,7 +10725,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       await agendaService.deleteEvent(eventId);
     } catch (error: any) {
-      console.error('❌ Failed to delete agenda event:', error);
+      console.error('Failed to delete agenda event:', error);
       throw error;
     }
   };
@@ -10667,7 +10734,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.getEventAttendees(eventId);
     } catch (error: any) {
-      console.error('❌ Failed to get event attendees:', error);
+      console.error('  Failed to get event attendees:', error);
       throw error;
     }
   };
@@ -10676,7 +10743,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.addEventAttendee(eventId, userId);
     } catch (error: any) {
-      console.error('❌ Failed to add event attendee:', error);
+      console.error('  Failed to add event attendee:', error);
       throw error;
     }
   };
@@ -10685,7 +10752,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.updateAttendeeStatus(eventId, attendeeId, status);
     } catch (error: any) {
-      console.error('❌ Failed to update attendee status:', error);
+      console.error('  Failed to update attendee status:', error);
       throw error;
     }
   };
@@ -10694,7 +10761,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       await agendaService.removeEventAttendee(eventId, attendeeId);
     } catch (error: any) {
-      console.error('❌ Failed to remove event attendee:', error);
+      console.error('  Failed to remove event attendee:', error);
       throw error;
     }
   };
@@ -10703,7 +10770,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.getBookingRequests(params);
     } catch (error: any) {
-      console.error('❌ Failed to get booking requests:', error);
+      console.error('  Failed to get booking requests:', error);
       throw error;
     }
   };
@@ -10712,7 +10779,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.getBookingRequest(requestId);
     } catch (error: any) {
-      console.error('❌ Failed to get booking request:', error);
+      console.error('  Failed to get booking request:', error);
       throw error;
     }
   };
@@ -10721,7 +10788,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.createBookingRequest(requestData);
     } catch (error: any) {
-      console.error('❌ Failed to create booking request:', error);
+      console.error('  Failed to create booking request:', error);
       throw error;
     }
   };
@@ -10730,7 +10797,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       return await agendaService.respondToBookingRequest(requestId, response);
     } catch (error: any) {
-      console.error('❌ Failed to respond to booking request:', error);
+      console.error('  Failed to respond to booking request:', error);
       throw error;
     }
   };
@@ -10739,7 +10806,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       await agendaService.cancelBookingRequest(requestId);
     } catch (error: any) {
-      console.error('❌ Failed to cancel booking request:', error);
+      console.error('  Failed to cancel booking request:', error);
       throw error;
     }
   };

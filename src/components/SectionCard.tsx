@@ -14,20 +14,20 @@ const SECTION_ICONS: { [key: string]: keyof typeof Ionicons.glyphMap } = {
   technicians: 'people',
 };
 
-const SectionCard: React.FC<SectionCardProps> = ({ section, onClick }) => {
+const SectionCard: React.FC<SectionCardProps & { featured?: boolean }> = ({ section, onClick, featured = false }) => {
   const iconName = SECTION_ICONS[section.key] || 'sparkles';
 
   return (
     <TouchableOpacity
-      style={styles.container}
+      style={[styles.container, featured && styles.containerFeatured]}
       onPress={onClick}
       activeOpacity={0.7}
     >
-      <View style={styles.iconContainer}>
-        <Ionicons name={iconName} size={22} color="#0ea5e9" />
+      <View style={[styles.iconContainer, featured && styles.iconContainerFeatured]}>
+        <Ionicons name={iconName} size={featured ? 28 : 22} color="#0ea5e9" />
       </View>
       <View style={styles.content}>
-        <Text style={styles.title}>{section.title}</Text>
+        <Text style={[styles.title, featured && styles.titleFeatured]}>{section.title}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
     </TouchableOpacity>
@@ -50,6 +50,10 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  containerFeatured: {
+    borderRadius: 16,
+    padding: 32,
+  },
   iconContainer: {
     width: 44,
     height: 44,
@@ -61,6 +65,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 14,
   },
+  iconContainerFeatured: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    marginRight: 16,
+  },
   content: {
     flex: 1,
   },
@@ -70,6 +80,9 @@ const styles = StyleSheet.create({
     color: '#000',
     marginBottom: 4,
     letterSpacing: -0.3,
+  },
+  titleFeatured: {
+    fontSize: 18,
   },
   userCount: {
     fontSize: 14,

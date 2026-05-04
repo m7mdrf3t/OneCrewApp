@@ -42,7 +42,6 @@ import {
   AngryReaction,
 } from '../components/ReactionIcons';
 import { ChatVoiceRecordButton } from '../components/ChatVoiceRecordButton';
-import { ChatPhotoEditButton } from '../components/ChatPhotoEditButton';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApi } from '../contexts/ApiContext';
@@ -50,10 +49,9 @@ import { useStreamChatReady } from '../components/StreamChatProvider';
 import { ChatPageProps } from '../types';
 import { RootStackScreenProps, RootStackParamList } from '../navigation/types';
 import { useAppNavigation } from '../navigation/NavigationContext';
-import { useHeaderHeight } from '@react-navigation/elements';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import streamChatService from '../services/StreamChatService';
 import { getStreamChannelId, getOneCrewConversationId } from '../utils/streamChatMapping';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const ChatPage: React.FC<ChatPageProps> = ({
   conversationId: conversationIdProp,
@@ -69,7 +67,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { goBack } = useAppNavigation();
   
   // All hooks must be called unconditionally and in the same order
-  const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const { clientReady } = useStreamChatReady();
   const { 
@@ -125,6 +122,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [thread, setThread] = useState<any>(null);
+  const courseMessageSentRef = useRef(false);
 
   // Watch for channel state changes to detect when members are populated
   useEffect(() => {
@@ -812,11 +810,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
     );
   };
 
-  // Custom input buttons: Edit & send photo (draw/highlight), and on Android add voice record button
+  // Custom input buttons: on Android only, add voice record button (SDK mic often unavailable on Android; iOS uses SDK native mic only)
   const CustomInputButtons = () => (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
       <DefaultInputButtons />
-      <ChatPhotoEditButton />
       {Platform.OS === 'android' ? (
         <View style={{ minWidth: 44, justifyContent: 'center', alignItems: 'center' }}>
           <ChatVoiceRecordButton />
@@ -1267,6 +1264,64 @@ const ChatPage: React.FC<ChatPageProps> = ({
     
     watchChannel();
   }, [channel, client]);
+
+  // Auto-send course registration message when channel is ready and courseData is present
+  useEffect(() => {
+    if (!channel || !courseData || courseMessageSentRef.current) return;
+
+    const sendCourseMessage = async () => {
+      try {
+        await channel.watch();
+      } catch {
+        // already watched — ignore
+      }
+
+      if (courseMessageSentRef.current) return;
+      courseMessageSentRef.current = true;
+
+      const { title, price, start_date, end_date, duration, primary_lecturer } = courseData;
+
+      const lines: string[] = [
+        `Hi! I'd like to register for the following course:`,
+        ``,
+        `📚 Course: ${title}`,
+      ];
+
+      if (price !== undefined && price !== null) {
+        lines.push(`💰 Price: $${price}`);
+      }
+      if (start_date) {
+        const formatted = new Date(start_date).toLocaleDateString('en-US', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        });
+        lines.push(`📅 Start Date: ${formatted}`);
+      }
+      if (end_date) {
+        const formatted = new Date(end_date).toLocaleDateString('en-US', {
+          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        });
+        lines.push(`🏁 End Date: ${formatted}`);
+      }
+      if (duration) {
+        lines.push(`⏱ Duration: ${duration}`);
+      }
+      if (primary_lecturer?.name) {
+        lines.push(`👨‍🏫 Instructor: ${primary_lecturer.name}`);
+      }
+
+      lines.push(``);
+      lines.push(`Please let me know the next steps to complete my registration. Thank you!`);
+
+      try {
+        await channel.sendMessage({ text: lines.join('\n') });
+      } catch (err) {
+        courseMessageSentRef.current = false; // allow retry if send failed
+        if (__DEV__) console.warn('⚠️ [ChatPage] Failed to send course registration message:', err);
+      }
+    };
+
+    sendCourseMessage();
+  }, [channel, courseData]);
 
   // Mark channel as read when screen is focused (user is viewing the chat)
   useFocusEffect(
@@ -2015,13 +2070,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
   return (
     <View style={styles.container}>
       {channel ? (
-        <View style={styles.channelContainer}>
+          <View style={styles.channelContainer}>
             {/* Voice notes: recording + playback use SDK default (react-native-video: AVPlayer on iOS, ExoPlayer on Android) */}
             <Channel
               channel={channel}
-              keyboardBehavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : undefined}
-              bottomInset={Platform.OS === 'ios' ? insets.bottom : 0}
               audioRecordingEnabled={true}
               asyncMessagesMultiSendEnabled={true}
               InputButtons={CustomInputButtons}
@@ -2181,26 +2233,26 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 SendButton={NativeSendButton}
               />
             </Channel>
-        </View>
-      ) : loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={styles.loadingText}>Loading chat...</Text>
-        </View>
-      ) : (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Channel not available</Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={() => {
-              setLoading(true);
-              setError(null);
-              // Retry initialization will happen via useEffect
-            }}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
+          </View>
+        ) : loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3b82f6" />
+            <Text style={styles.loadingText}>Loading chat...</Text>
+          </View>
+        ) : (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>Channel not available</Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => {
+                setLoading(true);
+                setError(null);
+                // Retry initialization will happen via useEffect
+              }}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
       )}
     </View>
   );
