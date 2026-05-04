@@ -693,7 +693,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Verify chat service is available
         if (api.chat) {
           console.log('    Chat service is available');
-          console.log('💬 Chat service methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(api.chat)).filter(m => m !== 'constructor'));
+          console.log('    Chat service methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(api.chat)).filter(m => m !== 'constructor'));
         } else {
           console.warn('   Chat service is not available after initialization');
           console.warn('   API object keys:', Object.keys(api));
@@ -751,7 +751,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               return;
             }
             if (attempt < maxAttempts) {
-              console.log(`📱 [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
+              console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
               setTimeout(() => tryRegisterPush(attempt + 1, maxAttempts, delayMs), delayMs);
             } else {
               console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason. Push may not work until next launch.');
@@ -976,7 +976,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           const { token, user_id, api_key } = streamTokenResponse.data as any;
           
           // Log token response for debugging
-          console.log('💬 StreamChat token response:', {
+          console.log('    StreamChat token response:', {
             hasToken: !!token,
             hasUserId: !!user_id,
             hasApiKey: !!api_key,
@@ -1027,7 +1027,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           return;
         }
         if (attempt < maxAttempts) {
-          console.log(`📱 [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
+          console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
           setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
         } else {
           console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
@@ -1435,7 +1435,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           return;
         }
         if (attempt < maxAttempts) {
-          console.log(`📱 [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
+          console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
           setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
         } else {
           console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
@@ -1494,7 +1494,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     
     try {
       // Step 1: Get Supabase access token via Apple OAuth
-      console.log('📱 Requesting Apple Sign-In via Supabase OAuth...');
+      console.log('    Requesting Apple Sign-In via Supabase OAuth...');
       const accessToken = await signInWithApple();
       console.log('    Supabase access token received');
       
@@ -1836,7 +1836,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           return;
         }
         if (attempt < maxAttempts) {
-          console.log(`📱 [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
+          console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
           setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
         } else {
           console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
@@ -1911,7 +1911,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         const currentToken = await pushNotificationService.getStoredToken();
         if (currentToken) {
-          console.log('📱 Unregistering push token from backend...');
+          console.log('    Unregistering push token from backend...');
           await api.pushNotifications.unregisterDeviceToken(currentToken);
           console.log('    Push token unregistered from backend');
         }
@@ -2131,7 +2131,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      console.log('🔑 Confirming password reset with reset token');
+      console.log('    Confirming password reset with reset token');
       
       // API client has a bug - it sends "token" instead of "resetToken"
       // Use direct API call with correct field name
@@ -2337,14 +2337,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const userData = authResponse.user;
         
         if (token && userData) {
-          console.log('🔑 Storing access token and user data after OTP verification');
+          console.log('    Storing access token and user data after OTP verification');
           
           // Clear any existing tokens before storing new ones
           await clearAllAuthData();
           
           // Use the AuthService's setAuthData method to properly store the token
           if (typeof authService.setAuthData === 'function') {
-            console.log('🔑 Using AuthService.setAuthData to store token...');
+            console.log('    Using AuthService.setAuthData to store token...');
             await authService.setAuthData({
               token: token,
               user: userData
@@ -2373,7 +2373,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             console.log('    API client headers updated with new token');
           }
           
-          console.log('🔑 Token has been saved to SecureStore');
+          console.log('    Token has been saved to SecureStore');
         }
       }
       
@@ -2550,7 +2550,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateProfile = async (profileData: any) => {
     console.log('📝 Updating profile:', profileData);
-    console.log('👤 Current user ID:', user?.id);
+    console.log('    Current user ID:', user?.id);
     setIsLoading(true);
     setError(null);
     try {
@@ -2674,7 +2674,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       
       if (isTalent && Object.keys(cleanedTalentData).length > 0) {
         console.log('🎭 Updating talent profile with data:', cleanedTalentData);
-        console.log('👤 User category is talent, proceeding with talent profile update');
+        console.log('    User category is talent, proceeding with talent profile update');
         
         const talentResponse = await fetch(`${baseUrl}/api/talent/profile`, {
           method: 'PUT',
@@ -2841,7 +2841,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             ...talentResult.data
           }
         };
-        console.log('👤 Updated user data with preserved ID:', updatedUser.id);
+        console.log('    Updated user data with preserved ID:', updatedUser.id);
         setUser(updatedUser as any);
       }
       
@@ -2865,7 +2865,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateSkills = async (skills: string[]) => {
     console.log('🎯 Updating skills:', skills);
-    console.log('👤 Current user ID:', user?.id);
+    console.log('    Current user ID:', user?.id);
     setIsLoading(true);
     setError(null);
     try {
@@ -2950,7 +2950,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             id: user.id, // Ensure ID is preserved
             skills: result.data?.skills || skills 
           };
-          console.log('👤 Updated user skills with preserved ID:', updatedUser.id);
+          console.log('    Updated user skills with preserved ID:', updatedUser.id);
           setUser(updatedUser as any);
         }
         
@@ -3056,7 +3056,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // First, try the AuthService's getAuthToken method
       if ((api as any).auth && typeof (api as any).auth.getAuthToken === 'function') {
         accessToken = (api as any).auth.getAuthToken();
-        console.log('🔑 Token from AuthService.getAuthToken():', accessToken ? accessToken.substring(0, 20) + '...' : 'null');
+        console.log('    Token from AuthService.getAuthToken():', accessToken ? accessToken.substring(0, 20) + '...' : 'null');
       }
       
       // Fallback: Check API client's stored token
@@ -3064,7 +3064,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const authHeader = (api as any).apiClient.defaultHeaders['Authorization'];
         if (authHeader && authHeader.startsWith('Bearer ')) {
           accessToken = authHeader.substring(7);
-          console.log('🔑 Token from API client headers:', accessToken.substring(0, 20) + '...');
+          console.log('    Token from API client headers:', accessToken.substring(0, 20) + '...');
         }
       }
       
@@ -3076,7 +3076,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                      (api as any).token || 
                      (api as any).getToken?.() || 
                      '';
-        console.log('🔑 Token from auth service properties:', accessToken ? accessToken.substring(0, 20) + '...' : 'null');
+        console.log('    Token from auth service properties:', accessToken ? accessToken.substring(0, 20) + '...' : 'null');
       }
       
       if (!accessToken) {
@@ -3949,7 +3949,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           id: user.id, // Ensure ID is preserved
           skills: updatedSkills 
         };
-        console.log('👤 Added skill with preserved ID:', updatedUser.id);
+        console.log('    Added skill with preserved ID:', updatedUser.id);
         setUser(updatedUser as any);
       }
       
@@ -3974,7 +3974,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           id: user.id, // Ensure ID is preserved
           skills: updatedSkills 
         };
-        console.log('👤 Removed skill with preserved ID:', updatedUser.id);
+        console.log('    Removed skill with preserved ID:', updatedUser.id);
         setUser(updatedUser as any);
       }
       
@@ -3994,7 +3994,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       'GET',
       () => rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('👤 Fetching complete user profile for:', userId);
+        console.log('    Fetching complete user profile for:', userId);
         const accessToken = getAccessToken();
         
         // First, fetch the user's basic info from users list
@@ -5848,7 +5848,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                   // But we can also call getConversations to ensure it's updated
                   await getUnreadConversationCount();
                   if (__DEV__) {
-                    console.log('💬 [ProfileSwitch] Updated unread count after switch to user profile');
+                    console.log('    [ProfileSwitch] Updated unread count after switch to user profile');
                   }
                 } catch (err) {
                   console.warn('   Failed to update unread count after profile switch:', err);
@@ -5869,7 +5869,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         try {
           await getUnreadConversationCount();
           if (__DEV__) {
-            console.log('💬 [ProfileSwitch] Updated unread count immediately after switch to user profile');
+            console.log('    [ProfileSwitch] Updated unread count immediately after switch to user profile');
           }
         } catch (err) {
           console.warn('   Failed to update unread count immediately after profile switch:', err);
@@ -6059,7 +6059,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 try {
                   await getUnreadConversationCount();
                   if (__DEV__) {
-                    console.log('💬 [ProfileSwitch] Updated unread count after switch to company profile');
+                    console.log('    [ProfileSwitch] Updated unread count after switch to company profile');
                   }
                 } catch (err) {
                   console.warn('   Failed to update unread count after profile switch:', err);
@@ -6096,7 +6096,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         try {
           await getUnreadConversationCount();
           if (__DEV__) {
-            console.log('💬 [ProfileSwitch] Updated unread count immediately after switch to company profile');
+            console.log('    [ProfileSwitch] Updated unread count immediately after switch to company profile');
           }
         } catch (err) {
           console.warn('   Failed to update unread count immediately after profile switch:', err);
@@ -6487,7 +6487,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       let fileUri = file.uri;
       if (Platform.OS === 'android' && fileUri.startsWith('content://')) {
         // Android content URI - should work as is
-        console.log('📱 Using Android content URI');
+        console.log('    Using Android content URI');
       } else if (fileUri.startsWith('file://')) {
         // File URI - should work as is
         console.log('📁 Using file URI');
@@ -8151,7 +8151,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = `published-news-${JSON.stringify(filters || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 Fetching published news...', filters);
+        console.log('    Fetching published news...', filters);
         const response = await api.getPublishedNews(filters);
         console.log('    Published news fetched successfully:', response.data?.pagination?.total || 0, 'posts');
         return response;
@@ -8166,7 +8166,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = `news-post-${slug}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 Fetching news post by slug:', slug);
+        console.log('    Fetching news post by slug:', slug);
         const response = await api.getNewsPostBySlug(slug);
         console.log('    News post fetched successfully');
         return response;
@@ -8181,7 +8181,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = 'news-categories';
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 Fetching news categories...');
+        console.log('    Fetching news categories...');
         const response = await api.getNewsCategories();
         console.log('    News categories fetched successfully:', response.data?.length || 0, 'categories');
         return response;
@@ -8196,7 +8196,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = 'news-tags';
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 Fetching news tags...');
+        console.log('    Fetching news tags...');
         const response = await api.getNewsTags();
         console.log('    News tags fetched successfully:', response.data?.length || 0, 'tags');
         return response;
@@ -8212,7 +8212,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = `admin-news-${JSON.stringify(filters || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 [Admin] Fetching news posts...', filters);
+        console.log('    [Admin] Fetching news posts...', filters);
         const response = await api.getAdminNewsPosts(filters);
         console.log('    [Admin] News posts fetched successfully');
         return response;
@@ -8227,7 +8227,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const cacheKey = `admin-news-${id}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
-        console.log('📰 [Admin] Fetching news post by ID:', id);
+        console.log('    [Admin] Fetching news post by ID:', id);
         const response = await api.getAdminNewsPostById(id);
         console.log('    [Admin] News post fetched successfully');
         return response;
@@ -8240,7 +8240,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const createNewsPost = async (data: any) => {
     try {
-      console.log('📰 [Admin] Creating news post...');
+      console.log('    [Admin] Creating news post...');
       const response = await api.createNewsPost(data);
       if (response.success) {
         // Invalidate news caches
@@ -8258,7 +8258,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateNewsPost = async (id: string, data: any) => {
     try {
-      console.log('📰 [Admin] Updating news post:', id);
+      console.log('    [Admin] Updating news post:', id);
       const response = await api.updateNewsPost(id, data);
       if (response.success) {
         // Invalidate news caches
@@ -8276,7 +8276,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const deleteNewsPost = async (id: string) => {
     try {
-      console.log('📰 [Admin] Deleting news post:', id);
+      console.log('    [Admin] Deleting news post:', id);
       const response = await api.deleteNewsPost(id);
       if (response.success) {
         // Invalidate news caches
@@ -8294,7 +8294,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const publishNewsPost = async (id: string) => {
     try {
-      console.log('📰 [Admin] Publishing news post:', id);
+      console.log('    [Admin] Publishing news post:', id);
       const response = await api.publishNewsPost(id);
       if (response.success) {
         // Invalidate news caches
@@ -8312,7 +8312,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const unpublishNewsPost = async (id: string) => {
     try {
-      console.log('📰 [Admin] Unpublishing news post:', id);
+      console.log('    [Admin] Unpublishing news post:', id);
       const response = await api.unpublishNewsPost(id);
       if (response.success) {
         // Invalidate news caches
@@ -8330,7 +8330,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const uploadNewsPhoto = async (file: any, filename?: string) => {
     try {
-      console.log('📰 [Admin] Uploading news photo...');
+      console.log('    [Admin] Uploading news photo...');
       const response = await api.uploadNewsPhoto(file, filename);
       if (response.success) {
         console.log('    [Admin] News photo uploaded successfully');
@@ -8345,7 +8345,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const uploadNewsThumbnail = async (file: any, filename?: string) => {
     try {
-      console.log('📰 [Admin] Uploading news thumbnail...');
+      console.log('    [Admin] Uploading news thumbnail...');
       const response = await api.uploadNewsThumbnail(file, filename);
       if (response.success) {
         console.log('    [Admin] News thumbnail uploaded successfully');
@@ -8447,7 +8447,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           setUnreadConversationCount(count);
           
           if (__DEV__) {
-            console.log('💬 [UnreadCount]     Updated from API client:', {
+            console.log('    [UnreadCount]     Updated from API client:', {
               count,
               profile_type: params.profile_type,
               cached: response.data.cached || false,
@@ -8477,7 +8477,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const url = `${baseUrl}/api/chat/conversations/unread-count?${queryString}`;
       
       if (__DEV__) {
-        console.log('💬 [UnreadCount] Calling backend directly:', url);
+        console.log('    [UnreadCount] Calling backend directly:', url);
       }
       
       const response = await fetch(url, {
@@ -8499,7 +8499,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         setUnreadConversationCount(count);
         
         if (__DEV__) {
-          console.log('💬 [UnreadCount]     Updated from direct backend call:', {
+          console.log('    [UnreadCount]     Updated from direct backend call:', {
             count,
             profile_type: params.profile_type,
             profile_id: params.company_id || user?.id,
@@ -8565,7 +8565,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             ? { company_id: params?.company_id ?? activeCompany.id }
             : {}),
         };
-        console.log('💬 Fetching conversations...', scopedParams);
+        console.log('    Fetching conversations...', scopedParams);
         const response = await api.chat.getConversations(scopedParams);
         if (response.success && response.data) {
           // Calculate unread count
@@ -8614,7 +8614,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             if (shouldUpdateCount) {
               setUnreadConversationCount(unreadCount);
               if (__DEV__) {
-                console.log('💬 Unread conversations count (from backend, full fetch):', unreadCount, {
+                console.log('    Unread conversations count (from backend, full fetch):', unreadCount, {
                   streamChatConnected: streamChatService.isConnected(),
                   totalConversations: rawConversations.length,
                   limit: limitValue,
@@ -8622,7 +8622,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               }
             } else {
               if (__DEV__) {
-                console.log('💬 Skipped unread count update (partial fetch, limit:', limitValue, 'conversations:', rawConversations.length, ')');
+                console.log('    Skipped unread count update (partial fetch, limit:', limitValue, 'conversations:', rawConversations.length, ')');
               }
             }
             
@@ -8667,7 +8667,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (!api.chat) {
           throw new Error('Chat service is not available. Please ensure the API client is initialized.');
         }
-        console.log('💬 Fetching conversation:', conversationId);
+        console.log('    Fetching conversation:', conversationId);
         const response = await api.chat.getConversationById(conversationId);
         console.log('    Conversation fetched successfully');
         return response;
@@ -8683,14 +8683,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Log profile context for verification
       const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
       const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
-      console.log('💬 Creating conversation...', {
+      console.log('    Creating conversation...', {
         ...request,
         currentProfileType: currentUserType,
         currentProfileId: currentUserId,
       });
-      console.log('💬 API object:', api);
-      console.log('💬 API.chat:', api.chat);
-      console.log('💬 API keys:', Object.keys(api));
+      console.log('    API object:', api);
+      console.log('    API.chat:', api.chat);
+      console.log('    API keys:', Object.keys(api));
       
       // Check if chat service is available
       if (!api.chat) {
@@ -8712,8 +8712,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           company_id: activeCompany.id
         }),
       };
-      console.log('💬 Request data:', requestData);
-      console.log('💬 Profile context:', {
+      console.log('    Request data:', requestData);
+      console.log('    Profile context:', {
         currentProfileType,
         activeCompanyId: activeCompany?.id,
         passingCompanyId: currentProfileType === 'company' && activeCompany?.id,
@@ -8725,7 +8725,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
       const url = `${baseUrl}/api/chat/conversations`;
       
-      console.log('💬 Making direct fetch call with extended timeout...');
+      console.log('    Making direct fetch call with extended timeout...');
       
       // Create AbortController for timeout
       const controller = new AbortController();
@@ -8788,7 +8788,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         return await rateLimiter.execute(cacheKey, async () => {
           try {
-            console.log(`👤 [getUserByIdDirect] Fetching user: ${userId}`);
+            console.log(`    [getUserByIdDirect] Fetching user: ${userId}`);
             
             // Use the API client's method
             const response = await api.getUserByIdDirect(userId);
@@ -8866,7 +8866,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (!api.chat) {
           throw new Error('Chat service is not available. Please ensure the API client is initialized.');
         }
-        console.log('💬 Fetching messages for conversation:', conversationId);
+        console.log('    Fetching messages for conversation:', conversationId);
         const response = await api.chat.getMessages(conversationId, params);
         console.log('    Messages fetched successfully');
         return response;
@@ -8882,7 +8882,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Sending message to conversation:', conversationId);
+      console.log('    Sending message to conversation:', conversationId);
       const response = await api.chat.sendMessage(conversationId, messageData);
       if (response.success) {
         // Cache invalidation not needed since caching is disabled for real-time data
@@ -8904,7 +8904,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Editing message:', messageId);
+      console.log('    Editing message:', messageId);
       const response = await api.chat.editMessage(messageId, data);
       if (response.success) {
         // Cache invalidation not needed since caching is disabled for real-time data
@@ -8923,7 +8923,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Deleting message:', messageId, 'from conversation:', conversationId);
+      console.log('    Deleting message:', messageId, 'from conversation:', conversationId);
       const response = await api.chat.deleteMessage(messageId, conversationId);
       if (response.success) {
         // Cache invalidation not needed since caching is disabled for real-time data
@@ -8945,7 +8945,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Log profile context for verification
       const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
       const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
-      console.log('💬 Marking message as read:', { 
+      console.log('    Marking message as read:', { 
         conversationId, 
         messageId, 
         messageIds,
@@ -8990,7 +8990,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Marking message as read:', messageId);
+      console.log('    Marking message as read:', messageId);
       const response = await api.chat.markMessageAsRead(messageId, conversationId);
       if (response.success) {
         console.log('    Message marked as read successfully');
@@ -9015,7 +9015,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Marking all messages as read in conversation:', conversationId);
+      console.log('    Marking all messages as read in conversation:', conversationId);
       const response = await api.chat.markAllAsRead(conversationId, messageIds);
       if (response.success) {
         console.log('    All messages marked as read successfully');
@@ -9040,7 +9040,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Leaving conversation:', conversationId);
+      console.log('    Leaving conversation:', conversationId);
       const response = await api.chat.leaveConversation(conversationId);
       if (response.success) {
         console.log('    Left conversation successfully');
@@ -9058,7 +9058,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Muting conversation:', conversationId, mutedUntil ? `until ${mutedUntil}` : 'indefinitely');
+      console.log('    Muting conversation:', conversationId, mutedUntil ? `until ${mutedUntil}` : 'indefinitely');
       const response = await api.chat.muteConversation(conversationId, mutedUntil);
       if (response.success) {
         console.log('    Conversation muted successfully');
@@ -9101,7 +9101,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         queryParams = '?profile_type=user';
       }
       
-      console.log('💬 Getting StreamChat token...', { 
+      console.log('    Getting StreamChat token...', { 
         profile_type: options?.profile_type || 'user',
         company_id: options?.company_id,
         queryParams 
@@ -9195,7 +9195,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Adding reaction to message:', messageId);
+      console.log('    Adding reaction to message:', messageId);
       const response = await api.chat.addReaction(messageId, data);
       if (response.success) {
         console.log('    Reaction added successfully');
@@ -9213,7 +9213,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Removing reaction from message:', messageId);
+      console.log('    Removing reaction from message:', messageId);
       const response = await api.chat.removeReaction(messageId, reactionType, conversationId);
       if (response.success) {
         console.log('    Reaction removed successfully');
@@ -9231,7 +9231,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting reactions for message:', messageId);
+      console.log('    Getting reactions for message:', messageId);
       const response = await api.chat.getReactions(messageId, conversationId);
       if (response.success) {
         return response;
@@ -9249,7 +9249,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Creating thread reply to message:', parentMessageId);
+      console.log('    Creating thread reply to message:', parentMessageId);
       const response = await api.chat.createThreadReply(parentMessageId, conversationId, data);
       if (response.success) {
         console.log('    Thread reply created successfully');
@@ -9267,7 +9267,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting thread replies for message:', parentMessageId);
+      console.log('    Getting thread replies for message:', parentMessageId);
       const response = await api.chat.getThreadReplies(parentMessageId, conversationId, params);
       if (response.success) {
         return response;
@@ -9285,7 +9285,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Pinning message:', messageId);
+      console.log('    Pinning message:', messageId);
       const response = await api.chat.pinMessage(messageId, conversationId);
       if (response.success) {
         console.log('    Message pinned successfully');
@@ -9303,7 +9303,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Unpinning message:', messageId);
+      console.log('    Unpinning message:', messageId);
       const response = await api.chat.unpinMessage(messageId, conversationId);
       if (response.success) {
         console.log('    Message unpinned successfully');
@@ -9321,7 +9321,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting pinned messages for conversation:', conversationId);
+      console.log('    Getting pinned messages for conversation:', conversationId);
       const response = await api.chat.getPinnedMessages(conversationId);
       if (response.success) {
         return response;
@@ -9339,7 +9339,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Searching messages:', params);
+      console.log('    Searching messages:', params);
       const response = await api.chat.searchMessages(params);
       if (response.success) {
         return response;
@@ -9356,7 +9356,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Searching messages in conversation:', conversationId);
+      console.log('    Searching messages in conversation:', conversationId);
       const response = await api.chat.searchInConversation(conversationId, params);
       if (response.success) {
         return response;
@@ -9374,7 +9374,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Updating channel:', conversationId);
+      console.log('    Updating channel:', conversationId);
       const response = await api.chat.updateChannel(conversationId, data);
       if (response.success) {
         console.log('    Channel updated successfully');
@@ -9392,7 +9392,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Adding member to channel:', conversationId);
+      console.log('    Adding member to channel:', conversationId);
       const response = await api.chat.addMember(conversationId, userId);
       if (response.success) {
         console.log('    Member added successfully');
@@ -9410,7 +9410,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Removing member from channel:', conversationId);
+      console.log('    Removing member from channel:', conversationId);
       const response = await api.chat.removeMember(conversationId, userId);
       if (response.success) {
         console.log('    Member removed successfully');
@@ -9428,7 +9428,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting channel members:', conversationId);
+      console.log('    Getting channel members:', conversationId);
       const response = await api.chat.getMembers(conversationId);
       if (response.success) {
         return response;
@@ -9446,7 +9446,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Adding moderator to channel:', conversationId);
+      console.log('    Adding moderator to channel:', conversationId);
       const response = await api.chat.addModerator(conversationId, userId);
       if (response.success) {
         console.log('    Moderator added successfully');
@@ -9464,7 +9464,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Removing moderator from channel:', conversationId);
+      console.log('    Removing moderator from channel:', conversationId);
       const response = await api.chat.removeModerator(conversationId, userId);
       if (response.success) {
         console.log('    Moderator removed successfully');
@@ -9482,7 +9482,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Banning user from channel:', conversationId);
+      console.log('    Banning user from channel:', conversationId);
       const response = await api.chat.banUser(conversationId, data);
       if (response.success) {
         console.log('    User banned successfully');
@@ -9500,7 +9500,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Unbanning user from channel:', conversationId);
+      console.log('    Unbanning user from channel:', conversationId);
       const response = await api.chat.unbanUser(conversationId, userId);
       if (response.success) {
         console.log('    User unbanned successfully');
@@ -9518,7 +9518,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Muting user in channel:', conversationId);
+      console.log('    Muting user in channel:', conversationId);
       const response = await api.chat.muteUser(conversationId, data);
       if (response.success) {
         console.log('    User muted successfully');
@@ -9536,7 +9536,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Unmuting user in channel:', conversationId);
+      console.log('    Unmuting user in channel:', conversationId);
       const response = await api.chat.unmuteUser(conversationId, userId);
       if (response.success) {
         console.log('    User unmuted successfully');
@@ -9554,7 +9554,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Flagging message:', messageId);
+      console.log('    Flagging message:', messageId);
       const response = await api.chat.flagMessage(messageId, conversationId);
       if (response.success) {
         console.log('    Message flagged successfully');
@@ -9572,7 +9572,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Getting flagged messages');
+      console.log('    Getting flagged messages');
       const response = await api.chat.getFlaggedMessages(params);
       if (response.success) {
         return response;
@@ -9590,7 +9590,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (!api.chat) {
         throw new Error('Chat service is not available. Please ensure the API client is initialized.');
       }
-      console.log('💬 Translating message:', messageId, 'to', targetLanguage);
+      console.log('    Translating message:', messageId, 'to', targetLanguage);
       const response = await api.chat.translateMessage(messageId, conversationId, targetLanguage);
       if (response.success) {
         return response;
@@ -9606,9 +9606,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Uses onecrew-api-client's pushNotifications.registerDeviceToken() method
   const registerPushToken = async (token: string) => {
     try {
-      console.log('📱 [Backend] Registering FCM token with backend using API client...');
-      console.log('📱 [Backend] Token (first 20 chars):', token.substring(0, 20) + '...');
-      console.log('🔑 [FCM] Full token (copy for Firebase Console → Send test message):', token);
+      console.log('    [Backend] Registering FCM token with backend using API client...');
+      console.log('    [Backend] Token (first 20 chars):', token.substring(0, 20) + '...');
+      console.log('    [FCM] Full token (copy for Firebase Console → Send test message):', token);
       
       // Get platform
       const platform = Platform.OS === 'ios' ? 'ios' : 'android';
@@ -9622,12 +9622,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           // Generate a simple device identifier as last resort
           deviceId = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
           await AsyncStorage.setItem('@onecrew:device_id', deviceId);
-          console.log('📱 [Backend] Generated new device ID:', deviceId);
+          console.log('    [Backend] Generated new device ID:', deviceId);
         } else {
-          console.log('📱 [Backend] Using stored device ID:', deviceId);
+          console.log('    [Backend] Using stored device ID:', deviceId);
         }
       } else {
-        console.log('📱 [Backend] Using device model name:', deviceId);
+        console.log('    [Backend] Using device model name:', deviceId);
       }
       
       // Get app version
@@ -10171,23 +10171,23 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         client = streamChatService.getClient();
       } catch {
-        if (__DEV__) console.log('💬 [StreamChat] Client not available for unread count calculation');
+        if (__DEV__) console.log('    [StreamChat] Client not available for unread count calculation');
         return 0;
       }
       const currentUserId = streamChatService.getCurrentUserId();
       if (!client || !currentUserId) {
-        if (__DEV__) console.log('💬 [StreamChat] Client not available for unread count calculation');
+        if (__DEV__) console.log('    [StreamChat] Client not available for unread count calculation');
         return 0;
       }
       const isConnected = streamChatService.isConnected();
       if (!isConnected) {
-        if (__DEV__) console.log('💬 [StreamChat] Client not connected, skipping unread count calculation');
+        if (__DEV__) console.log('    [StreamChat] Client not connected, skipping unread count calculation');
         return 0;
       }
       let connectionState: string | undefined;
       try { connectionState = (client as any)?.connectionState; } catch { connectionState = undefined; }
       if (connectionState === 'disconnected' || connectionState === 'offline') {
-        if (__DEV__) console.log('💬 [StreamChat] Client connection state is disconnected/offline, skipping unread count');
+        if (__DEV__) console.log('    [StreamChat] Client connection state is disconnected/offline, skipping unread count');
         return 0;
       }
       
@@ -10196,7 +10196,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const currentProfileTypeForFilter = currentProfileType;
       
       if (!currentProfileId) {
-        if (__DEV__) console.log('💬 [StreamChat] No current profile ID, skipping unread count calculation');
+        if (__DEV__) console.log('    [StreamChat] No current profile ID, skipping unread count calculation');
         return 0;
       }
       
@@ -10236,7 +10236,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       // Backend correctly filters by profile_type and participant_id
       
       if (__DEV__) {
-        console.log('💬 [StreamChat] Using backend for unread count (profile-aware filtering)');
+        console.log('    [StreamChat] Using backend for unread count (profile-aware filtering)');
       }
       
       // Return 0 here - backend getConversations will set the correct count
@@ -10252,7 +10252,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       if (isConnectionError) {
         // This is expected during profile switching - don't log as error
         if (__DEV__) {
-          console.log('💬 [StreamChat] Unread count calculation skipped - client not connected (expected during profile switch)');
+          console.log('    [StreamChat] Unread count calculation skipped - client not connected (expected during profile switch)');
         }
       } else {
         // Log other errors as warnings (not errors)
@@ -10267,13 +10267,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Setup real-time subscription for chat conversations to update unread count
   useEffect(() => {
     if (isAuthenticated && user?.id && supabaseService.isInitialized()) {
-      console.log('💬 Setting up real-time subscription for chat unread count updates');
+      console.log('    Setting up real-time subscription for chat unread count updates');
       
       // Subscribe to conversation updates to refresh unread count when new messages arrive
       const channelId = supabaseService.subscribeToConversations(
         user.id,
         (updatedConversation: any) => {
-          console.log('💬 Conversation updated via real-time (unread count update):', updatedConversation);
+          console.log('    Conversation updated via real-time (unread count update):', updatedConversation);
           // Update unread count based on the updated conversation
           // We'll recalculate when conversations are explicitly fetched, not on every update
           // This prevents unnecessary API calls and refreshes
@@ -10325,7 +10325,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           // If we got here, the method exists and returned successfully
           // Count can be 0 (no unread messages) or > 0 (has unread messages)
           if (__DEV__) {
-            console.log('💬 [UnreadCount] Updated from lightweight endpoint:', {
+            console.log('    [UnreadCount] Updated from lightweight endpoint:', {
               count,
               currentProfileType,
               currentProfileId: currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id,
@@ -10418,7 +10418,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             if (isMounted) {
               setUnreadConversationCount(unreadCount);
               if (__DEV__) {
-                console.log('💬 [UnreadCount] Updated from pagination fallback:', {
+                console.log('    [UnreadCount] Updated from pagination fallback:', {
                   unreadCount,
                   totalConversations: allConversations.length,
                 });
@@ -10494,7 +10494,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           // Trigger backend recalculation instead of using event count
           updateUnreadCount();
           if (__DEV__) {
-            console.log('💬 [UnreadCount] Event received, recalculating from backend (profile-aware)');
+            console.log('    [UnreadCount] Event received, recalculating from backend (profile-aware)');
           }
         }
       };
@@ -10509,7 +10509,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Channel updated - could be read state change
         if (isMounted) {
           if (__DEV__ && event?.channel?.state?.unreadCount !== undefined) {
-            console.log('💬 [UnreadCount] Channel updated, unreadCount:', event.channel.state.unreadCount);
+            console.log('    [UnreadCount] Channel updated, unreadCount:', event.channel.state.unreadCount);
           }
           updateUnreadCount();
         }
@@ -10520,7 +10520,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // When read state changes, unread count definitely changed
         if (isMounted) {
           if (__DEV__) {
-            console.log('💬 [UnreadCount] Read state changed, updating count');
+            console.log('    [UnreadCount] Read state changed, updating count');
           }
           updateUnreadCount();
         }
@@ -10536,7 +10536,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // When a channel is marked as read, update unread count immediately
         if (isMounted) {
           if (__DEV__) {
-            console.log('💬 [UnreadCount] Channel marked as read, updating count');
+            console.log('    [UnreadCount] Channel marked as read, updating count');
           }
           updateUnreadCount();
         }
