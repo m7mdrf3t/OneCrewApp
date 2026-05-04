@@ -32,7 +32,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinished }) => {
     <View style={styles.container}>
       <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY }] }]}>
         <Image 
-          source={require('../../assets/Steps_02.gif')} 
+          source={require('../../assets/MODO_01_black.jpg')} 
           style={styles.splashImage}
           contentFit="contain"
           transition={200}
@@ -45,7 +45,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinished }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -58,7 +58,7 @@ const styles = StyleSheet.create({
   splashImage: {
     width: '80%',
     maxWidth: 400,
-    aspectRatio: 756 / 346,
+    aspectRatio: 1,
   },
 });
 

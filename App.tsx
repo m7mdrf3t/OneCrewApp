@@ -47,7 +47,7 @@ import { appCommonStyles } from './App.styles.common';
 import { appIosStyles } from './App.styles.ios';
 import { appAndroidStyles } from './App.styles.android';
 
-const MAIN_TAB_ROUTES = ['home', 'projects', 'spot', 'conversations'] as const;
+const MAIN_TAB_ROUTES = ['home', 'projects', 'spot', 'conversations', 'myProfile', 'profile'] as const;
 
 const getActiveRouteName = (state: any): string | null => {
   if (!state?.routes?.length) {

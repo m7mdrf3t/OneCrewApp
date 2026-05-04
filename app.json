@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "Steps",
+    "name": "Modo",
     "slug": "one-crew",
     "version": "1.4.2",
     "orientation": "default",
-    "icon": "./assets/Steps.png",
+    "icon": "./assets/MODO_01_png.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/MODO_01_black.jpg",
       "resizeMode": "contain",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#ffffff"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -36,7 +36,7 @@
       "versionCode": 28,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/Steps.png",
+        "foregroundImage": "./assets/MODO_01_png.png",
         "backgroundColor": "#000000"
       },
       "package": "com.minaezzat.onesteps",

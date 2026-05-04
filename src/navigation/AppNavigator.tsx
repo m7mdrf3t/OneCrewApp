@@ -26,7 +26,8 @@ const screenOptions = {
   headerRight: () => <ProfileHeaderRight />,
   animation: 'slide_from_right' as const,
   gestureEnabled: true,
-  fullScreenGestureEnabled: true,
+  // Keep back swipe only from the edge to avoid accidental pops while scrolling.
+  fullScreenGestureEnabled: false,
   freezeOnBlur: true,
   animationDuration: 200,
 };
