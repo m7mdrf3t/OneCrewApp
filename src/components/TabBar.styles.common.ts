@@ -1,7 +1,7 @@
 /**
  * TabBar Common Styles
  */
-import { ViewStyle, TextStyle } from 'react-native';
+import { ViewStyle, TextStyle, ImageStyle } from 'react-native';
 import { semanticSpacing } from '../constants/spacing';
 
 export const tabBarCommonStyles = {
@@ -72,7 +72,7 @@ export const tabBarCommonStyles = {
     borderRadius: 16,
     borderWidth: 2,
     borderColor: '#fff',
-  } as ViewStyle,
+  } as ImageStyle,
   
   profileImagePlaceholder: {
     width: 32,

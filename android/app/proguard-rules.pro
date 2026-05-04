@@ -15,4 +15,8 @@
 # react-native-reanimated
 -keep class com.swmansion.reanimated.** { *; }
 
+# expo-media-library (R8 missing class: expo.modules.kotlin.runtime.Runtime)
+-dontwarn expo.modules.kotlin.runtime.Runtime
+-keep class expo.modules.medialibrary.** { *; }
+
 # Add any project specific keep options here:

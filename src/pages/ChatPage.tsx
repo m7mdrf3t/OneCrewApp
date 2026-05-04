@@ -13,7 +13,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   Dimensions,
@@ -43,6 +42,7 @@ import {
   AngryReaction,
 } from '../components/ReactionIcons';
 import { ChatVoiceRecordButton } from '../components/ChatVoiceRecordButton';
+import { ChatPhotoEditButton } from '../components/ChatPhotoEditButton';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApi } from '../contexts/ApiContext';
@@ -50,9 +50,10 @@ import { useStreamChatReady } from '../components/StreamChatProvider';
 import { ChatPageProps } from '../types';
 import { RootStackScreenProps, RootStackParamList } from '../navigation/types';
 import { useAppNavigation } from '../navigation/NavigationContext';
+import { useHeaderHeight } from '@react-navigation/elements';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import streamChatService from '../services/StreamChatService';
 import { getStreamChannelId, getOneCrewConversationId } from '../utils/streamChatMapping';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const ChatPage: React.FC<ChatPageProps> = ({
   conversationId: conversationIdProp,
@@ -68,6 +69,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { goBack } = useAppNavigation();
   
   // All hooks must be called unconditionally and in the same order
+  const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const { clientReady } = useStreamChatReady();
   const { 
@@ -810,10 +812,11 @@ const ChatPage: React.FC<ChatPageProps> = ({
     );
   };
 
-  // Custom input buttons: on Android only, add voice record button (SDK mic often unavailable on Android; iOS uses SDK native mic only)
+  // Custom input buttons: Edit & send photo (draw/highlight), and on Android add voice record button
   const CustomInputButtons = () => (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
       <DefaultInputButtons />
+      <ChatPhotoEditButton />
       {Platform.OS === 'android' ? (
         <View style={{ minWidth: 44, justifyContent: 'center', alignItems: 'center' }}>
           <ChatVoiceRecordButton />
@@ -2010,17 +2013,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
   }
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-    >
-      <View style={styles.container}>
-        {channel ? (
-          <View style={styles.channelContainer}>
+    <View style={styles.container}>
+      {channel ? (
+        <View style={styles.channelContainer}>
             {/* Voice notes: recording + playback use SDK default (react-native-video: AVPlayer on iOS, ExoPlayer on Android) */}
             <Channel
               channel={channel}
+              keyboardBehavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : undefined}
+              bottomInset={Platform.OS === 'ios' ? insets.bottom : 0}
               audioRecordingEnabled={true}
               asyncMessagesMultiSendEnabled={true}
               InputButtons={CustomInputButtons}
@@ -2180,29 +2181,28 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 SendButton={NativeSendButton}
               />
             </Channel>
-          </View>
-        ) : loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#3b82f6" />
-            <Text style={styles.loadingText}>Loading chat...</Text>
-          </View>
-        ) : (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>Channel not available</Text>
-            <TouchableOpacity
-              style={styles.retryButton}
-              onPress={() => {
-                setLoading(true);
-                setError(null);
-                // Retry initialization will happen via useEffect
-              }}
-            >
-              <Text style={styles.retryButtonText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    </KeyboardAvoidingView>
+        </View>
+      ) : loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={styles.loadingText}>Loading chat...</Text>
+        </View>
+      ) : (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Channel not available</Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => {
+              setLoading(true);
+              setError(null);
+              // Retry initialization will happen via useEffect
+            }}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
   );
 };
 

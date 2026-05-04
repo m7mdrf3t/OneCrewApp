@@ -226,11 +226,13 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     onBack();
   }, [showFilterModal, selectedSubcategory, onBack, isCompaniesSection, isDirectorySection]);
 
-  // Debounce search query (500ms)
+  // Debounce search query: shorter delay for 1–2 chars (faster feedback for "starts with" search)
   useEffect(() => {
+    const trimmed = searchQuery.trim();
+    const delay = trimmed.length > 0 && trimmed.length <= 2 ? 300 : 500;
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery);
-    }, 500);
+    }, delay);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
@@ -304,13 +306,18 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         section.key === 'individuals' ? 'crew' : undefined;
       const effectiveCategory = debouncedFilters.category ?? inferredCategory;
 
+      // Location: use location or currentLocation (FilterModal maps current → location)
+      const effectiveLocation = debouncedFilters.location ?? debouncedFilters.currentLocation;
+      // Nationality: use single nationality or first of nationalities array
+      const effectiveNationality = debouncedFilters.nationality ?? (debouncedFilters.nationalities?.length ? debouncedFilters.nationalities[0] : undefined);
+
       const params: any = {
         limit,
         page,
         search: debouncedSearchQuery,
         category: effectiveCategory,
         role: debouncedFilters.role,
-        location: debouncedFilters.location,
+        location: effectiveLocation,
         // Physical Attributes
         height: debouncedFilters.height,
         height_min: debouncedFilters.height_min,
@@ -336,7 +343,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         eye_color: debouncedFilters.eye_color,
         // Personal Details
         gender: debouncedFilters.gender,
-        nationality: debouncedFilters.nationality,
+        nationality: effectiveNationality,
+        nationalities: debouncedFilters.nationalities,
         // Professional Preferences
         union_member: debouncedFilters.union_member,
         willing_to_travel: debouncedFilters.willing_to_travel,
@@ -348,7 +356,10 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       };
 
       Object.keys(params).forEach((key) => {
-        if (params[key] === undefined || params[key] === null || params[key] === '') {
+        const v = params[key];
+        if (v === undefined || v === null || v === '') {
+          delete params[key];
+        } else if (Array.isArray(v) && v.length === 0) {
           delete params[key];
         }
       });
@@ -377,14 +388,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         console.warn('⚠️ Direct fetch failed, trying API client:', directErr);
       }
 
-      // Fallback to API client
+      // Fallback to API client (same filters; search as q for smart search)
       const apiParams: any = { limit, page };
       Object.keys(params).forEach((key) => {
-        if (key !== 'limit' && params[key] !== undefined && params[key] !== null && params[key] !== '') {
+        const v = params[key];
+        if (key !== 'limit' && v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0)) {
           if (key === 'search') {
-            apiParams.q = params[key];
+            apiParams.q = v;
           } else {
-            apiParams[key] = params[key];
+            apiParams[key] = v;
           }
         }
       });
@@ -811,14 +823,13 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       return false;
     }
 
-    // Location filter - only filter if user has location data
-    if (filters.location) {
+    // Location filter - current location or shooting location (user.about.location = current)
+    const locationSearch = (filters.location || filters.currentLocation || '').toLowerCase();
+    if (locationSearch) {
       const userLocation = user.about?.location?.toLowerCase() || '';
-      // Only exclude if user has location data and it doesn't match
-      if (userLocation && !userLocation.includes(filters.location.toLowerCase())) {
+      if (userLocation && !userLocation.includes(locationSearch)) {
         return false;
       }
-      // If user doesn't have location data, include them (lenient filtering)
     }
 
     // Gender filter - only filter if user has gender data
@@ -945,14 +956,16 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       // If user doesn't have eye color data, include them (lenient filtering)
     }
 
-    // Nationality filter - only filter if user has nationality data
-    if (filters.nationality) {
+    // Nationality filter - single or multiple (nationalities array)
+    const nationalityFilters: string[] = [];
+    if (filters.nationality) nationalityFilters.push(filters.nationality);
+    if (filters.nationalities?.length) nationalityFilters.push(...filters.nationalities);
+    if (nationalityFilters.length > 0) {
       const userNationality = user.about?.nationality?.toLowerCase() || '';
-      // Only exclude if user has nationality data and it doesn't match
-      if (userNationality && !userNationality.includes(filters.nationality.toLowerCase())) {
-        return false;
+      if (userNationality) {
+        const match = nationalityFilters.some(n => userNationality.includes(n.toLowerCase()));
+        if (!match) return false;
       }
-      // If user doesn't have nationality data, include them (lenient filtering)
     }
 
     // Professional preferences - only filter if user has the data
@@ -982,15 +995,16 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       // If user doesn't have travel_ready data, include them (lenient filtering)
     }
 
-    // Skills filter
+    // Skills filter - user.skills can be string[] or { name: string }[]
     if (filters.skills && filters.skills.length > 0) {
-      const userSkills = user.skills?.map(s => s.toLowerCase()) || [];
-      const hasMatchingSkill = filters.skills.some(skill => 
+      const rawSkills = user.skills ?? [];
+      const userSkills = rawSkills.map((s: string | { name?: string }) =>
+        typeof s === 'string' ? s.toLowerCase() : (s?.name ?? '').toLowerCase()
+      ).filter(Boolean);
+      const hasMatchingSkill = filters.skills.some(skill =>
         userSkills.some(userSkill => userSkill.includes(skill.toLowerCase()))
       );
-      if (!hasMatchingSkill) {
-        return false;
-      }
+      if (!hasMatchingSkill) return false;
     }
 
     // Languages filter

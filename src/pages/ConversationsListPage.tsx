@@ -14,16 +14,27 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { ChannelList } from 'stream-chat-react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { RootStackScreenProps } from '../navigation/types';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { useApi } from '../contexts/ApiContext';
 import { useStreamChatReady } from '../components/StreamChatProvider';
+import SearchBar from '../components/SearchBar';
 import { ConversationsListPageProps } from '../types';
 import streamChatService from '../services/StreamChatService';
 import { getStreamChannelId, getOneCrewConversationId } from '../utils/streamChatMapping';
 import streamChatConnectionMonitor from '../utils/StreamChatConnectionMonitor';
+
+type SearchMemberResult = {
+  id: string;
+  name: string;
+  subtitle: string;
+  imageUrl: string | null;
+  participant: any;
+  participantType: 'user' | 'company';
+};
 
 const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   onBack: onBackProp,
@@ -32,9 +43,22 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   const route = useRoute<RootStackScreenProps<'conversations'>['route']>();
   const navigation = useNavigation();
   const { navigateTo, goBack } = useAppNavigation();
-  const { user, currentProfileType, activeCompany } = useApi();
+  const {
+    api,
+    user,
+    currentProfileType,
+    activeCompany,
+    getUsersDirect,
+    browseUsersAsGuest,
+    getCompanies,
+    isGuest,
+  } = useApi();
   const { clientReady } = useStreamChatReady();
   const isConnected = streamChatService.isConnected();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [memberSearchResults, setMemberSearchResults] = useState<SearchMemberResult[]>([]);
+  const [isSearchingMembers, setIsSearchingMembers] = useState(false);
 
   const onBack = onBackProp || goBack;
 
@@ -59,6 +83,14 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       channelListKey,
     });
   }, [channelListKey, currentStreamUserId, currentProfileType, activeCompany?.id]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
 
   // Handle channel selection - navigate to chat page
   const handleChannelSelect = useCallback((channel: any) => {
@@ -114,6 +146,14 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     }
   }, [onConversationSelectProp, navigateTo, navigation]);
 
+  const handleMemberSelect = useCallback((member: SearchMemberResult) => {
+    if (navigateTo) {
+      navigateTo('chat', { participant: member.participant });
+    } else if (navigation) {
+      (navigation as any).navigate('chat', { participant: member.participant });
+    }
+  }, [navigateTo, navigation]);
+
   // Custom filters for channels
   // Only show channels where current user is a member
   const filters = useMemo(() => {
@@ -130,6 +170,139 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     return [{ last_message_at: -1 }];
   }, []);
 
+  const getInitials = useCallback((name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return '?';
+
+    const parts = trimmedName.split(/\s+/);
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    }
+
+    return trimmedName.slice(0, 2).toUpperCase();
+  }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const searchMembers = async () => {
+      if (!debouncedSearchQuery) {
+        setMemberSearchResults([]);
+        setIsSearchingMembers(false);
+        return;
+      }
+
+      setIsSearchingMembers(true);
+
+      try {
+        const userParams = {
+          search: debouncedSearchQuery,
+          limit: 8,
+          page: 1,
+        };
+
+        const companyParams = {
+          search: debouncedSearchQuery,
+          limit: 8,
+          page: 1,
+          fields: ['id', 'name', 'logo_url', 'subcategory', 'company_type_info'],
+          sort: 'name' as const,
+          order: 'asc' as const,
+        };
+
+        const usersPromise = isGuest
+          ? browseUsersAsGuest(userParams)
+          : getUsersDirect(userParams).catch(async () => api.getUsers({ q: debouncedSearchQuery, limit: 8, page: 1 }));
+
+        const [usersResponse, companiesResponse] = await Promise.all([
+          usersPromise,
+          getCompanies(companyParams),
+        ]);
+
+        const usersData = usersResponse?.data?.data || usersResponse?.data || [];
+        const companiesData = companiesResponse?.data?.data || companiesResponse?.data || [];
+
+        const usersArray = Array.isArray(usersData)
+          ? usersData
+          : Array.isArray(usersData?.users)
+            ? usersData.users
+            : [];
+
+        const companiesArray = Array.isArray(companiesData) ? companiesData : [];
+
+        const userResults: SearchMemberResult[] = usersArray
+          .filter((member: any) => member?.id && member.id !== user?.id)
+          .map((member: any) => ({
+            id: `user-${member.id}`,
+            name: member.name || 'Unknown',
+            subtitle: member.primary_role || member.category || 'Member',
+            imageUrl:
+              member.image_url ||
+              member.image ||
+              member.imageUrl ||
+              member.avatar ||
+              member.avatar_url ||
+              member.avatarUrl ||
+              null,
+            participant: member,
+            participantType: 'user' as const,
+          }));
+
+        const companyResults: SearchMemberResult[] = companiesArray
+          .filter((company: any) => company?.id && company.id !== activeCompany?.id)
+          .map((company: any) => ({
+            id: `company-${company.id}`,
+            name: company.name || 'Unknown company',
+            subtitle: company.company_type_info?.name || company.subcategory || 'Company',
+            imageUrl:
+              company.logo_url ||
+              company.image_url ||
+              company.image ||
+              company.imageUrl ||
+              company.avatar ||
+              company.avatar_url ||
+              company.avatarUrl ||
+              null,
+            participant: {
+              ...company,
+              category: 'company',
+            },
+            participantType: 'company' as const,
+          }));
+
+        if (!isCancelled) {
+          setMemberSearchResults([...userResults, ...companyResults]);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          console.error('❌ [ConversationsListPage] Failed to search members:', error);
+          setMemberSearchResults([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsSearchingMembers(false);
+        }
+      }
+    };
+
+    searchMembers();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    activeCompany?.id,
+    api,
+    browseUsersAsGuest,
+    debouncedSearchQuery,
+    getCompanies,
+    getUsersDirect,
+    isGuest,
+    user?.id,
+  ]);
+
+  const hasActiveMemberSearch = debouncedSearchQuery.length > 0;
+
   // Custom channel preview component to match app design
   // Memoized for performance optimization
   const ChannelPreview = React.memo(useCallback(({ channel }: any) => {
@@ -137,11 +310,37 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       return null;
     }
 
-    const displayName = channel?.data?.name || 
-      Object.values(channel?.state?.members || {})
-        .filter((member: any) => member.user?.id !== currentStreamUserId)
+    const otherMembers = Object.values(channel?.state?.members || {}).filter(
+      (member: any) => member.user?.id !== currentStreamUserId
+    ) as any[];
+
+    const primaryOtherUser = otherMembers[0]?.user;
+    const displayName =
+      channel?.data?.name ||
+      otherMembers
         .map((member: any) => member.user?.name || member.user?.id)
-        .join(', ') || 'Unknown';
+        .filter(Boolean)
+        .join(', ') ||
+      'Unknown';
+    const avatarUrl =
+      channel?.data?.image ||
+      channel?.data?.image_url ||
+      channel?.data?.logo_url ||
+      primaryOtherUser?.image ||
+      primaryOtherUser?.image_url ||
+      primaryOtherUser?.logo_url ||
+      primaryOtherUser?.imageUrl ||
+      primaryOtherUser?.avatar ||
+      primaryOtherUser?.avatar_url ||
+      primaryOtherUser?.avatarUrl ||
+      primaryOtherUser?.profile_image ||
+      primaryOtherUser?.profile_image_url ||
+      primaryOtherUser?.profileImage ||
+      primaryOtherUser?.profileImageUrl ||
+      primaryOtherUser?.photo_url ||
+      primaryOtherUser?.photoUrl ||
+      primaryOtherUser?.logoUrl ||
+      null;
 
     const lastMessage = channel?.state?.messages?.[channel.state.messages.length - 1];
     const lastMessageText = lastMessage?.text || 'No messages yet';
@@ -159,6 +358,18 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         }}
         activeOpacity={0.7}
       >
+        {avatarUrl ? (
+          <Image
+            source={{ uri: avatarUrl }}
+            style={styles.channelAvatar}
+            contentFit="cover"
+            transition={150}
+          />
+        ) : (
+          <View style={styles.channelAvatarPlaceholder}>
+            <Text style={styles.channelAvatarText}>{getInitials(displayName)}</Text>
+          </View>
+        )}
         <View style={styles.channelContent}>
           <View style={styles.channelHeader}>
             <Text style={[styles.channelName, unreadCount > 0 && styles.channelNameUnread]}>
@@ -187,7 +398,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
       </TouchableOpacity>
     );
-  }, [currentStreamUserId, handleChannelSelect]));
+  }, [currentStreamUserId, getInitials, handleChannelSelect]));
 
   // Format time helper
   const formatTime = (timestamp: string | Date): string => {
@@ -379,76 +590,133 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
 
   return (
     <View style={styles.container}>
-      <ChannelList
-        key={channelListKey}
-        filters={filters}
-        sort={sort}
-        Preview={ChannelPreview}
-        // Note: onSelect is handled by the custom Preview component's onPress
-        // Pagination - reduced limit for faster initial load
-        pagination={{ limit: 15 }}
-        // Performance optimizations for FlatList
-        additionalFlatListProps={{
-          removeClippedSubviews: true,
-          maxToRenderPerBatch: 10,
-          windowSize: 5,
-          initialNumToRender: 10,
-          updateCellsBatchingPeriod: 50,
-        }}
-        // Error handling
-        onError={(error: any) => {
-          const errorMessage = error?.message || error?.toString() || '';
-          const isTokenError =
-            errorMessage.includes('tokens are not set') ||
-            errorMessage.includes('connectUser wasn\'t called') ||
-            errorMessage.includes('disconnect was called') ||
-            errorMessage.includes('Both secret and user tokens') ||
-            errorMessage.includes('Both secret') ||
-            errorMessage.includes('client.disconnect');
-          
-          // Monitor: Log ChannelList error
-          streamChatConnectionMonitor.logChannelOperation(
-            'channelList.query',
-            channelListKey,
-            false,
-            error
-          );
-          
-          // Monitor: Log token access attempt
-          if (isTokenError) {
-            streamChatConnectionMonitor.logTokenAccess('channelList.query', false, error);
-          }
-          
-          if (isTokenError) {
-            console.log('💬 [ConversationsListPage] StreamChat not connected yet (expected during profile switch):', errorMessage);
-            setIsReady(false);
-            // Reset clientReady check - force re-verification
-            // The useEffect will re-run and wait for connection again
-            setTimeout(() => {
-              // Trigger re-check after a short delay
+      <View style={styles.searchSection}>
+        <SearchBar
+          value={searchQuery}
+          onChange={setSearchQuery}
+        />
+      </View>
+
+      {hasActiveMemberSearch ? (
+        <View style={styles.searchResultsContainer}>
+          {isSearchingMembers ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#3b82f6" />
+              <Text style={styles.loadingText}>Searching members...</Text>
+            </View>
+          ) : memberSearchResults.length > 0 ? (
+            memberSearchResults.map((member) => (
+              <TouchableOpacity
+                key={member.id}
+                style={styles.searchResultRow}
+                onPress={() => handleMemberSelect(member)}
+                activeOpacity={0.7}
+              >
+                {member.imageUrl ? (
+                  <Image
+                    source={{ uri: member.imageUrl }}
+                    style={styles.searchResultAvatar}
+                    contentFit="cover"
+                    transition={150}
+                  />
+                ) : (
+                  <View style={styles.searchResultAvatarPlaceholder}>
+                    <Text style={styles.searchResultAvatarText}>{getInitials(member.name)}</Text>
+                  </View>
+                )}
+                <View style={styles.searchResultContent}>
+                  <Text style={styles.searchResultName} numberOfLines={1}>
+                    {member.name}
+                  </Text>
+                  <Text style={styles.searchResultSubtitle} numberOfLines={1}>
+                    {member.subtitle}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+              </TouchableOpacity>
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="search-outline" size={48} color="#d1d5db" />
+              <Text style={styles.emptyStateTitle}>No members found</Text>
+              <Text style={styles.emptyStateText}>
+                Try another name to start a new chat
+              </Text>
+            </View>
+          )}
+        </View>
+      ) : (
+        <ChannelList
+          key={channelListKey}
+          filters={filters}
+          sort={sort}
+          Preview={ChannelPreview}
+          // Note: onSelect is handled by the custom Preview component's onPress
+          // Pagination - reduced limit for faster initial load
+          pagination={{ limit: 15 }}
+          // Performance optimizations for FlatList
+          additionalFlatListProps={{
+            removeClippedSubviews: true,
+            maxToRenderPerBatch: 10,
+            windowSize: 5,
+            initialNumToRender: 10,
+            updateCellsBatchingPeriod: 50,
+          }}
+          // Error handling
+          onError={(error: any) => {
+            const errorMessage = error?.message || error?.toString() || '';
+            const isTokenError =
+              errorMessage.includes('tokens are not set') ||
+              errorMessage.includes('connectUser wasn\'t called') ||
+              errorMessage.includes('disconnect was called') ||
+              errorMessage.includes('Both secret and user tokens') ||
+              errorMessage.includes('Both secret') ||
+              errorMessage.includes('client.disconnect');
+            
+            // Monitor: Log ChannelList error
+            streamChatConnectionMonitor.logChannelOperation(
+              'channelList.query',
+              channelListKey,
+              false,
+              error
+            );
+            
+            // Monitor: Log token access attempt
+            if (isTokenError) {
+              streamChatConnectionMonitor.logTokenAccess('channelList.query', false, error);
+            }
+            
+            if (isTokenError) {
+              console.log('💬 [ConversationsListPage] StreamChat not connected yet (expected during profile switch):', errorMessage);
               setIsReady(false);
-            }, 500);
-            return;
-          }
-          console.error('❌ [ConversationsListPage] ChannelList error:', error);
-          setListError('Error loading channel list. Please try again.');
-        }}
-        // Empty state
-        EmptyStateIndicator={() => (
-          <View style={styles.emptyState}>
-            <Ionicons name="chatbubbles-outline" size={64} color="#d1d5db" />
-            <Text style={styles.emptyStateTitle}>No conversations yet</Text>
-            <Text style={styles.emptyStateText}>
-              Visit someone's profile to start a chat, or use the navigation to find people to message
-            </Text>
-          </View>
-        )}
-        LoadingIndicator={() => (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#3b82f6" />
-          </View>
-        )}
-      />
+              // Reset clientReady check - force re-verification
+              // The useEffect will re-run and wait for connection again
+              setTimeout(() => {
+                // Trigger re-check after a short delay
+                setIsReady(false);
+              }, 500);
+              return;
+            }
+            console.error('❌ [ConversationsListPage] ChannelList error:', error);
+            setListError('Error loading channel list. Please try again.');
+          }}
+          // Empty state
+          EmptyStateIndicator={() => (
+            <View style={styles.emptyState}>
+              <Ionicons name="chatbubbles-outline" size={64} color="#d1d5db" />
+              <Text style={styles.emptyStateTitle}>No conversations yet</Text>
+              <Text style={styles.emptyStateText}>
+                Visit someone's profile to start a chat, or use the search bar above to message a member
+              </Text>
+            </View>
+          )}
+          LoadingIndicator={() => (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#3b82f6" />
+            </View>
+          )}
+        />
+      )}
     </View>
   );
 };
@@ -457,6 +725,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  searchSection: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
   },
   header: {
     flexDirection: 'row',
@@ -493,6 +769,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
   },
+  searchResultsContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  searchResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+    backgroundColor: '#fff',
+  },
+  searchResultAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+    backgroundColor: '#e5e7eb',
+  },
+  searchResultAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3b82f6',
+  },
+  searchResultAvatarText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  searchResultContent: {
+    flex: 1,
+    marginRight: 12,
+  },
+  searchResultName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  searchResultSubtitle: {
+    fontSize: 13,
+    color: '#6b7280',
+    textTransform: 'capitalize',
+  },
   channelPreview: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -501,6 +826,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
     backgroundColor: '#fff',
+  },
+  channelAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+    backgroundColor: '#e5e7eb',
+  },
+  channelAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 12,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  channelAvatarText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
   channelContent: {
     flex: 1,

@@ -57,12 +57,8 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
 
   // Load tasks when component mounts
   useEffect(() => {
-    // Run both in parallel for better performance
-    Promise.all([
-      loadProjectData(),
-      loadTasks(true)
-    ]).catch(error => {
-      console.error('Failed to load project data:', error);
+    loadTasks(true).catch(error => {
+      console.error('Failed to load project tasks:', error);
     });
   }, [project.id]);
 
@@ -78,19 +74,6 @@ const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
       setNewTaskCards([{ id: Date.now() }]);
     }
   }, [addUserToTask, selectedUser]);
-
-  const loadProjectData = async () => {
-    try {
-      // Only refresh if we need the latest data, otherwise use the project prop
-      // The project data is already loaded in App.tsx before navigation
-      if (onRefreshProject) {
-        const latestData = await getProjectById(project.id);
-        onRefreshProject(); // Let parent handle the update
-      }
-    } catch (error) {
-      console.error('❌ Failed to load latest project data:', error);
-    }
-  };
 
   const loadTasks = async (replaceExisting = false) => {
     if (!project.id) return;

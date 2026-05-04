@@ -28,8 +28,9 @@ const WEB_CLIENT_ID = '309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj.apps.google
 // Format: XXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com
 const IOS_CLIENT_ID = '309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj.apps.googleusercontent.com';
 
-// Android Client ID - for native SDK on Android
-// Format: XXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com
+// Android: Google identifies the app by package name + SHA-1. No separate Android Client ID
+// is used in configure(). If you see DEVELOPER_ERROR on Android, add your app's SHA-1 in
+// Google Cloud Console (Credentials → Create OAuth client ID → Android). See ANDROID_GOOGLE_SIGNIN_DEVELOPER_ERROR.md.
 const ANDROID_CLIENT_ID = 'YOUR_ANDROID_CLIENT_ID_HERE.apps.googleusercontent.com';
 
 /**

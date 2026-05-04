@@ -2,7 +2,7 @@
   "expo": {
     "name": "Steps",
     "slug": "one-crew",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "orientation": "default",
     "icon": "./assets/Steps.png",
     "userInterfaceStyle": "light",
@@ -30,10 +30,11 @@
       },
       "appleTeamId": "9MK2V33M87",
       "scheme": "com.minaezzat.onesteps",
-      "buildNumber": "35"
+      "buildNumber": "40"
     },
     "android": {
       "versionCode": 28,
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/Steps.png",
         "backgroundColor": "#000000"
@@ -95,6 +96,16 @@
         }
       ],
       [
+        "expo-media-library",
+        {
+          "photosPermission": "This app needs access to your photo library to allow you to select and share photos for your profile, portfolio, and certificates.",
+          "savePhotosPermission": "This app needs permission to save chat images to your photo library.",
+          "granularPermissions": [
+            "photo"
+          ]
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/Steps.png",
@@ -104,7 +115,7 @@
         }
       ]
     ],
-    "runtimeVersion": "1.4.1",
+    "runtimeVersion": "1.4.2",
     "updates": {
       "url": "https://u.expo.dev/bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
     }

@@ -1,5 +1,5 @@
-import React, { useMemo, useCallback } from 'react';
-import { View, TouchableOpacity, Text, Platform } from 'react-native';
+import React from 'react';
+import { View, TouchableOpacity, Text, Platform, ImageStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -9,9 +9,7 @@ import { tabBarCommonStyles } from './TabBar.styles.common';
 import { tabBarIosStyles } from './TabBar.styles.ios';
 import { tabBarAndroidStyles } from './TabBar.styles.android';
 import { useApi } from '../contexts/ApiContext';
-import { useGlobalModals } from '../contexts/GlobalModalsContext';
-
-const messagesIcon = require('../../assets/Messages-icon.jpeg');
+import { useGlobalModalActions } from '../contexts/GlobalModalsContext';
 
 // Create platform-specific styles (outside component for performance)
 const styles = createPlatformStyles({
@@ -20,10 +18,17 @@ const styles = createPlatformStyles({
   android: tabBarAndroidStyles,
 });
 
+const TABS = [
+  { key: 'home', label: 'Home', icon: 'home' },
+  { key: 'projects', label: 'Projects', icon: 'folder' },
+  { key: 'spot', label: 'Spot', icon: 'search' },
+  { key: 'conversations', label: 'Messages', icon: 'chatbubble-ellipses-outline', iconSize: 24 },
+] as const;
+
 const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => {
   const insets = useSafeAreaInsets();
-  const { user, activeCompany, currentProfileType } = useApi();
-  const { setShowAccountSwitcher, setShowUserMenu } = useGlobalModals();
+  const { user, activeCompany, currentProfileType, unreadConversationCount } = useApi();
+  const { setShowAccountSwitcher, setShowUserMenu } = useGlobalModalActions();
   
   // Get profile image - use company logo if on company profile, otherwise user image
   // Use useMemo to ensure it updates when activeCompany changes
@@ -55,39 +60,32 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
   const imageKey = React.useMemo(() => {
     return `${currentProfileType}-${activeCompany?.id || user?.id}-${profileImageUrl || 'no-image'}`;
   }, [currentProfileType, activeCompany?.id, user?.id, profileImageUrl]);
-  const tabs = [
-    { key: 'home', label: 'Home', icon: 'home' },
-    { key: 'projects', label: 'Projects', icon: 'folder' },
-    { key: 'spot', label: 'Spot', icon: 'search' },
-    { key: 'conversations', label: 'Messages', icon: 'mail-outline', imageSource: messagesIcon },
-  ];
-
   // Calculate padding bottom - iOS handles it in styles, Android uses insets
   const paddingBottom = Platform.OS === 'ios' 
     ? undefined 
     : Math.max(insets.bottom, 8);
 
+  const handleMenuPress = React.useCallback(() => {
+    setShowUserMenu(true);
+  }, [setShowUserMenu]);
+
+  const handleProfileLongPress = React.useCallback(() => {
+    setShowAccountSwitcher(true);
+  }, [setShowAccountSwitcher]);
+
   return (
     <View style={[styles.container, paddingBottom !== undefined && { paddingBottom }]}> 
-      {tabs.map((tab) => (
+      {TABS.map((tab) => (
         <TouchableOpacity
           key={tab.key}
           style={[styles.tab, active === tab.key && styles.activeTab]}
           onPress={() => onChange(tab.key)}
         >
-          {'imageSource' in tab && tab.imageSource ? (
-            <Image
-              source={tab.imageSource}
-              style={{ width: 22, height: 22, opacity: active === tab.key ? 1 : 0.6 }}
-              contentFit="contain"
-            />
-          ) : (
-            <Ionicons
-              name={(tab as { icon: string }).icon as any}
-              size={20}
-              color={active === tab.key ? '#fff' : '#999'}
-            />
-          )}
+          <Ionicons
+            name={(tab as { icon: string }).icon as any}
+            size={'iconSize' in tab ? tab.iconSize : 20}
+            color={active === tab.key ? '#fff' : '#999'}
+          />
           <Text
             style={[
               styles.tabLabel,
@@ -104,14 +102,14 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
         <TouchableOpacity
           style={styles.profileTab}
           onPress={onProfilePress}
-          onLongPress={() => setShowAccountSwitcher(true)}
+          onLongPress={handleProfileLongPress}
           delayLongPress={500}
         >
           {profileImageUrl ? (
             <Image
               key={imageKey} // Force re-render when URL changes
               source={{ uri: profileImageUrl }}
-              style={styles.profileImage}
+              style={styles.profileImage as ImageStyle}
               contentFit="cover"
               transition={200}
               cachePolicy="memory-disk" // Ensure fresh image loads
@@ -125,7 +123,7 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
       )}
       <TouchableOpacity
         style={styles.menuTab}
-        onPress={() => setShowUserMenu(true)}
+        onPress={handleMenuPress}
       >
         <Ionicons
           name="menu-outline"
@@ -137,4 +135,4 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
   );
 };
 
-export default TabBar;
+export default React.memo(TabBar);

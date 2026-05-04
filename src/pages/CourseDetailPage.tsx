@@ -274,42 +274,37 @@ const CourseDetailPage: React.FC<CourseDetailPageProps> = ({
     }
   };
 
+  // Register Now: API-only flow. Do NOT navigate to chat; backend sends the message to the academy.
   const handleRegister = async () => {
     if (!user) {
-      Alert.alert('Authentication Required', 'Please log in to start a conversation with the academy.');
+      Alert.alert('Authentication Required', 'Please log in to register for this course.');
       return;
     }
 
-    // Get company data for chat navigation
-    let companyData = course?.company;
-    if (!companyData && (course?.company_id || companyId)) {
-      try {
-        // Only fetch minimal fields needed for navigation (v2.24.0 optimization)
-        const companyResponse = await getCompany(course?.company_id || companyId || '', {
-          fields: ['id', 'name', 'logo_url']
-        });
-        if (companyResponse.success && companyResponse.data) {
-          companyData = companyResponse.data;
-        }
-      } catch (companyError) {
-        console.error('Failed to fetch company data:', companyError);
-        Alert.alert('Error', 'Failed to load academy information. Please try again.');
-        return;
-      }
+    const id = course?.id ?? courseId;
+    if (!id) {
+      Alert.alert('Error', 'Course information is missing.');
+      return;
     }
 
-    // Navigate to chat with academy if company data is available and onNavigate is provided
-    if (companyData && onNavigate && course) {
-      const participant = {
-        id: companyData.id,
-        category: 'company' as const,
-      };
-      onNavigate('chat', {
-        participant,
-        courseData: course,
-      });
-    } else {
-      Alert.alert('Error', 'Unable to start conversation. Academy information is missing.');
+    if (__DEV__) {
+      console.log('📋 [CourseDetailPage] Register Now: calling registerForCourse only (no chat navigation)');
+    }
+
+    try {
+      setRegistering(true);
+      const response = await registerForCourse(id);
+      if (response.success) {
+        Alert.alert('Success', 'You have been registered for this course.');
+        loadCourse();
+      } else {
+        Alert.alert('Error', response.error || 'Failed to register for course.');
+      }
+    } catch (error: any) {
+      console.error('Failed to register for course:', error);
+      Alert.alert('Error', error.message || 'Failed to register for course.');
+    } finally {
+      setRegistering(false);
     }
   };
 

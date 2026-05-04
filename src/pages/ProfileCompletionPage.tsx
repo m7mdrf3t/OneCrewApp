@@ -166,6 +166,8 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
 };
 
 interface ProfileFormData {
+  category: 'crew' | 'talent' | '';
+  primary_role: string;
   bio: string;
   skills: string[];
   portfolio: Array<{
@@ -240,6 +242,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   const mediaPicker = MediaPickerService.getInstance();
   
   const [formData, setFormData] = useState<ProfileFormData>({
+    category: '',
+    primary_role: '',
     bio: '',
     skills: [],
     portfolio: [],
@@ -286,6 +290,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
   const [filteredRoles, setFilteredRoles] = useState<Array<{ id: string; name: string; category?: string }>>([]);
   const [showRoleSuggestions, setShowRoleSuggestions] = useState(false);
   const [loadingRoles, setLoadingRoles] = useState(false);
+  // Roles by category for profile role dropdown (crew / talent)
+  const [crewRoles, setCrewRoles] = useState<Array<{ id: string; name: string }>>([]);
+  const [talentRoles, setTalentRoles] = useState<Array<{ id: string; name: string }>>([]);
   const [specialtyInputLayout, setSpecialtyInputLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const specialtyInputRef = useRef<View>(null);
   
@@ -602,6 +609,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       // Create a hash of key user fields to detect changes
       const userDataHash = JSON.stringify({
         id: userToUse.id,
+        category: userToUse.category,
+        primary_role: userToUse.primary_role,
         bio: userToUse.bio,
         specialty: userToUse.specialty,
         skills: userToUse.skills || userToUse.user_skills,
@@ -652,6 +661,8 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
             : [];
           
           return {
+            category: (userToUse.category === 'crew' || userToUse.category === 'talent' ? userToUse.category : (userToUse.category === 'Talent' ? 'talent' : userToUse.category === 'Crew' ? 'crew' : '')) || '',
+            primary_role: userToUse.primary_role || '',
             bio: userToUse.bio || '',
             skills: normalizedSkills,
             portfolio: portfolioToUse,
@@ -731,13 +742,15 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
       setLoadingReferences(true);
       try {
         
-        const [skinTonesRes, hairColorsRes, skillsRes, abilitiesRes, languagesRes, rolesRes] = await Promise.all([
+        const [skinTonesRes, hairColorsRes, skillsRes, abilitiesRes, languagesRes, rolesRes, crewRolesRes, talentRolesRes] = await Promise.all([
           getSkinTones(),
           getHairColors(),
           getSkills(),
           getAbilities(),
           getLanguages(),
           getRoles(),
+          getRoles({ category: 'crew' }),
+          getRoles({ category: 'talent' }),
         ]);
 
         setSkinTones(skinTonesRes.data || []);
@@ -746,10 +759,19 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         setAbilities(abilitiesRes.data || []);
         setLanguages(languagesRes.data || []);
         
-        // Load roles for autocomplete
+        // Load roles for autocomplete (specialty)
         if (rolesRes.success && rolesRes.data) {
           const rolesData = Array.isArray(rolesRes.data) ? rolesRes.data : [];
           setAvailableRoles(rolesData);
+        }
+        // Load roles by category for profile role dropdown (id = role code for backend, name = display label)
+        if (crewRolesRes.success && crewRolesRes.data) {
+          const list = Array.isArray(crewRolesRes.data) ? crewRolesRes.data : [];
+          setCrewRoles(list.map((r: any) => ({ id: r.id, name: r.name || String(r.id) })));
+        }
+        if (talentRolesRes.success && talentRolesRes.data) {
+          const list = Array.isArray(talentRolesRes.data) ? talentRolesRes.data : [];
+          setTalentRoles(list.map((r: any) => ({ id: r.id, name: r.name || String(r.id) })));
         }
         
       } catch (error) {
@@ -1753,6 +1775,9 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
         skills: formData.skills,
         imageUrl: finalImageUrl, // This will be mapped to image_url in ApiContext
         location_text: formData.about.location.trim() || undefined, // Location stored in users table, optional
+        // Role: allow user to change category and primary_role from profile
+        ...(formData.category ? { category: formData.category } : {}),
+        ...(formData.primary_role && formData.primary_role.trim() ? { primary_role: formData.primary_role.trim() } : {}),
         // Note: Cover images are managed separately via profile pictures API
       };
 
@@ -2401,6 +2426,46 @@ const ProfileCompletionPage: React.FC<ProfileCompletionPageProps> = ({
                 </View>
               </>
             )}
+          </View>
+
+          {/* Role (Category + Primary role) */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.sectionTitle}>Role</Text>
+            <Text style={styles.helpText}>
+              Your category and primary role help others find you in the directory.
+            </Text>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Category</Text>
+              <CustomDropdown
+                options={[
+                  { id: 'crew', name: 'Crew' },
+                  { id: 'talent', name: 'Talent' },
+                ]}
+                value={formData.category}
+                onValueChange={(value: string) => {
+                  const newCategory = value as 'crew' | 'talent';
+                  const roleOptions = newCategory === 'talent' ? talentRoles : crewRoles;
+                  const currentRoleValid = roleOptions.some(r => r.id === formData.primary_role);
+                  setFormData(prev => ({
+                    ...prev,
+                    category: newCategory,
+                    primary_role: currentRoleValid ? prev.primary_role : '',
+                  }));
+                }}
+                placeholder="Select category"
+                disabled={isSubmitting}
+              />
+            </View>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Primary role</Text>
+              <CustomDropdown
+                options={formData.category === 'talent' ? talentRoles : formData.category === 'crew' ? crewRoles : []}
+                value={formData.primary_role}
+                onValueChange={(value: string) => handleInputChange('primary_role', value)}
+                placeholder={formData.category ? 'Select your role' : 'Select category first'}
+                disabled={isSubmitting || !formData.category}
+              />
+            </View>
           </View>
 
           {/* Bio */}

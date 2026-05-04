@@ -1,10 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar, useColorScheme, Alert, NativeModules, ActivityIndicator, Linking, Platform } from 'react-native';
+import { View, StatusBar, useColorScheme, Alert, ActivityIndicator, Linking, Platform, InteractionManager } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { QueryClientProvider } from '@tanstack/react-query';
 // Firebase Messaging is now used instead of expo-notifications
 // We'll import it dynamically to avoid errors when native modules aren't ready
@@ -28,68 +26,20 @@ import { useAndroidBackHandler } from './src/hooks/useAndroidBackHandler';
 
 // Components
 import TabBar from './src/components/TabBar';
-import SearchBar from './src/components/SearchBar';
 import SplashScreen from './src/components/SplashScreen';
 import SkeletonScreen from './src/components/SkeletonScreen';
-
-// Pages
-import HomePage from './src/pages/HomePage';
-import HomePageWithUsers from './src/pages/HomePageWithUsers';
-import CompanyServicesModal from './src/components/CompanyServicesModal';
-import SectionServicesPage from './src/pages/SectionServicesPage';
-import DirectoryPage from './src/pages/DirectoryPage';
-import ServiceDetailPage from './src/pages/ServiceDetailPage';
-import ProjectsPage from './src/pages/ProjectsPage';
-import ProjectDetailPage from './src/pages/ProjectDetailPage';
-import NewProjectPage from './src/pages/NewProjectPage';
-import ProjectCreationModal from './src/components/ProjectCreationModal';
-import ProjectDashboard from './src/components/ProjectDashboard';
-import ProjectDetailsModal from './src/components/ProjectDetailsModal';
-import CommunicationComponent from './src/components/CommunicationComponent';
-import LegalTracker from './src/components/LegalTracker';
-import UserMenuModal from './src/components/UserMenuModal';
-import MyTeamModal from './src/components/MyTeamModal';
-import NotificationModal from './src/components/NotificationModal';
-import InvitationModal from './src/components/InvitationModal';
-import InvitationListModal from './src/components/InvitationListModal';
-import AccountSwitcherModal from './src/components/AccountSwitcherModal';
 import GlobalModals from './src/components/GlobalModals';
-import ProfileDetailPage from './src/pages/ProfileDetailPage';
-import ProfileCompletionPage from './src/pages/ProfileCompletionPage';
-import SpotPage from './src/pages/SpotPage';
-import ConversationsListPage from './src/pages/ConversationsListPage';
-import ChatPage from './src/pages/ChatPage';
-import NewsDetailPage from './src/pages/NewsDetailPage';
 import LoginPage from './src/pages/LoginPage';
 import SignupPage from './src/pages/SignupPage';
 import ForgotPasswordPage from './src/pages/ForgotPasswordPage';
 import ResetPasswordPage from './src/pages/ResetPasswordPage';
 import VerifyOtpPage from './src/pages/VerifyOtpPage';
 import OnboardingPage from './src/pages/OnboardingPage';
-import CompanyRegistrationPage from './src/pages/CompanyRegistrationPage';
-import CompanyProfilePage from './src/pages/CompanyProfilePage';
-import CompanyEditPage from './src/pages/CompanyEditPage';
-import CoursesManagementPage from './src/pages/CoursesManagementPage';
-import CourseEditPage from './src/pages/CourseEditPage';
-import CourseDetailPage from './src/pages/CourseDetailPage';
 import CompanyMembersManagementPage from './src/pages/CompanyMembersManagementPage';
-import PublicCoursesPage from './src/pages/PublicCoursesPage';
-import SettingsPage from './src/pages/SettingsPage';
-import ChangePasswordPage from './src/pages/ChangePasswordPage';
-import AccountDeletionPage from './src/pages/AccountDeletionPage';
-import PrivacyPolicyPage from './src/pages/PrivacyPolicyPage';
-import SupportPage from './src/pages/SupportPage';
-import ScreenshotHelper from './src/components/ScreenshotHelper';
-import AgendaPage from './src/pages/AgendaPage';
-import AllAgendaPage from './src/pages/AllAgendaPage';
-import BookingRequestsPage from './src/pages/BookingRequestsPage';
-import WeeklySchedulePage from './src/pages/WeeklySchedulePage';
-import PerformanceTestPage from './src/pages/PerformanceTestPage';
 
 // Data
-import { MOCK_PROFILES, SECTIONS } from './src/data/mockData';
-import { User, ProjectCreationData, ProjectDashboardData, Notification } from './src/types';
-import { spacing, semanticSpacing } from './src/constants/spacing';
+import { MOCK_PROFILES } from './src/data/mockData';
+import { ProjectCreationData, ProjectDashboardData } from './src/types';
 
 // Platform-specific styles
 import { createPlatformStyles } from './src/utils/platformStyles';
@@ -97,15 +47,29 @@ import { appCommonStyles } from './App.styles.common';
 import { appIosStyles } from './App.styles.ios';
 import { appAndroidStyles } from './App.styles.android';
 
+const MAIN_TAB_ROUTES = ['home', 'projects', 'spot', 'conversations'] as const;
+
+const getActiveRouteName = (state: any): string | null => {
+  if (!state?.routes?.length) {
+    return null;
+  }
+
+  const route = state.routes[state.index ?? 0];
+  if (route?.state) {
+    return getActiveRouteName(route.state);
+  }
+
+  return route?.name ?? null;
+};
+
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, setAppBootCompleted, getCompanyMembers } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, isAppBootCompleted, setAppBootCompleted, getCompanyMembers } = useApi();
   const insets = useSafeAreaInsets();
   // Calculate TabBar height: padding (16) + content (~50) + safe area bottom
   const tabBarHeight = 66 + Math.max(insets.bottom, 8);
   const [showSplash, setShowSplash] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [tab, setTab] = useState('spot');
   const [myTeam, setMyTeam] = useState([MOCK_PROFILES[0], MOCK_PROFILES[1]]);
   const [authPage, setAuthPage] = useState<'login' | 'signup' | 'forgot-password' | 'verify-otp' | 'verify-email-otp' | 'reset-password' | 'onboarding' | null>(null);
   const [resetToken, setResetToken] = useState<string>('');
@@ -130,6 +94,8 @@ const AppContent: React.FC = () => {
   const systemColorScheme = useColorScheme();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const lastBackPressAtRef = useRef<number>(0);
+  const navigationReadyRef = useRef(false);
+  const pendingNotificationDataRef = useRef<any>(null);
   
   // Guest user tracking state
   const [guestSessionStartTime, setGuestSessionStartTime] = useState<number | null>(null);
@@ -146,80 +112,15 @@ const AppContent: React.FC = () => {
 
   // Track current route to update tab and show/hide TabBar
   const [currentRoute, setCurrentRoute] = useState<string>('spot');
-  const mainTabRoutes = ['home', 'projects', 'spot', 'conversations'];
-  
-  // Function to get current route from navigation state
-  const getCurrentRouteFromState = useCallback(() => {
-    if (navigationRef.current) {
-      const state = navigationRef.current.getRootState();
-      if (state && state.routes && state.routes.length > 0) {
-        const route = state.routes[state.index];
-        return route?.name || null;
-      }
-    }
-    return null;
-  }, []);
 
-  // Always show TabBar on main tab routes (spot is included in mainTabRoutes)
-  // Use multiple fallbacks to ensure tab bar is always visible on main routes
   const shouldShowTabBar = useMemo(() => {
-    // Primary check: currentRoute state
-    if (mainTabRoutes.includes(currentRoute)) {
-      return true;
-    }
-    
-    // Fallback 1: Check if tab state indicates we're on a main route
-    if (mainTabRoutes.includes(tab)) {
-      return true;
-    }
-    
-    // Fallback 2: Check navigation state directly
-    const routeFromState = getCurrentRouteFromState();
-    if (routeFromState && mainTabRoutes.includes(routeFromState)) {
-      return true;
-    }
-    
-    // Fallback 3: If route is not set or empty, default to showing tab bar (assume spot page)
-    if (!currentRoute || currentRoute === '') {
-      return true;
-    }
-    
-    return false;
-  }, [currentRoute, tab, getCurrentRouteFromState]);
+    return MAIN_TAB_ROUTES.includes((currentRoute || 'spot') as typeof MAIN_TAB_ROUTES[number]);
+  }, [currentRoute]);
 
-  // Additional safeguard: Ensure tab bar is visible when on spot page
-  useEffect(() => {
-    // If we're on spot page (or route is not set), ensure tab bar visibility
-    if (currentRoute === 'spot' || (!currentRoute && tab === 'spot')) {
-      // Force update to ensure tab bar shows
-      if (!mainTabRoutes.includes(currentRoute || 'spot')) {
-        setCurrentRoute('spot');
-      }
-    }
-  }, [currentRoute, tab]);
-
-  // Periodic check to ensure route tracking is accurate (fallback safety net)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const routeFromState = getCurrentRouteFromState();
-      if (routeFromState && routeFromState !== currentRoute) {
-        // Only update if it's a main tab route to avoid interfering with other navigation
-        if (mainTabRoutes.includes(routeFromState)) {
-          console.log('🔄 Route tracking correction:', routeFromState);
-          setCurrentRoute(routeFromState);
-          if (mainTabRoutes.includes(routeFromState)) {
-            setTab(routeFromState);
-          }
-        }
-      } else if (!routeFromState && !currentRoute) {
-        // If no route detected and currentRoute is empty, default to spot
-        setCurrentRoute('spot');
-        setTab('spot');
-      }
-    }, 1000); // Check every second as a safety net
-
-    return () => clearInterval(interval);
-  }, [currentRoute, getCurrentRouteFromState]);
+  const syncRouteState = useCallback((routeName?: string | null) => {
+    const nextRoute = routeName || 'spot';
+    setCurrentRoute((prev) => (prev === nextRoute ? prev : nextRoute));
+  }, []);
 
   // Navigation function - uses React Navigation
   const navigateTo = useCallback((pageName: string, data: any = null) => {
@@ -306,9 +207,6 @@ const AppContent: React.FC = () => {
     
     // Use type assertion for navigation since we've validated routeName exists
     (navigationRef.current as any).navigate(routeName, params);
-    if (pageName !== 'home') {
-      setTab('');
-    }
   }, []);
 
   // Helper function to handle notification navigation
@@ -429,14 +327,45 @@ const AppContent: React.FC = () => {
   // Push notification handlers (Firebase FCM)
   const notificationUnsubscribe = useRef<(() => void) | null>(null);
 
+  const queueNotificationNavigation = useCallback((data: any) => {
+    if (!data) {
+      return;
+    }
+
+    pendingNotificationDataRef.current = data;
+  }, []);
+
+  const flushPendingNotificationNavigation = useCallback(() => {
+    if (
+      !navigationReadyRef.current ||
+      showSplash ||
+      isLoading ||
+      authPage !== null ||
+      showOnboarding ||
+      !pendingNotificationDataRef.current
+    ) {
+      return;
+    }
+
+    const data = pendingNotificationDataRef.current;
+    pendingNotificationDataRef.current = null;
+    handleNotificationNavigation(data);
+  }, [authPage, handleNotificationNavigation, isLoading, showOnboarding, showSplash]);
+
   useEffect(() => {
-    // Delay notification setup to ensure Firebase native modules are ready
+    flushPendingNotificationNavigation();
+  }, [flushPendingNotificationNavigation]);
+
+  useEffect(() => {
+    if (!isAppBootCompleted) {
+      return;
+    }
+
+    let isCancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let unsubscribeOnNotificationOpened: (() => void) | null = null;
+
     const setupNotifications = async () => {
-      // Wait for React Native bridge and native modules to initialize
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Ensure Firebase is initialized before using messaging
-      // This fixes "No Firebase App '[DEFAULT]' has been created" error
       try {
         const firebaseReady = await ensureFirebaseInitialized();
         if (!firebaseReady && __DEV__) {
@@ -448,56 +377,54 @@ const AppContent: React.FC = () => {
         }
       }
       
-      // Initialize push notifications
       try {
         await pushNotificationService.initialize();
+        if (isCancelled) {
+          return;
+        }
         
-        // Set up notification received listener (when app is in foreground)
-        // No delay needed - service is ready
         notificationUnsubscribe.current = pushNotificationService.addNotificationReceivedListener(
           (notification) => {
-            // Firebase automatically displays notifications, but we can handle custom logic here
-            // The notification data is available in notification.data
+            if (__DEV__) {
+              console.log('📨 [App] Notification received in foreground:', notification);
+            }
           }
         );
       } catch (error) {
         console.error('❌ [App] Failed to initialize push notifications:', error);
-        // Retry once after a delay
-        console.log('🔄 [App] Scheduling retry in 3 seconds...');
-        setTimeout(async () => {
+        retryTimeout = setTimeout(async () => {
           try {
-            console.log('🔄 [App] Retrying push notification initialization...');
             await pushNotificationService.initialize();
+            if (isCancelled) {
+              return;
+            }
             notificationUnsubscribe.current = pushNotificationService.addNotificationReceivedListener(
               (notification) => {
-                console.log('📨 [App] Notification received in foreground:', notification);
+                if (__DEV__) {
+                  console.log('📨 [App] Notification received in foreground:', notification);
+                }
               }
             );
-            console.log('✅ [App] Retry successful');
           } catch (retryError) {
             console.error('❌ [App] Retry failed to initialize push notifications:', retryError);
           }
-        }, 3000); // Reduced from 5s to 3s
+        }, 3000);
       }
     };
 
-    setupNotifications();
-
-    // Handle notification that opened the app (if app was closed)
     console.log('📱 [App] Checking for initial notification...');
     pushNotificationService.getInitialNotification().then((response) => {
+      if (isCancelled) {
+        return;
+      }
       if (response) {
         console.log('📱 [App] App opened from notification:', response);
         const data = response.notification.request.content.data;
         console.log('📱 [App] Initial notification data:', data);
         
-        // Handle navigation based on notification data
         if (data) {
-          // Small delay to ensure app is fully loaded
-          console.log('📱 [App] Navigating based on notification data...');
-          setTimeout(() => {
-            handleNotificationNavigation(data);
-          }, 1000);
+          queueNotificationNavigation(data);
+          flushPendingNotificationNavigation();
         } else {
           console.warn('⚠️ [App] Initial notification has no data');
         }
@@ -508,15 +435,10 @@ const AppContent: React.FC = () => {
       console.error('❌ [App] Error getting initial notification:', error);
     });
 
-    // Set up listener for notification taps when app is in background/foreground
-    // Firebase handles this via messaging().onNotificationOpenedApp
-    let unsubscribeOnNotificationOpened: (() => void) | null = null;
-    
     const setupNotificationOpenedListener = async () => {
       try {
-        // Ensure Firebase is initialized before accessing messaging
         const firebaseReady = await ensureFirebaseInitialized();
-        if (!firebaseReady) {
+        if (!firebaseReady || isCancelled) {
           if (__DEV__) {
             console.warn('⚠️ [App] Skipping notification opened listener - Firebase not initialized');
           }
@@ -531,12 +453,9 @@ const AppContent: React.FC = () => {
           if (messaging && typeof messaging === 'function') {
             console.log('📱 [App] Registering onNotificationOpenedApp listener...');
             unsubscribeOnNotificationOpened = messaging().onNotificationOpenedApp((remoteMessage: any) => {
-              console.log('👆 [App] Notification tapped (app in background):', remoteMessage);
-              console.log('👆 [App] Notification title:', remoteMessage.notification?.title);
-              console.log('👆 [App] Notification body:', remoteMessage.notification?.body);
-              console.log('👆 [App] Notification data:', remoteMessage.data);
               const data = remoteMessage.data || {};
-              handleNotificationNavigation(data);
+              queueNotificationNavigation(data);
+              flushPendingNotificationNavigation();
             });
             console.log('✅ [App] Notification opened listener registered');
           } else {
@@ -562,15 +481,18 @@ const AppContent: React.FC = () => {
         }
       }
     };
-    
-    // Delay to ensure native modules and Firebase are fully initialized
-    console.log('📱 [App] Scheduling notification opened listener setup in 4 seconds...');
-    const setupNotificationListener = setTimeout(() => {
+
+    const interactionTask = InteractionManager.runAfterInteractions(() => {
+      setupNotifications();
       setupNotificationOpenedListener();
-    }, 4000);
+    });
 
     return () => {
-      clearTimeout(setupNotificationListener);
+      isCancelled = true;
+      interactionTask.cancel();
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
       if (notificationUnsubscribe.current) {
         pushNotificationService.removeNotificationSubscription(notificationUnsubscribe.current);
       }
@@ -578,22 +500,26 @@ const AppContent: React.FC = () => {
         unsubscribeOnNotificationOpened();
       }
     };
-  }, [user, getProjectById, navigateTo, handleNotificationNavigation]);
+  }, [flushPendingNotificationNavigation, isAppBootCompleted, queueNotificationNavigation]);
 
   useEffect(() => {
-    const logToken = async () => {
+    if (!__DEV__ || !isAppBootCompleted || !isAuthenticated) {
+      return;
+    }
+
+    let isCancelled = false;
+    const tokenTimeout = setTimeout(async () => {
+      if (!navigationReadyRef.current || isCancelled) {
+        return;
+      }
+
       try {
-        // First, check if stored token is an Expo token (old)
         const storedToken = await pushNotificationService.getStoredToken();
         if (storedToken && storedToken.startsWith('ExponentPushToken')) {
           console.log('⚠️ Found old Expo token, clearing it...');
           await pushNotificationService.clearToken();
         }
         
-        // Wait a bit for Firebase to be ready
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        // Use PushNotificationService to get FCM token (it handles all the complexity)
         const fcmToken = await pushNotificationService.registerForPushNotifications();
       } catch (error: any) {
         console.error('❌ Error getting FCM token:', error?.message || error);
@@ -601,9 +527,28 @@ const AppContent: React.FC = () => {
           console.error('Stack:', error.stack.substring(0, 500));
         }
       }
+    }, 5000);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(tokenTimeout);
     };
-    setTimeout(logToken, 5000);
-  }, []);
+  }, [isAppBootCompleted, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isGuest || !guestSessionStartTime || guestPromptShownRef.current) {
+      return;
+    }
+
+    const elapsed = Date.now() - guestSessionStartTime;
+    const remainingMs = Math.max(5 * 60 * 1000 - elapsed, 0);
+    const promptTimeout = setTimeout(() => {
+      setShowGuestPrompt(true);
+      guestPromptShownRef.current = true;
+    }, remainingMs);
+
+    return () => clearTimeout(promptTimeout);
+  }, [guestSessionStartTime, isGuest]);
 
   // Handle authentication state changes
   useEffect(() => {
@@ -642,23 +587,6 @@ const AppContent: React.FC = () => {
       setGuestClickCount(0);
       setShowGuestPrompt(false);
       guestPromptShownRef.current = false;
-    }
-  }, [isGuest, guestSessionStartTime]);
-
-  // Check for 5 minutes elapsed
-  useEffect(() => {
-    if (isGuest && guestSessionStartTime && !guestPromptShownRef.current) {
-      const checkInterval = setInterval(() => {
-        const elapsed = Date.now() - guestSessionStartTime;
-        const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
-        if (elapsed >= fiveMinutes) {
-          setShowGuestPrompt(true);
-          guestPromptShownRef.current = true;
-          clearInterval(checkInterval);
-        }
-      }, 1000); // Check every second
-
-      return () => clearInterval(checkInterval);
     }
   }, [isGuest, guestSessionStartTime]);
 
@@ -1141,7 +1069,6 @@ const AppContent: React.FC = () => {
       return; // Don't navigate yet, wait for user response
     }
 
-    setTab(newTab);
     setSearchQuery('');
     
     // Navigate to tab using React Navigation
@@ -1434,58 +1361,25 @@ const AppContent: React.FC = () => {
         <GlobalModalsProvider>
           <AndroidBackHandlerWrapper>
             <View style={styles.appWrapper}>
-            <View style={[styles.navigationContainer, { paddingBottom: tabBarHeight }]}>
+            <View style={[styles.navigationContainer, shouldShowTabBar && { paddingBottom: tabBarHeight }]}>
               <NavigationContainer 
                 ref={navigationRef}
                 onStateChange={(state) => {
                   try {
-                    if (state && state.routes && state.routes.length > 0) {
-                      const route = state.routes[state.index];
-                      if (route?.name) {
-                        const routeName = route.name;
-                        console.log('🧭 Navigation state changed:', routeName);
-                        setCurrentRoute(routeName);
-                        // Update tab if it's a main tab route
-                        if (mainTabRoutes.includes(routeName)) {
-                          setTab(routeName);
-                        }
-                      } else {
-                        // Fallback: if no route name detected, ensure we're tracking spot as default
-                        // This ensures tab bar is visible even if route tracking fails
-                        console.log('⚠️ No route name detected, defaulting to spot');
-                        if (!currentRoute || currentRoute === '') {
-                          setCurrentRoute('spot');
-                          setTab('spot');
-                        }
-                      }
-                    } else {
-                      // If state is null/undefined or empty, ensure spot is set as fallback
-                      console.log('⚠️ Navigation state is null/empty, defaulting to spot');
-                      if (!currentRoute || currentRoute === '') {
-                        setCurrentRoute('spot');
-                        setTab('spot');
-                      }
-                    }
+                    const routeName = getActiveRouteName(state);
+                    console.log('🧭 Navigation state changed:', routeName || 'spot');
+                    syncRouteState(routeName);
+                    flushPendingNotificationNavigation();
                   } catch (error) {
                     console.error('❌ Error in onStateChange:', error);
-                    // On error, ensure we have a valid route set
-                    if (!currentRoute || !mainTabRoutes.includes(currentRoute)) {
-                      setCurrentRoute('spot');
-                      setTab('spot');
-                    }
+                    syncRouteState('spot');
                   }
                 }}
                 onReady={() => {
-                  // When navigation is ready, ensure initial route is set
-                  const initialRoute = getCurrentRouteFromState();
-                  if (initialRoute && mainTabRoutes.includes(initialRoute)) {
-                    setCurrentRoute(initialRoute);
-                    setTab(initialRoute);
-                  } else {
-                    // Default to spot if we can't determine the route
-                    setCurrentRoute('spot');
-                    setTab('spot');
-                  }
+                  navigationReadyRef.current = true;
+                  const initialRoute = getActiveRouteName(navigationRef.current?.getRootState());
+                  syncRouteState(initialRoute);
+                  flushPendingNotificationNavigation();
                   console.log('✅ Navigation ready, initial route:', initialRoute || 'spot');
                 }}
               >
@@ -1495,17 +1389,19 @@ const AppContent: React.FC = () => {
                 </NavigationProvider>
               </NavigationContainer>
             </View>
-            <TabBar 
-              active={tab} 
-              onChange={handleTabChange}
-              onProfilePress={() => {
-                if (currentProfileType === 'company' && activeCompany?.id) {
-                  navigateTo('companyProfile', { companyId: activeCompany.id });
-                } else if (user) {
-                  navigateTo('myProfile', user);
-                }
-              }}
-            />
+            {shouldShowTabBar ? (
+              <TabBar 
+                active={currentRoute} 
+                onChange={handleTabChange}
+                onProfilePress={() => {
+                  if (currentProfileType === 'company' && activeCompany?.id) {
+                    navigateTo('companyProfile', { companyId: activeCompany.id });
+                  } else if (user) {
+                    navigateTo('myProfile', user);
+                  }
+                }}
+              />
+            ) : null}
           </View>
           </AndroidBackHandlerWrapper>
         </GlobalModalsProvider>

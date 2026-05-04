@@ -137,7 +137,7 @@ const FilterModal: React.FC<FilterModalProps> = ({
   const [expandedFilters, setExpandedFilters] = useState<Set<string>>(new Set());
   const [accentInput, setAccentInput] = useState(initialFilters.accent || '');
   const [nationalityInput, setNationalityInput] = useState('');
-  const [currentLocationInput, setCurrentLocationInput] = useState(initialFilters.currentLocation || '');
+  const [currentLocationInput, setCurrentLocationInput] = useState(initialFilters.currentLocation || initialFilters.location || '');
   const [shootingLocationInput, setShootingLocationInput] = useState(initialFilters.shootingLocation || '');
 
   useEffect(() => {
@@ -145,7 +145,7 @@ const FilterModal: React.FC<FilterModalProps> = ({
       setFilters(initialFilters);
       setExpandedFilters(new Set());
       setAccentInput(initialFilters.accent || '');
-      setCurrentLocationInput(initialFilters.currentLocation || '');
+      setCurrentLocationInput(initialFilters.currentLocation || initialFilters.location || '');
       setShootingLocationInput(initialFilters.shootingLocation || '');
       setNationalityInput('');
     }
@@ -345,9 +345,12 @@ const FilterModal: React.FC<FilterModalProps> = ({
   const handleLocationChange = (type: 'current' | 'shooting', text: string) => {
     if (type === 'current') {
       setCurrentLocationInput(text);
+      const value = text.trim() || undefined;
       setFilters(prev => ({
         ...prev,
-        currentLocation: text.trim() || undefined,
+        currentLocation: value,
+        // Map current location to location so directory/API filters work for All Members
+        location: value,
       }));
     } else {
       setShootingLocationInput(text);
@@ -442,8 +445,12 @@ const FilterModal: React.FC<FilterModalProps> = ({
                   filters.gender === 'male' && styles.genderButtonActive,
                 ]}
                 onPress={() => handleGenderSelect('male')}
+                activeOpacity={0.7}
               >
-                <Text style={[styles.genderText, filters.gender === 'male' && styles.genderTextActive]}>
+                <Text
+                  style={[styles.genderText, filters.gender === 'male' && styles.genderTextActive]}
+                  numberOfLines={1}
+                >
                   Male
                 </Text>
               </TouchableOpacity>
@@ -453,42 +460,13 @@ const FilterModal: React.FC<FilterModalProps> = ({
                   filters.gender === 'female' && styles.genderButtonActive,
                 ]}
                 onPress={() => handleGenderSelect('female')}
+                activeOpacity={0.7}
               >
-                <Text style={[styles.genderText, filters.gender === 'female' && styles.genderTextActive]}>
+                <Text
+                  style={[styles.genderText, filters.gender === 'female' && styles.genderTextActive]}
+                  numberOfLines={1}
+                >
                   Female
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.genderButton,
-                  filters.gender === 'non_binary' && styles.genderButtonActive,
-                ]}
-                onPress={() => handleGenderSelect('non_binary')}
-              >
-                <Text style={[styles.genderText, filters.gender === 'non_binary' && styles.genderTextActive]}>
-                  Non Binary
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.genderButton,
-                  filters.gender === 'prefer_not_to_say' && styles.genderButtonActive,
-                ]}
-                onPress={() => handleGenderSelect('prefer_not_to_say')}
-              >
-                <Text style={[styles.genderText, filters.gender === 'prefer_not_to_say' && styles.genderTextActive]}>
-                  Prefer Not To Say
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.genderButton,
-                  filters.gender === 'other' && styles.genderButtonActive,
-                ]}
-                onPress={() => handleGenderSelect('other')}
-              >
-                <Text style={[styles.genderText, filters.gender === 'other' && styles.genderTextActive]}>
-                  Other
                 </Text>
               </TouchableOpacity>
             </View>
@@ -922,6 +900,10 @@ const FilterModal: React.FC<FilterModalProps> = ({
     { key: 'awards', label: 'Awards', icon: 'trophy-outline' },
   ];
 
+  // Only show these filter parameters in the UI (others hidden, not removed)
+  const VISIBLE_FILTER_KEYS = ['gender', 'nationality', 'location', 'skills'];
+  const visibleFilters = userFilters.filter((f) => VISIBLE_FILTER_KEYS.includes(f.key));
+
   return (
     <Modal
       visible={visible}
@@ -940,7 +922,7 @@ const FilterModal: React.FC<FilterModalProps> = ({
           </View>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-            {userFilters.map((filter) => {
+            {visibleFilters.map((filter) => {
               const isActive = filters[filter.key as keyof FilterParams] !== undefined && 
                 filters[filter.key as keyof FilterParams] !== '' &&
                 !(Array.isArray(filters[filter.key as keyof FilterParams]) && 
@@ -1065,27 +1047,30 @@ const styles = StyleSheet.create({
   },
   genderOptions: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
+    alignItems: 'stretch',
+    gap: spacing.md,
   },
   genderButton: {
     flex: 1,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    minWidth: 0,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md,
     borderRadius: semanticSpacing.borderRadius.md,
     backgroundColor: '#f3f4f6',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   genderButtonActive: {
-    backgroundColor: '#e5e7eb',
+    backgroundColor: '#1f2937',
   },
   genderText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: '#111827',
   },
   genderTextActive: {
     fontWeight: '700',
+    color: '#fff',
   },
   physicalAttributeSection: {
     marginBottom: spacing.lg,

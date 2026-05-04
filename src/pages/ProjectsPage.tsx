@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Image, StyleProp, ViewStyle, TextStyle } from 'react-native';
+import React, { memo, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Image, StyleProp, ViewStyle, TextStyle, FlatList, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
 import { ProjectsPageProps } from '../types';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
@@ -11,6 +10,199 @@ import ProjectTypeModal from '../components/ProjectTypeModal';
 import { spacing, semanticSpacing } from '../constants/spacing';
 import MediaPickerService from '../services/MediaPickerService';
 import SkeletonProjectCard from '../components/SkeletonProjectCard';
+
+type ProjectTab = 'owner' | 'member' | 'pending';
+
+const getStatusColor = (status: string) => {
+  switch (status?.toLowerCase()) {
+    case 'completed':
+      return '#10b981';
+    case 'in_progress':
+      return '#3b82f6';
+    case 'planning':
+      return '#f59e0b';
+    case 'on_hold':
+      return '#f59e0b';
+    case 'cancelled':
+      return '#ef4444';
+    default:
+      return '#6b7280';
+  }
+};
+
+const formatDate = (dateString: string) => {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleDateString();
+  } catch {
+    return '';
+  }
+};
+
+interface ProjectCardProps {
+  project: any;
+  activeTab: ProjectTab;
+  onPress: (project: any) => void;
+  onMenuPress: (project: any) => void;
+  canEditProject: (project: any) => boolean;
+  getUserAccessLevel: (project: any) => string;
+  getAccessLevelColor: (accessLevel: string) => string;
+  getAccessLevelText: (accessLevel: string) => string;
+}
+
+const ProjectCard = memo(({
+  project,
+  activeTab,
+  onPress,
+  onMenuPress,
+  canEditProject,
+  getUserAccessLevel,
+  getAccessLevelColor,
+  getAccessLevelText,
+}: ProjectCardProps) => {
+  const accessLevel = getUserAccessLevel(project);
+  const isOwner = accessLevel === 'owner';
+  const isMember = accessLevel === 'member';
+  const isPending = activeTab === 'pending';
+  const canEdit = canEditProject(project);
+
+  let cardStyle: StyleProp<ViewStyle> = styles.projectCard;
+  let titleStyle: StyleProp<TextStyle> = styles.projectTitle;
+  let descriptionStyle: StyleProp<TextStyle> = styles.projectDescription;
+  let infoTextStyle: StyleProp<TextStyle> = styles.projectInfoText;
+  let footerStyle: StyleProp<ViewStyle> = styles.projectFooter;
+  let dateTextStyle: StyleProp<TextStyle> = styles.dateText;
+  let iconColor = '#a1a1aa';
+  let menuIconColor = '#a1a1aa';
+
+  if (isOwner) {
+    cardStyle = [styles.projectCard, styles.projectCardOwner];
+  } else if (isPending) {
+    cardStyle = [styles.projectCard, styles.projectCardPending];
+    titleStyle = styles.projectTitlePending;
+    descriptionStyle = styles.projectDescriptionPending;
+    infoTextStyle = styles.projectInfoTextPending;
+    footerStyle = styles.projectFooterPending;
+    dateTextStyle = styles.dateTextPending;
+    iconColor = '#fff';
+    menuIconColor = '#fff';
+  } else if (isMember) {
+    cardStyle = [styles.projectCard, styles.projectCardMember];
+    titleStyle = [styles.projectTitle, styles.projectTitleMember];
+    descriptionStyle = [styles.projectDescription, styles.projectDescriptionMember];
+    infoTextStyle = [styles.projectInfoText, styles.projectInfoTextMember];
+    footerStyle = [styles.projectFooter, styles.projectFooterMember];
+    dateTextStyle = [styles.dateText, styles.dateTextMember];
+    iconColor = '#fff';
+    menuIconColor = '#fff';
+  }
+
+  return (
+    <TouchableOpacity
+      style={[cardStyle, project.cover_image_url && styles.projectCardWithImage]}
+      onPress={() => onPress(project)}
+      activeOpacity={0.9}
+    >
+      {project.cover_image_url && (
+        <>
+          <Image
+            source={{ uri: project.cover_image_url }}
+            style={styles.coverImageBackgroundImage}
+            resizeMode="cover"
+          />
+          <View style={styles.coverImageOverlay} />
+        </>
+      )}
+
+      <View style={styles.projectCardContent}>
+        <View style={styles.projectHeader}>
+          <Text style={titleStyle}>{project.title}</Text>
+          <View style={styles.projectHeaderRight}>
+            <View style={styles.projectBadges}>
+              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(project.status) }]}>
+                <Text style={styles.statusBadgeText}>
+                  {project.status?.replace('_', ' ').toUpperCase() || 'DRAFT'}
+                </Text>
+              </View>
+              {isPending ? (
+                <View style={[styles.pendingBadge, { backgroundColor: '#f59e0b' }]}>
+                  <Text style={styles.pendingBadgeText}>PENDING</Text>
+                </View>
+              ) : (
+                <View style={[styles.accessBadge, { backgroundColor: getAccessLevelColor(accessLevel) }]}>
+                  <Text style={styles.accessBadgeText}>
+                    {getAccessLevelText(accessLevel)}
+                  </Text>
+                </View>
+              )}
+            </View>
+            {canEdit && (
+              <TouchableOpacity
+                style={styles.menuButton}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onMenuPress(project);
+                }}
+              >
+                <Ionicons
+                  name="ellipsis-horizontal"
+                  size={20}
+                  color={menuIconColor}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {project.description && (
+          <Text style={descriptionStyle} numberOfLines={2}>
+            {project.description}
+          </Text>
+        )}
+
+        <View style={styles.projectDetails}>
+          <View style={styles.projectInfo}>
+            {project.type && (
+              <View style={styles.projectInfoItem}>
+                <Ionicons name="film" size={16} color={iconColor} />
+                <Text style={infoTextStyle}>{project.type}</Text>
+              </View>
+            )}
+            {project.location && (
+              <View style={styles.projectInfoItem}>
+                <Ionicons name="location" size={16} color={iconColor} />
+                <Text style={infoTextStyle}>{project.location}</Text>
+              </View>
+            )}
+            {project.owner && (
+              <View style={styles.projectInfoItem}>
+                <Ionicons name="person" size={16} color={iconColor} />
+                <Text style={infoTextStyle}>by {project.owner.name}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={footerStyle}>
+          <View style={styles.projectDates}>
+            {project.start_date && (
+              <Text style={dateTextStyle}>
+                Start: {formatDate(project.start_date)}
+              </Text>
+            )}
+            {project.end_date && (
+              <Text style={dateTextStyle}>
+                End: {formatDate(project.end_date)}
+              </Text>
+            )}
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={iconColor} />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
 
 const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onProjectSelect,
@@ -27,9 +219,8 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   onNavigateToLogin,
   onProjectCreated,
 }) => {
-  const navigation = useNavigation();
   const { navigateTo, goBack } = useAppNavigation();
-  const { getAllProjects, getProjectById, user, api, isGuest, checkPendingAssignments, uploadFile, updateProject, createProject } = useApi();
+  const { getAllProjects, user, api, isGuest, checkPendingAssignments, uploadFile, updateProject, createProject } = useApi();
   const [projects, setProjects] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +235,10 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
   const [ownerProjects, setOwnerProjects] = useState<any[]>([]);
   const [memberProjects, setMemberProjects] = useState<any[]>([]);
   const [pendingProjects, setPendingProjects] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'owner' | 'member' | 'pending'>('owner');
+  const [activeTab, setActiveTab] = useState<ProjectTab>('owner');
+  const [isLoadingPendingProjects, setIsLoadingPendingProjects] = useState(false);
+  const [hasLoadedPendingProjects, setHasLoadedPendingProjects] = useState(false);
+  const pendingCheckRunIdRef = useRef(0);
   
   // Removed loading progress and task loading states - now only loading basic project info
 
@@ -113,19 +307,14 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         isBasicData: true,
       }));
       
-      // ✅ Show UI immediately - don't wait for pending checks
       setOwnerProjects(ownerWithTasks);
       setMemberProjects(memberWithTasks);
-      setPendingProjects([]); // Will be populated after background check
-      setProjects([...ownerWithTasks, ...memberWithTasks]); // Keep for backward compatibility
-      setIsLoading(false); // UI is ready!
+      setPendingProjects([]);
+      setHasLoadedPendingProjects(false);
+      setProjects([...ownerWithTasks, ...memberWithTasks]);
+      setIsLoading(false);
       
-      console.log(`📊 Loaded projects: ${ownerWithTasks.length} owner, ${memberWithTasks.length} member (pending checks in background)`);
-      
-      // Check pending assignments in background (non-blocking)
-      if (memberWithTasks.length > 0) {
-        checkPendingAssignmentsInBackground(memberWithTasks);
-      }
+      console.log(`📊 Loaded projects: ${ownerWithTasks.length} owner, ${memberWithTasks.length} member`);
     } catch (err) {
       console.error('Failed to load projects:', err);
       setError('Failed to load projects');
@@ -134,15 +323,22 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     }
   };
 
-  // Check pending assignments in background after initial UI render
-  // This allows the UI to appear immediately while pending checks happen asynchronously
-  const checkPendingAssignmentsInBackground = async (memberProjects: any[]) => {
-    if (!user?.id || memberProjects.length === 0) return;
-    
+  const loadPendingProjects = useCallback(async () => {
+    if (!user?.id || hasLoadedPendingProjects || isLoadingPendingProjects) return;
+
+    if (memberProjects.length === 0) {
+      setPendingProjects([]);
+      setHasLoadedPendingProjects(true);
+      return;
+    }
+
+    const runId = pendingCheckRunIdRef.current + 1;
+    pendingCheckRunIdRef.current = runId;
+    setIsLoadingPendingProjects(true);
+
     try {
-      console.log(`🔄 Checking pending assignments for ${memberProjects.length} member projects in background...`);
+      console.log(`🔄 Checking pending assignments for ${memberProjects.length} member projects on demand...`);
       
-      // Check pending assignments in parallel using lightweight endpoint
       const pendingChecks = await Promise.all(
         memberProjects.map(async (project) => {
           try {
@@ -155,7 +351,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         })
       );
       
-      // Categorize member projects based on pending status
       const pending: any[] = [];
       const member: any[] = [];
       
@@ -167,16 +362,29 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         }
       });
       
-      // Update state after checks complete
+      if (pendingCheckRunIdRef.current !== runId) {
+        return;
+      }
+
       setMemberProjects(member);
       setPendingProjects(pending);
+      setHasLoadedPendingProjects(true);
       
-      console.log(`✅ Background pending check complete: ${member.length} member, ${pending.length} pending`);
+      console.log(`✅ Pending check complete: ${member.length} member, ${pending.length} pending`);
     } catch (error) {
-      console.error('❌ Failed to check pending assignments in background:', error);
-      // Don't show error to user - just keep projects in member tab
+      console.error('❌ Failed to check pending assignments:', error);
+    } finally {
+      if (pendingCheckRunIdRef.current === runId) {
+        setIsLoadingPendingProjects(false);
+      }
     }
-  };
+  }, [user?.id, hasLoadedPendingProjects, isLoadingPendingProjects, memberProjects, hasPendingAssignments]);
+
+  useEffect(() => {
+    if (activeTab === 'pending') {
+      loadPendingProjects();
+    }
+  }, [activeTab, loadPendingProjects]);
 
   // Method to add project immediately without reload
   const addProjectToList = React.useCallback(async (newProject: any) => {
@@ -324,7 +532,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     }
   };
 
-  const handleMenuPress = (project: any, event?: any) => {
+  const handleMenuPress = (project: any) => {
     setSelectedProject(project);
     setShowMenuPopup(true);
     // Menu will appear on the right side by default
@@ -584,23 +792,6 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     loadProjects();
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'completed':
-        return '#10b981';
-      case 'in_progress':
-        return '#3b82f6';
-      case 'planning':
-        return '#f59e0b';
-      case 'on_hold':
-        return '#f59e0b';
-      case 'cancelled':
-        return '#ef4444';
-      default:
-        return '#6b7280';
-    }
-  };
-
   const getUserAccessLevel = (project: any) => {
     if (!user) {
       return 'viewer';
@@ -675,15 +866,52 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
     }
   };
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return '';
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString();
-    } catch {
-      return '';
+  const activeProjects = useMemo(() => {
+    if (activeTab === 'owner') return ownerProjects;
+    if (activeTab === 'member') return memberProjects;
+    return pendingProjects;
+  }, [activeTab, ownerProjects, memberProjects, pendingProjects]);
+
+  const renderProjectItem = useCallback(({ item }: { item: any }) => (
+    <ProjectCard
+      project={item}
+      activeTab={activeTab}
+      onPress={handleProjectPress}
+      onMenuPress={handleMenuPress}
+      canEditProject={canEditProject}
+      getUserAccessLevel={getUserAccessLevel}
+      getAccessLevelColor={getAccessLevelColor}
+      getAccessLevelText={getAccessLevelText}
+    />
+  ), [activeTab, handleProjectPress, handleMenuPress, canEditProject, getUserAccessLevel, getAccessLevelColor, getAccessLevelText]);
+
+  const renderProjectsEmptyState = useCallback(() => {
+    if (activeTab === 'pending' && isLoadingPendingProjects) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="small" color="#000" />
+          <Text style={styles.emptyTitle}>Checking Pending Assignments</Text>
+          <Text style={styles.emptyDescription}>Loading the projects that still need your response.</Text>
+        </View>
+      );
     }
-  };
+
+    return (
+      <View style={styles.emptyState}>
+        <Ionicons name="folder-open" size={64} color="#d4d4d8" />
+        <Text style={styles.emptyTitle}>
+          {activeTab === 'owner' && 'No Projects Yet'}
+          {activeTab === 'member' && 'No Member Projects'}
+          {activeTab === 'pending' && 'No Pending Assignments'}
+        </Text>
+        <Text style={styles.emptyDescription}>
+          {activeTab === 'owner' && 'Start by creating a new dream project.'}
+          {activeTab === 'member' && 'You are not a member of any projects yet.'}
+          {activeTab === 'pending' && 'You have no pending task assignments.'}
+        </Text>
+      </View>
+    );
+  }, [activeTab, isLoadingPendingProjects]);
 
   if (isLoading) {
     return (
@@ -768,187 +996,22 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.projectsContainer}>
-          {(() => {
-            // Get projects for active tab
-            let projectsToShow: any[] = [];
-            if (activeTab === 'owner') {
-              projectsToShow = ownerProjects;
-            } else if (activeTab === 'member') {
-              projectsToShow = memberProjects;
-            } else if (activeTab === 'pending') {
-              projectsToShow = pendingProjects;
-            }
-
-            if (projectsToShow.length === 0) {
-              return (
-                <View style={styles.emptyState}>
-                  <Ionicons name="folder-open" size={64} color="#d4d4d8" />
-                  <Text style={styles.emptyTitle}>
-                    {activeTab === 'owner' && 'No Projects Yet'}
-                    {activeTab === 'member' && 'No Member Projects'}
-                    {activeTab === 'pending' && 'No Pending Assignments'}
-                  </Text>
-                  <Text style={styles.emptyDescription}>
-                    {activeTab === 'owner' && 'Start by creating a new dream project.'}
-                    {activeTab === 'member' && 'You are not a member of any projects yet.'}
-                    {activeTab === 'pending' && 'You have no pending task assignments.'}
-                  </Text>
-                </View>
-              );
-            }
-
-            return projectsToShow.map((project) => {
-                const accessLevel = getUserAccessLevel(project);
-                const isOwner = accessLevel === 'owner';
-                const isMember = accessLevel === 'member';
-                const isPending = activeTab === 'pending';
-                const canEdit = canEditProject(project);
-                
-                // Determine card style based on tab
-                let cardStyle: StyleProp<ViewStyle> = styles.projectCard;
-                let titleStyle: StyleProp<TextStyle> = styles.projectTitle;
-                let descriptionStyle: StyleProp<TextStyle> = styles.projectDescription;
-                let infoTextStyle: StyleProp<TextStyle> = styles.projectInfoText;
-                let footerStyle: StyleProp<ViewStyle> = styles.projectFooter;
-                let dateTextStyle: StyleProp<TextStyle> = styles.dateText;
-                let iconColor = "#a1a1aa";
-                let menuIconColor = "#a1a1aa";
-                
-                if (isOwner) {
-                  cardStyle = [styles.projectCard, styles.projectCardOwner];
-                } else if (isPending) {
-                  cardStyle = [styles.projectCard, styles.projectCardPending];
-                  titleStyle = styles.projectTitlePending;
-                  descriptionStyle = styles.projectDescriptionPending;
-                  infoTextStyle = styles.projectInfoTextPending;
-                  footerStyle = styles.projectFooterPending;
-                  dateTextStyle = styles.dateTextPending;
-                  iconColor = "#fff";
-                  menuIconColor = "#fff";
-                } else if (isMember) {
-                  cardStyle = [styles.projectCard, styles.projectCardMember];
-                  titleStyle = [styles.projectTitle, styles.projectTitleMember];
-                  descriptionStyle = [styles.projectDescription, styles.projectDescriptionMember];
-                  infoTextStyle = [styles.projectInfoText, styles.projectInfoTextMember];
-                  footerStyle = [styles.projectFooter, styles.projectFooterMember];
-                  dateTextStyle = [styles.dateText, styles.dateTextMember];
-                  iconColor = "#fff";
-                  menuIconColor = "#fff";
-                }
-                
-                return (
-                  <TouchableOpacity
-                    key={project.id}
-                    style={[cardStyle, project.cover_image_url && styles.projectCardWithImage]}
-                    onPress={() => handleProjectPress(project)}
-                  >
-                    {/* Cover Image Background with 60% opacity */}
-                    {project.cover_image_url && (
-                      <>
-                        <Image 
-                          source={{ uri: project.cover_image_url }} 
-                          style={styles.coverImageBackgroundImage}
-                          resizeMode="cover"
-                        />
-                        <View style={styles.coverImageOverlay} />
-                      </>
-                    )}
-                    
-                    {/* Content Overlay */}
-                    <View style={styles.projectCardContent}>
-                      <View style={styles.projectHeader}>
-                        <Text style={titleStyle}>{project.title}</Text>
-                        <View style={styles.projectHeaderRight}>
-                          <View style={styles.projectBadges}>
-                            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(project.status) }]}>
-                              <Text style={styles.statusBadgeText}>
-                                {project.status?.replace('_', ' ').toUpperCase() || 'DRAFT'}
-                              </Text>
-                            </View>
-                            {isPending ? (
-                              <View style={[styles.pendingBadge, { backgroundColor: '#f59e0b' }]}>
-                                <Text style={styles.pendingBadgeText}>PENDING</Text>
-                              </View>
-                            ) : (
-                              <View style={[styles.accessBadge, { backgroundColor: getAccessLevelColor(accessLevel) }]}>
-                                <Text style={styles.accessBadgeText}>
-                                  {getAccessLevelText(accessLevel)}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                          {/* Only show menu button if user can edit (owner or admin) */}
-                          {canEdit && (
-                            <TouchableOpacity
-                              style={styles.menuButton}
-                              onPress={(e) => {
-                                e.stopPropagation();
-                                handleMenuPress(project);
-                              }}
-                            >
-                              <Ionicons 
-                                name="ellipsis-horizontal" 
-                                size={20} 
-                                color={menuIconColor} 
-                              />
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                      </View>
-                      
-                      {project.description && (
-                        <Text style={descriptionStyle} numberOfLines={2}>
-                          {project.description}
-                        </Text>
-                      )}
-                      
-                      <View style={styles.projectDetails}>
-                        <View style={styles.projectInfo}>
-                          {project.type && (
-                            <View style={styles.projectInfoItem}>
-                              <Ionicons name="film" size={16} color={iconColor} />
-                              <Text style={infoTextStyle}>{project.type}</Text>
-                            </View>
-                          )}
-                          {project.location && (
-                            <View style={styles.projectInfoItem}>
-                              <Ionicons name="location" size={16} color={iconColor} />
-                              <Text style={infoTextStyle}>{project.location}</Text>
-                            </View>
-                          )}
-                          {project.owner && (
-                            <View style={styles.projectInfoItem}>
-                              <Ionicons name="person" size={16} color={iconColor} />
-                              <Text style={infoTextStyle}>by {project.owner.name}</Text>
-                            </View>
-                          )}
-                        </View>
-                      </View>
-
-                      <View style={footerStyle}>
-                        <View style={styles.projectDates}>
-                          {project.start_date && (
-                            <Text style={dateTextStyle}>
-                              Start: {formatDate(project.start_date)}
-                            </Text>
-                          )}
-                          {project.end_date && (
-                            <Text style={dateTextStyle}>
-                              End: {formatDate(project.end_date)}
-                            </Text>
-                          )}
-                        </View>
-                        <Ionicons name="chevron-forward" size={20} color={iconColor} />
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                );
-              });
-          })()}
-        </View>
-      </ScrollView>
+      <FlatList
+        data={activeProjects}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={renderProjectItem}
+        style={styles.content}
+        contentContainerStyle={[
+          styles.projectsContainer,
+          activeProjects.length === 0 && styles.projectsContainerEmpty,
+        ]}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={renderProjectsEmptyState}
+        initialNumToRender={6}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews
+      />
 
       {/* Floating Action Button */}
       <TouchableOpacity 
@@ -969,47 +1032,47 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
         {/* Badge could be added here if needed */}
       </TouchableOpacity>
 
-      {/* Menu Popup */}
-      <ProjectMenuPopup
-        visible={showMenuPopup}
-        onClose={() => {
-          setShowMenuPopup(false);
-          // Only clear selectedProject if we're not opening a modal
-          // The modals (type, cover photo, etc.) need the selectedProject
-          if (!openingModalRef.current) {
+      {showMenuPopup && (
+        <ProjectMenuPopup
+          visible={showMenuPopup}
+          onClose={() => {
+            setShowMenuPopup(false);
+            if (!openingModalRef.current) {
+              setSelectedProject(null);
+            }
+            openingModalRef.current = false;
+          }}
+          onEditName={handleEditName}
+          onProjectType={handleProjectType}
+          onCoverPhoto={handleCoverPhoto}
+          onSave={handleSave}
+          onDelete={handleDeleteProject}
+          anchorPosition={menuAnchor}
+          canEdit={selectedProject ? canEditProject(selectedProject) : false}
+        />
+      )}
+
+      {showDeletedProjects && (
+        <DeletedProjectsModal
+          visible={showDeletedProjects}
+          onClose={() => setShowDeletedProjects(false)}
+          onRestore={handleRestoreProject}
+        />
+      )}
+
+      {showProjectTypeModal && (
+        <ProjectTypeModal
+          visible={showProjectTypeModal}
+          onClose={() => {
+            console.log('🔒 Closing project type modal');
+            setShowProjectTypeModal(false);
+            openingModalRef.current = false;
             setSelectedProject(null);
-          }
-          openingModalRef.current = false;
-        }}
-        onEditName={handleEditName}
-        onProjectType={handleProjectType}
-        onCoverPhoto={handleCoverPhoto}
-        onSave={handleSave}
-        onDelete={handleDeleteProject}
-        anchorPosition={menuAnchor}
-        canEdit={selectedProject ? canEditProject(selectedProject) : false}
-      />
-
-      {/* Deleted Projects Modal */}
-      <DeletedProjectsModal
-        visible={showDeletedProjects}
-        onClose={() => setShowDeletedProjects(false)}
-        onRestore={handleRestoreProject}
-      />
-
-      {/* Project Type Modal */}
-      <ProjectTypeModal
-        visible={showProjectTypeModal}
-        onClose={() => {
-          console.log('🔒 Closing project type modal');
-          setShowProjectTypeModal(false);
-          openingModalRef.current = false;
-          // Clear selectedProject when modal closes
-          setSelectedProject(null);
-        }}
-        onSelectType={handleProjectTypeSelect}
-        currentType={selectedProject?.type}
-      />
+          }}
+          onSelectType={handleProjectTypeSelect}
+          currentType={selectedProject?.type}
+        />
+      )}
     </View>
   );
 };
@@ -1050,6 +1113,9 @@ const styles = StyleSheet.create({
   },
   projectsContainer: {
     padding: semanticSpacing.containerPadding,
+  },
+  projectsContainerEmpty: {
+    flexGrow: 1,
   },
   fab: {
     position: 'absolute',

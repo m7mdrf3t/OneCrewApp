@@ -490,6 +490,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const [notificationChannelId, setNotificationChannelId] = useState<string | null>(null);
   // Chat unread count state
   const [unreadConversationCount, setUnreadConversationCount] = useState(0);
+  const [shouldPollPendingCompanies, setShouldPollPendingCompanies] = useState(false);
   // Social links refresh trigger (increments when social links are updated)
   const [socialLinksRefreshTrigger, setSocialLinksRefreshTrigger] = useState(0);
   // Heartbeat state
@@ -633,6 +634,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
+  const updatePendingCompaniesFlag = useCallback((response: any): boolean => {
+    const companiesList = Array.isArray(response?.data)
+      ? response.data
+      : response?.data?.data || [];
+    const hasPending = companiesList.some((company: any) => {
+      const approvalStatus = company.approval_status || company.company?.approval_status;
+      return approvalStatus === 'pending';
+    });
+    setShouldPollPendingCompanies(hasPending);
+    return hasPending;
+  }, []);
+
   // Test network connectivity - try multiple endpoints
   const testConnectivity = async () => {
     const endpointsToTry = [
@@ -680,8 +693,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Initialize API client
   useEffect(() => {
     const initializeApi = async () => {
-      // Test connectivity (non-blocking - if it fails, we'll still try to initialize)
-      await testConnectivity();
+      void testConnectivity();
       
       try {
         await api.initialize();
@@ -704,17 +716,27 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Initialize ReferenceDataService with the API
         ReferenceDataService.setApi(api);
         
-        // Initialize Google Sign-In
-        try {
-          await initializeGoogleSignIn();
-          await initializeAppleAuthentication();
-        } catch (err) {
-          console.warn('⚠️ Failed to initialize Google Sign-In:', err);
-          // Don't block app initialization if Google Sign-In fails
-        }
+        // Auth provider setup is not needed for first paint, so initialize it in the background.
+        InteractionManager.runAfterInteractions(() => {
+          Promise.resolve()
+            .then(async () => {
+              await initializeGoogleSignIn();
+              await initializeAppleAuthentication();
+            })
+            .catch((err) => {
+              console.warn('⚠️ Failed to initialize social auth providers:', err);
+            });
+        });
         
-        // Check if password was recently reset - if so, don't restore tokens
-        const passwordResetFlag = await AsyncStorage.getItem('passwordResetFlag');
+        const storageEntries = await AsyncStorage.multiGet([
+          'passwordResetFlag',
+          'currentProfileType',
+          'activeCompanyId',
+        ]);
+        const passwordResetFlag = storageEntries[0]?.[1];
+        const savedProfileType = storageEntries[1]?.[1];
+        const savedCompanyId = storageEntries[2]?.[1];
+
         if (passwordResetFlag === 'true') {
           // Clear any tokens that might have been restored by API client
           await clearAllAuthData();
@@ -756,31 +778,38 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           };
           setTimeout(() => tryRegisterPush(1, 4, 2500), 2500);
           
-          // Restore profile type and active company from storage
-          const savedProfileType = await AsyncStorage.getItem('currentProfileType');
-          const savedCompanyId = await AsyncStorage.getItem('activeCompanyId');
-          
           if (savedProfileType === 'company' && savedCompanyId) {
-            try {
-              const companyResponse = await api.getCompany(savedCompanyId);
-              if (companyResponse.success && companyResponse.data) {
-                setActiveCompany(companyResponse.data);
-                setCurrentProfileType('company');
-              } else {
-                // Company not found or access denied, switch to user profile
-                await AsyncStorage.setItem('currentProfileType', 'user');
-                await AsyncStorage.removeItem('activeCompanyId');
-                setCurrentProfileType('user');
-              }
-            } catch (error) {
-              console.warn('Failed to restore company profile:', error);
-              await AsyncStorage.setItem('currentProfileType', 'user');
-              await AsyncStorage.removeItem('activeCompanyId');
-              setCurrentProfileType('user');
-            }
+            setCurrentProfileType('user');
+            setActiveCompany(null);
+            InteractionManager.runAfterInteractions(() => {
+              Promise.resolve()
+                .then(async () => {
+                  try {
+                    const companyResponse = await api.getCompany(savedCompanyId);
+                    if (companyResponse.success && companyResponse.data) {
+                      setActiveCompany(companyResponse.data);
+                      setCurrentProfileType('company');
+                    } else {
+                      await AsyncStorage.setItem('currentProfileType', 'user');
+                      await AsyncStorage.removeItem('activeCompanyId');
+                    }
+                  } catch (restoreError) {
+                    console.warn('Failed to restore company profile:', restoreError);
+                    await AsyncStorage.setItem('currentProfileType', 'user');
+                    await AsyncStorage.removeItem('activeCompanyId');
+                  }
+                })
+                .catch((restoreError) => {
+                  console.warn('Failed to restore company profile:', restoreError);
+                });
+            });
           } else {
             setCurrentProfileType('user');
+            setActiveCompany(null);
           }
+        } else {
+          setCurrentProfileType('user');
+          setActiveCompany(null);
         }
       } catch (err) {
         console.warn('Failed to initialize API:', err);
@@ -2583,6 +2612,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         ...(profileData.specialty && profileData.specialty.trim() ? { specialty: profileData.specialty.trim() } : {}),
         // Only include location_text if it has a value (it's optional)
         ...(profileData.location_text && profileData.location_text.trim() ? { location_text: profileData.location_text.trim() } : {}),
+        // Role: allow user to change category and primary_role from profile edit
+        ...(profileData.category && (profileData.category === 'crew' || profileData.category === 'talent') ? { category: profileData.category } : {}),
+        ...(profileData.primary_role && profileData.primary_role.trim() ? { primary_role: profileData.primary_role.trim() } : {}),
       };
       
       // Add image_url only if it has a valid value (don't send empty strings)
@@ -2665,8 +2697,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('✅ Basic profile updated successfully:', basicResult);
 
       // Only update talent profile if user is a talent AND there's meaningful data to send
+      // Use category from this update if provided, so switching to talent in profile edit is applied
       let talentResult = { data: {} };
-      const userCategory = user?.category as string | undefined;
+      const userCategory = (profileData.category || user?.category) as string | undefined;
       const isTalent = userCategory?.toLowerCase() === 'talent';
       
       if (isTalent && Object.keys(cleanedTalentData).length > 0) {
@@ -3326,12 +3359,23 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           const extractRoleName = (role: any): string => {
             if (typeof role === 'string') return role;
             if (!role || typeof role !== 'object') return '';
-            // Try common fields
+            // Prefer label (display name), then common fields
+            if (typeof role.label === 'string') return role.label;
             if (typeof role.name === 'string') return role.name;
             if (typeof role.role === 'string') return role.role;
             if (typeof role.title === 'string') return role.title;
             if (typeof role.role_name === 'string') return role.role_name;
             return '';
+          };
+
+          /** Prefer code/value as id so primary_role is sent and stored as code (backend contract). */
+          const extractRoleCode = (role: any): string | undefined => {
+            // GET /api/roles returns string[] (role codes) - use string as code so id is never index
+            if (typeof role === 'string' && role.trim()) return role.trim();
+            if (!role || typeof role !== 'object') return undefined;
+            if (typeof role.code === 'string' && role.code.trim()) return role.code.trim();
+            if (typeof role.value === 'string' && role.value.trim()) return role.value.trim();
+            return undefined;
           };
 
           const toRoleObjects = (raw: any): Array<{ id: string; name: string; category?: string }> => {
@@ -3341,10 +3385,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             arr.forEach((item: any, index: number) => {
               const name = extractRoleName(item).trim();
               if (!name) return;
+              const code = extractRoleCode(item);
               const id =
-                (item && typeof item === 'object' && (typeof item.id === 'string' || typeof item.id === 'number'))
+                code ||
+                (item && typeof item === 'object' && (typeof item.id === 'string' || typeof item.id === 'number')
                   ? String(item.id)
-                  : String(index + 1);
+                  : String(index + 1));
               const itemCategory =
                 item && typeof item === 'object' ? normalizeCategory(item.category) : undefined;
               const category = options?.category || itemCategory || getRoleCategory(name);
@@ -4120,11 +4166,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         if (params.limit) queryParams.append('limit', params.limit.toString());
         if (params.page) queryParams.append('page', params.page.toString());
         
-        // Basic filters
+        // Basic filters (q = smart/full-text search on backend)
         if (params.search) queryParams.append('q', params.search);
         if (params.category) queryParams.append('category', params.category);
         if (params.role) queryParams.append('role', params.role);
-        if (params.location) queryParams.append('location', params.location);
+        if (params.location || params.currentLocation) queryParams.append('location', (params.location || params.currentLocation) as string);
         
         // Physical Attributes
         if (params.height !== undefined) queryParams.append('height', params.height.toString());
@@ -4155,6 +4201,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         // Personal Details
         if (params.gender) queryParams.append('gender', params.gender);
         if (params.nationality) queryParams.append('nationality', params.nationality);
+        if (params.nationalities && params.nationalities.length > 0) {
+          params.nationalities.forEach((nat: string) => queryParams.append('nationalities[]', nat));
+        }
         
         // Professional Preferences
         if (params.union_member !== undefined) queryParams.append('union_member', params.union_member.toString());
@@ -4773,6 +4822,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const createProject = async (projectData: any) => {
     try {
       const response = await api.createProject(projectData);
+      if (response.success && response.data) {
+        await rateLimiter.clearCacheByPattern('projects-');
+        await rateLimiter.clearCacheByPattern('pending-assignments-');
+      }
       return response;
     } catch (error) {
       console.error('Failed to create project:', error);
@@ -4784,6 +4837,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     try {
       const response = await api.updateProject(projectId, updates);
       if (response.success && response.data) {
+        await rateLimiter.clearCacheByPattern(`project-${projectId}`);
+        await rateLimiter.clearCacheByPattern('projects-');
+        await rateLimiter.clearCacheByPattern('pending-assignments-');
         return response;
       } else {
         throw new Error(response.error || 'Failed to update project');
@@ -4913,123 +4969,92 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       'GET',
       async () => {
         try {
-          // Backend now includes project_members in the response, eliminating N+1 queries
-          // No need to enrich each project with separate API calls
-          let projects: any[] = [];
-          try {
-            // Use minimal=true by default for backward compatibility, but allow override
-            // Apply server-side filtering parameters
-            const params: any = {
-              minimal: filters?.minimal !== undefined ? filters.minimal : true,
-              ...(filters?.role && { role: filters.role }),
-              ...(filters?.is_owner !== undefined && { is_owner: filters.is_owner }),
-              ...(filters?.status && { status: filters.status }),
-              ...(filters?.search && { search: filters.search }),
-              ...(filters?.type && { type: filters.type }),
-              ...(filters?.page && { page: filters.page }),
-              ...(filters?.limit && { limit: filters.limit }),
-            };
-            
-            // Use minimal=true to get lightweight project data (no tasks, minimal member info)
-            // This significantly reduces network payload and improves performance
-            const myProjectsResponse = await api.getMyProjects(params);
-            
-            console.log('📥 getMyProjects (minimal) response received:', {
-              success: myProjectsResponse.success,
-              hasData: !!myProjectsResponse.data,
-              dataType: Array.isArray(myProjectsResponse.data) ? 'array' : typeof myProjectsResponse.data,
-            });
-            
-            if (myProjectsResponse.success && myProjectsResponse.data) {
-              // Handle paginated response structure: response.data.data is the array
-              if (Array.isArray(myProjectsResponse.data)) {
-                projects = myProjectsResponse.data;
-                console.log(`📦 Found ${projects.length} projects in array response`);
-              } else if (myProjectsResponse.data.data && Array.isArray(myProjectsResponse.data.data)) {
-                projects = myProjectsResponse.data.data;
-                console.log(`📦 Found ${projects.length} projects in paginated response (data.data)`);
-              } else if ((myProjectsResponse.data as any).items && Array.isArray((myProjectsResponse.data as any).items)) {
-                projects = (myProjectsResponse.data as any).items;
-                console.log(`📦 Found ${projects.length} projects in items response`);
-              } else {
-                console.warn('⚠️ Unexpected response structure:', Object.keys(myProjectsResponse.data));
-              }
-              
-              // Backend now returns minimal data (no tasks, lightweight members)
-              // Map project_members/users to members for backward compatibility
-              projects = projects.map((project: any) => {
-                // Log raw project structure to understand what minimal endpoint returns
-                if (projects.indexOf(project) === 0) {
-                  console.log('🔍 Raw project from minimal endpoint:', {
-                    id: project.id,
-                    title: project.title,
-                    has_project_members: !!project.project_members,
-                    has_members: !!project.members,
-                    has_users: !!project.users,
-                    users_type: Array.isArray(project.users) ? 'array' : typeof project.users,
-                    users_length: Array.isArray(project.users) ? project.users.length : 'N/A',
-                    project_keys: Object.keys(project),
-                  });
-                }
-                
-                // Minimal endpoint may return members in different field names
-                // Check: project_members, members, or users (for minimal endpoint)
-                let members = project.project_members || project.members || [];
-                
-                // If members is empty but users exists, check if it's the members array
-                // (minimal endpoint might use 'users' field for members)
-                if (members.length === 0 && project.users && Array.isArray(project.users)) {
-                  // Check if users array contains member objects (with role, user_id)
-                  const firstUser = project.users[0];
-                  if (firstUser && (firstUser.role || firstUser.user_id)) {
-                    members = project.users;
-                    console.log(`✅ Found members in 'users' field for project ${project.id}:`, members.length);
-                  }
-                }
-                
-                return {
-                  ...project,
-                  members,
-                  // Ensure tasks is empty array for UI consistency (minimal endpoint doesn't include tasks)
-                  tasks: [],
-                };
-              });
-              
-              console.log(`✅ Loaded ${projects.length} projects (minimal data from backend)`);
-              
-              // Debug: Log first project structure (should be lightweight)
-              if (projects.length > 0) {
-                console.log('📋 Sample project structure (minimal):', {
-                  id: projects[0].id,
-                  title: projects[0].title,
-                  is_deleted: projects[0].is_deleted,
-                  deleted_at: projects[0].deleted_at,
-                  created_by: projects[0].created_by,
-                  members_count: projects[0].members?.length || 0,
-                  has_tasks: projects[0].tasks?.length > 0,
-                  member_keys: projects[0].members?.[0] ? Object.keys(projects[0].members[0]) : [],
-                });
-              } else {
-                console.warn('⚠️ No projects returned from backend - this might indicate:');
-                console.warn('   1. All projects are soft-deleted');
-                console.warn('   2. Backend filtering is too aggressive');
-                console.warn('   3. User has no projects');
-                console.warn('   4. Backend bug in getMyProjects()');
-              }
-            } else {
-              console.warn('⚠️ Backend returned unsuccessful response or no data');
-              console.log('Response summary:', {
+          const params: any = {
+            minimal: filters?.minimal !== undefined ? filters.minimal : true,
+            ...(filters?.role && { role: filters.role }),
+            ...(filters?.is_owner !== undefined && { is_owner: filters.is_owner }),
+            ...(filters?.status && { status: filters.status }),
+            ...(filters?.search && { search: filters.search }),
+            ...(filters?.type && { type: filters.type }),
+            ...(filters?.page && { page: filters.page }),
+            ...(filters?.limit && { limit: filters.limit }),
+          };
+          const profileCacheScope = currentProfileType === 'company'
+            ? `company-${activeCompany?.id || 'none'}`
+            : `user-${user?.id || 'anonymous'}`;
+          const cacheKey = `projects-${profileCacheScope}-${JSON.stringify(params)}`;
+
+          return rateLimiter.execute(cacheKey, async () => {
+            let projects: any[] = [];
+            try {
+              const myProjectsResponse = await api.getMyProjects(params);
+
+              console.log('📥 getMyProjects (minimal) response received:', {
                 success: myProjectsResponse.success,
                 hasData: !!myProjectsResponse.data,
-                error: (myProjectsResponse as any).error,
+                dataType: Array.isArray(myProjectsResponse.data) ? 'array' : typeof myProjectsResponse.data,
               });
+
+              if (myProjectsResponse.success && myProjectsResponse.data) {
+                if (Array.isArray(myProjectsResponse.data)) {
+                  projects = myProjectsResponse.data;
+                  console.log(`📦 Found ${projects.length} projects in array response`);
+                } else if (myProjectsResponse.data.data && Array.isArray(myProjectsResponse.data.data)) {
+                  projects = myProjectsResponse.data.data;
+                  console.log(`📦 Found ${projects.length} projects in paginated response (data.data)`);
+                } else if ((myProjectsResponse.data as any).items && Array.isArray((myProjectsResponse.data as any).items)) {
+                  projects = (myProjectsResponse.data as any).items;
+                  console.log(`📦 Found ${projects.length} projects in items response`);
+                } else {
+                  console.warn('⚠️ Unexpected response structure:', Object.keys(myProjectsResponse.data));
+                }
+
+                projects = projects.map((project: any, index: number) => {
+                  if (index === 0) {
+                    console.log('🔍 Raw project from minimal endpoint:', {
+                      id: project.id,
+                      title: project.title,
+                      has_project_members: !!project.project_members,
+                      has_members: !!project.members,
+                      has_users: !!project.users,
+                      users_type: Array.isArray(project.users) ? 'array' : typeof project.users,
+                      users_length: Array.isArray(project.users) ? project.users.length : 'N/A',
+                      project_keys: Object.keys(project),
+                    });
+                  }
+
+                  let members = project.project_members || project.members || [];
+                  if (members.length === 0 && project.users && Array.isArray(project.users)) {
+                    const firstUser = project.users[0];
+                    if (firstUser && (firstUser.role || firstUser.user_id)) {
+                      members = project.users;
+                      console.log(`✅ Found members in 'users' field for project ${project.id}:`, members.length);
+                    }
+                  }
+
+                  return {
+                    ...project,
+                    members,
+                    tasks: [],
+                  };
+                });
+
+                console.log(`✅ Loaded ${projects.length} projects (minimal data from backend)`);
+              } else {
+                console.warn('⚠️ Backend returned unsuccessful response or no data');
+                console.log('Response summary:', {
+                  success: myProjectsResponse.success,
+                  hasData: !!myProjectsResponse.data,
+                  error: (myProjectsResponse as any).error,
+                });
+              }
+            } catch (err) {
+              console.error('❌ Failed to get my projects:', err);
+              throw err;
             }
-          } catch (err) {
-            console.error('❌ Failed to get my projects:', err);
-            throw err;
-          }
-          
-          return projects;
+
+            return projects;
+          }, { ttl: CacheTTL.SHORT, persistent: false });
         } catch (error) {
           console.error('❌ Failed to get all user projects:', error);
           throw error;
@@ -5314,63 +5339,65 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       `${baseUrl}/api/projects/${projectId}/pending-assignments`,
       'GET',
       async () => {
-        try {
-          // Try lightweight endpoint first (if backend supports it)
+        const profileCacheScope = currentProfileType === 'company'
+          ? `company-${activeCompany?.id || 'none'}`
+          : `user-${user?.id || 'anonymous'}`;
+        const cacheKey = `pending-assignments-${profileCacheScope}-${projectId}-${userId}`;
+
+        return rateLimiter.execute(cacheKey, async () => {
           try {
-            const token = await AsyncStorage.getItem('accessToken');
-            const response = await fetch(
-              `${baseUrl}/api/projects/${projectId}/pending-assignments?userId=${userId}`,
-              {
-                method: 'GET',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                },
-              }
-            );
+            try {
+              const token = await AsyncStorage.getItem('accessToken');
+              const response = await fetch(
+                `${baseUrl}/api/projects/${projectId}/pending-assignments?userId=${userId}`,
+                {
+                  method: 'GET',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                  },
+                }
+              );
 
-            if (response.ok) {
-              const data = await response.json();
-              if (data.hasPending !== undefined) {
-                console.log(`✅ Using lightweight endpoint for pending check: ${projectId}`);
-                return {
-                  hasPending: data.hasPending || false,
-                  count: data.count,
-                };
+              if (response.ok) {
+                const data = await response.json();
+                if (data.hasPending !== undefined) {
+                  console.log(`✅ Using lightweight endpoint for pending check: ${projectId}`);
+                  return {
+                    hasPending: data.hasPending || false,
+                    count: data.count,
+                  };
+                }
+              }
+            } catch (lightweightError) {
+              console.log(`⚠️ Lightweight endpoint not available, using fallback for project ${projectId}`);
+            }
+
+            const tasks = await getProjectTasks(projectId);
+            let pendingCount = 0;
+
+            for (const task of tasks) {
+              const assignments = task.assignments || [];
+              const hasPending = assignments.some((assignment: any) => {
+                const assignmentUserId = assignment.user_id || assignment.user?.id;
+                const assignmentStatus = assignment.status || 'pending';
+                return assignmentUserId === userId && assignmentStatus === 'pending';
+              });
+
+              if (hasPending) {
+                pendingCount++;
               }
             }
-          } catch (lightweightError) {
-            // Endpoint doesn't exist yet, fall back to checking tasks
-            console.log(`⚠️ Lightweight endpoint not available, using fallback for project ${projectId}`);
+
+            return {
+              hasPending: pendingCount > 0,
+              count: pendingCount,
+            };
+          } catch (error) {
+            console.error(`Failed to check pending assignments for project ${projectId}:`, error);
+            return { hasPending: false, count: 0 };
           }
-
-          // Fallback: Check tasks (less efficient but works with current backend)
-          // This will be replaced once backend implements the lightweight endpoint
-          const tasks = await getProjectTasks(projectId);
-          let pendingCount = 0;
-
-          for (const task of tasks) {
-            const assignments = task.assignments || [];
-            const hasPending = assignments.some((assignment: any) => {
-              const assignmentUserId = assignment.user_id || assignment.user?.id;
-              const assignmentStatus = assignment.status || 'pending';
-              return assignmentUserId === userId && assignmentStatus === 'pending';
-            });
-            
-            if (hasPending) {
-              pendingCount++;
-            }
-          }
-
-          return {
-            hasPending: pendingCount > 0,
-            count: pendingCount,
-          };
-        } catch (error) {
-          console.error(`Failed to check pending assignments for project ${projectId}:`, error);
-          // Return false on error to prevent blocking UI
-          return { hasPending: false, count: 0 };
-        }
+        }, { ttl: CacheTTL.SHORT, persistent: false });
       }
     );
   };
@@ -9872,28 +9899,42 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   useEffect(() => {
     if (!isAuthenticated || !user || !isAppBootCompleted) return;
 
+    let warmupTimeout: ReturnType<typeof setTimeout> | null = null;
     const task = InteractionManager.runAfterInteractions(() => {
-      // Unread badges (lightweight endpoints)
-      getUnreadNotificationCount();
-      // Chat unread conversations count
-      getConversations({ page: 1, limit: 50 });
+      void Promise.allSettled([
+        getUnreadNotificationCount(),
+        getConversations({ page: 1, limit: 25 }),
+      ]);
 
-      // Cache warming: pre-fetch frequently accessed data (non-blocking)
-      setTimeout(() => {
-        try {
-          if (user.id) {
-            getUserCompanies(user.id);
-            getUserCertifications(user.id);
-            getMyTeamMembers();
-          }
-        } catch (error) {
-          console.warn('Cache warming failed:', error);
+      warmupTimeout = setTimeout(() => {
+        if (!user.id) {
+          return;
         }
-      }, 250);
+
+        Promise.allSettled([
+          getUserCompanies(user.id),
+          getUserCertifications(user.id),
+          getMyTeamMembers(),
+        ])
+          .then((results) => {
+            const companiesResult = results[0];
+            if (companiesResult.status === 'fulfilled') {
+              updatePendingCompaniesFlag(companiesResult.value);
+            }
+          })
+          .catch((error) => {
+            console.warn('Cache warming failed:', error);
+          });
+      }, 1500);
     });
 
-    return () => task.cancel();
-  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, isAppBootCompleted]);
+    return () => {
+      task.cancel();
+      if (warmupTimeout) {
+        clearTimeout(warmupTimeout);
+      }
+    };
+  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, isAppBootCompleted, updatePendingCompaniesFlag]);
 
   // Manage heartbeat based on authentication state and app state
   useEffect(() => {
@@ -9928,7 +9969,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       stopHeartbeat();
       subscription.remove();
     };
-  }, [isAuthenticated, user?.id, api.chat]);
+  }, [isAuthenticated, user?.id, api.chat, isAppBootCompleted]);
 
   // Track app background time and refresh company data when app comes to foreground
   const appBackgroundTimeRef = useRef<number | null>(null);
@@ -9981,7 +10022,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   // Poll for pending company approval status changes
   useEffect(() => {
-    if (!isAuthenticated || !user || !isAppBootCompleted) {
+    let initialCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    if (!isAuthenticated || !user || !isAppBootCompleted || !shouldPollPendingCompanies) {
       if (companyPollingIntervalRef.current) {
         clearInterval(companyPollingIntervalRef.current);
         companyPollingIntervalRef.current = null;
@@ -9993,22 +10036,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const checkAndRefreshPendingCompanies = async () => {
       try {
         const response = await getUserCompanies(user.id);
-        if (response.success && response.data) {
-          const companiesList = Array.isArray(response.data)
-            ? response.data
-            : (response.data as any)?.data || [];
-          
-          // Check if any companies are pending approval
-          const hasPendingCompanies = companiesList.some((company: any) => {
-            const approvalStatus = company.approval_status || company.company?.approval_status;
-            return approvalStatus === 'pending';
-          });
+        const hasPendingCompanies = updatePendingCompaniesFlag(response);
 
-          if (hasPendingCompanies) {
-            // Force refresh to get latest approval status
-            await getUserCompanies(user.id, true);
-            console.log('🔄 Refreshed pending company approval status');
-          }
+        if (hasPendingCompanies) {
+          const refreshedResponse = await getUserCompanies(user.id, true);
+          updatePendingCompaniesFlag(refreshedResponse);
+          console.log('🔄 Refreshed pending company approval status');
         }
       } catch (error) {
         console.warn('Failed to check pending company status:', error);
@@ -10022,7 +10055,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       // Initial check after 5 seconds
-      setTimeout(checkAndRefreshPendingCompanies, 5000);
+      initialCheckTimeout = setTimeout(checkAndRefreshPendingCompanies, 5000);
       
       // Then poll every 30 seconds
       companyPollingIntervalRef.current = setInterval(() => {
@@ -10056,16 +10089,21 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
     return () => {
+      if (initialCheckTimeout) {
+        clearTimeout(initialCheckTimeout);
+      }
       if (companyPollingIntervalRef.current) {
         clearInterval(companyPollingIntervalRef.current);
         companyPollingIntervalRef.current = null;
       }
       subscription.remove();
     };
-  }, [isAuthenticated, user?.id, isAppBootCompleted]);
+  }, [isAuthenticated, user?.id, isAppBootCompleted, shouldPollPendingCompanies, updatePendingCompaniesFlag]);
 
   // Setup real-time subscription for notifications
   useEffect(() => {
+    let activeNotificationChannelId: string | null = null;
+
     if (isAuthenticated && user?.id) {
       // Initialize Supabase if not already initialized
       // Note: Supabase URL and key should be set via environment variables or config
@@ -10126,22 +10164,18 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               
               if (isCompanyRelated) {
                 console.log('🔄 Company-related notification received - refreshing company data');
-                // Refresh company data in background (non-blocking)
-                setTimeout(() => {
-                  getUserCompanies(user.id, true).catch(err => {
+                getUserCompanies(user.id, true)
+                  .then((response) => {
+                    updatePendingCompaniesFlag(response);
+                  })
+                  .catch(err => {
                     console.warn('Failed to refresh company data after notification:', err);
                   });
-                }, 1000);
               }
-
-              // Refresh notifications list and count asynchronously to avoid race conditions
-              setTimeout(() => {
-              getNotifications({ limit: 20, page: 1 });
-              getUnreadNotificationCount();
-              }, 500);
             }
           );
 
+          activeNotificationChannelId = channelId;
           setNotificationChannelId(channelId);
           console.log('✅ Real-time notification subscription established');
         }
@@ -10152,13 +10186,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
     // Cleanup subscription on unmount or when user changes
     return () => {
-      if (notificationChannelId) {
-        supabaseService.unsubscribe(notificationChannelId);
+      if (activeNotificationChannelId) {
+        supabaseService.unsubscribe(activeNotificationChannelId);
         setNotificationChannelId(null);
         console.log('🔌 Unsubscribed from real-time notifications');
       }
     };
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, user?.id, updatePendingCompaniesFlag]);
 
   // Calculate unread count from StreamChat channels
   // FIXED: Now filters channels based on current profile type (user vs company)
@@ -10298,7 +10332,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     let rateLimitedUntil = 0;
     let lastUpdateAttempt = 0;
     const THROTTLE_MS = 15000;
-    const NORMAL_POLL_MS = 30000;
     const RATE_LIMIT_BACKOFF_MS = 60000;
 
     const is429 = (err: any) => {
@@ -10446,22 +10479,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
     };
 
-    // FIXED: Don't use StreamChat's initial unread counts directly
-    // They include ALL channels regardless of current profile
-    // Instead, fetch from backend which correctly filters by profile
-    const useInitialUnreadCounts = () => {
-      // Skip StreamChat initial counts - they're not profile-aware
-      // Backend getConversations will set the correct count
-      return false;
-    };
-
-    // Always fetch from backend for accurate profile-aware count
-    const hasInitialCounts = false;
-
-    // FIXED: Always call updateUnreadCount immediately and on interval
-    // This ensures we get the correct count even if getConversations was called with a limit
-    let initialTimeout: NodeJS.Timeout | null = null;
-    
     // FIXED: Call updateUnreadCount immediately to get accurate count
     // This ensures count is correct even if other parts of the app call getConversations with limits
     // Don't wait for StreamChat - backend API works independently
@@ -10471,15 +10488,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       });
     }
 
-    initialTimeout = setTimeout(() => {
-      if (isMounted) {
-        updateUnreadCount().catch(err => {
-          if (__DEV__) console.warn('⚠️ [UnreadCount] Backup update failed:', err);
-        });
-      }
-    }, 5000);
-
     // Set up real-time listeners if StreamChat is connected
+    let refreshInterval: NodeJS.Timeout | null = null;
     if (streamChatService.isConnected()) {
       client = streamChatService.getClient();
       
@@ -10496,92 +10506,30 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
       };
       
-      const handleMessageNew = () => {
-        if (isMounted) {
-          updateUnreadCount();
-        }
-      };
-
-      const handleChannelUpdated = (event: any) => {
-        // Channel updated - could be read state change
-        if (isMounted) {
-          if (__DEV__ && event?.channel?.state?.unreadCount !== undefined) {
-            console.log('💬 [UnreadCount] Channel updated, unreadCount:', event.channel.state.unreadCount);
-          }
-          updateUnreadCount();
-        }
-      };
-      
-      // Listen for read state changes specifically
-      const handleReadStateChanged = () => {
-        // When read state changes, unread count definitely changed
-        if (isMounted) {
-          if (__DEV__) {
-            console.log('💬 [UnreadCount] Read state changed, updating count');
-          }
-          updateUnreadCount();
-        }
-      };
-
-      const handleChannelDeleted = () => {
-        if (isMounted) {
-          updateUnreadCount();
-        }
-      };
-
-      const handleChannelRead = () => {
-        // When a channel is marked as read, update unread count immediately
-        if (isMounted) {
-          if (__DEV__) {
-            console.log('💬 [UnreadCount] Channel marked as read, updating count');
-          }
-          updateUnreadCount();
-        }
-      };
-
       // FIXED: Listen to events but recalculate from backend (profile-aware)
       // StreamChat events include total_unread_count but it's not profile-filtered
       const unreadEventListeners = [
         client.on('notification.mark_read', (event: any) => {
-          // Recalculate from backend instead of using event.total_unread_count
           handleUnreadUpdate(event);
-          handleChannelRead();
         }),
         client.on('notification.message_new', (event: any) => {
-          // Recalculate from backend instead of using event.total_unread_count
           handleUnreadUpdate(event);
-          handleMessageNew();
         }),
         client.on('notification.mark_unread', (event: any) => {
-          // Recalculate from backend instead of using event.total_unread_count
           handleUnreadUpdate(event);
         }),
       ];
 
-      // Also listen to channel-level events (fallback if event doesn't have unread count)
-      const channelEventListeners = [
-        client.on('message.new', handleMessageNew),
-        client.on('channel.updated', handleChannelUpdated),
-        client.on('channel.deleted', handleChannelDeleted),
-        client.on('notification.read', handleReadStateChanged),
-      ];
-      
-      // Also listen to channel-specific read events
-      // Note: StreamChat may fire 'notification.mark_read', 'notification.read', or channel state changes
-      // when messages are marked as read
-
-      // Poll every 30s; throttle prevents extra calls from event bursts
-      const refreshInterval = setInterval(() => {
-        if (isMounted && streamChatService.isConnected()) {
+      // Keep a slower backup poll for cases where realtime events are missed.
+      refreshInterval = setInterval(() => {
+        if (isMounted && AppState.currentState === 'active' && streamChatService.isConnected()) {
           updateUnreadCount();
         }
-      }, NORMAL_POLL_MS);
+      }, 60000);
 
       return () => {
         isMounted = false;
         if (client) {
-          // BEST PRACTICE: Unsubscribe from all listeners (per Stream docs)
-          // Unsubscribe from unread count event listeners
           unreadEventListeners.forEach(listener => {
             try {
               listener.unsubscribe();
@@ -10589,26 +10537,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
               console.warn('⚠️ [UnreadCount] Error unsubscribing unread listener:', error);
             }
           });
-          // Unsubscribe from channel event listeners
-          channelEventListeners.forEach(listener => {
-            try {
-              listener.unsubscribe();
-            } catch (error) {
-              console.warn('⚠️ [UnreadCount] Error unsubscribing channel listener:', error);
-            }
-          });
         }
-        clearInterval(refreshInterval);
-        if (initialTimeout !== null) {
-          clearTimeout(initialTimeout);
+        if (refreshInterval !== null) {
+          clearInterval(refreshInterval);
         }
       };
     }
 
     return () => {
       isMounted = false;
-      if (initialTimeout !== null) {
-        clearTimeout(initialTimeout);
+      if (refreshInterval !== null) {
+        clearInterval(refreshInterval);
       }
     };
   }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, calculateStreamChatUnreadCount, getConversations]);

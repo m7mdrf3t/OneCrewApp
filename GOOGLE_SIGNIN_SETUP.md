@@ -5,9 +5,9 @@ This guide explains how to complete the Google Sign-In setup for the OneCrew app
 
 ## Prerequisites
 - Access to Google Cloud Console
-- iOS and Android app bundle IDs:
-  - iOS: `com.steps.diggers`
-  - Android: `com.steps.diggers`
+- iOS and Android app bundle IDs (from `app.json`):
+  - iOS: `com.minaezzat.onesteps`
+  - Android: `com.minaezzat.onesteps`
 
 ## Step 1: Create OAuth Client IDs in Google Cloud Console
 
@@ -17,7 +17,7 @@ This guide explains how to complete the Google Sign-In setup for the OneCrew app
 3. Navigate to **APIs & Services** > **Credentials**
 4. Click **Create Credentials** > **OAuth client ID**
 5. Select **iOS** as the application type
-6. Enter the bundle ID: `com.steps.diggers`
+6. Enter the bundle ID: `com.minaezzat.onesteps`
 7. Click **Create**
 8. Copy the Client ID (format: `XXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com`)
 
@@ -25,7 +25,7 @@ This guide explains how to complete the Google Sign-In setup for the OneCrew app
 1. In the same Google Cloud Console project
 2. Click **Create Credentials** > **OAuth client ID**
 3. Select **Android** as the application type
-4. Enter the package name: `com.steps.diggers`
+4. Enter the package name: `com.minaezzat.onesteps`
 5. Get your app's SHA-1 fingerprint:
    ```bash
    # For debug keystore (default)
@@ -109,9 +109,10 @@ npx expo run:android
 - **"URL scheme not found"**: The library should handle this automatically, but ensure `Info.plist` has the correct bundle identifier
 
 ### Android Issues
+- **"DEVELOPER_ERROR"**: The app’s SHA-1 fingerprint is not registered. See **[ANDROID_GOOGLE_SIGNIN_DEVELOPER_ERROR.md](./ANDROID_GOOGLE_SIGNIN_DEVELOPER_ERROR.md)** for step-by-step fix (add SHA-1 in Google Cloud Console for package `com.minaezzat.onesteps`).
 - **"Google Play Services not available"**: Ensure Google Play Services is installed on the device/emulator
-- **"SHA-1 fingerprint mismatch"**: Verify the SHA-1 in Google Cloud Console matches your keystore
-- **"OAuth client ID not found"**: Double-check the Android Client ID in `GoogleAuthService.ts`
+- **"SHA-1 fingerprint mismatch"**: Verify the SHA-1 in Google Cloud Console matches the keystore you use to build the APK
+- **"OAuth client ID not found"**: Ensure you created an **Android** OAuth client with the correct package name and SHA-1
 
 ### General Issues
 - **"'RNGoogleSignin' could not be found"**: This means the native module isn't registered. **You must rebuild the app** using `npx expo run:ios` or `npx expo run:android`. You cannot use Expo Go with native modules.

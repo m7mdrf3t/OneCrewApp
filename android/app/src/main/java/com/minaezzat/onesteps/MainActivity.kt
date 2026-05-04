@@ -2,6 +2,10 @@ package com.minaezzat.onesteps
 
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -17,6 +21,27 @@ class MainActivity : ReactActivity() {
     // This is required for expo-splash-screen.
     setTheme(R.style.AppTheme);
     super.onCreate(null)
+
+    if (Build.VERSION.SDK_INT >= 35) {
+      val rootView = findViewById<View>(android.R.id.content)
+
+      ViewCompat.setOnApplyWindowInsetsListener(rootView) { _, insets ->
+        val bars = insets.getInsets(
+          WindowInsetsCompat.Type.systemBars() or
+            WindowInsetsCompat.Type.displayCutout() or
+            WindowInsetsCompat.Type.ime()
+        )
+
+        rootView.updatePadding(
+          left = bars.left,
+          top = bars.top,
+          right = bars.right,
+          bottom = bars.bottom
+        )
+
+        WindowInsetsCompat.CONSUMED
+      }
+    }
   }
 
   /**

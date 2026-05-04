@@ -239,7 +239,12 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const goBack = () => {
-    navigationRef.current?.goBack();
+    if (navigationRef.current?.canGoBack?.()) {
+      navigationRef.current.goBack();
+    } else {
+      // No screen to go back to (e.g. CompanyProfile opened as root or stack was replaced). Navigate to home so user isn't stuck.
+      navigationRef.current?.navigate('home');
+    }
   };
 
   const value: NavigationContextType = {

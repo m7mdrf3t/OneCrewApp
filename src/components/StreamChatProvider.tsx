@@ -5,29 +5,20 @@
  * This component wraps the chat-related screens with StreamChat's ChatProvider.
  */
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { InteractionManager, Platform } from 'react-native';
 import { Chat, OverlayProvider } from 'stream-chat-react-native';
 import { useApi } from '../contexts/ApiContext';
 import pushNotificationService from '../services/PushNotificationService';
 import streamChatService from '../services/StreamChatService';
 import { getStreamChatTheme } from '../themes/streamChatTheme';
 import streamChatConnectionMonitor from '../utils/StreamChatConnectionMonitor';
+import {
+  ChatImageGalleryDownloadButton,
+  type ChatGalleryPhoto,
+} from './ChatImageGalleryDownloadButton';
 // Import helper to expose monitor to console
 import '../utils/StreamChatMonitorHelper';
-
-// One-time diagnostic at load time: verify voice recording native modules (Stream Chat uses these for mic button)
-if (typeof __DEV__ !== 'undefined' && __DEV__) {
-  try {
-    const RAR = require('react-native-audio-recorder-player');
-    const Blob = require('react-native-blob-util');
-    const hasAudio = !!(RAR?.default || RAR);
-    const hasBlob = !!(Blob?.default || Blob?.fs);
-    console.log('💬 [Voice recording] native modules at load:', { hasAudio, hasBlob, voiceAvailable: hasAudio && hasBlob });
-  } catch (e) {
-    console.warn('💬 [Voice recording] native modules check failed:', (e as Error)?.message);
-  }
-}
 
 interface StreamChatProviderProps {
   children: React.ReactNode;
@@ -40,14 +31,39 @@ export const useStreamChatReady = (): StreamChatReadyContextValue =>
   useContext(StreamChatReadyContext) ?? { clientReady: false };
 
 export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children }) => {
-  const { isAuthenticated, user, currentProfileType, activeCompany, getStreamChatToken } = useApi();
+  const { isAuthenticated, user, currentProfileType, activeCompany, getStreamChatToken, isAppBootCompleted } = useApi();
   const [clientReady, setClientReady] = useState(false);
   const [client, setClient] = useState<ReturnType<typeof streamChatService.getClient> | null>(null);
 
   useEffect(() => {
-    // Start monitoring on mount
+    if (!__DEV__ || !isAppBootCompleted) {
+      return;
+    }
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      try {
+        const RAR = require('react-native-audio-recorder-player');
+        const Blob = require('react-native-blob-util');
+        const hasAudio = !!(RAR?.default || RAR);
+        const hasBlob = !!(Blob?.default || Blob?.fs);
+        console.log('💬 [Voice recording] native modules after boot:', { hasAudio, hasBlob, voiceAvailable: hasAudio && hasBlob });
+      } catch (e) {
+        console.warn('💬 [Voice recording] native modules check failed:', (e as Error)?.message);
+      }
+    });
+
+    return () => task.cancel();
+  }, [isAppBootCompleted]);
+
+  useEffect(() => {
+    if (!isAppBootCompleted) {
+      setClientReady(false);
+      setClient(null);
+      return;
+    }
+
     streamChatConnectionMonitor.startMonitoring();
-    
+
     const initializeStreamChat = async () => {
       // CRITICAL: Don't initialize StreamChat during Google Sign-In flow
       // Wait until user is fully authenticated and has an ID
@@ -301,9 +317,23 @@ export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children
       }
     };
     initializeStreamChat();
-  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, getStreamChatToken]);
+
+    return () => {
+      streamChatConnectionMonitor.stopMonitoring();
+    };
+  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, getStreamChatToken, isAppBootCompleted]);
 
   const theme = getStreamChatTheme();
+  const imageGalleryCustomComponents = useMemo(
+    () => ({
+      header: {
+        rightElement: ({ photo }: { photo?: ChatGalleryPhoto }) => (
+          <ChatImageGalleryDownloadButton photo={photo} />
+        ),
+      },
+    }),
+    [],
+  );
 
   if (!isAuthenticated) {
     return <>{children}</>;
@@ -311,7 +341,10 @@ export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children
   return (
     <StreamChatReadyContext.Provider value={{ clientReady }}>
       {clientReady && client ? (
-        <OverlayProvider value={{ style: theme }}>
+        <OverlayProvider
+          imageGalleryCustomComponents={imageGalleryCustomComponents}
+          value={{ style: theme }}
+        >
           <Chat client={client}>
             {children}
           </Chat>
