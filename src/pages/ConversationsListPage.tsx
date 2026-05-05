@@ -343,7 +343,14 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       null;
 
     const lastMessage = channel?.state?.messages?.[channel.state.messages.length - 1];
-    const lastMessageText = lastMessage?.text || 'No messages yet';
+    const isForwardedLastMessage =
+      lastMessage?.is_forwarded === true ||
+      lastMessage?.forwarded === true ||
+      lastMessage?.forwarded_message === true;
+    const lastMessageBody = lastMessage?.text || 'No messages yet';
+    const lastMessageText = isForwardedLastMessage
+      ? `Forwarded: ${lastMessageBody}`
+      : lastMessageBody;
     const unreadCount = channel?.state?.unreadCount || 0;
 
     return (

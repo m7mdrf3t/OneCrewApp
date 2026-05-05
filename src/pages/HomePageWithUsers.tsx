@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, FlatList, StyleSheet, RefreshControl, Text, TouchableOpacity } from 'react-native';
+import { View, FlatList, StyleSheet, RefreshControl, Text, TouchableOpacity, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import SearchBar from '../components/SearchBar';
 import FilterModal, { FilterParams } from '../components/FilterModal';
@@ -65,11 +65,12 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   // Use prop if provided (for backward compatibility), otherwise use hook
   const onNavigate = onNavigateProp || navigateTo;
 
-  const { api, getUsersDirect, isGuest, browseUsersAsGuest, getCompanies, getRoles } = useApi();
+  const { api, getUsersDirect, isGuest, browseUsersAsGuest, getCompanies, getRoles, getBaseUrl } = useApi();
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [crewRoles, setCrewRoles] = useState<any[]>([]);
   const [talentRoles, setTalentRoles] = useState<any[]>([]);
+  const [academyPromos, setAcademyPromos] = useState<PromoItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +85,38 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
   const [hasMoreCompanies, setHasMoreCompanies] = useState(true);
   const [loadingMoreUsers, setLoadingMoreUsers] = useState(false);
   const [loadingMoreCompanies, setLoadingMoreCompanies] = useState(false);
+
+  const fetchAcademyAds = useCallback(async () => {
+    try {
+      const response = await fetch(`${getBaseUrl()}/api/academy/ads`);
+      const payload = await response.json();
+
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || `HTTP ${response.status}`);
+      }
+
+      const adsArray = Array.isArray(payload.data) ? payload.data : [];
+      const publishedAds = adsArray
+        .filter((ad: any) => ad?.status === 'published')
+        .sort((a: any, b: any) => (a?.display_order || 0) - (b?.display_order || 0));
+
+      const mappedPromos: PromoItem[] = publishedAds.map((ad: any) => ({
+        id: ad.id,
+        label: 'Deals',
+        title: ad.title || 'Academy Update',
+        subtitle: ad.subtitle || undefined,
+        imageUrl: ad.image_url || undefined,
+        ctaText: ad.cta_text || undefined,
+        ctaLink: ad.cta_link || undefined,
+        actionUrl: ad.cta_link || undefined,
+      }));
+
+      setAcademyPromos(mappedPromos);
+    } catch (err) {
+      console.warn('Failed to fetch academy ads:', err);
+      setAcademyPromos([]);
+    }
+  }, [getBaseUrl]);
 
   const fetchUsers = useCallback(async (page: number = 1, append: boolean = false) => {
     try {
@@ -437,7 +470,8 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     setHasMoreCompanies(true);
     fetchUsers(1, false);
     fetchCompanies(1, false);
-  }, [isGuest, searchQuery, filters, fetchUsers, fetchCompanies]);
+    fetchAcademyAds();
+  }, [isGuest, searchQuery, filters, fetchUsers, fetchCompanies, fetchAcademyAds]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -447,7 +481,8 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
     setHasMoreCompanies(true);
     fetchUsers(1, false);
     fetchCompanies(1, false);
-  }, [fetchUsers, fetchCompanies]);
+    fetchAcademyAds();
+  }, [fetchUsers, fetchCompanies, fetchAcademyAds]);
   
   const handleLoadMoreUsers = useCallback(() => {
     if (!loadingMoreUsers && hasMoreUsers && !isLoading) {
@@ -798,32 +833,38 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
 
   const isDark = theme === 'dark';
 
-  // Promo items for the carousel
-  const promoItems: PromoItem[] = useMemo(() => [
-    {
-      id: '1',
-      label: 'Deals',
-      title: 'Academy deals this week',
-      subtitle: 'Special offers on courses and training',
-    },
-    {
-      id: '2',
-      label: 'New',
-      title: 'Discover top talent',
-      subtitle: 'Browse our latest profiles',
-    },
-    {
-      id: '3',
-      label: 'Featured',
-      title: 'Premium studios available',
-      subtitle: 'Book your next production space',
-    },
-  ], []);
+  // Promo items for the carousel. Prefer Academy Ads from backend; fallback to a default card.
+  const promoItems: PromoItem[] = useMemo(() => {
+    if (academyPromos.length > 0) {
+      return academyPromos;
+    }
 
-  const handlePromoPress = useCallback((promo: PromoItem) => {
-    // Handle promo press - can navigate to specific page
-    console.log('Promo pressed:', promo);
-    // You can add navigation logic here based on promo.actionUrl
+    return [
+      {
+        id: 'fallback-academy-ads',
+        label: 'Academy',
+        title: 'No active deals right now',
+        subtitle: 'Check back soon for new academy offers',
+      },
+    ];
+  }, [academyPromos]);
+
+  const handlePromoPress = useCallback(async (promo: PromoItem) => {
+    const targetUrl = promo.ctaLink || promo.actionUrl;
+    if (!targetUrl) {
+      return;
+    }
+
+    try {
+      const canOpen = await Linking.canOpenURL(targetUrl);
+      if (!canOpen) {
+        console.warn('Cannot open promo URL:', targetUrl);
+        return;
+      }
+      await Linking.openURL(targetUrl);
+    } catch (err) {
+      console.warn('Failed to open promo URL:', err);
+    }
   }, []);
 
   const renderSection = useCallback(({ item: section }: { item: any }) => (

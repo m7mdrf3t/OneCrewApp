@@ -42,6 +42,7 @@ import {
   AngryReaction,
 } from '../components/ReactionIcons';
 import { ChatVoiceRecordButton } from '../components/ChatVoiceRecordButton';
+import ForwardMessageModal from '../components/ForwardMessageModal';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApi } from '../contexts/ApiContext';
@@ -122,6 +123,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [thread, setThread] = useState<any>(null);
+  const [forwardMessage, setForwardMessage] = useState<any>(null);
   const courseMessageSentRef = useRef(false);
 
   // Watch for channel state changes to detect when members are populated
@@ -1202,6 +1204,65 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return <CustomMessageActionList {...overlayProps} />;
   };
 
+  const ForwardedMessageText = (props: any) => {
+    const {
+      message,
+      renderText,
+      theme,
+      markdownRules,
+      messageOverlay,
+      messageTextNumberOfLines,
+      onLongPress,
+      onlyEmojis,
+      onPress,
+      preventPress,
+    } = props;
+
+    if (!message?.text) return null;
+
+    const isForwarded =
+      message?.is_forwarded === true ||
+      message?.forwarded === true ||
+      message?.forwarded_message === true;
+
+    const forwardedLabelColor =
+      props?.myMessageTheme?.messageSimple?.content?.metaText?.color ||
+      theme?.theme?.messageSimple?.content?.metaText?.color ||
+      '#6b7280';
+
+    const markdownStyles = {
+      ...(theme?.theme?.messageSimple?.content?.markdown || {}),
+      ...(onlyEmojis
+        ? theme?.theme?.messageSimple?.content?.textContainer?.onlyEmojiMarkdown || {}
+        : {}),
+    };
+
+    return (
+      <View>
+        {isForwarded ? (
+          <View style={styles.forwardedLabelRow}>
+            <Ionicons name="arrow-redo" size={12} color={forwardedLabelColor} />
+            <Text style={[styles.forwardedLabelText, { color: forwardedLabelColor }]}>
+              Forwarded
+            </Text>
+          </View>
+        ) : null}
+        {renderText({
+          colors: theme?.theme?.colors,
+          markdownRules,
+          markdownStyles,
+          message,
+          messageOverlay,
+          messageTextNumberOfLines,
+          onLongPress,
+          onlyEmojis,
+          onPress,
+          preventPress,
+        })}
+      </View>
+    );
+  };
+
   // Get StreamChat channel ID from OneCrew conversation ID
   // CRITICAL: Backend returns channel IDs directly (e.g., "user_user-{hash}")
   // Do NOT add "onecrew_" prefix - use conversation ID directly
@@ -2077,6 +2138,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
               audioRecordingEnabled={true}
               asyncMessagesMultiSendEnabled={true}
               InputButtons={CustomInputButtons}
+              MessageText={ForwardedMessageText}
               // Custom reaction options with SVG icons
               supportedReactions={customReactionOptions}
               // MessageOverlay not available in this SDK version
@@ -2161,6 +2223,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
                   },
                 } : null;
                 
+                // Forward action – shows the ForwardMessageModal with the selected message
+                const forwardAction = message?.text ? {
+                  title: 'Forward Message',
+                  action: () => {
+                    setForwardMessage(message);
+                    if (dismissOverlay) dismissOverlay();
+                  },
+                } : null;
+
                 // Return all actions we want to show
                 // CRITICAL: Only show editMessage and deleteMessage for messages sent by the current user
                 // CustomMessageActionList will intercept copyMessage and use useMessageContext
@@ -2169,6 +2240,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                   selectReaction,  // This is the "react" action
                   reply,
                   customCopyMessage,  // Our overridden copyMessage (action will be replaced in CustomMessageActionList)
+                  forwardAction,
                   markAsUnread,
                   flagMessage,
                   pinMessage,
@@ -2254,6 +2326,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
             </TouchableOpacity>
           </View>
       )}
+      <ForwardMessageModal
+        visible={forwardMessage !== null}
+        message={forwardMessage}
+        client={client}
+        onClose={() => setForwardMessage(null)}
+      />
     </View>
   );
 };
@@ -2291,6 +2369,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
     backgroundColor: '#fff',
+  },
+  forwardedLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 3,
+  },
+  forwardedLabelText: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    fontWeight: '600',
   },
   headerContent: {
     flexDirection: 'row',

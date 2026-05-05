@@ -6,6 +6,7 @@ import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { semanticSpacing } from '../constants/spacing';
 import { stripHtmlTagsAndTruncate } from '../utils/htmlUtils';
+import { getTextDirection, isolateBidiText } from '../utils/bidiText';
 
 interface SpotPageProps {
   isDark: boolean;
@@ -231,69 +232,95 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
     }
   };
 
-  const renderNewsPost = useCallback(({ item: post }: { item: NewsPost }) => (
-    <TouchableOpacity
-      style={[styles.card, { backgroundColor: isDark ? '#0e1113' : '#fff', shadowColor: isDark ? '#000' : '#000' }]}
-      onPress={() => handleNewsPress(post)}
-      activeOpacity={0.7}
-    >
-      {(post.photo_url || post.thumbnail_url) && (
-        <Image 
-          source={{ uri: post.photo_url || post.thumbnail_url }} 
-          style={styles.image} 
-          resizeMode="cover"
-        />
-      )}
-      <View style={styles.content}>
-        {post.category && (
-          <View style={styles.categoryBadge}>
-            <Text style={styles.categoryText}>{post.category}</Text>
-          </View>
+  const renderNewsPost = useCallback(({ item: post }: { item: NewsPost }) => {
+    const summaryText = post.excerpt
+      ? stripHtmlTagsAndTruncate(post.excerpt, 150)
+      : (post.body ? stripHtmlTagsAndTruncate(post.body, 150) : '');
+    const titleDirection = getTextDirection(post.title);
+    const summaryDirection = getTextDirection(summaryText);
+
+    return (
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: isDark ? '#0e1113' : '#fff', shadowColor: isDark ? '#000' : '#000' }]}
+        onPress={() => handleNewsPress(post)}
+        activeOpacity={0.7}
+      >
+        {(post.photo_url || post.thumbnail_url) && (
+          <Image
+            source={{ uri: post.photo_url || post.thumbnail_url }}
+            style={styles.image}
+            resizeMode="cover"
+          />
         )}
-        <Text style={[styles.title, { color: isDark ? '#fff' : '#000' }]} numberOfLines={2}>
-          {post.title}
-        </Text>
-        {(post.excerpt || post.body) && (
-          <Text style={[styles.summary, { color: isDark ? '#9ca3af' : '#4b5563' }]} numberOfLines={3}>
-            {post.excerpt 
-              ? stripHtmlTagsAndTruncate(post.excerpt, 150)
-              : (post.body ? stripHtmlTagsAndTruncate(post.body, 150) : '')}
-          </Text>
-        )}
-        <View style={styles.footer}>
-          <View style={styles.footerLeft}>
-          {post.author && (
-            <Text style={[styles.author, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-              {post.author}
-            </Text>
+        <View style={styles.content}>
+          {post.category && (
+            <View style={styles.categoryBadge}>
+              <Text style={styles.categoryText}>{isolateBidiText(post.category)}</Text>
+            </View>
           )}
-          {post.published_at && (
-            <Text style={[styles.date, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-              {formatDate(post.published_at)}
-            </Text>
-          )}
-          </View>
-          <TouchableOpacity
-            style={styles.likeButton}
-            onPress={(e) => handleLikePress(post, e)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            activeOpacity={0.7}
+          <Text
+            style={[
+              styles.title,
+              {
+                color: isDark ? '#fff' : '#000',
+                textAlign: titleDirection === 'rtl' ? 'right' : 'left',
+                writingDirection: titleDirection,
+              },
+            ]}
+            numberOfLines={2}
           >
-            <Ionicons
-              name={post.user_liked ? 'heart' : 'heart-outline'}
-              size={20}
-              color={post.user_liked ? '#ef4444' : (isDark ? '#6b7280' : '#9ca3af')}
-            />
-            {(post.like_count || 0) > 0 && (
-              <Text style={[styles.likeCount, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-                {post.like_count}
+            {isolateBidiText(post.title)}
+          </Text>
+          {!!summaryText && (
+            <Text
+              style={[
+                styles.summary,
+                {
+                  color: isDark ? '#9ca3af' : '#4b5563',
+                  textAlign: summaryDirection === 'rtl' ? 'right' : 'left',
+                  writingDirection: summaryDirection,
+                },
+              ]}
+              numberOfLines={3}
+            >
+              {isolateBidiText(summaryText)}
+            </Text>
+          )}
+          <View style={styles.footer}>
+            <View style={styles.footerLeft}>
+            {post.author && (
+              <Text style={[styles.author, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+                {isolateBidiText(post.author)}
               </Text>
             )}
-          </TouchableOpacity>
+            {post.published_at && (
+              <Text style={[styles.date, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+                {formatDate(post.published_at)}
+              </Text>
+            )}
+            </View>
+            <TouchableOpacity
+              style={styles.likeButton}
+              onPress={(e) => handleLikePress(post, e)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={post.user_liked ? 'heart' : 'heart-outline'}
+                size={20}
+                color={post.user_liked ? '#ef4444' : (isDark ? '#6b7280' : '#9ca3af')}
+              />
+              {(post.like_count || 0) > 0 && (
+                <Text style={[styles.likeCount, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+                  {post.like_count}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
-  ), [isDark, handleNewsPress, handleLikePress]);
+      </TouchableOpacity>
+    );
+  }, [isDark, handleNewsPress, handleLikePress]);
 
   if (isLoading) {
     return (

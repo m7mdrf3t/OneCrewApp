@@ -17,6 +17,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import RenderHTML from 'react-native-render-html';
 import { RootStackParamList } from '../navigation/types';
 import { useApi } from '../contexts/ApiContext';
+import { getTextDirection, isolateBidiText, isolateBidiTextInHtml } from '../utils/bidiText';
 
 type NewsDetailRouteProp = RouteProp<RootStackParamList, 'newsDetail'>;
 
@@ -185,6 +186,12 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
     );
   }
 
+  const titleDirection = getTextDirection(post.title);
+  const excerptDirection = getTextDirection(post.excerpt || '');
+  const bodyDirection = getTextDirection(post.body || '');
+  const excerptHtml = isolateBidiTextInHtml(post.excerpt || '');
+  const bodyHtml = isolateBidiTextInHtml(post.body || '');
+
   return (
     <View style={[styles.container, { backgroundColor: darkMode ? '#0b0b0b' : '#f4f4f5' }]}>
       <ScrollView
@@ -206,13 +213,22 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
           {/* Category Badge */}
           {post.category && (
             <View style={styles.categoryBadge}>
-              <Text style={styles.categoryText}>{post.category}</Text>
+              <Text style={styles.categoryText}>{isolateBidiText(post.category)}</Text>
             </View>
           )}
 
           {/* Title */}
-          <Text style={[styles.title, { color: darkMode ? '#fff' : '#000' }]}>
-            {post.title}
+          <Text
+            style={[
+              styles.title,
+              {
+                color: darkMode ? '#fff' : '#000',
+                textAlign: titleDirection === 'rtl' ? 'right' : 'left',
+                writingDirection: titleDirection,
+              },
+            ]}
+          >
+            {isolateBidiText(post.title)}
           </Text>
 
           {/* Like Button */}
@@ -237,7 +253,7 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
               <View style={styles.metaItem}>
                 <Ionicons name="person-outline" size={16} color={darkMode ? '#6b7280' : '#9ca3af'} />
                 <Text style={[styles.metaText, { color: darkMode ? '#6b7280' : '#9ca3af' }]}>
-                  {post.author}
+                  {isolateBidiText(post.author)}
                 </Text>
               </View>
             )}
@@ -272,15 +288,22 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
             <View style={styles.excerptContainer}>
               <RenderHTML
                 contentWidth={width - 80} // Account for padding (20 * 2) + content padding (20 * 2)
-                source={{ html: post.excerpt }}
+                source={{ html: excerptHtml }}
                 baseStyle={{
                   color: darkMode ? '#d1d5db' : '#4b5563',
                   fontSize: 18,
                   lineHeight: 28,
                   fontStyle: 'italic',
+                  textAlign: excerptDirection === 'rtl' ? 'right' : 'left',
+                  writingDirection: excerptDirection,
                 }}
                 tagsStyles={{
-                  p: { marginBottom: 12, marginTop: 0 },
+                  p: {
+                    marginBottom: 12,
+                    marginTop: 0,
+                    textAlign: excerptDirection === 'rtl' ? 'right' : 'left',
+                    writingDirection: excerptDirection,
+                  },
                   strong: { fontWeight: 'bold' },
                   em: { fontStyle: 'italic' },
                 }}
@@ -293,14 +316,21 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
             <View style={styles.bodyContainer}>
               <RenderHTML
                 contentWidth={width - 80} // Account for padding (20 * 2) + content padding (20 * 2)
-                source={{ html: post.body }}
+                source={{ html: bodyHtml }}
                 baseStyle={{
                   color: darkMode ? '#e5e7eb' : '#1f2937',
                   fontSize: 16,
                   lineHeight: 26,
+                  textAlign: bodyDirection === 'rtl' ? 'right' : 'left',
+                  writingDirection: bodyDirection,
                 }}
                 tagsStyles={{
-                  p: { marginBottom: 16, marginTop: 0 },
+                  p: {
+                    marginBottom: 16,
+                    marginTop: 0,
+                    textAlign: bodyDirection === 'rtl' ? 'right' : 'left',
+                    writingDirection: bodyDirection,
+                  },
                   strong: { fontWeight: 'bold', color: darkMode ? '#fff' : '#000' },
                   em: { fontStyle: 'italic' },
                   h1: { 
@@ -308,25 +338,45 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
                     fontWeight: 'bold', 
                     marginBottom: 16, 
                     marginTop: 0,
-                    color: darkMode ? '#fff' : '#000'
+                    color: darkMode ? '#fff' : '#000',
+                    textAlign: bodyDirection === 'rtl' ? 'right' : 'left',
+                    writingDirection: bodyDirection,
                   },
                   h2: { 
                     fontSize: 24, 
                     fontWeight: 'bold', 
                     marginBottom: 14, 
                     marginTop: 0,
-                    color: darkMode ? '#fff' : '#000'
+                    color: darkMode ? '#fff' : '#000',
+                    textAlign: bodyDirection === 'rtl' ? 'right' : 'left',
+                    writingDirection: bodyDirection,
                   },
                   h3: { 
                     fontSize: 20, 
                     fontWeight: 'bold', 
                     marginBottom: 12, 
                     marginTop: 0,
-                    color: darkMode ? '#fff' : '#000'
+                    color: darkMode ? '#fff' : '#000',
+                    textAlign: bodyDirection === 'rtl' ? 'right' : 'left',
+                    writingDirection: bodyDirection,
                   },
-                  ul: { marginBottom: 16, marginTop: 0 },
-                  ol: { marginBottom: 16, marginTop: 0 },
-                  li: { marginBottom: 8 },
+                  ul: {
+                    marginBottom: 16,
+                    marginTop: 0,
+                    textAlign: bodyDirection === 'rtl' ? 'right' : 'left',
+                    writingDirection: bodyDirection,
+                  },
+                  ol: {
+                    marginBottom: 16,
+                    marginTop: 0,
+                    textAlign: bodyDirection === 'rtl' ? 'right' : 'left',
+                    writingDirection: bodyDirection,
+                  },
+                  li: {
+                    marginBottom: 8,
+                    textAlign: bodyDirection === 'rtl' ? 'right' : 'left',
+                    writingDirection: bodyDirection,
+                  },
                   blockquote: {
                     borderLeftWidth: 4,
                     borderLeftColor: darkMode ? '#3b82f6' : '#3b82f6',
@@ -334,6 +384,8 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
                     marginLeft: 0,
                     marginBottom: 16,
                     fontStyle: 'italic',
+                    textAlign: bodyDirection === 'rtl' ? 'right' : 'left',
+                    writingDirection: bodyDirection,
                   },
                 }}
               />

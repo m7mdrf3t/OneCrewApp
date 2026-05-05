@@ -67,7 +67,8 @@ class StreamChatService {
       }
       
       console.log('🔑 StreamChat: Creating client with API key:', apiKey.substring(0, 10) + '...');
-      this.client = StreamChat.getInstance(apiKey);
+      // Stream SDK defaults REST timeout to 3000ms; use a higher value to reduce transient send/watch failures.
+      this.client = StreamChat.getInstance(apiKey, { timeout: 10000 });
     }
     return this.client;
   }

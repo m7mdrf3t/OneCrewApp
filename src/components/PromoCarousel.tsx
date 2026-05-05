@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Animated,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { spacing, semanticSpacing } from '../constants/spacing';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -18,6 +19,9 @@ export interface PromoItem {
   title: string;
   subtitle?: string;
   actionUrl?: string;
+  imageUrl?: string;
+  ctaText?: string;
+  ctaLink?: string;
 }
 
 interface PromoCarouselProps {
@@ -95,12 +99,24 @@ const PromoCarousel: React.FC<PromoCarouselProps> = ({
             onPress={() => handlePromoPress(promo)}
             activeOpacity={0.9}
           >
+            {promo.imageUrl ? (
+              <Image
+                source={{ uri: promo.imageUrl }}
+                style={styles.promoBackgroundImage}
+                contentFit="cover"
+                transition={150}
+              />
+            ) : null}
+            <View style={styles.promoOverlay} />
             <View style={styles.promoContent}>
               <Text style={styles.promoLabel}>{promo.label}</Text>
               <Text style={styles.promoTitle}>{promo.title}</Text>
               {promo.subtitle && (
                 <Text style={styles.promoSubtitle}>{promo.subtitle}</Text>
               )}
+              {promo.ctaText ? (
+                <Text style={styles.promoCta}>{promo.ctaText}</Text>
+              ) : null}
             </View>
           </TouchableOpacity>
         ))}
@@ -147,10 +163,20 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 3,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  promoBackgroundImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  promoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.28)',
   },
   promoContent: {
     flex: 1,
     justifyContent: 'center',
+    zIndex: 1,
   },
   promoLabel: {
     fontSize: 14,
@@ -171,6 +197,14 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: '#d1d5db', // Lighter grey
     marginTop: spacing.xs,
+  },
+  promoCta: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#ffffff',
+    marginTop: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   paginationContainer: {
     flexDirection: 'row',
