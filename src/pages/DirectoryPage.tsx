@@ -11,9 +11,11 @@ import { spacing, semanticSpacing } from '../constants/spacing';
 import SearchBar from '../components/SearchBar';
 import FilterModal, { FilterParams } from '../components/FilterModal';
 import SkeletonUserCard from '../components/SkeletonUserCard';
+import AcademyCategoryFilter from '../components/AcademyCategoryFilter';
 import { SECTIONS } from '../data/mockData';
 import { RootStackScreenProps } from '../navigation/types';
 import { getRoleName } from '../utils/roleCategorizer';
+import { useAcademyServices } from '../hooks/useAcademyServices';
 
 // NOTE: FlashList runtime supports `estimatedItemSize`, but the shipped TS typings
 // in our current setup don't expose it. We cast to keep the perf optimization without
@@ -187,7 +189,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     );
   }
 
-  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies, getRoles, getCompanyTypes, user, activeCompany, currentProfileType } = useApi();
+  const { api, getUsersDirect, addToMyTeam, removeFromMyTeam, getMyTeamMembers, isGuest, browseUsersAsGuest, getCompanies, getCompanyServices, getRoles, getCompanyTypes, user, activeCompany, currentProfileType } = useApi();
   const queryClient = useQueryClient();
   const isCompaniesSection = section.key === 'onehub' || section.key === 'academy';
   const isDirectorySection = section.key === 'directory';
@@ -206,6 +208,10 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   const [showSearchBar, setShowSearchBar] = useState(false);
   const [crewRoles, setCrewRoles] = useState<any[]>([]);
   const [talentRoles, setTalentRoles] = useState<any[]>([]);
+  const [selectedAcademyServiceIds, setSelectedAcademyServiceIds] = useState<Set<string>>(new Set());
+
+  // Fetch academy services and group by category
+  const { servicesByCategory } = useAcademyServices();
 
   // Local back behavior: close in-page UI (filter/subcategory) before popping navigation history
   const handleBackPress = useCallback(() => {
@@ -498,7 +504,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
       const response = await getCompanies({
         limit: 100,
-        fields: ['id', 'name', 'logo_url', 'location_text', 'subcategory', 'company_type_info', 'owner'],
+        fields: ['id', 'name', 'logo_url', 'location_text', 'subcategory', 'company_type_info', 'owner', 'services'],
         subcategory: subcategoryFilter,
         sort: 'name',
         order: 'asc',
@@ -582,6 +588,45 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   });
 
   const companies = directoryCompaniesQuery.data ?? [];
+
+  // Academy services source of truth for filtering.
+  // Some company list payloads may not include nested services reliably.
+  const academyServicesByCompanyQuery = useQuery<Record<string, string[]>>({
+    queryKey: ['academyServicesByCompany', companies.map((c) => c.id).join(','), section.key],
+    enabled: section.key === 'academy' && companies.length > 0,
+    queryFn: async () => {
+      const pairs = await Promise.all(
+        companies.map(async (company) => {
+          try {
+            const response = await getCompanyServices(company.id);
+            const rawServices = Array.isArray(response?.data)
+              ? response.data
+              : Array.isArray(response?.services)
+                ? response.services
+                : [];
+
+            const serviceIds = rawServices
+              .map((s: any) => s?.service_id || s?.id || s?.service?.id || s?.service?.service_id)
+              .filter(Boolean);
+
+            return [company.id, serviceIds] as const;
+          } catch (error) {
+            if (__DEV__) {
+              console.warn(`⚠️ [DirectoryPage] Failed to load services for academy ${company.id}`, error);
+            }
+            return [company.id, []] as const;
+          }
+        })
+      );
+
+      const map: Record<string, string[]> = {};
+      pairs.forEach(([companyId, serviceIds]) => {
+        map[companyId] = serviceIds;
+      });
+      return map;
+    },
+    staleTime: 1000 * 60 * 10,
+  });
 
   const users = useMemo(() => {
     const pages = directoryUsersQuery.data?.pages ?? [];
@@ -767,6 +812,52 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
     return companiesByType;
   }, [companies, section.key, subcategoryToNameMap]);
+
+  // Filter academies by selected services (if academy section)
+  const academyServicesLoading =
+    academyServicesByCompanyQuery.isLoading || academyServicesByCompanyQuery.isFetching;
+
+  const filteredAcademiesByCategory = useMemo(() => {
+    if (section.key !== 'academy' || selectedAcademyServiceIds.size === 0) {
+      // No filter active — show all
+      return companies;
+    }
+
+    // Service map not yet populated — don't hide everything while loading
+    if (!academyServicesByCompanyQuery.data) {
+      return companies;
+    }
+
+    return companies.filter((academy: Company) => {
+      // Prefer the fetched service map (most reliable)
+      const fetchedIds = academyServicesByCompanyQuery.data![academy.id];
+      if (fetchedIds !== undefined) {
+        // fetchedIds is [] when the company has no services — that's a valid match result
+        return fetchedIds.some((serviceId) => selectedAcademyServiceIds.has(serviceId));
+      }
+
+      // Fallback: try embedded services array from company payload
+      const academyData = academy as any;
+      const academyServices: any[] =
+        academyData.services || academyData.company_services || academyData.selected_services || [];
+
+      if (academyServices.length === 0) {
+        return false;
+      }
+
+      return academyServices.some((service: any) => {
+        const serviceId =
+          typeof service === 'string'
+            ? service
+            : service.service_id ||
+              service.available_service_id ||
+              service?.service?.id ||
+              service?.service?.service_id ||
+              service.id;
+        return serviceId ? selectedAcademyServiceIds.has(serviceId) : false;
+      });
+    });
+  }, [companies, section.key, selectedAcademyServiceIds, academyServicesByCompanyQuery.data]);
 
   // Generate dynamic section items from companies
   const sectionItems = useMemo(() => {
@@ -1273,6 +1364,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
               <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
             </TouchableOpacity>
           )}
+          {section.key === 'academy' && selectedSubcategory && (
+            <AcademyCategoryFilter
+              servicesByCategory={servicesByCategory}
+              selectedServiceIds={selectedAcademyServiceIds}
+              onApplySelectedServices={setSelectedAcademyServiceIds}
+              servicesLoading={academyServicesLoading}
+              isDark={false}
+            />
+          )}
           {selectedSubcategory ? (
             <TouchableOpacity 
               onPress={() => setSelectedSubcategory(null)} 
@@ -1285,7 +1385,6 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
           )}
         </View>
       </View>
-
       {/* Search and Filter Bar - Expandable */}
         {showSearchBar && selectedSubcategory && (
           <View style={styles.searchContainer}>
@@ -1337,6 +1436,15 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
             >
               <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
             </TouchableOpacity>
+          )}
+          {section.key === 'academy' && selectedSubcategory && (
+            <AcademyCategoryFilter
+              servicesByCategory={servicesByCategory}
+              selectedServiceIds={selectedAcademyServiceIds}
+              onApplySelectedServices={setSelectedAcademyServiceIds}
+              servicesLoading={academyServicesLoading}
+              isDark={false}
+            />
           )}
           {selectedSubcategory && (
             <TouchableOpacity 
@@ -1419,43 +1527,50 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         (() => {
           const itemCompanies = (filteredCompaniesByType as any)[selectedSubcategory] || [];
           const isAcademy = section.key === 'academy';
+          // For academy, apply category filter
+          const displayedCompanies = isAcademy ? filteredAcademiesByCategory : itemCompanies;
 
           return (
-            <FlashListUnsafe
-              data={itemCompanies}
-              keyExtractor={(c: Company) => c.id}
-              contentContainerStyle={[styles.usersContainer, { paddingBottom: 24 }]}
-              showsVerticalScrollIndicator={false}
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              estimatedItemSize={320}
-              ListHeaderComponent={
-                error ? (
-                  <View style={styles.errorContainer}>
-                    <Text style={styles.errorText}>{error}</Text>
+            <View style={{ flex: 1 }}>
+              <FlashListUnsafe
+                data={displayedCompanies}
+                keyExtractor={(c: Company) => c.id}
+                contentContainerStyle={[styles.usersContainer, { paddingBottom: 24 }]}
+                showsVerticalScrollIndicator={false}
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                estimatedItemSize={320}
+                ListHeaderComponent={
+                  error ? (
+                    <View style={styles.errorContainer}>
+                      <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                  ) : null
+                }
+                ListEmptyComponent={
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyText}>
+                      {isAcademy && selectedAcademyServiceIds.size > 0
+                        ? 'No academies found for selected filters'
+                        : `No ${capitalizeRole(selectedSubcategory)} found`}
+                    </Text>
                   </View>
-                ) : null
-              }
-              ListEmptyComponent={
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>No {capitalizeRole(selectedSubcategory)} found</Text>
-                </View>
-              }
-              renderItem={({ item: company }: { item: Company }) => {
-                const location = company.location_text || company.location || '';
-                const companyType = company.company_type_info?.name || '';
+                }
+                renderItem={({ item: company }: { item: Company }) => {
+                  const location = company.location_text || company.location || '';
+                  const companyType = company.company_type_info?.name || '';
 
-                return (
-                  <TouchableOpacity
-                    key={company.id}
-                    style={[styles.companyCardTwoTone, isAcademy && styles.academyCard]}
-                    onPress={() => {
-                      onNavigate('companyProfile', { companyId: company.id, readOnly: true });
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    {/* Image Section */}
-                    <View style={styles.companyCardImageContainer}>
+                  return (
+                    <TouchableOpacity
+                      key={company.id}
+                      style={[styles.companyCardTwoTone, isAcademy && styles.academyCard]}
+                      onPress={() => {
+                        onNavigate('companyProfile', { companyId: company.id, readOnly: true });
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      {/* Image Section */}
+                      <View style={styles.companyCardImageContainer}>
                       {company.logo_url ? (
                         <Image
                           source={{ uri: company.logo_url }}
@@ -1508,7 +1623,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                   </TouchableOpacity>
                 );
               }}
-            />
+              />
+            </View>
           );
         })()
       ) : (
