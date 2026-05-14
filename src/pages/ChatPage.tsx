@@ -44,6 +44,7 @@ import {
 import { ChatVoiceRecordButton } from '../components/ChatVoiceRecordButton';
 import ForwardMessageModal from '../components/ForwardMessageModal';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useHeaderHeight } from '@react-navigation/elements';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApi } from '../contexts/ApiContext';
 import { useStreamChatReady } from '../components/StreamChatProvider';
@@ -69,6 +70,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   
   // All hooks must be called unconditionally and in the same order
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { clientReady } = useStreamChatReady();
   const { 
     api,
@@ -2135,6 +2137,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
             {/* Voice notes: recording + playback use SDK default (react-native-video: AVPlayer on iOS, ExoPlayer on Android) */}
             <Channel
               channel={channel}
+              keyboardVerticalOffset={headerHeight}
               audioRecordingEnabled={true}
               asyncMessagesMultiSendEnabled={true}
               InputButtons={CustomInputButtons}

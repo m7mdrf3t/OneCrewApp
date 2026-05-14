@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TouchableOpacity, Text, Platform, ImageStyle } from 'react-native';
+import { View, TouchableOpacity, Text, Platform, ImageStyle, Animated, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -60,10 +60,44 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
   const imageKey = React.useMemo(() => {
     return `${currentProfileType}-${activeCompany?.id || user?.id}-${profileImageUrl || 'no-image'}`;
   }, [currentProfileType, activeCompany?.id, user?.id, profileImageUrl]);
+
+  // Rotating ring animation
+  const rotateAnim = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 4000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [rotateAnim]);
+  const ringRotation = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
   // Calculate padding bottom - iOS handles it in styles, Android uses insets
-  const paddingBottom = Platform.OS === 'ios' 
-    ? undefined 
-    : Math.max(insets.bottom, 8);
+  const paddingBottom = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
+
+  const ringWrapperStyle = {
+    width: 40,
+    height: 40,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+  };
+
+  const ringStyle = {
+    position: 'absolute' as const,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#fff',
+    borderTopColor: 'transparent',
+    borderRightColor: 'transparent',
+  };
 
   const handleMenuPress = React.useCallback(() => {
     setShowUserMenu(true);
@@ -105,20 +139,23 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
           onLongPress={handleProfileLongPress}
           delayLongPress={500}
         >
-          {profileImageUrl ? (
-            <Image
-              key={imageKey} // Force re-render when URL changes
-              source={{ uri: profileImageUrl }}
-              style={styles.profileImage as ImageStyle}
-              contentFit="cover"
-              transition={200}
-              cachePolicy="memory-disk" // Ensure fresh image loads
-            />
-          ) : (
-            <View style={styles.profileImagePlaceholder}>
-              <Text style={styles.profileImageText}>{initials}</Text>
-            </View>
-          )}
+          <View style={ringWrapperStyle}>
+            <Animated.View style={[ringStyle, { transform: [{ rotate: ringRotation }] }]} />
+            {profileImageUrl ? (
+              <Image
+                key={imageKey}
+                source={{ uri: profileImageUrl }}
+                style={styles.profileImage as ImageStyle}
+                contentFit="cover"
+                transition={200}
+                cachePolicy="memory-disk"
+              />
+            ) : (
+              <View style={styles.profileImagePlaceholder}>
+                <Text style={styles.profileImageText}>{initials}</Text>
+              </View>
+            )}
+          </View>
         </TouchableOpacity>
       )}
       <TouchableOpacity

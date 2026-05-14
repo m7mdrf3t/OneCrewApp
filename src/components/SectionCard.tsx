@@ -1,94 +1,39 @@
 import React from 'react';
-import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { SectionCardProps } from '../types';
 
-const SECTION_ICONS: { [key: string]: keyof typeof Ionicons.glyphMap } = {
-  onehub: 'business',
-  talent: 'people',
-  individuals: 'people',
-  specialized: 'sparkles',
-  academy: 'school',
-  custom: 'person-add',
-  legal: 'hammer',
-  technicians: 'people',
-};
-
-const SectionCard: React.FC<SectionCardProps & { featured?: boolean }> = ({ section, onClick, featured = false }) => {
-  const iconName = SECTION_ICONS[section.key] || 'sparkles';
-
+const SectionCard: React.FC<SectionCardProps & { featured?: boolean }> = ({ section, onClick }) => {
   return (
     <TouchableOpacity
-      style={[styles.container, featured && styles.containerFeatured]}
+      style={styles.container}
       onPress={onClick}
       activeOpacity={0.7}
     >
-      <View style={[styles.iconContainer, featured && styles.iconContainerFeatured]}>
-        <Ionicons name={iconName} size={featured ? 28 : 22} color="#0ea5e9" />
-      </View>
-      <View style={styles.content}>
-        <Text style={[styles.title, featured && styles.titleFeatured]}>{section.title}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
+      <Text style={styles.title}>{section.title}</Text>
     </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 16,
+    padding: 32,
     marginBottom: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
   },
-  containerFeatured: {
-    borderRadius: 16,
-    padding: 32,
-  },
-  iconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: '#f0f9ff',
-    borderWidth: 1,
-    borderColor: '#e0f2fe',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 14,
-  },
-  iconContainerFeatured: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    marginRight: 16,
-  },
-  content: {
-    flex: 1,
-  },
   title: {
-    fontSize: 17,
+    fontSize: 22,
     fontWeight: '700',
     color: '#000',
-    marginBottom: 4,
+    textAlign: 'center',
     letterSpacing: -0.3,
-  },
-  titleFeatured: {
-    fontSize: 18,
-  },
-  userCount: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#6b7280',
-    letterSpacing: -0.2,
   },
 });
 

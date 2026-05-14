@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { View, StatusBar, useColorScheme, Alert, ActivityIndicator, Linking, Platform, InteractionManager } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -47,7 +47,6 @@ import { appCommonStyles } from './App.styles.common';
 import { appIosStyles } from './App.styles.ios';
 import { appAndroidStyles } from './App.styles.android';
 
-const MAIN_TAB_ROUTES = ['home', 'projects', 'spot', 'conversations', 'myProfile', 'profile'] as const;
 
 const getActiveRouteName = (state: any): string | null => {
   if (!state?.routes?.length) {
@@ -110,12 +109,8 @@ const AppContent: React.FC = () => {
     }
   }, [systemColorScheme]);
 
-  // Track current route to update tab and show/hide TabBar
+  // Track current route to update active tab
   const [currentRoute, setCurrentRoute] = useState<string>('spot');
-
-  const shouldShowTabBar = useMemo(() => {
-    return MAIN_TAB_ROUTES.includes((currentRoute || 'spot') as typeof MAIN_TAB_ROUTES[number]);
-  }, [currentRoute]);
 
   const syncRouteState = useCallback((routeName?: string | null) => {
     const nextRoute = routeName || 'spot';
@@ -1361,8 +1356,8 @@ const AppContent: React.FC = () => {
         <GlobalModalsProvider>
           <AndroidBackHandlerWrapper>
             <View style={styles.appWrapper}>
-            <View style={[styles.navigationContainer, shouldShowTabBar && { paddingBottom: tabBarHeight }]}>
-              <NavigationContainer 
+            <View style={[styles.navigationContainer, currentRoute !== 'chat' && { paddingBottom: tabBarHeight }]}>
+              <NavigationContainer
                 ref={navigationRef}
                 onStateChange={(state) => {
                   try {
@@ -1389,9 +1384,9 @@ const AppContent: React.FC = () => {
                 </NavigationProvider>
               </NavigationContainer>
             </View>
-            {shouldShowTabBar ? (
-              <TabBar 
-                active={currentRoute} 
+            {currentRoute !== 'chat' && (
+              <TabBar
+                active={currentRoute}
                 onChange={handleTabChange}
                 onProfilePress={() => {
                   if (currentProfileType === 'company' && activeCompany?.id) {
@@ -1401,7 +1396,7 @@ const AppContent: React.FC = () => {
                   }
                 }}
               />
-            ) : null}
+            )}
           </View>
           </AndroidBackHandlerWrapper>
         </GlobalModalsProvider>

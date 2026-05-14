@@ -53,7 +53,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    height: '100%',
   },
   splashImage: {
     width: '80%',
