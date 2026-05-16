@@ -2,7 +2,7 @@
   "expo": {
     "name": "Modo",
     "slug": "one-crew",
-    "version": "1.5.0",
+    "version": "1.5.1",
     "orientation": "default",
     "icon": "./assets/MODO_01_png.png",
     "userInterfaceStyle": "light",
@@ -15,6 +15,7 @@
       "**/*"
     ],
     "ios": {
+      "version": "1.5.0",
       "supportsTablet": true,
       "bundleIdentifier": "com.minaezzat.onesteps",
       "usesAppleSignIn": true,
@@ -33,7 +34,8 @@
       "buildNumber": "48"
     },
     "android": {
-      "versionCode": 33,
+      "version": "1.5.1",
+      "versionCode": 37,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/MODO_01_png.png",
