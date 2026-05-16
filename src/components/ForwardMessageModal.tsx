@@ -13,6 +13,11 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  buildForwardMessagePayload,
+  getForwardPreviewImageUrl,
+  getForwardPreviewLabel,
+} from '../utils/forwardMessage';
 
 interface ForwardMessageModalProps {
   visible: boolean;
@@ -95,8 +100,9 @@ const ForwardMessageModal: React.FC<ForwardMessageModalProps> = ({
   };
 
   const handleForward = async (targetChannel: any) => {
-    if (!message?.text) {
-      Alert.alert('Error', 'No message text to forward');
+    const forwardedPayload = buildForwardMessagePayload(message);
+    if (!forwardedPayload) {
+      Alert.alert('Error', 'Nothing to forward in this message');
       return;
     }
     setForwarding(targetChannel.id);
@@ -105,13 +111,6 @@ const ForwardMessageModal: React.FC<ForwardMessageModalProps> = ({
         targetChannel && typeof targetChannel.sendMessage === 'function'
           ? targetChannel
           : client.channel('messaging', targetChannel.id);
-
-      const forwardedPayload = {
-        text: message.text,
-        is_forwarded: true,
-        forwarded_message_id: message?.id,
-        forwarded_from_user_id: message?.user?.id,
-      };
 
       try {
         await ch.sendMessage(forwardedPayload);
@@ -150,6 +149,9 @@ const ForwardMessageModal: React.FC<ForwardMessageModalProps> = ({
     getChannelDisplayName(ch).toLowerCase().includes(search.toLowerCase())
   );
 
+  const previewLabel = message ? getForwardPreviewLabel(message) : '';
+  const previewImageUrl = message ? getForwardPreviewImageUrl(message) : null;
+
   return (
     <Modal
       visible={visible}
@@ -168,12 +170,23 @@ const ForwardMessageModal: React.FC<ForwardMessageModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {message?.text ? (
+          {previewLabel || previewImageUrl ? (
             <View style={styles.messagePreview}>
               <Text style={styles.messagePreviewLabel}>Message</Text>
-              <Text style={styles.messagePreviewText} numberOfLines={2}>
-                {message.text}
-              </Text>
+              <View style={styles.messagePreviewRow}>
+                {previewImageUrl ? (
+                  <Image
+                    source={{ uri: previewImageUrl }}
+                    style={styles.messagePreviewImage}
+                    contentFit="cover"
+                  />
+                ) : null}
+                {previewLabel ? (
+                  <Text style={styles.messagePreviewText} numberOfLines={2}>
+                    {previewLabel}
+                  </Text>
+                ) : null}
+              </View>
             </View>
           ) : null}
 
@@ -299,7 +312,19 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  messagePreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  messagePreviewImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#e5e7eb',
+  },
   messagePreviewText: {
+    flex: 1,
     fontSize: 13,
     color: '#4b5563',
     lineHeight: 18,

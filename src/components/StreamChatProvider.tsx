@@ -8,6 +8,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { InteractionManager, Platform } from 'react-native';
 import { Chat, OverlayProvider } from 'stream-chat-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApi } from '../contexts/ApiContext';
 import pushNotificationService from '../services/PushNotificationService';
 import streamChatService from '../services/StreamChatService';
@@ -32,6 +33,7 @@ export const useStreamChatReady = (): StreamChatReadyContextValue =>
 
 export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children }) => {
   const { isAuthenticated, user, currentProfileType, activeCompany, getStreamChatToken, isAppBootCompleted } = useApi();
+  const insets = useSafeAreaInsets();
   const [clientReady, setClientReady] = useState(false);
   const [client, setClient] = useState<ReturnType<typeof streamChatService.getClient> | null>(null);
 
@@ -323,7 +325,10 @@ export const StreamChatProvider: React.FC<StreamChatProviderProps> = ({ children
     };
   }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, getStreamChatToken, isAppBootCompleted]);
 
-  const theme = getStreamChatTheme();
+  const theme = useMemo(
+    () => getStreamChatTheme({ bottomInset: insets.bottom }),
+    [insets.bottom],
+  );
   const imageGalleryCustomComponents = useMemo(
     () => ({
       header: {

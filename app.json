@@ -2,7 +2,7 @@
   "expo": {
     "name": "Modo",
     "slug": "one-crew",
-    "version": "1.4.2",
+    "version": "1.5.0",
     "orientation": "default",
     "icon": "./assets/MODO_01_png.png",
     "userInterfaceStyle": "light",
@@ -30,10 +30,10 @@
       },
       "appleTeamId": "9MK2V33M87",
       "scheme": "com.minaezzat.onesteps",
-      "buildNumber": "40"
+      "buildNumber": "48"
     },
     "android": {
-      "versionCode": 28,
+      "versionCode": 33,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/MODO_01_png.png",
@@ -115,7 +115,7 @@
         }
       ]
     ],
-    "runtimeVersion": "1.4.2",
+    "runtimeVersion": "1.5.0",
     "updates": {
       "url": "https://u.expo.dev/bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
     }

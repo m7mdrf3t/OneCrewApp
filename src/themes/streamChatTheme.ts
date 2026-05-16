@@ -1,6 +1,11 @@
 import { Platform } from 'react-native';
 import { DeepPartial, Theme } from 'stream-chat-react-native';
 
+export type StreamChatThemeOptions = {
+  /** Home-indicator / safe-area padding below the composer when the keyboard is closed */
+  bottomInset?: number;
+};
+
 export const streamChatTheme: DeepPartial<Theme> = {
   colors: {
     accent_blue: '#3b82f6',
@@ -214,4 +219,21 @@ export const streamChatTheme: DeepPartial<Theme> = {
   },
 };
 
-export const getStreamChatTheme = (): DeepPartial<Theme> => streamChatTheme;
+export const getStreamChatTheme = (
+  options?: StreamChatThemeOptions,
+): DeepPartial<Theme> => {
+  const bottomInset = options?.bottomInset ?? 0;
+  const composerBottomPadding =
+    Platform.OS === 'ios' ? Math.max(bottomInset, 8) : 8;
+
+  return {
+    ...streamChatTheme,
+    messageInput: {
+      ...streamChatTheme.messageInput,
+      container: {
+        ...streamChatTheme.messageInput?.container,
+        paddingBottom: composerBottomPadding,
+      },
+    },
+  };
+};

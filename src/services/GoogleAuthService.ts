@@ -22,7 +22,7 @@ try {
 
 // Web Client ID (required for backend verification and Android)
 // This should match the Web Client ID configured in your backend
-const WEB_CLIENT_ID = '309236356616-aqrrf2gvbaac7flpg5hl0hig6hnk1uhj.apps.googleusercontent.com';
+const WEB_CLIENT_ID = '309236356616-fv4b29m4m44f2drnf5huu3jm15lfla6f.apps.googleusercontent.com';
 
 // iOS Client ID - for native SDK on iOS
 // Format: XXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.apps.googleusercontent.com
@@ -62,11 +62,7 @@ export const initializeGoogleSignIn = async () => {
       }
     }
 
-    // Warn if Android Client ID is still placeholder
-    if (Platform.OS === 'android' && ANDROID_CLIENT_ID.includes('YOUR_ANDROID_CLIENT_ID_HERE')) {
-      console.warn('⚠️ Android Client ID not configured. Please update ANDROID_CLIENT_ID in GoogleAuthService.ts');
-      console.warn('⚠️ See GOOGLE_SIGNIN_SETUP.md for instructions');
-    }
+    // Android uses webClientId + package/SHA-1; no separate client ID in configure()
 
     // Validate that GoogleSignin has the configure method
     if (typeof GoogleSignin.configure !== 'function') {

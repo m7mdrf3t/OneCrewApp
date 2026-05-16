@@ -43,8 +43,16 @@ import {
 } from '../components/ReactionIcons';
 import { ChatVoiceRecordButton } from '../components/ChatVoiceRecordButton';
 import ForwardMessageModal from '../components/ForwardMessageModal';
+import ForwardedLabel from '../components/ForwardedLabel';
+import ForwardedGallery from '../components/ForwardedGallery';
+import ForwardedAttachment from '../components/ForwardedAttachment';
+import {
+  getForwardImageAttachments,
+  isMessageForwardable,
+  isMessageForwarded,
+} from '../utils/forwardMessage';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { useChatKeyboardVerticalOffset } from '../hooks/useChatKeyboardVerticalOffset';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useApi } from '../contexts/ApiContext';
 import { useStreamChatReady } from '../components/StreamChatProvider';
@@ -53,8 +61,6 @@ import { RootStackScreenProps, RootStackParamList } from '../navigation/types';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import streamChatService from '../services/StreamChatService';
 import { getStreamChannelId, getOneCrewConversationId } from '../utils/streamChatMapping';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
 const ChatPage: React.FC<ChatPageProps> = ({
   conversationId: conversationIdProp,
   participant: participantProp,
@@ -69,8 +75,13 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { goBack } = useAppNavigation();
   
   // All hooks must be called unconditionally and in the same order
-  const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
+  const {
+    channelContainerRef,
+    keyboardVerticalOffset,
+    onChannelContainerLayout,
+    bottomInset,
+    topInset,
+  } = useChatKeyboardVerticalOffset();
   const { clientReady } = useStreamChatReady();
   const { 
     api,
@@ -1222,15 +1233,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
     if (!message?.text) return null;
 
-    const isForwarded =
-      message?.is_forwarded === true ||
-      message?.forwarded === true ||
-      message?.forwarded_message === true;
-
     const forwardedLabelColor =
       props?.myMessageTheme?.messageSimple?.content?.metaText?.color ||
       theme?.theme?.messageSimple?.content?.metaText?.color ||
       '#6b7280';
+
+    const hasForwardedImages = getForwardImageAttachments(message).length > 0;
+    const showForwardedLabelOnText =
+      isMessageForwarded(message) && !hasForwardedImages;
 
     const markdownStyles = {
       ...(theme?.theme?.messageSimple?.content?.markdown || {}),
@@ -1241,13 +1251,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
     return (
       <View>
-        {isForwarded ? (
-          <View style={styles.forwardedLabelRow}>
-            <Ionicons name="arrow-redo" size={12} color={forwardedLabelColor} />
-            <Text style={[styles.forwardedLabelText, { color: forwardedLabelColor }]}>
-              Forwarded
-            </Text>
-          </View>
+        {showForwardedLabelOnText ? (
+          <ForwardedLabel color={forwardedLabelColor} />
         ) : null}
         {renderText({
           colors: theme?.theme?.colors,
@@ -2133,15 +2138,25 @@ const ChatPage: React.FC<ChatPageProps> = ({
   return (
     <View style={styles.container}>
       {channel ? (
-          <View style={styles.channelContainer}>
+          <View
+            ref={channelContainerRef}
+            style={styles.channelContainer}
+            onLayout={onChannelContainerLayout}
+          >
             {/* Voice notes: recording + playback use SDK default (react-native-video: AVPlayer on iOS, ExoPlayer on Android) */}
             <Channel
               channel={channel}
-              keyboardVerticalOffset={headerHeight}
+              keyboardVerticalOffset={keyboardVerticalOffset}
+              keyboardBehavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              bottomInset={bottomInset}
+              topInset={topInset}
+              additionalKeyboardAvoidingViewProps={{ style: styles.channelKeyboardAvoiding }}
               audioRecordingEnabled={true}
               asyncMessagesMultiSendEnabled={true}
               InputButtons={CustomInputButtons}
               MessageText={ForwardedMessageText}
+              Gallery={ForwardedGallery}
+              Attachment={ForwardedAttachment}
               // Custom reaction options with SVG icons
               supportedReactions={customReactionOptions}
               // MessageOverlay not available in this SDK version
@@ -2226,9 +2241,17 @@ const ChatPage: React.FC<ChatPageProps> = ({
                   },
                 } : null;
                 
-                // Forward action – shows the ForwardMessageModal with the selected message
-                const forwardAction = message?.text ? {
+                // Forward action – text and/or image attachments
+                const forwardAction = isMessageForwardable(message) ? {
                   title: 'Forward Message',
+                  actionType: 'forwardMessage',
+                  icon: (
+                    <Ionicons
+                      name="arrow-redo-outline"
+                      size={24}
+                      color="#374151"
+                    />
+                  ),
                   action: () => {
                     setForwardMessage(message);
                     if (dismissOverlay) dismissOverlay();
@@ -2347,6 +2370,9 @@ const styles = StyleSheet.create({
   channelContainer: {
     flex: 1,
   },
+  channelKeyboardAvoiding: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2372,17 +2398,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
     backgroundColor: '#fff',
-  },
-  forwardedLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 3,
-  },
-  forwardedLabelText: {
-    fontSize: 11,
-    fontStyle: 'italic',
-    fontWeight: '600',
   },
   headerContent: {
     flexDirection: 'row',

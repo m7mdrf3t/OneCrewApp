@@ -112,6 +112,10 @@ const AppContent: React.FC = () => {
   // Track current route to update active tab
   const [currentRoute, setCurrentRoute] = useState<string>('spot');
 
+  // Chat is opened from Messages; keep the Messages tab highlighted in the tab bar
+  const tabBarActiveRoute =
+    currentRoute === 'chat' ? 'conversations' : currentRoute;
+
   const syncRouteState = useCallback((routeName?: string | null) => {
     const nextRoute = routeName || 'spot';
     setCurrentRoute((prev) => (prev === nextRoute ? prev : nextRoute));
@@ -1356,7 +1360,7 @@ const AppContent: React.FC = () => {
         <GlobalModalsProvider>
           <AndroidBackHandlerWrapper>
             <View style={styles.appWrapper}>
-            <View style={[styles.navigationContainer, currentRoute !== 'chat' && { paddingBottom: tabBarHeight }]}>
+            <View style={[styles.navigationContainer, { paddingBottom: tabBarHeight }]}>
               <NavigationContainer
                 ref={navigationRef}
                 onStateChange={(state) => {
@@ -1384,19 +1388,17 @@ const AppContent: React.FC = () => {
                 </NavigationProvider>
               </NavigationContainer>
             </View>
-            {currentRoute !== 'chat' && (
-              <TabBar
-                active={currentRoute}
-                onChange={handleTabChange}
-                onProfilePress={() => {
-                  if (currentProfileType === 'company' && activeCompany?.id) {
-                    navigateTo('companyProfile', { companyId: activeCompany.id });
-                  } else if (user) {
-                    navigateTo('myProfile', user);
-                  }
-                }}
-              />
-            )}
+            <TabBar
+              active={tabBarActiveRoute}
+              onChange={handleTabChange}
+              onProfilePress={() => {
+                if (currentProfileType === 'company' && activeCompany?.id) {
+                  navigateTo('companyProfile', { companyId: activeCompany.id });
+                } else if (user) {
+                  navigateTo('myProfile', user);
+                }
+              }}
+            />
           </View>
           </AndroidBackHandlerWrapper>
         </GlobalModalsProvider>
@@ -1486,13 +1488,13 @@ const App: React.FC = () => {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
-        <ApiProvider>
-          <StreamChatProvider>
-            <SafeAreaProvider>
+        <SafeAreaProvider>
+          <ApiProvider>
+            <StreamChatProvider>
               <AppContent />
-            </SafeAreaProvider>
-          </StreamChatProvider>
-        </ApiProvider>
+            </StreamChatProvider>
+          </ApiProvider>
+        </SafeAreaProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>
   );

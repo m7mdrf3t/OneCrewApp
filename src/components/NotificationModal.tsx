@@ -31,21 +31,18 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
     notifications,
     unreadNotificationCount,
     getNotifications,
-    getUnreadNotificationCount,
     markNotificationAsRead,
     markAllNotificationsAsRead,
     deleteNotification,
   } = useApi();
 
-  const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [filter, setFilter] = useState<'all' | 'unread'>('unread');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (visible) {
       loadNotifications();
-      // Refresh unread count when modal opens
-      getUnreadNotificationCount();
     }
   }, [visible, filter]);
 
@@ -53,7 +50,7 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
     try {
       setLoading(true);
       const params: NotificationParams = {
-        limit: 50,
+        limit: 100,
         page: 1,
         unread_only: filter === 'unread',
       };
@@ -122,23 +119,11 @@ const NotificationModal: React.FC<NotificationModalProps> = ({
     }
   };
 
-  // Filter out message notifications - they should only appear in the message modal
-  const filteredNotifications = (filter === 'unread'
-    ? notifications.filter(n => !n.is_read)
-    : notifications).filter(n => {
-      // Filter out message notifications by type
-      if (n.type === 'message_received') {
-        return false;
-      }
-      // Also filter out notifications with "New message from" in the title as a fallback
-      const titleLower = n.title?.toLowerCase() || '';
-      if (titleLower.includes('new message from') || titleLower.includes('message from')) {
-        return false;
-      }
-      return true;
-    });
-
-  const displayNotifications = filteredNotifications.sort((a, b) => 
+  // `notifications` in context are already in-app only (chat excluded in ApiContext).
+  const displayNotifications = (filter === 'unread'
+    ? notifications.filter((n) => !n.is_read)
+    : notifications
+  ).sort((a, b) => 
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 

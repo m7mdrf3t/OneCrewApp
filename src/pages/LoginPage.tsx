@@ -415,28 +415,33 @@ const LoginPage: React.FC<LoginPageProps> = ({
 
             {/* Or divider */}
             <View style={styles.divider}>
-              <Text style={styles.dividerText}>Or log in with</Text>
+              <Text style={styles.dividerText}>
+                {Platform.OS === 'ios' ? 'Or log in with' : 'Or log in with Google'}
+              </Text>
             </View>
 
-            {/* Social Login Buttons - Side by Side */}
+            {/* iOS: Apple + Google. Android: Google only */}
             <View style={styles.socialButtons}>
-              <TouchableOpacity
-                style={[styles.socialButton, styles.appleButton, (isLoading || pendingAppleSignIn) && styles.socialButtonDisabled]}
-                onPress={handleAppleSignIn}
-                disabled={isLoading || pendingAppleSignIn}
-              >
-                {Platform.OS === 'ios' && (
-                  <>
-                    <Ionicons name="logo-apple" size={20} color="#000" />
-                    <Text style={styles.socialButtonText}>
-                      {pendingAppleSignIn ? 'Signing In...' : 'Apple'}
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
+              {Platform.OS === 'ios' && (
+                <TouchableOpacity
+                  style={[styles.socialButton, styles.appleButton, (isLoading || pendingAppleSignIn) && styles.socialButtonDisabled]}
+                  onPress={handleAppleSignIn}
+                  disabled={isLoading || pendingAppleSignIn}
+                >
+                  <Ionicons name="logo-apple" size={20} color="#000" />
+                  <Text style={styles.socialButtonText}>
+                    {pendingAppleSignIn ? 'Signing In...' : 'Apple'}
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
-                style={[styles.socialButton, styles.googleButton, (isLoading || pendingGoogleSignIn) && styles.socialButtonDisabled]}
+                style={[
+                  styles.socialButton,
+                  styles.googleButton,
+                  Platform.OS !== 'ios' && styles.socialButtonFullWidth,
+                  (isLoading || pendingGoogleSignIn) && styles.socialButtonDisabled,
+                ]}
                 onPress={handleGoogleSignIn}
                 disabled={isLoading || pendingGoogleSignIn}
               >
@@ -708,6 +713,10 @@ const styles = StyleSheet.create({
   },
   appleButton: {
     backgroundColor: '#fff',
+  },
+  socialButtonFullWidth: {
+    flex: 1,
+    width: '100%',
   },
   socialButtonText: {
     color: '#000',

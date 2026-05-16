@@ -39,6 +39,13 @@ import { initializeGoogleSignIn, signInWithGoogle } from '../services/GoogleAuth
 import { initializeAppleAuthentication, signInWithApple } from '../services/AppleAuthService';
 import agendaService from '../services/AgendaService';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
+import {
+  countUnreadInAppNotifications,
+  filterInAppNotifications,
+  normalizeNotification,
+  parseNotificationsFromResponse,
+  shouldShowInNotificationCenter,
+} from '../utils/inAppNotifications';
 import { FilterParams } from '../components/FilterModal';
 import performanceMonitor from '../services/PerformanceMonitor';
 import {
@@ -9665,102 +9672,114 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  // Helper function to check if a notification is a message notification
-  const isMessageNotification = (notification: Notification): boolean => {
-    if (
-      notification.type === 'message_received' ||
-      notification.type === 'reaction_added' ||
-      // Backends may use alternate string types for reactions
-      (notification.type as any) === 'reaction.new' ||
-      (notification.type as any) === 'message_reaction'
-    ) {
-      return true;
+  const NOTIFICATION_FETCH_LIMIT = 100;
+
+  /** Parse API payload, keep in-app rows only, sync list + badge from the same data. */
+  const applyNotificationCenterSnapshot = useCallback(
+    (parsed: Notification[], options?: { updateList?: boolean; updateBadge?: boolean }) => {
+      const inApp = filterInAppNotifications(parsed);
+      const unreadInApp = inApp.filter((n) => !n.is_read);
+
+      if (options?.updateList !== false) {
+        setNotifications(inApp);
+      }
+      if (options?.updateBadge !== false) {
+        setUnreadNotificationCount(unreadInApp.length);
+      }
+
+      if (__DEV__) {
+        console.log('🔔 [Notifications] Snapshot applied:', {
+          fetched: parsed.length,
+          inApp: inApp.length,
+          unreadInApp: unreadInApp.length,
+          updateList: options?.updateList !== false,
+          updateBadge: options?.updateBadge !== false,
+        });
+      }
+
+      return { inApp, unreadCount: unreadInApp.length };
+    },
+    []
+  );
+
+  const fetchNotificationsFromApi = useCallback(
+    async (params?: NotificationParams) => {
+      const response = await api.getNotifications({
+        limit: NOTIFICATION_FETCH_LIMIT,
+        page: 1,
+        ...params,
+      });
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch notifications');
+      }
+      return parseNotificationsFromResponse(response.data);
+    },
+    [api]
+  );
+
+  /** Badge only (boot) — does not overwrite the modal list until it is opened. */
+  const refreshNotificationBadge = useCallback(async (): Promise<number> => {
+    try {
+      const parsed = await fetchNotificationsFromApi({ unread_only: true });
+      const { unreadCount } = applyNotificationCenterSnapshot(parsed, {
+        updateList: false,
+        updateBadge: true,
+      });
+      return unreadCount;
+    } catch (error: any) {
+      const errorMessage = error?.message || error?.toString() || '';
+      const isNetworkError =
+        errorMessage.includes('Network error') ||
+        errorMessage.includes('Network request failed') ||
+        errorMessage.includes('Failed to fetch') ||
+        errorMessage.includes('fetch failed') ||
+        (error?.name === 'TypeError' && errorMessage.includes('Network'));
+
+      if (isNetworkError) {
+        console.warn('   Failed to refresh notification badge (network issue):', errorMessage);
+        return 0;
+      }
+
+      console.error('Failed to refresh notification badge:', error);
+      await handle401Error(error);
+      return 0;
     }
-    // Also check title pattern as fallback
-    const titleLower = notification.title?.toLowerCase() || '';
-    if (
-      titleLower.includes('new message from') ||
-      titleLower.includes('message from') ||
-      titleLower.includes('reacted') ||
-      titleLower.includes('reaction')
-    ) {
-      return true;
-    }
-    return false;
-  };
+  }, [api, applyNotificationCenterSnapshot, fetchNotificationsFromApi]);
 
   // Notification methods
   const getNotifications = async (params?: NotificationParams) => {
     try {
-      const response = await api.getNotifications(params);
-      if (response.success && response.data) {
-        // Handle paginated response
-        let notificationsList: Notification[] = [];
-        if (Array.isArray(response.data)) {
-          notificationsList = response.data;
-        } else if (response.data.data && Array.isArray(response.data.data)) {
-          notificationsList = response.data.data;
-        } else if ((response.data as any).notifications && Array.isArray((response.data as any).notifications)) {
-          notificationsList = (response.data as any).notifications;
-        }
-        setNotifications(notificationsList);
-        return notificationsList;
+      const parsed = await fetchNotificationsFromApi(params);
+      const { inApp } = applyNotificationCenterSnapshot(parsed, {
+        updateList: true,
+        // Unread tab: badge from this fetch. All tab: badge from dedicated unread fetch below.
+        updateBadge: params?.unread_only === true,
+      });
+
+      if (!params?.unread_only) {
+        await refreshNotificationBadge();
       }
-      throw new Error(response.error || 'Failed to get notifications');
+
+      return inApp;
     } catch (error: any) {
       console.error('Failed to get notifications:', error);
-      // Handle 401 errors
       await handle401Error(error);
       throw error;
     }
   };
 
-  const getUnreadNotificationCount = async (): Promise<number> => {
-    try {
-      // Use backend lightweight count endpoint (avoids fetching full notifications list on app startup)
-      const response = await api.getUnreadNotificationCount();
-      if (response.success && response.data) {
-        const rawCount = (response.data as any).count ?? 0;
-        // We historically excluded message notifications from this badge; without a server-side filter,
-        // we can only subtract message notifications that are currently loaded in memory.
-        const loadedUnreadMessageNotifs = notifications.filter(n => !n.is_read && isMessageNotification(n)).length;
-        const adjusted = Math.max(0, rawCount - loadedUnreadMessageNotifs);
-        setUnreadNotificationCount(adjusted);
-        return adjusted;
-      }
-      throw new Error(response.error || 'Failed to get unread notification count');
-    } catch (error: any) {
-      // Network errors are expected in mobile apps - log as warning
-      const errorMessage = error?.message || error?.toString() || '';
-      const isNetworkError = errorMessage.includes('Network error') ||
-                            errorMessage.includes('Network request failed') ||
-                            errorMessage.includes('Failed to fetch') ||
-                            errorMessage.includes('fetch failed') ||
-                            error?.name === 'TypeError' && errorMessage.includes('Network');
-      
-      if (isNetworkError) {
-        console.warn('   Failed to get unread notification count (network issue):', errorMessage);
-        // Return 0 for network errors instead of throwing
-        return 0;
-      }
-      
-      console.error('Failed to get unread notification count:', error);
-      // Handle 401 errors
-      await handle401Error(error);
-      return 0;
-    }
-  };
+  const getUnreadNotificationCount = async (): Promise<number> => refreshNotificationBadge();
 
   const markNotificationAsRead = async (notificationId: string) => {
     try {
       const response = await api.markNotificationAsRead(notificationId);
       if (response.success && response.data) {
         // Update local state
-        setNotifications(prev => {
-          const updated = prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n);
-          // Recalculate unread count excluding message notifications
-          const unreadCount = updated.filter(n => !n.is_read && !isMessageNotification(n)).length;
-          setUnreadNotificationCount(unreadCount);
+        setNotifications((prev) => {
+          const updated = prev.map((n) =>
+            n.id === notificationId ? { ...n, is_read: true } : n
+          );
+          setUnreadNotificationCount(countUnreadInAppNotifications(updated));
           return updated;
         });
         return response.data;
@@ -9780,8 +9799,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         setNotifications(prev => {
           const updated = prev.map(n => ({ ...n, is_read: true }));
           // Recalculate unread count (should be 0, but exclude messages just in case)
-          const unreadCount = updated.filter(n => !n.is_read && !isMessageNotification(n)).length;
-          setUnreadNotificationCount(unreadCount);
+          setUnreadNotificationCount(0);
           return updated;
         });
         return response;
@@ -9798,11 +9816,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const response = await api.deleteNotification(notificationId);
       if (response.success) {
         // Update local state
-        setNotifications(prev => {
-          const updated = prev.filter(n => n.id !== notificationId);
-          // Recalculate unread count excluding message notifications
-          const unreadCount = updated.filter(n => !n.is_read && !isMessageNotification(n)).length;
-          setUnreadNotificationCount(unreadCount);
+        setNotifications((prev) => {
+          const updated = prev.filter((n) => n.id !== notificationId);
+          setUnreadNotificationCount(countUnreadInAppNotifications(updated));
           return updated;
         });
         return response;
@@ -10103,21 +10119,25 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             (newNotification: Notification) => {
               console.log('📨 New notification received via real-time:', newNotification);
               
-              // Add new notification to the list
-              setNotifications(prev => {
-                // Check if notification already exists
-                const exists = prev.find(n => n.id === newNotification.id);
-                if (exists) {
+              const normalized = normalizeNotification(
+                newNotification as unknown as Record<string, unknown>
+              );
+
+              if (!shouldShowInNotificationCenter(normalized)) {
+                setTimeout(() => {
+                  refreshNotificationBadge();
+                }, 500);
+                return;
+              }
+
+              setNotifications((prev) => {
+                if (prev.find((n) => n.id === normalized.id)) {
                   return prev;
                 }
-                // Add to beginning of list
-                return [newNotification, ...prev];
+                const updated = [normalized, ...prev];
+                setUnreadNotificationCount(countUnreadInAppNotifications(updated));
+                return updated;
               });
-
-              // Update unread count if notification is unread and not a message notification
-              if (!newNotification.is_read && !isMessageNotification(newNotification)) {
-                setUnreadNotificationCount(prev => prev + 1);
-              }
 
               // Check if notification is related to company approval and refresh company data
               const notificationTitle = newNotification.title?.toLowerCase() || '';
@@ -10140,10 +10160,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 }, 1000);
               }
 
-              // Refresh notifications list and count asynchronously to avoid race conditions
               setTimeout(() => {
-              getNotifications({ limit: 20, page: 1 });
-              getUnreadNotificationCount();
+                refreshNotificationBadge();
               }, 500);
             }
           );

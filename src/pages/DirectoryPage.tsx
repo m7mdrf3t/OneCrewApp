@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect, usePreventRemove } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
@@ -12,6 +12,7 @@ import SearchBar from '../components/SearchBar';
 import FilterModal, { FilterParams } from '../components/FilterModal';
 import SkeletonUserCard from '../components/SkeletonUserCard';
 import AcademyCategoryFilter from '../components/AcademyCategoryFilter';
+import ProfileHeaderRight from '../components/ProfileHeaderRight';
 import { SECTIONS } from '../data/mockData';
 import { RootStackScreenProps } from '../navigation/types';
 import { getRoleName } from '../utils/roleCategorizer';
@@ -212,25 +213,6 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
   // Fetch academy services and group by category
   const { servicesByCategory } = useAcademyServices();
-
-  // Local back behavior: close in-page UI (filter/subcategory) before popping navigation history
-  const handleBackPress = useCallback(() => {
-    if (showFilterModal) {
-      setShowFilterModal(false);
-      return;
-    }
-    if (selectedSubcategory) {
-      // For Academy/onehub sections and directory section, go back directly instead of clearing selection
-      // (since we auto-select the subcategory when there's only one item)
-      if (isCompaniesSection || isDirectorySection) {
-        onBack();
-        return;
-      }
-      setSelectedSubcategory(null);
-      return;
-    }
-    onBack();
-  }, [showFilterModal, selectedSubcategory, onBack, isCompaniesSection, isDirectorySection]);
 
   // Debounce search query: shorter delay for 1–2 chars (faster feedback for "starts with" search)
   useEffect(() => {
@@ -880,6 +862,24 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }
   }, [isCompaniesSection, sectionItems, selectedSubcategory]);
 
+  // When only one subcategory exists we auto-select it; back should leave the screen.
+  const shouldExitOnSubcategoryBack = useMemo(
+    () => isDirectorySection || (isCompaniesSection && sectionItems.length === 1),
+    [isDirectorySection, isCompaniesSection, sectionItems.length],
+  );
+
+  const hasInPageBackStep = showFilterModal || (!!selectedSubcategory && !shouldExitOnSubcategoryBack);
+
+  usePreventRemove(hasInPageBackStep, () => {
+    if (showFilterModal) {
+      setShowFilterModal(false);
+      return;
+    }
+    if (selectedSubcategory && !shouldExitOnSubcategoryBack) {
+      setSelectedSubcategory(null);
+    }
+  });
+
   // Refetch companies when screen comes into focus (e.g., after editing a course)
   useFocusEffect(
     React.useCallback(() => {
@@ -1247,6 +1247,54 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
       .join(' ');
   };
 
+  const screenTitle = selectedSubcategory
+    ? capitalizeRole(selectedSubcategory)
+    : section.title;
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: screenTitle,
+      headerRight: () => (
+        <View style={styles.navHeaderRight}>
+          {selectedSubcategory ? (
+            <>
+              <TouchableOpacity
+                onPress={() => setShowSearchBar((prev) => !prev)}
+                style={styles.searchToggleButton}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons
+                  name={showSearchBar ? 'search' : 'search-outline'}
+                  size={24}
+                  color="#000"
+                />
+              </TouchableOpacity>
+              {section.key === 'academy' && (
+                <AcademyCategoryFilter
+                  servicesByCategory={servicesByCategory}
+                  selectedServiceIds={selectedAcademyServiceIds}
+                  onApplySelectedServices={setSelectedAcademyServiceIds}
+                  servicesLoading={academyServicesLoading}
+                  isDark={false}
+                />
+              )}
+            </>
+          ) : null}
+          <ProfileHeaderRight />
+        </View>
+      ),
+    });
+  }, [
+    navigation,
+    screenTitle,
+    selectedSubcategory,
+    showSearchBar,
+    section.key,
+    servicesByCategory,
+    selectedAcademyServiceIds,
+    academyServicesLoading,
+  ]);
+
   const getOnlineStatus = (user: User) => {
     if (user.online_last_seen) {
       const lastSeen = new Date(user.online_last_seen);
@@ -1348,44 +1396,6 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.title}>
-            {selectedSubcategory ? capitalizeRole(selectedSubcategory) : section.title}
-          </Text>
-        <View style={styles.headerRight}>
-          {selectedSubcategory && (
-            <TouchableOpacity 
-              onPress={() => setShowSearchBar(!showSearchBar)} 
-              style={styles.searchToggleButton}
-            >
-              <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
-            </TouchableOpacity>
-          )}
-          {section.key === 'academy' && selectedSubcategory && (
-            <AcademyCategoryFilter
-              servicesByCategory={servicesByCategory}
-              selectedServiceIds={selectedAcademyServiceIds}
-              onApplySelectedServices={setSelectedAcademyServiceIds}
-              servicesLoading={academyServicesLoading}
-              isDark={false}
-            />
-          )}
-          {selectedSubcategory ? (
-            <TouchableOpacity 
-              onPress={() => setSelectedSubcategory(null)} 
-              style={styles.backButton}
-            >
-              <Ionicons name="close" size={24} color="#000" />
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.placeholder} />
-          )}
-        </View>
-      </View>
-      {/* Search and Filter Bar - Expandable */}
         {showSearchBar && selectedSubcategory && (
           <View style={styles.searchContainer}>
             <SearchBar
@@ -1421,43 +1431,6 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.title}>
-          {selectedSubcategory ? capitalizeRole(selectedSubcategory) : section.title}
-        </Text>
-        <View style={styles.headerRight}>
-          {selectedSubcategory && (
-            <TouchableOpacity 
-              onPress={() => setShowSearchBar(!showSearchBar)} 
-              style={styles.searchToggleButton}
-            >
-              <Ionicons name={showSearchBar ? "search" : "search-outline"} size={24} color="#000" />
-            </TouchableOpacity>
-          )}
-          {section.key === 'academy' && selectedSubcategory && (
-            <AcademyCategoryFilter
-              servicesByCategory={servicesByCategory}
-              selectedServiceIds={selectedAcademyServiceIds}
-              onApplySelectedServices={setSelectedAcademyServiceIds}
-              servicesLoading={academyServicesLoading}
-              isDark={false}
-            />
-          )}
-          {selectedSubcategory && (
-            <TouchableOpacity 
-              onPress={() => setSelectedSubcategory(null)} 
-              style={styles.backButton}
-            >
-              <Ionicons name="close" size={24} color="#000" />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-
-      {/* Search and Filter Bar - Expandable */}
       {showSearchBar && selectedSubcategory && (
         <View style={styles.searchContainer}>
           <SearchBar
@@ -1801,33 +1774,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f4f4f5',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderBottomWidth: 2,
-    borderBottomColor: '#000',
-    paddingHorizontal: semanticSpacing.containerPadding,
-    paddingVertical: spacing.xs,
-    paddingTop: spacing.xs,
-  },
-  backButton: {
-    padding: spacing.xs,
-    marginRight: semanticSpacing.containerPadding,
-  },
-  title: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
-  },
-  placeholder: {
-    width: 32,
-  },
-  headerRight: {
+  navHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
+    marginRight: spacing.xs,
   },
   searchToggleButton: {
     padding: spacing.xs,

@@ -484,25 +484,28 @@ const SignupPage: React.FC<SignupPageProps> = ({
             </View>
           )}
 
-          {/* Social Login Buttons at Top */}
+          {/* iOS: Apple + Google. Android: Google only */}
           <View style={styles.socialButtonsTop}>
-            <TouchableOpacity
-              style={[styles.socialButton, styles.appleButtonTop, (isLoading || pendingAppleSignIn) && styles.socialButtonDisabled]}
-              onPress={handleAppleSignIn}
-              disabled={isLoading || pendingAppleSignIn}
-            >
-              {Platform.OS === 'ios' && (
-                <>
-                  <Ionicons name="logo-apple" size={20} color="#000" />
-                  <Text style={styles.socialButtonText}>
-                    {pendingAppleSignIn ? 'Signing Up...' : 'Apple'}
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
+            {Platform.OS === 'ios' && (
+              <TouchableOpacity
+                style={[styles.socialButton, styles.appleButtonTop, (isLoading || pendingAppleSignIn) && styles.socialButtonDisabled]}
+                onPress={handleAppleSignIn}
+                disabled={isLoading || pendingAppleSignIn}
+              >
+                <Ionicons name="logo-apple" size={20} color="#000" />
+                <Text style={styles.socialButtonText}>
+                  {pendingAppleSignIn ? 'Signing Up...' : 'Apple'}
+                </Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
-              style={[styles.socialButton, styles.googleButtonTop, (isLoading || pendingGoogleSignIn) && styles.socialButtonDisabled]}
+              style={[
+                styles.socialButton,
+                styles.googleButtonTop,
+                Platform.OS !== 'ios' && styles.socialButtonFullWidth,
+                (isLoading || pendingGoogleSignIn) && styles.socialButtonDisabled,
+              ]}
               onPress={handleGoogleSignIn}
               disabled={isLoading || pendingGoogleSignIn}
             >
@@ -964,6 +967,10 @@ const styles = StyleSheet.create({
   },
   googleButtonTop: {
     backgroundColor: '#fff',
+  },
+  socialButtonFullWidth: {
+    flex: 1,
+    width: '100%',
   },
   socialButtonText: {
     color: '#000',
