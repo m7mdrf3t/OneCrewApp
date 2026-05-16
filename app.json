@@ -15,7 +15,7 @@
       "**/*"
     ],
     "ios": {
-      "version": "1.5.0",
+      "version": "1.5.1",
       "supportsTablet": true,
       "bundleIdentifier": "com.minaezzat.onesteps",
       "usesAppleSignIn": true,
@@ -31,7 +31,7 @@
       },
       "appleTeamId": "9MK2V33M87",
       "scheme": "com.minaezzat.onesteps",
-      "buildNumber": "48"
+      "buildNumber": "50"
     },
     "android": {
       "version": "1.5.1",
@@ -117,7 +117,7 @@
         }
       ]
     ],
-    "runtimeVersion": "1.5.0",
+    "runtimeVersion": "1.5.1",
     "updates": {
       "url": "https://u.expo.dev/bcee7258-fd98-44a4-b91e-6dd89f4ebf96"
     }
