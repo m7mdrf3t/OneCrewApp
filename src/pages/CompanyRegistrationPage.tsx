@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -82,6 +82,8 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
     addCompanyService,
     user,
   } = useApi();
+
+  const isSubmitting = useRef(false);
 
   const [currentStep, setCurrentStep] = useState<RegistrationStep>('basic');
   const [loading, setLoading] = useState(false);
@@ -351,10 +353,14 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting.current) {
+      return;
+    }
     if (!validateStep('review')) {
       return;
     }
 
+    isSubmitting.current = true;
     try {
       setLoading(true);
 
@@ -393,18 +399,10 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
             errorMessage.includes('not found')) {
           Alert.alert(
             'Feature Not Available Yet',
-            'Company profile creation is currently being set up on the backend. The endpoint will be available soon.\n\nYour registration data has been saved locally. Please try again later or contact support.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  // Save data locally for retry later
-                  console.log('Company registration data saved locally:', cleanedCompanyData);
-                  onBack();
-                },
-              },
-            ]
+            'Company profile creation is currently being set up on the backend. Please try again later.'
           );
+          console.log('Company registration data saved locally:', cleanedCompanyData);
+          onBack();
           return;
         }
         throw new Error(createResponse.error || 'Failed to create company');
@@ -496,78 +494,29 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
       try {
         const submitResponse = await submitCompanyForApproval(companyId);
         if (!submitResponse.success) {
-          // Check if it's a document requirement error
           const errorMessage = submitResponse.error || '';
           if (errorMessage.toLowerCase().includes('document')) {
             Alert.alert(
               'Documents Required',
-              errorMessage + '\n\nYou can upload documents later and submit for approval from your company profile.',
-              [
-                {
-                  text: 'OK',
-                  onPress: () => {
-                    if (onSuccess) {
-                      onSuccess(companyId);
-                    }
-                  },
-                },
-              ]
+              errorMessage + '\n\nYou can upload documents later and submit for approval from your company profile.'
             );
-            return;
           }
-          
-          // If submission fails for other reasons, company was still created
-          Alert.alert(
-            'Company Created',
-            'Your company profile has been created successfully. However, automatic submission for approval failed. You can submit it manually from your company profile.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  if (onSuccess) {
-                    onSuccess(companyId);
-                  }
-                },
-              },
-            ]
-          );
+          // Navigate regardless — company was created successfully
+          onSuccess?.(companyId);
           return;
         }
 
         Alert.alert(
-          'Company Created!',
-          'Your company profile has been created and submitted for approval. You will be notified once it\'s approved.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                if (onSuccess) {
-                  onSuccess(companyId);
-                }
-              },
-            },
-          ]
+          'Submitted for Approval',
+          "Your company profile has been submitted. You'll be notified once it's approved."
         );
+        onSuccess?.(companyId);
       } catch (submitError: any) {
-        // If submission endpoint doesn't exist, still show success
+        // If submission endpoint doesn't exist, still navigate — company was created
         if (submitError.message?.includes('not found') || submitError.message?.includes('404')) {
-          Alert.alert(
-            'Company Created',
-            'Your company profile has been created successfully. The approval submission endpoint is not yet available, but your company has been saved.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  if (onSuccess) {
-                    onSuccess(companyId);
-                  }
-                },
-              },
-            ]
-          );
+          onSuccess?.(companyId);
           return;
         }
-        // Re-throw if it's a different error
         throw submitError;
       }
     } catch (error: any) {
@@ -588,6 +537,7 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
       }
     } finally {
       setLoading(false);
+      isSubmitting.current = false;
     }
   };
 
