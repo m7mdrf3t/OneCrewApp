@@ -641,17 +641,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   };
 
   // Format stat numbers (e.g., 10000 -> 10k)
-  const formatStatNumber = (value: string | number): string => {
-    const num = typeof value === 'string' ? parseFloat(value.replace(/[^0-9.]/g, '')) : value;
-    if (isNaN(num)) return '0';
-    
-    if (num >= 1000000) {
-      return `${(num / 1000000).toFixed(1)}M`;
-    } else if (num >= 1000) {
-      return `${(num / 1000).toFixed(1)}k`;
-    }
-    return num.toString();
-  };
 
   // Configure header with icons
   useLayoutEffect(() => {
@@ -1115,20 +1104,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           )}
 
 
-          <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{formatStatNumber(userProfile.stats?.followers || '0')}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{formatStatNumber(userProfile.stats?.projects || 0)}</Text>
-              <Text style={styles.statLabel}>Projects</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{formatStatNumber(userProfile.stats?.likes || '0')}</Text>
-              <Text style={styles.statLabel}>Likes</Text>
-            </View>
-          </View>
 
           {/* About Section */}
           <View style={styles.infoCard}>
