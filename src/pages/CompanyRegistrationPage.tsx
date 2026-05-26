@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -594,7 +595,7 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
   };
 
   const renderBasicInfo = () => (
-    <ScrollView style={styles.formContainer}>
+    <ScrollView style={styles.formContainer} keyboardShouldPersistTaps="handled">
       <Text style={styles.sectionTitle}>Company Information</Text>
 
       <View style={styles.inputGroup}>
@@ -745,7 +746,7 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
   );
 
   const renderContactInfo = () => (
-    <ScrollView style={styles.formContainer}>
+    <ScrollView style={styles.formContainer} keyboardShouldPersistTaps="handled">
       <Text style={styles.sectionTitle}>Contact Information</Text>
 
       <View style={styles.inputGroup}>
@@ -841,7 +842,7 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
   );
 
   const renderServices = () => (
-    <ScrollView style={styles.formContainer}>
+    <ScrollView style={styles.formContainer} keyboardShouldPersistTaps="handled">
       <Text style={styles.sectionTitle}>Services</Text>
       <Text style={styles.sectionDescription}>
         Select the services your company provides (optional)
@@ -890,7 +891,7 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
   );
 
   const renderDocuments = () => (
-    <ScrollView style={styles.formContainer}>
+    <ScrollView style={styles.formContainer} keyboardShouldPersistTaps="handled">
       <Text style={styles.sectionTitle}>Documents (Optional)</Text>
       <Text style={styles.sectionDescription}>
         You can upload documents now or add them later from your company profile. Documents help speed up the approval process.
@@ -951,7 +952,7 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
   );
 
   const renderReview = () => (
-    <ScrollView style={styles.formContainer}>
+    <ScrollView style={styles.formContainer} keyboardShouldPersistTaps="handled">
       <Text style={styles.sectionTitle}>Review Your Information</Text>
 
       <View style={styles.reviewSection}>
@@ -1021,7 +1022,10 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#000" />
@@ -1069,7 +1073,7 @@ const CompanyRegistrationPage: React.FC<CompanyRegistrationPageProps> = ({
             </TouchableOpacity>
           )}
         </View>
-      </View>
+    </KeyboardAvoidingView>
   );
 };
 
