@@ -1,7 +1,6 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { Platform } from 'react-native';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import Constants from 'expo-constants';
 
 let isAvailable = false;
 let supabaseClient: SupabaseClient | null = null;
@@ -51,17 +50,11 @@ const getSupabaseClient = (): SupabaseClient => {
     return supabaseClient;
   }
 
-  const supabaseUrl = 
-    Constants.expoConfig?.extra?.supabaseUrl || 
-    process.env.SUPABASE_URL || 
-    '';
-  const supabaseAnonKey = 
-    Constants.expoConfig?.extra?.supabaseAnonKey || 
-    process.env.SUPABASE_ANON_KEY || 
-    '';
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+  const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Supabase URL or Anon Key not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY in app.json or environment variables.');
+    throw new Error('Supabase URL or Anon Key not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env or eas.json.');
   }
 
   supabaseClient = createClient(supabaseUrl, supabaseAnonKey);

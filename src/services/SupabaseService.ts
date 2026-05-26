@@ -6,7 +6,7 @@ import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabas
  * Manages Supabase client initialization and real-time subscriptions.
  * 
  * Configuration:
- * - Set SUPABASE_URL and SUPABASE_ANON_KEY as environment variables
+ * - Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env or eas.json
  * - Or call initialize() with your credentials
  */
 class SupabaseService {
@@ -19,12 +19,12 @@ class SupabaseService {
    * @param anonKey Supabase anon/public key
    */
   initialize(url?: string, anonKey?: string): SupabaseClient {
-    const supabaseUrl = url || process.env.SUPABASE_URL || '';
-    const supabaseAnonKey = anonKey || process.env.SUPABASE_ANON_KEY || '';
+    const supabaseUrl = url || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+    const supabaseAnonKey = anonKey || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
     if (!supabaseUrl || !supabaseAnonKey) {
       console.warn('⚠️ Supabase URL or Anon Key not provided. Real-time features will not work.');
-      console.warn('Set SUPABASE_URL and SUPABASE_ANON_KEY environment variables or call initialize() with credentials.');
+      console.warn('Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env or eas.json.');
     }
 
     this.client = createClient(supabaseUrl, supabaseAnonKey, {

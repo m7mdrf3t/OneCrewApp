@@ -1,5 +1,10 @@
 import { registerRootComponent } from 'expo';
 import { NativeModules, Platform } from 'react-native';
+
+if (__DEV__) {
+  require('./src/config/reactotron');
+}
+
 import App from './App';
 
 // Global error handler to suppress NativeEventEmitter errors during app startup

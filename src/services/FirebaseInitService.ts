@@ -4,61 +4,29 @@
  * Handles the "No Firebase App '[DEFAULT]' has been created" error by explicitly
  * initializing Firebase when native auto-initialization hasn't run.
  *
- * Which config is used:
- * - iOS: Native SDK reads ios/Steps/GoogleService-Info.plist (from app bundle). If present,
- *   you'll see "Already initialized (native config)" and "Active project: <id>" in console.
- * - Fallback: app.json → extra.firebaseConfig. To verify at runtime, check for "Active project: steps-cfc27".
+ * Config priority:
+ * 1. Native SDK reads GoogleService-Info.plist (iOS) / google-services.json (Android) — preferred.
+ * 2. EXPO_PUBLIC_FIREBASE_* environment variables (set in .env or eas.json per build profile).
  */
 
-import { Platform } from 'react-native';
-
-// Firebase config - get these from Firebase Console → Project Settings → Your apps
-// Add to app.json extra.firebaseConfig or set as environment variables
 const getFirebaseConfig = (): Record<string, string> | null => {
-  try {
-    // Try app.json extra first (set by user)
-    const expoConfig = require('../../app.json');
-    const firebaseConfig = expoConfig?.expo?.extra?.firebaseConfig;
-    if (firebaseConfig && typeof firebaseConfig === 'object') {
-      return firebaseConfig as Record<string, string>;
-    }
+  const projectId = process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || '';
+  const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '';
+  const appId = process.env.EXPO_PUBLIC_FIREBASE_APP_ID || '';
 
-    // Fallback to environment variables (for EAS Build)
-    const config: Record<string, string> = {};
-    const envVars = [
-      'EXPO_PUBLIC_FIREBASE_API_KEY',
-      'EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN',
-      'EXPO_PUBLIC_FIREBASE_PROJECT_ID',
-      'EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET',
-      'EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
-      'EXPO_PUBLIC_FIREBASE_APP_ID',
-      'EXPO_PUBLIC_FIREBASE_DATABASE_URL',
-    ];
-    let hasAny = false;
-    for (const key of envVars) {
-      const value = (process.env as any)[key];
-      if (value) {
-        config[key.replace('EXPO_PUBLIC_FIREBASE_', '').toLowerCase().replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = value;
-        hasAny = true;
-      }
-    }
-    if (hasAny) {
-      const projectId = (process.env as any).EXPO_PUBLIC_FIREBASE_PROJECT_ID || '';
-      return {
-        apiKey: (process.env as any).EXPO_PUBLIC_FIREBASE_API_KEY || '',
-        authDomain: (process.env as any).EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
-        projectId,
-        storageBucket: (process.env as any).EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
-        messagingSenderId: (process.env as any).EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
-        appId: (process.env as any).EXPO_PUBLIC_FIREBASE_APP_ID || '',
-        databaseURL: (process.env as any).EXPO_PUBLIC_FIREBASE_DATABASE_URL || `https://${projectId}-default-rtdb.firebaseio.com`,
-      };
-    }
-
-    return null;
-  } catch {
+  if (!apiKey || !projectId || !appId) {
     return null;
   }
+
+  return {
+    apiKey,
+    authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
+    projectId,
+    storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
+    appId,
+    databaseURL: process.env.EXPO_PUBLIC_FIREBASE_DATABASE_URL || `https://${projectId}-default-rtdb.firebaseio.com`,
+  };
 };
 
 let isInitialized = false;

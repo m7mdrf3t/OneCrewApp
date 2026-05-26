@@ -1348,7 +1348,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   style={[styles.galleryTab, galleryTab === 'albums' && styles.galleryTabActive]}
                   onPress={() => setGalleryTab('albums')}
                 >
-                  <Ionicons name="folder" size={18} color={galleryTab === 'albums' ? '#fff' : '#000'} />
                   <Text style={[styles.galleryTabText, galleryTab === 'albums' && styles.galleryTabTextActive]}>
                     Albums
                   </Text>
@@ -1357,7 +1356,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   style={[styles.galleryTab, galleryTab === 'images' && styles.galleryTabActive]}
                   onPress={() => setGalleryTab('images')}
                 >
-                  <Ionicons name="image" size={18} color={galleryTab === 'images' ? '#fff' : '#000'} />
                   <Text style={[styles.galleryTabText, galleryTab === 'images' && styles.galleryTabTextActive]}>
                     Images
                   </Text>
@@ -1366,7 +1364,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   style={[styles.galleryTab, galleryTab === 'videos' && styles.galleryTabActive]}
                   onPress={() => setGalleryTab('videos')}
                 >
-                  <Ionicons name="videocam" size={18} color={galleryTab === 'videos' ? '#fff' : '#000'} />
                   <Text style={[styles.galleryTabText, galleryTab === 'videos' && styles.galleryTabTextActive]}>
                     Videos
                   </Text>
@@ -1375,7 +1372,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   style={[styles.galleryTab, galleryTab === 'audio' && styles.galleryTabActive]}
                   onPress={() => setGalleryTab('audio')}
                 >
-                  <Ionicons name="musical-notes" size={18} color={galleryTab === 'audio' ? '#fff' : '#000'} />
                   <Text style={[styles.galleryTabText, galleryTab === 'audio' && styles.galleryTabTextActive]}>
                     Audio
                   </Text>
@@ -1388,8 +1384,23 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   <View style={styles.albumGrid}>
                     {/* For now, we'll show a single "All Portfolio" album */}
                     <TouchableOpacity style={styles.albumCard}>
-                      <View style={styles.albumTitleLargeContainer}>
-                        <Text style={styles.albumTitleLarge}>All Portfolio</Text>
+                      <View style={styles.albumThumbGrid}>
+                        {[...getImages().slice(0, 2).map((i: any) => ({ type: 'image', url: i.url })),
+                          ...getVideos().slice(0, 2).map((v: any) => ({ type: 'video', url: v.url })),
+                        ].slice(0, 4).map((item, idx) => (
+                          <View key={idx} style={styles.albumThumbCell}>
+                            {item.type === 'image' ? (
+                              <Image source={{ uri: item.url }} style={styles.albumThumbImage} resizeMode="cover" />
+                            ) : (
+                              <View style={styles.albumThumbVideoPlaceholder}>
+                                <Ionicons name="videocam" size={20} color="#9ca3af" />
+                              </View>
+                            )}
+                          </View>
+                        ))}
+                        {Array.from({ length: Math.max(0, 4 - [...getImages().slice(0, 2), ...getVideos().slice(0, 2)].length) }).map((_, idx) => (
+                          <View key={`empty-${idx}`} style={[styles.albumThumbCell, styles.albumThumbEmpty]} />
+                        ))}
                       </View>
                       <View style={styles.albumInfo}>
                         <Text style={styles.albumTitle}>All Portfolio</Text>
@@ -2398,12 +2409,10 @@ const styles = StyleSheet.create({
   },
   albumCard: {
     width: (Dimensions.get('window').width - 64) / 2,
-    height: 200,
     backgroundColor: '#f4f4f5',
     borderRadius: 12,
     padding: semanticSpacing.containerPaddingLarge,
-    justifyContent: 'flex-end',
-    position: 'relative',
+    flexDirection: 'column',
     borderWidth: 1,
     borderColor: '#e5e7eb',
     overflow: 'hidden',
@@ -2449,6 +2458,34 @@ const styles = StyleSheet.create({
     color: '#000',
     marginRight: spacing.sm,
     textAlign: 'left',
+  },
+  albumThumbGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    flex: 1,
+    gap: 2,
+    marginBottom: spacing.sm,
+  },
+  albumThumbCell: {
+    width: '48%',
+    aspectRatio: 1,
+    borderRadius: 6,
+    overflow: 'hidden',
+    backgroundColor: '#e5e7eb',
+  },
+  albumThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  albumThumbVideoPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e5e7eb',
+  },
+  albumThumbEmpty: {
+    backgroundColor: '#f4f4f5',
   },
   emptyGallery: {
     padding: spacing.xxl,

@@ -2,15 +2,59 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
 import ProfileHeaderRight from '../components/ProfileHeaderRight';
+import { useApi } from '../contexts/ApiContext';
+import { AuthNavigator, LoginScreen, SignupScreen } from './AuthNavigator';
+import OnboardingPage from '../pages/OnboardingPage';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const OnboardingStack = createNativeStackNavigator();
 
-interface AppNavigatorProps {
-  // Add any props needed for navigation
-}
+interface AppNavigatorProps {}
 
-const loadScreen = <T,>(loader: () => { default: T }): (() => T) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const loadScreen = (loader: () => { default: any }): (() => any) => {
   return () => loader().default;
+};
+
+// Stable module-level references — avoids recreating functions on every render
+const screens = {
+  spot: loadScreen(() => require('../pages/SpotPage')),
+  home: loadScreen(() => require('../pages/HomePageWithUsers')),
+  projects: loadScreen(() => require('../pages/ProjectsPage')),
+  wall: loadScreen(() => require('../pages/AgendaPage')),
+  sectionServices: loadScreen(() => require('../pages/DirectoryPage')),
+  details: loadScreen(() => require('../pages/ServiceDetailPage')),
+  academyDetail: loadScreen(() => require('../pages/CompanyProfilePage')),
+  legalDetail: loadScreen(() => require('../pages/ServiceDetailPage')),
+  directory: loadScreen(() => require('../pages/DirectoryPage')),
+  serviceDetail: loadScreen(() => require('../pages/ServiceDetailPage')),
+  profile: loadScreen(() => require('../pages/ProfileDetailPage')),
+  myProfile: loadScreen(() => require('../pages/ProfileDetailPage')),
+  profileCompletion: loadScreen(() => require('../pages/ProfileCompletionPage')),
+  companyProfile: loadScreen(() => require('../pages/CompanyProfilePage')),
+  companyRegistration: loadScreen(() => require('../pages/CompanyRegistrationPage')),
+  companyEdit: loadScreen(() => require('../pages/CompanyEditPage')),
+  companyMembersManagement: loadScreen(() => require('../pages/CompanyMembersManagementPage')),
+  projectDetail: loadScreen(() => require('../pages/ProjectDetailPage')),
+  newProject: loadScreen(() => require('../pages/NewProjectPage')),
+  newProjectEasy: loadScreen(() => require('../pages/NewProjectPage')),
+  coursesManagement: loadScreen(() => require('../pages/CoursesManagementPage')),
+  courseEdit: loadScreen(() => require('../pages/CourseEditPage')),
+  courseDetail: loadScreen(() => require('../pages/CourseDetailPage')),
+  publicCourses: loadScreen(() => require('../pages/PublicCoursesPage')),
+  chat: loadScreen(() => require('../pages/ChatPage')),
+  conversations: loadScreen(() => require('../pages/ConversationsListPage')),
+  settings: loadScreen(() => require('../pages/SettingsPage')),
+  changePassword: loadScreen(() => require('../pages/ChangePasswordPage')),
+  accountDeletion: loadScreen(() => require('../pages/AccountDeletionPage')),
+  privacyPolicy: loadScreen(() => require('../pages/PrivacyPolicyPage')),
+  support: loadScreen(() => require('../pages/SupportPage')),
+  agenda: loadScreen(() => require('../pages/AgendaPage')),
+  allAgenda: loadScreen(() => require('../pages/AllAgendaPage')),
+  bookingRequests: loadScreen(() => require('../pages/BookingRequestsPage')),
+  weeklySchedule: loadScreen(() => require('../pages/WeeklySchedulePage')),
+  performanceTest: loadScreen(() => require('../pages/PerformanceTestPage')),
+  newsDetail: loadScreen(() => require('../pages/NewsDetailPage')),
 };
 
 const screenOptions = {
@@ -26,292 +70,116 @@ const screenOptions = {
   headerRight: () => <ProfileHeaderRight />,
   animation: 'slide_from_right' as const,
   gestureEnabled: true,
-  // Keep back swipe only from the edge to avoid accidental pops while scrolling.
   fullScreenGestureEnabled: false,
   freezeOnBlur: true,
   animationDuration: 200,
 };
 
+const OnboardingScreen: React.FC = () => {
+  const { api, user } = useApi();
+  const handleDone = async () => {
+    try {
+      if (user) await api.updateUserProfile({ profile_step: 'completed' });
+    } catch {}
+  };
+  return <OnboardingPage onComplete={handleDone} onSkip={handleDone} />;
+};
+
 const AppNavigatorComponent: React.FC<AppNavigatorProps> = () => {
+  const { isAuthenticated, isGuest, user } = useApi();
+
+  if (!isAuthenticated && !isGuest) {
+    return <AuthNavigator />;
+  }
+
+  if (isAuthenticated && (user?.profile_step === 'onboarding' || user?.profile_completeness === 0)) {
+    return (
+      <OnboardingStack.Navigator screenOptions={{ headerShown: false }}>
+        <OnboardingStack.Screen name="onboarding" component={OnboardingScreen} />
+      </OnboardingStack.Navigator>
+    );
+  }
+
   return (
     <Stack.Navigator
       screenOptions={screenOptions}
       initialRouteName="spot"
     >
       {/* Main tabs */}
-      <Stack.Screen 
-        name="spot" 
-        getComponent={loadScreen(() => require('../pages/SpotPage'))}
-        options={{
-          title: 'Spot',
-        }}
-      />
-      <Stack.Screen 
-        name="home" 
-        getComponent={loadScreen(() => require('../pages/HomePageWithUsers'))}
-        options={{
-          title: 'Home',
-        }}
-      />
-      <Stack.Screen 
-        name="projects" 
-        getComponent={loadScreen(() => require('../pages/ProjectsPage'))}
-        options={{
-          title: 'Projects',
-        }}
-      />
-      <Stack.Screen 
-        name="wall" 
-        getComponent={loadScreen(() => require('../pages/AgendaPage'))}
-        options={{
-          title: 'Agenda',
-        }}
-      />
-      
+      <Stack.Screen name="spot" getComponent={screens.spot} options={{ title: 'Spot' }} />
+      <Stack.Screen name="home" getComponent={screens.home} options={{ title: 'Home' }} />
+      <Stack.Screen name="projects" getComponent={screens.projects} options={{ title: 'Projects' }} />
+      <Stack.Screen name="wall" getComponent={screens.wall} options={{ title: 'Agenda' }} />
+
       {/* Service screens */}
-      <Stack.Screen 
-        name="sectionServices" 
-        getComponent={loadScreen(() => require('../pages/DirectoryPage'))}
-        options={{
-          title: 'Services',
-        }}
-      />
-      <Stack.Screen 
-        name="details" 
-        getComponent={loadScreen(() => require('../pages/ServiceDetailPage'))}
-        options={{
-          title: 'Service Details',
-        }}
-      />
-      <Stack.Screen 
-        name="academyDetail" 
-        getComponent={loadScreen(() => require('../pages/CompanyProfilePage'))}
-        options={{
-          title: 'Academy',
-        }}
-      />
-      <Stack.Screen 
-        name="legalDetail" 
-        getComponent={loadScreen(() => require('../pages/ServiceDetailPage'))}
-        options={{
-          title: 'Legal Services',
-        }}
-      />
-      <Stack.Screen 
-        name="directory" 
-        getComponent={loadScreen(() => require('../pages/DirectoryPage'))}
-        options={{
-          title: 'Directory',
-        }}
-      />
-      <Stack.Screen 
-        name="serviceDetail" 
-        getComponent={loadScreen(() => require('../pages/ServiceDetailPage'))}
-        options={{
-          title: 'Service Details',
-        }}
-      />
-      
+      <Stack.Screen name="sectionServices" getComponent={screens.sectionServices} options={{ title: 'Services' }} />
+      <Stack.Screen name="details" getComponent={screens.details} options={{ title: 'Service Details' }} />
+      <Stack.Screen name="academyDetail" getComponent={screens.academyDetail} options={{ title: 'Academy' }} />
+      <Stack.Screen name="legalDetail" getComponent={screens.legalDetail} options={{ title: 'Legal Services' }} />
+      <Stack.Screen name="directory" getComponent={screens.directory} options={{ title: 'Directory' }} />
+      <Stack.Screen name="serviceDetail" getComponent={screens.serviceDetail} options={{ title: 'Service Details' }} />
+
       {/* Profile screens */}
-      <Stack.Screen 
-        name="profile" 
-        getComponent={loadScreen(() => require('../pages/ProfileDetailPage'))}
-        options={({ route }) => ({
-          title: route.params?.profile?.name || 'Profile',
-        })}
+      <Stack.Screen
+        name="profile"
+        getComponent={screens.profile}
+        options={({ route }) => ({ title: route.params?.profile?.name || 'Profile' })}
       />
-      <Stack.Screen 
-        name="myProfile" 
-        getComponent={loadScreen(() => require('../pages/ProfileDetailPage'))}
-        options={({ route }) => ({
-          title: route.params?.user?.name || 'My Profile',
-        })}
+      <Stack.Screen
+        name="myProfile"
+        getComponent={screens.myProfile}
+        options={({ route }) => ({ title: route.params?.user?.name || 'My Profile' })}
       />
-      <Stack.Screen 
-        name="profileCompletion" 
-        getComponent={loadScreen(() => require('../pages/ProfileCompletionPage'))}
-        options={{
-          title: 'Complete Profile',
-        }}
-      />
-      <Stack.Screen 
-        name="companyProfile" 
-        getComponent={loadScreen(() => require('../pages/CompanyProfilePage'))}
-        options={{
-          headerShown: false, // Use custom header in CompanyProfilePage
-        }}
-      />
-      <Stack.Screen 
-        name="companyRegistration" 
-        getComponent={loadScreen(() => require('../pages/CompanyRegistrationPage'))}
-        options={{
-          title: 'Register Company',
-        }}
-      />
-      <Stack.Screen 
-        name="companyEdit" 
-        getComponent={loadScreen(() => require('../pages/CompanyEditPage'))}
-        options={{
-          title: 'Edit Company',
-        }}
-      />
-      <Stack.Screen 
-        name="companyMembersManagement" 
-        getComponent={loadScreen(() => require('../pages/CompanyMembersManagementPage'))}
-        options={{
-          title: 'Company Members',
-        }}
-      />
-      
+      <Stack.Screen name="profileCompletion" getComponent={screens.profileCompletion} options={{ title: 'Complete Profile' }} />
+      <Stack.Screen name="companyProfile" getComponent={screens.companyProfile} options={{ headerShown: false }} />
+      <Stack.Screen name="companyRegistration" getComponent={screens.companyRegistration} options={{ title: 'Register Company' }} />
+      <Stack.Screen name="companyEdit" getComponent={screens.companyEdit} options={{ title: 'Edit Company' }} />
+      <Stack.Screen name="companyMembersManagement" getComponent={screens.companyMembersManagement} options={{ title: 'Company Members' }} />
+
       {/* Project screens */}
-      <Stack.Screen 
-        name="projectDetail" 
-        getComponent={loadScreen(() => require('../pages/ProjectDetailPage'))}
-        options={{
-          title: 'Project',
-        }}
-      />
-      <Stack.Screen 
-        name="newProject" 
-        getComponent={loadScreen(() => require('../pages/NewProjectPage'))}
-        options={{
-          title: 'New Project',
-        }}
-      />
-      <Stack.Screen 
-        name="newProjectEasy" 
-        getComponent={loadScreen(() => require('../pages/NewProjectPage'))}
-        options={{
-          title: 'New Project',
-        }}
-      />
-      
+      <Stack.Screen name="projectDetail" getComponent={screens.projectDetail} options={{ title: 'Project' }} />
+      <Stack.Screen name="newProject" getComponent={screens.newProject} options={{ title: 'New Project' }} />
+      <Stack.Screen name="newProjectEasy" getComponent={screens.newProjectEasy} options={{ title: 'New Project' }} />
+
       {/* Course screens */}
-      <Stack.Screen 
-        name="coursesManagement" 
-        getComponent={loadScreen(() => require('../pages/CoursesManagementPage'))}
-        options={{
-          title: 'Courses',
-        }}
-      />
-      <Stack.Screen 
-        name="courseEdit" 
-        getComponent={loadScreen(() => require('../pages/CourseEditPage'))}
-        options={{
-          title: 'Edit Course',
-        }}
-      />
-      <Stack.Screen 
-        name="courseDetail" 
-        getComponent={loadScreen(() => require('../pages/CourseDetailPage'))}
-        options={{
-          title: 'Course Details',
-        }}
-      />
-      <Stack.Screen 
-        name="publicCourses" 
-        getComponent={loadScreen(() => require('../pages/PublicCoursesPage'))}
-        options={{
-          title: 'Public Courses',
-        }}
-      />
-      
+      <Stack.Screen name="coursesManagement" getComponent={screens.coursesManagement} options={{ title: 'Courses' }} />
+      <Stack.Screen name="courseEdit" getComponent={screens.courseEdit} options={{ title: 'Edit Course' }} />
+      <Stack.Screen name="courseDetail" getComponent={screens.courseDetail} options={{ title: 'Course Details' }} />
+      <Stack.Screen name="publicCourses" getComponent={screens.publicCourses} options={{ title: 'Public Courses' }} />
+
       {/* Chat screens */}
-      <Stack.Screen 
-        name="chat" 
-        getComponent={loadScreen(() => require('../pages/ChatPage'))}
-        options={{
-          // Title will be set dynamically by ChatPage component
-          title: '',
-        }}
-      />
-      <Stack.Screen 
-        name="conversations" 
-        getComponent={loadScreen(() => require('../pages/ConversationsListPage'))}
-        options={{
-          title: 'Messages',
-        }}
-      />
-      
+      <Stack.Screen name="chat" getComponent={screens.chat} options={{ title: '' }} />
+      <Stack.Screen name="conversations" getComponent={screens.conversations} options={{ title: 'Messages' }} />
+
       {/* Other screens */}
-      <Stack.Screen 
-        name="settings" 
-        getComponent={loadScreen(() => require('../pages/SettingsPage'))}
-        options={{
-          title: 'Settings',
-        }}
-      />
-      <Stack.Screen 
-        name="changePassword" 
-        getComponent={loadScreen(() => require('../pages/ChangePasswordPage'))}
-        options={{
-          title: 'Change Password',
-        }}
-      />
-      <Stack.Screen 
-        name="accountDeletion" 
-        getComponent={loadScreen(() => require('../pages/AccountDeletionPage'))}
-        options={{
-          title: 'Delete Account',
-        }}
-      />
-      <Stack.Screen 
-        name="privacyPolicy" 
-        getComponent={loadScreen(() => require('../pages/PrivacyPolicyPage'))}
-        options={{
-          title: 'Privacy Policy',
-        }}
-      />
-      <Stack.Screen 
-        name="support" 
-        getComponent={loadScreen(() => require('../pages/SupportPage'))}
-        options={{
-          title: 'Support',
-        }}
-      />
-      <Stack.Screen 
-        name="agenda" 
-        getComponent={loadScreen(() => require('../pages/AgendaPage'))}
-        options={{
-          title: 'Agenda',
-        }}
-      />
-      <Stack.Screen 
-        name="allAgenda" 
-        getComponent={loadScreen(() => require('../pages/AllAgendaPage'))}
-        options={{
-          title: 'All Agenda',
-        }}
-      />
-      <Stack.Screen 
-        name="bookingRequests" 
-        getComponent={loadScreen(() => require('../pages/BookingRequestsPage'))}
-        options={{
-          title: 'Booking Requests',
-        }}
-      />
-      <Stack.Screen 
-        name="weeklySchedule" 
-        getComponent={loadScreen(() => require('../pages/WeeklySchedulePage'))}
-        options={{
-          title: 'Weekly Schedule',
-        }}
-      />
-      <Stack.Screen 
-        name="performanceTest" 
-        getComponent={loadScreen(() => require('../pages/PerformanceTestPage'))}
-        options={{
-          title: 'Performance Test',
-        }}
-      />
-      
+      <Stack.Screen name="settings" getComponent={screens.settings} options={{ title: 'Settings' }} />
+      <Stack.Screen name="changePassword" getComponent={screens.changePassword} options={{ title: 'Change Password' }} />
+      <Stack.Screen name="accountDeletion" getComponent={screens.accountDeletion} options={{ title: 'Delete Account' }} />
+      <Stack.Screen name="privacyPolicy" getComponent={screens.privacyPolicy} options={{ title: 'Privacy Policy' }} />
+      <Stack.Screen name="support" getComponent={screens.support} options={{ title: 'Support' }} />
+      <Stack.Screen name="agenda" getComponent={screens.agenda} options={{ title: 'Agenda' }} />
+      <Stack.Screen name="allAgenda" getComponent={screens.allAgenda} options={{ title: 'All Agenda' }} />
+      <Stack.Screen name="bookingRequests" getComponent={screens.bookingRequests} options={{ title: 'Booking Requests' }} />
+      <Stack.Screen name="weeklySchedule" getComponent={screens.weeklySchedule} options={{ title: 'Weekly Schedule' }} />
+      <Stack.Screen name="performanceTest" getComponent={screens.performanceTest} options={{ title: 'Performance Test' }} />
+
       {/* News screens */}
-      <Stack.Screen 
-        name="newsDetail" 
-        getComponent={loadScreen(() => require('../pages/NewsDetailPage'))}
-        options={({ route }) => ({
-          title: route.params?.post?.title || 'News',
-        })}
+      <Stack.Screen
+        name="newsDetail"
+        getComponent={screens.newsDetail}
+        options={({ route }) => ({ title: route.params?.post?.title || 'News' })}
+      />
+
+      {/* Auth screens accessible as modals from the main app (e.g. guest → sign up) */}
+      <Stack.Screen
+        name="login"
+        component={LoginScreen}
+        options={{ headerShown: false, presentation: 'modal' }}
+      />
+      <Stack.Screen
+        name="signup"
+        component={SignupScreen}
+        options={{ headerShown: false, presentation: 'modal' }}
       />
     </Stack.Navigator>
   );

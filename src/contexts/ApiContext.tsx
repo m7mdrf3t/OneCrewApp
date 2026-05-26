@@ -260,7 +260,7 @@ interface ApiContextType {
   uploadCertificateImage: (file: { uri: string; type: string; name: string }) => Promise<any>; // v2.16.0
   getUserCompanies: (userId: string, forceRefresh?: boolean) => Promise<any>;
   submitCompanyForApproval: (companyId: string) => Promise<any>;
-  getCompanies: (params?: { limit?: number; page?: number; /** Alias for `q` */ search?: string; /** onecrew-api-client uses `q` */ q?: string; category?: string; location?: string; subcategory?: string; fields?: string[]; sort?: string; order?: 'asc' | 'desc' }) => Promise<any>;
+  getCompanies: (params?: { limit?: number; page?: number; /** Alias for `q` */ search?: string; /** onecrew-api-client uses `q` */ q?: string; category?: string; location?: string; subcategory?: string; approval_status?: 'draft' | 'pending' | 'approved' | 'rejected' | 'suspended'; fields?: string[]; sort?: string; order?: 'asc' | 'desc' }) => Promise<any>;
   // Company services
   getAvailableServicesForCompany: (companyId: string) => Promise<any>;
   getCompanyServices: (companyId: string) => Promise<any>;
@@ -449,20 +449,28 @@ interface ApiContextType {
 
 const ApiContext = createContext<ApiContextType | null>(null);
 
+// Resolve the API base URL from the environment variable baked in at build time.
+// Set EXPO_PUBLIC_API_URL in .env (local dev) or in eas.json env per build profile.
+// In production builds, a missing value throws immediately so misconfigured builds
+// fail loudly rather than silently hitting the wrong backend.
+const _envApiUrl = process.env.EXPO_PUBLIC_API_URL;
+if (!_envApiUrl) {
+  if (__DEV__) {
+    console.warn('\u26a0\ufe0f EXPO_PUBLIC_API_URL is not set. Add it to .env for local development.');
+  } else {
+    throw new Error('EXPO_PUBLIC_API_URL is required. Set it in eas.json env for each build profile.');
+  }
+}
+const DEFAULT_API_URL = _envApiUrl ?? 'https://onecrew-backend-staging-309236356616.us-central1.run.app';
+
 interface ApiProviderProps {
   children: ReactNode;
   baseUrl?: string;
 }
 
-export const ApiProvider: React.FC<ApiProviderProps> = ({ 
-  children, 
-  // baseUrl = 'https://onecrew-backend-309236356616.us-central1.run.app' // Production server (Google Cloud)
-   baseUrl = 'https://onecrew-backend-staging-309236356616.us-central1.run.app'
-  //  'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app'  // Staging server
-  // Local dev server URL (commented out - using staging instead)
-  // baseUrl = Platform.OS === 'android' 
-  //   ? 'http://10.0.2.2:3000' // Android emulator special IP for localhost
-  //   : 'http://localhost:3000' // iOS simulator can use localhost directly
+export const ApiProvider: React.FC<ApiProviderProps> = ({
+  children,
+  baseUrl = DEFAULT_API_URL,
 }) => {
   const [api] = useState(() => {
     const apiClient = new OneCrewApi(baseUrl);
@@ -6821,6 +6829,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     category?: string;
     location?: string;
     subcategory?: string;
+    approval_status?: 'draft' | 'pending' | 'approved' | 'rejected' | 'suspended';
     fields?: string[];
     sort?: string;
     order?: 'asc' | 'desc';
@@ -6846,6 +6855,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           if (params?.category) queryParams.category = params.category;
           if (params?.location) queryParams.location = params.location;
           if (params?.subcategory) queryParams.subcategory = params.subcategory;
+          if (params?.approval_status) queryParams.approval_status = params.approval_status;
           if (params?.fields) queryParams.fields = params.fields.join(',');
           if (params?.sort) queryParams.sort = params.sort;
           if (params?.order) queryParams.order = params.order;
@@ -6879,83 +6889,15 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const getCompanyServices = async (companyId: string) => {
     const cacheKey = `company-services-${companyId}`;
     return rateLimiter.execute(cacheKey, async () => {
-      const maxRetries = 2;
-      let lastError: any = null;
-      
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-          // Add timeout handling - use direct fetch with timeout
-          const token = getAccessToken();
-          const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
-          const url = `${baseUrl}/api/companies/${companyId}/services`;
-          
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-          
-          try {
-            const response = await fetch(url, {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-              },
-              signal: controller.signal,
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-              throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.success) {
-              return data;
-            }
-            throw new Error(data.error || 'Failed to get company services');
-          } catch (fetchError: any) {
-            clearTimeout(timeoutId);
-            if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
-              throw new Error('Request timeout');
-            }
-            throw fetchError;
-          }
-        } catch (error: any) {
-          lastError = error;
-          const isTimeout = error?.message?.includes('timeout') || 
-                           error?.message?.includes('Request timeout') || 
-                           error?.message?.includes('ETIMEDOUT') ||
-                           error?.name === 'AbortError';
-          
-          // If it's a timeout and we have retries left, retry
-          if (isTimeout && attempt < maxRetries) {
-            const waitTime = (attempt + 1) * 1000; // Exponential backoff: 1s, 2s
-            console.warn(`   Request timeout for company services (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${waitTime}ms...`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            continue;
-          }
-          
-          // If not a timeout, or no retries left, handle the error
-          console.error('  Failed to get company services:', error);
-          // Handle 401 errors
-          await handle401Error(error);
-          
-          // For timeout errors after all retries, return empty result instead of throwing
-          if (isTimeout) {
-            console.warn('   Company services request timed out after retries, returning empty result');
-            return { success: true, data: [] }; // Return empty array instead of throwing
-          }
-          
-          throw error;
-        }
+      try {
+        const response = await api.getCompanyServices(companyId);
+        return response;
+      } catch (error: any) {
+        console.error('Failed to get company services:', error);
+        await handle401Error(error);
+        return { success: true, data: [] };
       }
-      
-      // If we exhausted all retries, return empty result
-      console.warn('   Company services request failed after all retries, returning empty result');
-      return { success: true, data: [] };
-    }, { ttl: CacheTTL.MEDIUM }); // Company services change when services are added/removed - 5min TTL
+    }, { ttl: CacheTTL.MEDIUM });
   };
 
   const addCompanyService = async (companyId: string, serviceId: string) => {
@@ -10090,25 +10032,16 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   useEffect(() => {
     if (isAuthenticated && user?.id) {
       // Initialize Supabase if not already initialized
-      // Note: Supabase URL and key should be set via environment variables or config
       try {
         if (!supabaseService.isInitialized()) {
-          // Try to initialize with credentials from app.json or environment variables
-          const supabaseUrl = 
-            Constants.expoConfig?.extra?.supabaseUrl || 
-            process.env.SUPABASE_URL || 
-            '';
-          const supabaseKey = 
-            Constants.expoConfig?.extra?.supabaseAnonKey || 
-            process.env.SUPABASE_ANON_KEY || 
-            '';
-          
+          const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+          const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+
           if (supabaseUrl && supabaseKey) {
             supabaseService.initialize(supabaseUrl, supabaseKey);
             console.log('    Supabase initialized for real-time notifications');
           } else {
-            console.warn('   Supabase credentials not configured. Real-time notifications will not work.');
-            console.warn('Set SUPABASE_URL and SUPABASE_ANON_KEY in app.json extra section or as environment variables.');
+            console.warn('   Supabase credentials not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.');
           }
         }
 

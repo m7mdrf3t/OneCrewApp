@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { View, StatusBar, useColorScheme, Alert, ActivityIndicator, Linking, Platform, InteractionManager } from 'react-native';
+import { View, StatusBar, useColorScheme, Alert, Linking, Platform, InteractionManager } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
@@ -25,20 +25,12 @@ import { RootStackParamList } from './src/navigation/types';
 import { useAndroidBackHandler } from './src/hooks/useAndroidBackHandler';
 
 // Components
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import TabBar from './src/components/TabBar';
 import SplashScreen from './src/components/SplashScreen';
 import SkeletonScreen from './src/components/SkeletonScreen';
 import GlobalModals from './src/components/GlobalModals';
-import LoginPage from './src/pages/LoginPage';
-import SignupPage from './src/pages/SignupPage';
-import ForgotPasswordPage from './src/pages/ForgotPasswordPage';
-import ResetPasswordPage from './src/pages/ResetPasswordPage';
-import VerifyOtpPage from './src/pages/VerifyOtpPage';
-import OnboardingPage from './src/pages/OnboardingPage';
-import CompanyMembersManagementPage from './src/pages/CompanyMembersManagementPage';
-
 // Data
-import { MOCK_PROFILES } from './src/data/mockData';
 import { ProjectCreationData, ProjectDashboardData } from './src/types';
 
 // Platform-specific styles
@@ -63,25 +55,17 @@ const getActiveRouteName = (state: any): string | null => {
 
 // Main App Content Component
 const AppContent: React.FC = () => {
-  const { isAuthenticated, user, isLoading, logout, api, isGuest, createGuestSession, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, unreadNotificationCount, unreadConversationCount, currentProfileType, activeCompany, forgotPassword, resendVerificationEmail, isAppBootCompleted, setAppBootCompleted, getCompanyMembers } = useApi();
+  const { isAuthenticated, user, isLoading, logout, api, isGuest, getProjectById, updateProject, createTask, updateTask, deleteTask, assignTaskService, updateTaskStatus, currentProfileType, activeCompany, isAppBootCompleted, setAppBootCompleted } = useApi();
   const insets = useSafeAreaInsets();
   // Calculate TabBar height: padding (16) + content (~50) + safe area bottom
   const tabBarHeight = 66 + Math.max(insets.bottom, 8);
   const [showSplash, setShowSplash] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [myTeam, setMyTeam] = useState([MOCK_PROFILES[0], MOCK_PROFILES[1]]);
-  const [authPage, setAuthPage] = useState<'login' | 'signup' | 'forgot-password' | 'verify-otp' | 'verify-email-otp' | 'reset-password' | 'onboarding' | null>(null);
-  const [resetToken, setResetToken] = useState<string>('');
-  const [resetEmail, setResetEmail] = useState<string>('');
-  const [signupEmail, setSignupEmail] = useState<string>('');
-  const [showOnboarding, setShowOnboarding] = useState(false);
   const [showProjectCreation, setShowProjectCreation] = useState(false);
   const [currentProject, setCurrentProject] = useState<ProjectDashboardData | null>(null);
   const [showProjectDashboard, setShowProjectDashboard] = useState(false);
   const [showProjectDetails, setShowProjectDetails] = useState(false);
   const [selectedProject, setSelectedProject] = useState<any>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showMyTeam, setShowMyTeam] = useState(false);
   const [showCompanyServicesModal, setShowCompanyServicesModal] = useState(false);
   const [selectedCompanyForServices, setSelectedCompanyForServices] = useState<any>(null);
   const [companyProfileRefreshTrigger, setCompanyProfileRefreshTrigger] = useState(0);
@@ -95,6 +79,7 @@ const AppContent: React.FC = () => {
   const lastBackPressAtRef = useRef<number>(0);
   const navigationReadyRef = useRef(false);
   const pendingNotificationDataRef = useRef<any>(null);
+  const pendingDeepLinkRef = useRef<string | null>(null);
   
   // Guest user tracking state
   const [guestSessionStartTime, setGuestSessionStartTime] = useState<number | null>(null);
@@ -290,38 +275,89 @@ const AppContent: React.FC = () => {
     }
   }, [user, getProjectById, navigateTo]);
 
-  // Deep link handler for OAuth callbacks
+  // Parse a deep link URL into a { screen, params } pair, or null if unrecognised.
+  const parseDeepLink = useCallback((url: string): { screen: string; params: any } | null => {
+    try {
+      // Strip the scheme — works for com.minaezzat.onesteps://path?query
+      const withoutScheme = url.replace(/^[a-z][a-z0-9+\-.]*:\/\//i, '');
+      const [pathPart, queryPart] = withoutScheme.split('?');
+      const segments = pathPart.split('/').filter(Boolean);
+
+      const query: Record<string, string> = {};
+      if (queryPart) {
+        queryPart.split('&').forEach((pair) => {
+          const [k, v] = pair.split('=');
+          if (k) query[decodeURIComponent(k)] = decodeURIComponent(v ?? '');
+        });
+      }
+
+      // company/:companyId  →  CompanyProfilePage
+      if (segments[0] === 'company' && segments[1]) {
+        return { screen: 'companyProfile', params: { companyId: segments[1], readOnly: true } };
+      }
+
+      // course/:courseId  →  CourseDetailPage
+      if (segments[0] === 'course' && segments[1]) {
+        return { screen: 'courseDetail', params: { courseId: segments[1], companyId: query.companyId } };
+      }
+
+      // courses?company_id=...  →  PublicCoursesPage
+      if (segments[0] === 'courses') {
+        return { screen: 'publicCourses', params: { filters: { company_id: query.company_id } } };
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Navigate to a parsed deep link once navigation is ready.
+  const flushPendingDeepLink = useCallback(() => {
+    const url = pendingDeepLinkRef.current;
+    if (!url || !navigationReadyRef.current) return;
+
+    const parsed = parseDeepLink(url);
+    if (parsed) {
+      pendingDeepLinkRef.current = null;
+      navigateTo(parsed.screen, parsed.params);
+    }
+  }, [parseDeepLink, navigateTo]);
+
+  // Deep link handler
   useEffect(() => {
-    // Handle deep links when app is opened from a URL
     const handleDeepLink = (event: { url: string }) => {
       console.log('🔗 [App] Deep link received:', event.url);
-      
-      // Check if it's an OAuth callback
+
       if (event.url.includes('oauth/callback')) {
-        console.log('✅ [App] OAuth callback detected, forwarding to OAuth handler');
-        // The OAuth service will handle this via its own listener
-        // This is just for logging and potential future handling
+        // OAuth service handles this via its own listener
+        return;
+      }
+
+      const parsed = parseDeepLink(event.url);
+      if (!parsed) return;
+
+      if (isAuthenticated && navigationReadyRef.current) {
+        navigateTo(parsed.screen, parsed.params);
+      } else {
+        // Queue it — flushed after the user logs in
+        pendingDeepLinkRef.current = event.url;
       }
     };
 
-    // Set up deep link listener
     const subscription = Linking.addEventListener('url', handleDeepLink);
 
-    // Handle initial URL if app was opened via deep link
     Linking.getInitialURL().then((url) => {
       if (url) {
         console.log('🔗 [App] Initial URL:', url);
-        if (url.includes('oauth/callback')) {
-          console.log('✅ [App] Initial OAuth callback detected');
-          handleDeepLink({ url });
-        }
+        handleDeepLink({ url });
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, []);
+  }, [isAuthenticated, parseDeepLink, navigateTo]);
 
   // Push notification handlers (Firebase FCM)
   const notificationUnsubscribe = useRef<(() => void) | null>(null);
@@ -339,8 +375,6 @@ const AppContent: React.FC = () => {
       !navigationReadyRef.current ||
       showSplash ||
       isLoading ||
-      authPage !== null ||
-      showOnboarding ||
       !pendingNotificationDataRef.current
     ) {
       return;
@@ -349,7 +383,7 @@ const AppContent: React.FC = () => {
     const data = pendingNotificationDataRef.current;
     pendingNotificationDataRef.current = null;
     handleNotificationNavigation(data);
-  }, [authPage, handleNotificationNavigation, isLoading, showOnboarding, showSplash]);
+  }, [handleNotificationNavigation, isLoading, showSplash]);
 
   useEffect(() => {
     flushPendingNotificationNavigation();
@@ -519,7 +553,7 @@ const AppContent: React.FC = () => {
           await pushNotificationService.clearToken();
         }
         
-        const fcmToken = await pushNotificationService.registerForPushNotifications();
+        await pushNotificationService.registerForPushNotifications();
       } catch (error: any) {
         console.error('❌ Error getting FCM token:', error?.message || error);
         if (error?.stack) {
@@ -549,30 +583,12 @@ const AppContent: React.FC = () => {
     return () => clearTimeout(promptTimeout);
   }, [guestSessionStartTime, isGuest]);
 
-  // Handle authentication state changes
+  // Flush any deep link that arrived before the user was authenticated
   useEffect(() => {
-    if (!isLoading) {
-      // Don't override authPage if user is in OTP verification flow (signupEmail is set)
-      // This allows the OTP verification page to stay visible even when isAuthenticated is false
-      if (signupEmail && authPage === 'verify-email-otp') {
-        console.log('🔒 [App] Preserving verify-email-otp page - user is in OTP verification flow');
-        return; // Don't change authPage - user needs to complete OTP verification
-      }
-      
-      if (!isAuthenticated && !isGuest) {
-        // Only set to login if we're not already on an auth page (signup, forgot-password, etc.)
-        if (!authPage || authPage === null) {
-          setAuthPage('login');
-        }
-      } else if (isAuthenticated && (user?.profile_step === 'onboarding' || user?.profile_completeness === 0)) {
-        setShowOnboarding(true);
-        setAuthPage(null);
-      } else {
-        setAuthPage(null);
-        setShowOnboarding(false);
-      }
+    if (isAuthenticated && navigationReadyRef.current) {
+      flushPendingDeepLink();
     }
-  }, [isAuthenticated, isLoading, user, isGuest, signupEmail, authPage]);
+  }, [isAuthenticated, flushPendingDeepLink]);
 
   // Initialize guest session tracking
   useEffect(() => {
@@ -662,47 +678,6 @@ const AppContent: React.FC = () => {
     // Optionally refresh projects data
   }, [navigateTo]);
 
-  const [addProjectToPage, setAddProjectToPage] = useState<((project: any) => void) | null>(null);
-
-  const handleCreateProjectDirect = useCallback(async () => {
-    try {
-      // Check if user is authenticated
-      if (!user) {
-        throw new Error('You must be logged in to create a project');
-      }
-
-      console.log('👤 Creating project directly for user:', user.id, user.name);
-
-      // Create a simple project with default values
-      const projectRequest = {
-        title: 'Project 1',
-        description: 'New project created',
-        type: 'film',
-        status: 'planning' as const,
-      };
-
-      console.log('📋 Creating simple project with data:', projectRequest);
-
-      // Create the project using the API
-      const createdProject = await api.createProject(projectRequest);
-      console.log('✅ Project created successfully:', createdProject);
-
-      // Add project immediately to the list if callback is available
-      if (addProjectToPage) {
-        addProjectToPage(createdProject);
-      }
-
-      // Navigate back to projects page to show the new project
-      navigateTo('projects', null);
-      
-      // Show success message
-      Alert.alert('Success', 'Project "Project 1" created successfully!');
-    } catch (error) {
-      console.error('Failed to create project:', error);
-      Alert.alert('Error', 'Failed to create project. Please try again.');
-    }
-  }, [api, user, navigateTo, addProjectToPage]);
-
   const handleCreateProject = useCallback(async (projectData: ProjectCreationData) => {
     try {
       // Check if user is authenticated
@@ -748,35 +723,17 @@ const AppContent: React.FC = () => {
       const createdProject = response.data || response;
       console.log('✅ Project created successfully:', createdProject);
 
-      // Add project immediately to the list if on projects page
-      // Note: With React Navigation, we'll need to use navigation state or events
-      if (addProjectToPage) {
-        addProjectToPage(createdProject);
-      }
-
       // Navigate back to projects page to show the new project
       navigateTo('projects', null);
-      
-      // Close the creation modal
       setShowProjectCreation(false);
     } catch (error: any) {
       console.error('Failed to create project:', error);
       throw new Error(error.message || 'Failed to create project. Please try again.');
     }
-  }, [api, user, navigateTo, addProjectToPage]);
+  }, [api, user, navigateTo]);
 
   const handleUpdateProject = useCallback((updatedProject: ProjectDashboardData) => {
     setCurrentProject(updatedProject);
-  }, []);
-
-  const handleSendMessage = useCallback((message: string) => {
-    console.log('Message sent:', message);
-    // In a real app, this would send the message to the backend
-  }, []);
-
-  const handleUpdateLegalStatus = useCallback((legalId: string, status: string) => {
-    console.log('Legal status updated:', legalId, status);
-    // In a real app, this would update the legal status in the backend
   }, []);
 
   const handleEditProjectDetails = useCallback(() => {
@@ -800,11 +757,6 @@ const AppContent: React.FC = () => {
     }
   }, [updateProject]);
 
-  const handleRefreshProjects = useCallback(() => {
-    console.log('🔄 Refreshing projects list...');
-    // The ProjectsPage will handle the actual refresh
-  }, []);
-
   const handleRefreshProject = useCallback(async () => {
     if (!selectedProject?.id) return;
     
@@ -821,10 +773,6 @@ const AppContent: React.FC = () => {
   // User menu handlers
   const handleUserMenuPress = useCallback(() => {
     setShowUserMenu(true);
-  }, []);
-
-  const handleMyTeam = useCallback(() => {
-    setShowMyTeam(true);
   }, []);
 
   const handleSettings = useCallback(() => {
@@ -852,11 +800,11 @@ const AppContent: React.FC = () => {
   }, []);
 
   const handleNavigateToSignup = useCallback(() => {
-    setAuthPage('signup');
+    (navigationRef.current as any)?.navigate('signup');
   }, []);
 
   const handleNavigateToLogin = useCallback(() => {
-    setAuthPage('login');
+    (navigationRef.current as any)?.navigate('login');
   }, []);
 
   // Prevent guests from accessing profile completion page
@@ -968,25 +916,6 @@ const AppContent: React.FC = () => {
     navigateTo('newProjectEasy', null);
   }, [navigateTo, isGuest, handleNavigateToSignup, handleNavigateToLogin]);
 
-  const handleAddToTeam = useCallback((profile: any) => {
-    // Note: Guest checks are handled in ProfileDetailPage, this is called only for authenticated users
-    setMyTeam(currentTeam => {
-      const isAdded = currentTeam.some(m => m.id === profile.id);
-      if (isAdded) {
-        return currentTeam.filter(m => m.id !== profile.id);
-      } else {
-        return [...currentTeam, profile];
-      }
-    });
-  }, []);
-
-  const handleAssignToProject = useCallback((profile: any) => {
-    // Note: Guest checks are handled in ProfileDetailPage, this is called only for authenticated users
-    // This is now handled by the project selection modal in ProfileDetailPage
-    // This function is kept for backward compatibility
-    console.log('Assign to project:', profile);
-  }, []);
-
   const handleStartChat = useCallback((profile: any) => {
     // Note: Guest checks are handled in ProfileDetailPage, this is called only for authenticated users
     // Navigate to chat page with participant info - ChatPage will handle conversation creation
@@ -1068,8 +997,6 @@ const AppContent: React.FC = () => {
       return; // Don't navigate yet, wait for user response
     }
 
-    setSearchQuery('');
-    
     // Navigate to tab using React Navigation
     navigationRef.current?.navigate(newTab as any);
   }, [isGuest]);
@@ -1081,118 +1008,9 @@ const AppContent: React.FC = () => {
   };
 
 
-  const handleNavigateToForgotPassword = () => {
-    setAuthPage('forgot-password');
-  };
-
-  const handleNavigateToVerifyOtp = (email: string) => {
-    setResetEmail(email);
-    setAuthPage('verify-otp');
-  };
-
-  const handleNavigateToResetPassword = (token: string) => {
-    setResetToken(token);
-    setAuthPage('reset-password');
-  };
-
-  const handleResendOtp = async () => {
-    // Resend OTP by calling forgotPassword again
-    if (!resetEmail) {
-      console.error('❌ Cannot resend OTP: resetEmail is not set');
-      return;
-    }
-    try {
-      console.log('🔄 Resending OTP to:', resetEmail);
-      await forgotPassword(resetEmail);
-      console.log('✅ OTP resent successfully');
-    } catch (error: any) {
-      console.error('❌ Failed to resend OTP:', error);
-      const errorMessage = error.message || 'Failed to resend verification code. Please try again.';
-      Alert.alert(
-        'Error',
-        errorMessage,
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const handleLoginSuccess = () => {
-    setAuthPage(null);
-  };
-
-  const handleGuestMode = () => {
-    setAuthPage(null);
-  };
-
-  const handleSignupSuccess = (email: string) => {
-    console.log('🚀 [App] handleSignupSuccess called with email:', email);
-    setSignupEmail(email);
-    console.log('🚀 [App] Setting authPage to verify-email-otp');
-    setAuthPage('verify-email-otp');
-    console.log('✅ [App] Navigation to OTP verification page initiated');
-  };
-
-  const handleNavigateToVerifyEmailOtp = (email: string) => {
-    setSignupEmail(email);
-    setAuthPage('verify-email-otp');
-  };
-
-  const handleEmailVerificationSuccess = () => {
-    // Navigate to login (success message already shown by VerifyOtpPage)
-    setAuthPage('login');
-    setSignupEmail('');
-  };
-
-  const handleResendVerificationEmail = async () => {
-    if (!signupEmail) {
-      console.error('❌ Cannot resend verification email: signupEmail is not set');
-      return;
-    }
-    try {
-      console.log('🔄 Resending verification email to:', signupEmail);
-      await resendVerificationEmail(signupEmail);
-      console.log('✅ Verification email resent successfully');
-      Alert.alert('Email Sent', 'A new verification code has been sent to your email.');
-    } catch (error: any) {
-      console.error('❌ Failed to resend verification email:', error);
-      const errorMessage = error.message || 'Failed to resend verification email. Please try again.';
-      Alert.alert(
-        'Error',
-        errorMessage,
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const handleOnboardingComplete = async () => {
-    try {
-      // Update user profile to mark onboarding as complete
-      if (user) {
-        await api.updateUserProfile({ profile_step: 'completed' });
-      }
-      setShowOnboarding(false);
-    } catch (error) {
-      console.error('Failed to update profile step:', error);
-      // Still hide onboarding even if update fails
-      setShowOnboarding(false);
-    }
-  };
-
-  const handleOnboardingSkip = () => {
-    setShowOnboarding(false);
-  };
-
-  const handleResetSuccess = () => {
-    setAuthPage('login');
-  };
-
   const handleLogout = async () => {
     try {
-      console.log('🚪 Logging out...');
       await logout();
-      console.log('✅ Logout successful');
-      setAuthPage('login');
-      setShowOnboarding(false);
     } catch (error) {
       console.error('❌ Logout failed:', error);
     }
@@ -1223,135 +1041,6 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Show auth pages outside React Navigation
-  if (authPage === 'login') {
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
-          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-          <LoginPage
-            onNavigateToSignup={handleNavigateToSignup}
-            onNavigateToForgotPassword={handleNavigateToForgotPassword}
-            onLoginSuccess={handleLoginSuccess}
-            onGuestMode={handleGuestMode}
-          />
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
-  }
-
-  if (authPage === 'signup') {
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
-          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-          <SignupPage
-            onNavigateToLogin={handleNavigateToLogin}
-            onSignupSuccess={handleSignupSuccess}
-            onLoginSuccess={handleLoginSuccess}
-            onGuestMode={handleGuestMode}
-          />
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
-  }
-
-  if (authPage === 'forgot-password') {
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
-          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-          <ForgotPasswordPage
-            onNavigateToLogin={handleNavigateToLogin}
-            onNavigateToVerifyOtp={handleNavigateToVerifyOtp}
-          />
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
-  }
-
-  if (authPage === 'verify-otp') {
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
-          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-          <VerifyOtpPage
-            email={resetEmail}
-            mode="password-reset"
-            onNavigateToLogin={handleNavigateToLogin}
-            onNavigateToResetPassword={handleNavigateToResetPassword}
-            onResendOtp={handleResendOtp}
-          />
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
-  }
-
-  if (authPage === 'verify-email-otp') {
-    if (!signupEmail) {
-      return (
-        <SafeAreaProvider>
-          <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
-            <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-            <LoginPage
-              onNavigateToSignup={handleNavigateToSignup}
-              onNavigateToForgotPassword={handleNavigateToForgotPassword}
-              onLoginSuccess={handleLoginSuccess}
-              onGuestMode={handleGuestMode}
-            />
-          </SafeAreaView>
-        </SafeAreaProvider>
-      );
-    }
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
-          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-          <VerifyOtpPage
-            email={signupEmail}
-            mode="email-verification"
-            onNavigateToLogin={handleNavigateToLogin}
-            onVerificationSuccess={handleEmailVerificationSuccess}
-            onResendOtp={handleResendVerificationEmail}
-          />
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
-  }
-
-  if (authPage === 'reset-password') {
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
-          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-          <ResetPasswordPage
-            resetToken={resetToken}
-            onNavigateToLogin={handleNavigateToLogin}
-            onResetSuccess={handleResetSuccess}
-          />
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
-  }
-
-  // Show onboarding outside React Navigation
-  const pagesAccessibleDuringOnboarding = ['accountDeletion', 'settings', 'changePassword', 'privacyPolicy', 'support'];
-  // Note: We can't check current page name with React Navigation easily here
-  // For now, show onboarding if needed (this logic may need adjustment)
-  if (showOnboarding) {
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
-          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-          <OnboardingPage
-            onComplete={handleOnboardingComplete}
-            onSkip={handleOnboardingSkip}
-          />
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
-  }
-
   // Main app with React Navigation
   return (
     <SafeAreaProvider>
@@ -1363,6 +1052,16 @@ const AppContent: React.FC = () => {
             <View style={[styles.navigationContainer, { paddingBottom: tabBarHeight }]}>
               <NavigationContainer
                 ref={navigationRef}
+                linking={{
+                  prefixes: ['com.minaezzat.onesteps://'],
+                  config: {
+                    screens: {
+                      companyProfile: 'company/:companyId',
+                      courseDetail: 'course/:courseId',
+                      publicCourses: 'courses',
+                    },
+                  },
+                }}
                 onStateChange={(state) => {
                   try {
                     const routeName = getActiveRouteName(state);
@@ -1379,6 +1078,7 @@ const AppContent: React.FC = () => {
                   const initialRoute = getActiveRouteName(navigationRef.current?.getRootState());
                   syncRouteState(initialRoute);
                   flushPendingNotificationNavigation();
+                  flushPendingDeepLink();
                   console.log('✅ Navigation ready, initial route:', initialRoute || 'spot');
                 }}
               >
@@ -1421,62 +1121,6 @@ const styles = createPlatformStyles({
   android: appAndroidStyles,
 });
 
-// Wrapper component to fetch user role and pass to management page
-const CompanyMembersManagementWrapper: React.FC<{
-  company: any;
-  userId: string;
-  onBack: () => void;
-}> = ({ company, userId, onBack }) => {
-  const { getCompanyMembers } = useApi();
-  const [userRole, setUserRole] = React.useState<'owner' | 'admin' | 'manager' | 'member'>('member');
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    const fetchUserRole = async () => {
-      try {
-        const response = await getCompanyMembers(company.id, { page: 1, limit: 100 });
-        if (response.success && response.data) {
-          const membersArray = Array.isArray(response.data)
-            ? response.data
-            : response.data.data || [];
-          const userMember = membersArray.find((m: any) => m.user_id === userId);
-          if (userMember) {
-            setUserRole(userMember.role || 'member');
-          } else {
-            // Check if user is owner by company.owner.id
-            if (company.owner?.id === userId) {
-              setUserRole('owner');
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch user role:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchUserRole();
-  }, [company.id, userId, getCompanyMembers]);
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#3b82f6" />
-      </View>
-    );
-  }
-
-  return (
-    <CompanyMembersManagementPage
-      company={company}
-      currentUserId={userId}
-      currentUserRole={userRole}
-      onBack={onBack}
-    />
-  );
-};
-
 // Main App Component with API Provider
 const App: React.FC = () => {
   // Initialize warning suppressions once at app startup
@@ -1486,17 +1130,19 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
-        <SafeAreaProvider>
-          <ApiProvider>
-            <StreamChatProvider>
-              <AppContent />
-            </StreamChatProvider>
-          </ApiProvider>
-        </SafeAreaProvider>
-      </QueryClientProvider>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <QueryClientProvider client={queryClient}>
+          <SafeAreaProvider>
+            <ApiProvider>
+              <StreamChatProvider>
+                <AppContent />
+              </StreamChatProvider>
+            </ApiProvider>
+          </SafeAreaProvider>
+        </QueryClientProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 };
 

@@ -460,18 +460,6 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     queryKey: directoryCompaniesQueryKey,
     enabled: isCompaniesSection,
     queryFn: async () => {
-      // Clear rate limiter cache before fetching to ensure fresh data
-      // This is especially important after visibility changes
-      try {
-        const { rateLimiter } = await import('../utils/rateLimiter');
-        await rateLimiter.clearCacheByPattern(`companies-`);
-        if (__DEV__) {
-          console.log(`🧹 [DirectoryPage] Cleared rate limiter cache before fetching companies`);
-        }
-      } catch (err) {
-        console.warn('⚠️ Could not clear cache:', err);
-      }
-
       // Determine subcategory filter based on section (v2.24.0 optimization - server-side filtering)
       let subcategoryFilter: string | undefined;
       if (section.key === 'onehub') {
@@ -488,6 +476,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
         limit: 100,
         fields: ['id', 'name', 'logo_url', 'location_text', 'subcategory', 'company_type_info', 'owner', 'services'],
         subcategory: subcategoryFilter,
+        approval_status: 'approved',
         sort: 'name',
         order: 'asc',
         search: debouncedSearchQuery || undefined,
@@ -528,33 +517,6 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     },
   });
 
-  // Refetch directory companies when screen comes into focus
-  // This ensures fresh data after visibility changes
-  useFocusEffect(
-    React.useCallback(() => {
-      if (isCompaniesSection && section.key === 'academy') {
-        // Clear rate limiter cache to ensure fresh data
-        (async () => {
-          try {
-            const { rateLimiter } = await import('../utils/rateLimiter');
-            await rateLimiter.clearCacheByPattern(`companies-`);
-            if (__DEV__) {
-              console.log(`🧹 [DirectoryPage] useFocusEffect: Cleared companies cache`);
-            }
-          } catch (err) {
-            console.warn('⚠️ Could not clear cache in useFocusEffect:', err);
-          }
-        })();
-        
-        // Invalidate and refetch directory companies
-        queryClient.invalidateQueries({ 
-          queryKey: ['directoryCompanies'],
-          exact: false
-        });
-      }
-    }, [isCompaniesSection, section.key, queryClient])
-  );
-
   const teamMembersQueryKey = useMemo(() => ['myTeamMembers'], []);
 
   const teamMembersQuery = useQuery<any[]>({
@@ -571,40 +533,55 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
 
   const companies = directoryCompaniesQuery.data ?? [];
 
-  // Academy services source of truth for filtering.
-  // Some company list payloads may not include nested services reliably.
+  const extractServiceIds = (rawServices: any[]): string[] =>
+    rawServices
+      .map((s: any) => s?.service_id || s?.id || s?.service?.id || s?.service?.service_id)
+      .filter(Boolean);
+
+  // Build service map for academy filtering.
+  // Primary: use services already embedded in the company list payload (fields includes 'services').
+  // Fallback: fetch individually only for companies where embedded data is absent.
   const academyServicesByCompanyQuery = useQuery<Record<string, string[]>>({
     queryKey: ['academyServicesByCompany', companies.map((c) => c.id).join(','), section.key],
     enabled: section.key === 'academy' && companies.length > 0,
     queryFn: async () => {
-      const pairs = await Promise.all(
-        companies.map(async (company) => {
-          try {
-            const response = await getCompanyServices(company.id);
-            const rawServices = Array.isArray(response?.data)
-              ? response.data
-              : Array.isArray(response?.services)
-                ? response.services
-                : [];
-
-            const serviceIds = rawServices
-              .map((s: any) => s?.service_id || s?.id || s?.service?.id || s?.service?.service_id)
-              .filter(Boolean);
-
-            return [company.id, serviceIds] as const;
-          } catch (error) {
-            if (__DEV__) {
-              console.warn(`⚠️ [DirectoryPage] Failed to load services for academy ${company.id}`, error);
-            }
-            return [company.id, []] as const;
-          }
-        })
-      );
-
       const map: Record<string, string[]> = {};
-      pairs.forEach(([companyId, serviceIds]) => {
-        map[companyId] = serviceIds;
+      const needsFetch: Company[] = [];
+
+      // First pass: use embedded services from the company list response
+      companies.forEach((company) => {
+        const embedded: any[] =
+          (company as any).services ||
+          (company as any).company_services ||
+          (company as any).selected_services ||
+          [];
+        if (embedded.length > 0) {
+          map[company.id] = extractServiceIds(embedded);
+        } else {
+          needsFetch.push(company);
+        }
       });
+
+      // Second pass: fetch only companies that had no embedded services
+      if (needsFetch.length > 0) {
+        const pairs = await Promise.all(
+          needsFetch.map(async (company) => {
+            try {
+              const response = await getCompanyServices(company.id);
+              const rawServices = Array.isArray(response?.data)
+                ? response.data
+                : Array.isArray(response?.services)
+                  ? response.services
+                  : [];
+              return [company.id, extractServiceIds(rawServices)] as const;
+            } catch {
+              return [company.id, [] as string[]] as const;
+            }
+          })
+        );
+        pairs.forEach(([id, ids]) => { map[id] = ids; });
+      }
+
       return map;
     },
     staleTime: 1000 * 60 * 10,
