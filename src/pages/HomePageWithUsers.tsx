@@ -851,21 +851,47 @@ const HomePageWithUsers: React.FC<HomePageProps> = ({
 
   const handlePromoPress = useCallback(async (promo: PromoItem) => {
     const targetUrl = promo.ctaLink || promo.actionUrl;
-    if (!targetUrl) {
+    if (!targetUrl) return;
+
+    // Internal deep link — navigate directly without going through the OS
+    const isInternal = /^(onecrew|com\.minaezzat\.onesteps):\/\//i.test(targetUrl);
+    if (isInternal) {
+      const withoutScheme = targetUrl.replace(/^[a-z][a-z0-9+\-.]*:\/\//i, '');
+      const [pathPart, queryPart] = withoutScheme.split('?');
+      const segments = pathPart.split('/').filter(Boolean);
+      const query: Record<string, string> = {};
+      if (queryPart) {
+        queryPart.split('&').forEach((pair) => {
+          const [k, v] = pair.split('=');
+          if (k) query[decodeURIComponent(k)] = decodeURIComponent(v ?? '');
+        });
+      }
+
+      // company/:companyId/course/:courseId
+      if (segments[0] === 'company' && segments[2] === 'course' && segments[1] && segments[3]) {
+        onNavigate('courseDetail', { courseId: segments[3], companyId: segments[1] });
+        return;
+      }
+      // company/:companyId
+      if (segments[0] === 'company' && segments[1]) {
+        onNavigate('companyProfile', { companyId: segments[1], readOnly: true });
+        return;
+      }
+      // courses?company_id=...
+      if (segments[0] === 'courses') {
+        onNavigate('publicCourses', { filters: { company_id: query.company_id } });
+        return;
+      }
       return;
     }
 
+    // External URL — open in browser
     try {
-      const canOpen = await Linking.canOpenURL(targetUrl);
-      if (!canOpen) {
-        console.warn('Cannot open promo URL:', targetUrl);
-        return;
-      }
       await Linking.openURL(targetUrl);
     } catch (err) {
       console.warn('Failed to open promo URL:', err);
     }
-  }, []);
+  }, [onNavigate]);
 
   const renderSection = useCallback(({ item: section }: { item: any }) => (
     <SectionCard

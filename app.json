@@ -30,7 +30,7 @@
         "NSMicrophoneUsageDescription": "This app needs access to your microphone to record videos with audio for your portfolio and to send voice messages in chat."
       },
       "appleTeamId": "9MK2V33M87",
-      "scheme": "com.minaezzat.onesteps",
+      "scheme": ["com.minaezzat.onesteps", "onecrew"],
       "buildNumber": "50"
     },
     "android": {
@@ -61,9 +61,8 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            {
-              "scheme": "com.minaezzat.onesteps"
-            }
+            { "scheme": "com.minaezzat.onesteps" },
+            { "scheme": "onecrew" }
           ],
           "category": [
             "BROWSABLE",

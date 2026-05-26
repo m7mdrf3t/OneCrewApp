@@ -291,6 +291,11 @@ const AppContent: React.FC = () => {
         });
       }
 
+      // company/:companyId/course/:courseId  →  CourseDetailPage
+      if (segments[0] === 'company' && segments[2] === 'course' && segments[1] && segments[3]) {
+        return { screen: 'courseDetail', params: { courseId: segments[3], companyId: segments[1] } };
+      }
+
       // company/:companyId  →  CompanyProfilePage
       if (segments[0] === 'company' && segments[1]) {
         return { screen: 'companyProfile', params: { companyId: segments[1], readOnly: true } };
@@ -1053,7 +1058,7 @@ const AppContent: React.FC = () => {
               <NavigationContainer
                 ref={navigationRef}
                 linking={{
-                  prefixes: ['com.minaezzat.onesteps://'],
+                  prefixes: ['com.minaezzat.onesteps://', 'onecrew://'],
                   config: {
                     screens: {
                       companyProfile: 'company/:companyId',
