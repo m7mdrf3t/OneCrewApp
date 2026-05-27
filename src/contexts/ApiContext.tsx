@@ -6405,13 +6405,34 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
 
   const updateCompany = async (companyId: string, updates: any) => {
     try {
-      const response = await api.updateCompany(companyId, updates);
+      const resolvedCompanyId = companyId || activeCompany?.id;
+
+      if (!resolvedCompanyId) {
+        throw new Error('Company ID is required to update company information');
+      }
+
+      const requestBody = {
+        ...updates,
+        company_id: resolvedCompanyId,
+        profile_type: currentProfileType,
+      };
+
+      if (__DEV__) {
+        console.log('Updating company with explicit context:', {
+          companyId,
+          resolvedCompanyId,
+          currentProfileType,
+          activeCompanyId: activeCompany?.id,
+        });
+      }
+
+      const response = await api.updateCompany(resolvedCompanyId, requestBody);
       if (response.success) {
-        if (activeCompany?.id === companyId) {
+        if (activeCompany?.id === resolvedCompanyId) {
           setActiveCompany(response.data);
         }
         // Invalidate company cache
-        await rateLimiter.clearCache(`company-${companyId}`);
+        await rateLimiter.clearCache(`company-${resolvedCompanyId}`);
         await rateLimiter.clearCacheByPattern(`companies-`);
       }
       return response;

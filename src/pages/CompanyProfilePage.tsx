@@ -764,15 +764,14 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     if (isReadOnly) return false;
     
     if (!company || !user) return false;
-    // Owner, or user viewing their own active company, or user is a member with edit permissions
+    // Only allow edits when the user is verified as owner/admin for this company.
     const isOwnerCheck = isOwner();
-    const isActiveCompany = currentProfileType === 'company' && activeCompany?.id === company.id;
     
     // Also check if user is a member with admin/owner role
     const userMember = members.find(m => m.user_id === user.id);
     const hasEditPermission = userMember && (userMember.role === 'owner' || userMember.role === 'admin');
     
-    return isOwnerCheck || isActiveCompany || hasEditPermission;
+    return isOwnerCheck || hasEditPermission;
   };
 
   const checkIsAcademy = () => {
