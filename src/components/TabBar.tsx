@@ -10,6 +10,7 @@ import { tabBarIosStyles } from './TabBar.styles.ios';
 import { tabBarAndroidStyles } from './TabBar.styles.android';
 import { useApi } from '../contexts/ApiContext';
 import { useGlobalModalActions } from '../contexts/GlobalModalsContext';
+import streamChatService from '../services/StreamChatService';
 
 // Create platform-specific styles (outside component for performance)
 const styles = createPlatformStyles({
@@ -27,8 +28,108 @@ const TABS = [
 
 const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => {
   const insets = useSafeAreaInsets();
-  const { user, activeCompany, currentProfileType, unreadConversationCount } = useApi();
+  const { user, activeCompany, currentProfileType, unreadConversationCount, getUnreadConversationCount } = useApi();
   const { setShowAccountSwitcher, setShowUserMenu } = useGlobalModalActions();
+  const [tabUnreadCount, setTabUnreadCount] = React.useState(0);
+  const [streamUnreadCount, setStreamUnreadCount] = React.useState(0);
+
+  const readStreamUnreadCount = React.useCallback(() => {
+    try {
+      if (!streamChatService.isConnected()) {
+        return 0;
+      }
+
+      const client: any = streamChatService.getClient();
+      const parseCount = (value: any): number => {
+        const parsed = typeof value === 'string' ? parseInt(value, 10) : value;
+        return typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+      };
+
+      const userTotal = parseCount(client?.user?.total_unread_count);
+      const activeChannels = Object.values(client?.activeChannels || {}) as any[];
+      const channelTotal = activeChannels.reduce((sum: number, channel: any) => {
+        return sum + parseCount(channel?.state?.unreadCount);
+      }, 0);
+
+      return Math.max(userTotal, channelTotal);
+    } catch {
+      return 0;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    setTabUnreadCount(unreadConversationCount || 0);
+  }, [unreadConversationCount]);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const refreshUnread = async () => {
+      try {
+        const count = await getUnreadConversationCount();
+        if (isMounted && typeof count === 'number') {
+          setTabUnreadCount(count);
+        }
+      } catch {
+        // Keep current count if refresh fails.
+      }
+    };
+
+    refreshUnread();
+    const intervalId = setInterval(refreshUnread, 15000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [getUnreadConversationCount, currentProfileType, activeCompany?.id]);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    let listeners: Array<{ unsubscribe: () => void }> = [];
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const updateFromStream = () => {
+      if (!isMounted) return;
+      const count = readStreamUnreadCount();
+      setStreamUnreadCount(count);
+    };
+
+    updateFromStream();
+
+    if (streamChatService.isConnected()) {
+      try {
+        const client: any = streamChatService.getClient();
+        listeners = [
+          client.on('notification.message_new', updateFromStream),
+          client.on('notification.mark_read', updateFromStream),
+          client.on('notification.mark_unread', updateFromStream),
+          client.on('notification.read', updateFromStream),
+          client.on('message.new', updateFromStream),
+        ];
+      } catch {
+        // Keep polling fallback if listeners can't be attached.
+      }
+    }
+
+    intervalId = setInterval(updateFromStream, 5000);
+
+    return () => {
+      isMounted = false;
+      if (intervalId) clearInterval(intervalId);
+      listeners.forEach((listener) => {
+        try {
+          listener.unsubscribe();
+        } catch {
+          // Ignore listener cleanup errors.
+        }
+      });
+    };
+  }, [readStreamUnreadCount, currentProfileType, activeCompany?.id]);
+
+  const effectiveUnreadCount = Math.max(unreadConversationCount || 0, tabUnreadCount || 0, streamUnreadCount || 0);
+  const showUnreadBadge = effectiveUnreadCount > 0;
+  const unreadBadgeText = effectiveUnreadCount > 99 ? '99+' : String(effectiveUnreadCount);
   
   // Get profile image - use company logo if on company profile, otherwise user image
   // Use useMemo to ensure it updates when activeCompany changes
@@ -115,11 +216,18 @@ const TabBar: React.FC<TabBarProps> = ({ active, onChange, onProfilePress }) => 
           style={[styles.tab, active === tab.key && styles.activeTab]}
           onPress={() => onChange(tab.key)}
         >
-          <Ionicons
-            name={(tab as { icon: string }).icon as any}
-            size={'iconSize' in tab ? tab.iconSize : 20}
-            color={active === tab.key ? '#fff' : '#999'}
-          />
+          {tab.key === 'conversations' && showUnreadBadge && (
+            <View style={styles.tabMessageBadge} pointerEvents="none">
+              <Text style={styles.messageBadgeText}>{unreadBadgeText}</Text>
+            </View>
+          )}
+          <View style={styles.iconContainer}>
+            <Ionicons
+              name={(tab as { icon: string }).icon as any}
+              size={'iconSize' in tab ? tab.iconSize : 20}
+              color={active === tab.key ? '#fff' : '#999'}
+            />
+          </View>
           <Text
             style={[
               styles.tabLabel,

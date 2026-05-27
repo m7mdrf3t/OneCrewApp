@@ -8381,6 +8381,33 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // This is much faster than fetching all conversations
   const getUnreadConversationCount = async (): Promise<number> => {
     try {
+      const extractUnreadCount = (payload: any): number => {
+        if (!payload || typeof payload !== 'object') return 0;
+
+        const directCandidates = [
+          payload.unread_count,
+          payload.unreadConversationCount,
+          payload.unread_conversation_count,
+          payload.conversation_unread_count,
+          payload.total_unread_count,
+          payload.count,
+        ];
+
+        for (const candidate of directCandidates) {
+          const parsed = typeof candidate === 'string' ? parseInt(candidate, 10) : candidate;
+          if (typeof parsed === 'number' && Number.isFinite(parsed) && parsed >= 0) {
+            return parsed;
+          }
+        }
+
+        // Handle nested wrappers like { data: { unread_count: n } }
+        if (payload.data && payload.data !== payload) {
+          return extractUnreadCount(payload.data);
+        }
+
+        return 0;
+      };
+
       // First try API client method if available
       const chatService = api.chat as any;
       if (chatService?.getUnreadConversationCount) {
@@ -8395,7 +8422,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const response = await chatService.getUnreadConversationCount(params);
         
         if (response.success && response.data) {
-          const count = response.data.unread_count || 0;
+          const count = extractUnreadCount(response.data);
           setUnreadConversationCount(count);
           
           if (__DEV__) {
@@ -8447,7 +8474,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const data = await response.json();
       
       if (data.success && data.data) {
-        const count = data.data.unread_count || 0;
+        const count = extractUnreadCount(data.data);
         setUnreadConversationCount(count);
         
         if (__DEV__) {
@@ -10172,29 +10199,28 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         }
       );
       
-      // FIXED: Filter channels based on current profile and sum up unread counts
-      // We need to check channel custom data or use backend API to determine which channels belong to current profile
-      // For now, we'll use backend getConversations as the source of truth since it correctly filters by profile
-      // StreamChat's total_unread_count includes all channels, so we need to filter
-      
-      // Since StreamChat doesn't store profile type in channel data directly,
-      // we'll rely on backend getConversations for accurate filtering
-      // This function will be used as fallback, but backend is primary source
-      
-      let totalUnread = 0;
-      const channelDetails: any[] = [];
-      
-      // FIXED: For now, return 0 and let backend getConversations handle the count
-      // This ensures we only count conversations for the current profile
-      // StreamChat's unread count includes ALL channels for the user, regardless of profile
-      // Backend correctly filters by profile_type and participant_id
-      
-      if (__DEV__) {
-        console.log('    [StreamChat] Using backend for unread count (profile-aware filtering)');
+      const parseCount = (value: any): number => {
+        const parsed = typeof value === 'string' ? parseInt(value, 10) : value;
+        return typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+      };
+
+      // Primary fallback: sum unread message counts from currently watched channels.
+      const unreadFromChannels = (channels || []).reduce((sum: number, channel: any) => {
+        return sum + parseCount(channel?.state?.unreadCount);
+      }, 0);
+      if (unreadFromChannels > 0) {
+        return unreadFromChannels;
       }
-      
-      // Return 0 here - backend getConversations will set the correct count
-      return 0;
+
+      // Secondary fallback: Stream aggregate unread count for the connected profile user.
+      const unreadFromUser = parseCount((client as any)?.user?.total_unread_count);
+      if (unreadFromUser > 0) {
+        return unreadFromUser;
+      }
+
+      // Final fallback: snapshot from connectUser response.
+      const initialUnread = streamChatService.getInitialUnreadCounts();
+      return parseCount(initialUnread?.total_unread_count);
     } catch (error: any) {
       // CRITICAL: Don't log as error if it's just a connection issue
       // This happens during profile switching and is expected
@@ -10275,6 +10301,21 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       try {
         if (isMounted) {
           const count = await getUnreadConversationCount();
+
+          if (count === 0 && streamChatService.isConnected()) {
+            try {
+              const streamChatCount = await calculateStreamChatUnreadCount();
+              if (streamChatCount > 0) {
+                setUnreadConversationCount(streamChatCount);
+                if (__DEV__) {
+                  console.log('    [UnreadCount] Using Stream fallback after backend returned 0:', streamChatCount);
+                }
+                return;
+              }
+            } catch {
+              // Keep backend count if Stream fallback fails.
+            }
+          }
           
           // If we got here, the method exists and returned successfully
           // Count can be 0 (no unread messages) or > 0 (has unread messages)
@@ -10324,7 +10365,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
             let page = 1;
             const limit = 100;
             let hasMore = true;
-            
+
             while (hasMore && isMounted) {
               const response = await getConversations({ limit, page });
               if (response.success && response.data) {
@@ -10335,7 +10376,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
                 } else if (responseData && typeof responseData === 'object' && 'data' in responseData) {
                   conversations = Array.isArray(responseData.data) ? responseData.data : [];
                 }
-                
+
                 if (Array.isArray(conversations) && conversations.length > 0) {
                   allConversations = allConversations.concat(conversations);
                   hasMore = conversations.length === limit;
