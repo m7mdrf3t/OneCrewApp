@@ -1,9 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
 import { Platform, AppState, AppStateStatus, Alert, InteractionManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// @ts-ignore - expo-constants types may not be available in all environments
-import Constants from 'expo-constants';
-import * as Device from 'expo-device';
 import OneCrewApi, { User, AuthResponse, LoginRequest, SignupRequest, ApiError, AssignTaskServiceRequest as ApiAssignTaskServiceRequest } from 'onecrew-api-client';
 import { 
   GuestSessionData, 
@@ -32,9 +29,12 @@ import {
   CourseStatus,
 } from '../types';
 import ReferenceDataService from '../services/ReferenceDataService';
-import supabaseService from '../services/SupabaseService';
 import pushNotificationService from '../services/PushNotificationService';
 import streamChatService from '../services/StreamChatService';
+import {
+  registerPushToken as _registerPushToken,
+  initPushTokenWithRetry,
+} from '../services/pushNotificationUtils';
 import { initializeGoogleSignIn, signInWithGoogle } from '../services/GoogleAuthService';
 import { initializeAppleAuthentication, signInWithApple } from '../services/AppleAuthService';
 import {
@@ -647,6 +647,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     return null; // null means "unknown, try anyway"
   };
 
+  // Delegate wrapper: keeps ApiContext callers unchanged while impl lives in pushNotificationUtils
+  const registerPushToken = (token: string) => _registerPushToken(api, token);
+
   // Initialize API client
   useEffect(() => {
     const initializeApi = async () => {
@@ -708,26 +711,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           });
           
           // Register push token for already-authenticated user (retry: FCM often not ready until ~2s after app start)
-          const tryRegisterPush = async (attempt: number, maxAttempts: number, delayMs: number) => {
-            if (!api.auth.isAuthenticated()) return;
-            try {
-              const pushToken = await pushNotificationService.initialize();
-              if (pushToken) {
-                await registerPushToken(pushToken);
-                return;
-              }
-            } catch (error) {
-              console.error('  Failed to register push notifications for authenticated user:', error);
-              return;
-            }
-            if (attempt < maxAttempts) {
-              console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
-              setTimeout(() => tryRegisterPush(attempt + 1, maxAttempts, delayMs), delayMs);
-            } else {
-              console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason. Push may not work until next launch.');
-            }
-          };
-          setTimeout(() => tryRegisterPush(1, 4, 2500), 2500);
+          initPushTokenWithRetry(
+            (token) => registerPushToken(token),
+            () => api.auth.isAuthenticated(),
+            4, 2_500, 2_500
+          );
           
           // Restore profile type and active company from storage
           const savedProfileType = await AsyncStorage.getItem('currentProfileType');
@@ -786,26 +774,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     });
 
     // Register for push notifications after successful login (retry: FCM often not ready for ~2s)
-    const tryRegisterPushAfterLogin = async (attempt: number, maxAttempts: number, delayMs: number) => {
-      if (!api.auth.isAuthenticated()) return;
-      try {
-        const pushToken = await pushNotificationService.initialize();
-        if (pushToken) {
-          await registerPushToken(pushToken);
-          return;
-        }
-      } catch (error) {
-        console.error('  Failed to register push notifications:', error);
-        return;
-      }
-      if (attempt < maxAttempts) {
-        console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
-        setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
-      } else {
-        console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
-      }
-    };
-    setTimeout(() => tryRegisterPushAfterLogin(1, 4, 2500), 500);
+    initPushTokenWithRetry(
+      (token) => registerPushToken(token),
+      () => api.auth.isAuthenticated(),
+      4, 2_500, 500
+    );
 
     // Fetch complete user profile data after login
     setTimeout(async () => {
@@ -9115,65 +9088,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  // Push notification token registration (Firebase FCM)
-  // Uses onecrew-api-client's pushNotifications.registerDeviceToken() method
-  const registerPushToken = async (token: string) => {
-    try {
-      console.log('    [Backend] Registering FCM token with backend using API client...');
-      console.log('    [Backend] Token (first 20 chars):', token.substring(0, 20) + '...');
-      console.log('    [FCM] Full token (copy for Firebase Console → Send test message):', token);
-      
-      // Get platform
-      const platform = Platform.OS === 'ios' ? 'ios' : 'android';
-      
-      // Get device ID - use Device.modelName if available, otherwise generate one
-      let deviceId = Device.modelName || undefined;
-      if (!deviceId) {
-        // Fallback: use stored device ID or generate one
-        deviceId = await AsyncStorage.getItem('@onecrew:device_id') || undefined;
-        if (!deviceId) {
-          // Generate a simple device identifier as last resort
-          deviceId = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-          await AsyncStorage.setItem('@onecrew:device_id', deviceId);
-          console.log('    [Backend] Generated new device ID:', deviceId);
-        } else {
-          console.log('    [Backend] Using stored device ID:', deviceId);
-        }
-      } else {
-        console.log('    [Backend] Using device model name:', deviceId);
-      }
-      
-      // Get app version
-      const appVersion = Constants.expoConfig?.version || Constants.manifest2?.extra?.expoClient?.version || '1.0.0';
-
-      
-      // Register FCM token using onecrew-api-client
-      await api.pushNotifications.registerDeviceToken(
-        token,
-        platform,
-        deviceId,
-        appVersion
-      );
-      
-      console.log('    [Backend] Push token registered successfully via API client');
-
-      // Register device with Stream Chat for push. iOS: Stream expects APNs token, not FCM token.
-      if (streamChatService.isConnected()) {
-        const streamToken =
-          Platform.OS === 'ios'
-            ? (await pushNotificationService.getAPNSToken()) || token
-            : token;
-        if (streamToken) {
-          streamChatService.registerDeviceForPush(streamToken).catch(() => {});
-        }
-      }
-    } catch (error: any) {
-      // Don't throw - push token registration is not critical for app functionality
-      if (error?.stack) {
-        console.error('  [Backend] Stack trace:', error.stack.substring(0, 300));
-      }
-    }
-  };
 
   const NOTIFICATION_FETCH_LIMIT = 100;
 
@@ -9524,31 +9438,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       return 0; // Return 0 instead of throwing - this is non-critical
     }
   }, []);
-
-  // Setup real-time subscription for chat conversations to update unread count
-  useEffect(() => {
-    if (isAuthenticated && user?.id && supabaseService.isInitialized()) {
-      console.log('    Setting up real-time subscription for chat unread count updates');
-      
-      // Subscribe to conversation updates to refresh unread count when new messages arrive
-      const channelId = supabaseService.subscribeToConversations(
-        user.id,
-        (updatedConversation: any) => {
-          console.log('    Conversation updated via real-time (unread count update):', updatedConversation);
-          // Update unread count based on the updated conversation
-          // We'll recalculate when conversations are explicitly fetched, not on every update
-          // This prevents unnecessary API calls and refreshes
-        }
-      );
-
-      return () => {
-        if (channelId) {
-          supabaseService.unsubscribe(channelId);
-          console.log('🔌 Unsubscribed from chat conversations for unread count');
-        }
-      };
-    }
-  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id]);
 
   // Real-time StreamChat unread count tracking
   // (handled by useUnreadConversationCount hook)
