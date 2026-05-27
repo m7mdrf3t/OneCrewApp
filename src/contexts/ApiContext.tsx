@@ -39,6 +39,7 @@ import { initializeGoogleSignIn, signInWithGoogle } from '../services/GoogleAuth
 import { initializeAppleAuthentication, signInWithApple } from '../services/AppleAuthService';
 import {
   buildLoginAuthError,
+  clearAllAuthData as _clearAllAuthData,
   clearOAuthPendingState,
   clearOAuthPendingStateOnError,
   clearPasswordResetFlag,
@@ -532,67 +533,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const RECENT_LOGIN_WINDOW = 30000; // 30 seconds - don't handle 401s if user just logged in (increased for password reset scenarios)
 
   /**
-   * Clear all authentication data from all possible storage locations
-   * This ensures no tokens persist after password reset or logout
+   * Clear all authentication data from all possible storage locations.
+   * Delegates to the shared authUtils helper, binding the current api instance.
    */
-  const clearAllAuthData = async () => {
-    try {
-      // Clear AsyncStorage auth-related keys
-      const authKeys = [
-        'authToken',
-        'authData',
-        'accessToken',
-        'token',
-        'user',
-        'currentUser',
-      ];
-      
-      for (const key of authKeys) {
-        try {
-          await AsyncStorage.removeItem(key);
-        } catch (err) {
-          console.warn(`   Failed to remove ${key} from AsyncStorage:`, err);
-        }
-      }
-
-      // Clear API client's internal auth state
-      if (api.auth) {
-        try {
-          if (typeof (api.auth as any).clearAuthData === 'function') {
-            await (api.auth as any).clearAuthData();
-          }
-          if (typeof (api.auth as any).removeAuthToken === 'function') {
-            await (api.auth as any).removeAuthToken();
-          }
-          // Clear any direct properties
-          (api.auth as any).authToken = null;
-          (api.auth as any).token = null;
-          (api.auth as any).accessToken = null;
-          (api.auth as any).currentUser = null;
-        } catch (err) {
-          console.warn('   Error clearing API auth state:', err);
-        }
-      }
-
-      // Clear API client headers if they exist
-      if ((api as any).apiClient) {
-        try {
-          if ((api as any).apiClient.defaultHeaders) {
-            delete (api as any).apiClient.defaultHeaders['Authorization'];
-          }
-          if (typeof (api as any).apiClient.setAuthToken === 'function') {
-            (api as any).apiClient.setAuthToken(null);
-          }
-        } catch (err) {
-          console.warn('Error clearing API client headers:', err);
-        }
-      }
-
-      console.log('    All authentication data cleared');
-    } catch (err) {
-      console.error('Error clearing auth data:', err);
-    }
-  };
+  const clearAllAuthData = () => _clearAllAuthData(api);
 
   /**
    * Handle 401 errors by clearing auth state and forcing re-login

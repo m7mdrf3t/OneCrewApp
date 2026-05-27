@@ -220,3 +220,56 @@ export const persistAuthSession = async (
     api.auth.accessToken = token;
   }
 };
+
+/**
+ * Clear all authentication data from AsyncStorage and the API client's internal state.
+ * Call before writing new auth data (login/refresh) or on logout.
+ * Never throws — all inner operations are individually guarded.
+ */
+export const clearAllAuthData = async (api: any): Promise<void> => {
+  try {
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    const authKeys = ['authToken', 'authData', 'accessToken', 'token', 'user', 'currentUser'];
+    for (const key of authKeys) {
+      try {
+        await AsyncStorage.removeItem(key);
+      } catch (err) {
+        console.warn(`   Failed to remove ${key} from AsyncStorage:`, err);
+      }
+    }
+
+    if (api?.auth) {
+      try {
+        if (typeof (api.auth as any).clearAuthData === 'function') {
+          await (api.auth as any).clearAuthData();
+        }
+        if (typeof (api.auth as any).removeAuthToken === 'function') {
+          await (api.auth as any).removeAuthToken();
+        }
+        (api.auth as any).authToken = null;
+        (api.auth as any).token = null;
+        (api.auth as any).accessToken = null;
+        (api.auth as any).currentUser = null;
+      } catch (err) {
+        console.warn('   Error clearing API auth state:', err);
+      }
+    }
+
+    if ((api as any)?.apiClient) {
+      try {
+        if ((api as any).apiClient.defaultHeaders) {
+          delete (api as any).apiClient.defaultHeaders['Authorization'];
+        }
+        if (typeof (api as any).apiClient.setAuthToken === 'function') {
+          (api as any).apiClient.setAuthToken(null);
+        }
+      } catch (err) {
+        console.warn('Error clearing API client headers:', err);
+      }
+    }
+
+    console.log('    All authentication data cleared');
+  } catch (err) {
+    console.error('Error clearing auth data:', err);
+  }
+};
