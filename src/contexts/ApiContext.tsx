@@ -55,6 +55,8 @@ import agendaService from '../services/AgendaService';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
 import { useHeartbeat } from '../hooks/useHeartbeat';
 import { useUnreadConversationCount } from '../hooks/useUnreadConversationCount';
+import { useCompanySync } from '../hooks/useCompanySync';
+import { useNotificationSubscription } from '../hooks/useNotificationSubscription';
 import {
   countUnreadInAppNotifications,
   filterInAppNotifications,
@@ -517,8 +519,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Notification state
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
-  // Real-time subscription state
-  const [notificationChannelId, setNotificationChannelId] = useState<string | null>(null);
   // Chat unread count state
   const [unreadConversationCount, setUnreadConversationCount] = useState(0);
   // Social links refresh trigger (increments when social links are updated)
@@ -589,10 +589,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
           setUnreadConversationCount(0);
 
           // Unsubscribe from real-time notifications
-          if (notificationChannelId) {
-            supabaseService.unsubscribe(notificationChannelId);
-            setNotificationChannelId(null);
-          }
+          forceUnsubscribeNotifications();
 
           // Clear push notification token
           await pushNotificationService.clearToken().catch(() => {});
@@ -1448,10 +1445,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       }
       
       // Unsubscribe from real-time notifications
-      if (notificationChannelId) {
-        supabaseService.unsubscribe(notificationChannelId);
-        setNotificationChannelId(null);
-      }
+      forceUnsubscribeNotifications();
       
       // Unregister push notification token from backend before clearing
       try {
@@ -1510,10 +1504,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       setUnreadNotificationCount(0);
       
       // Unsubscribe from real-time notifications on error
-      if (notificationChannelId) {
-        supabaseService.unsubscribe(notificationChannelId);
-        setNotificationChannelId(null);
-      }
+      forceUnsubscribeNotifications();
       
       // Try to unregister token even on error
       try {
@@ -1730,10 +1721,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       setUnreadConversationCount(0);
       
       // Unsubscribe from real-time notifications
-      if (notificationChannelId) {
-        supabaseService.unsubscribe(notificationChannelId);
-        setNotificationChannelId(null);
-      }
+      forceUnsubscribeNotifications();
       
       // Clear push notification token
       await pushNotificationService.clearToken().catch(() => {});
@@ -9418,228 +9406,24 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   // Manage heartbeat based on authentication state and app state
   // (handled by useHeartbeat hook — wired just above sendHeartbeat)
 
-  // Track app background time and refresh company data when app comes to foreground
-  const appBackgroundTimeRef = useRef<number | null>(null);
-  const companyPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    if (!isAuthenticated || !user || !isAppBootCompleted) return;
-
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active') {
-        // App is coming to foreground
-        const now = Date.now();
-        const timeInBackground = appBackgroundTimeRef.current 
-          ? now - appBackgroundTimeRef.current 
-          : 0;
-        
-        // If app was in background for more than 1 minute, force refresh company data
-        // This ensures approval status changes are reflected quickly
-        if (timeInBackground > 60000) {
-          console.log(`🔄 App returned to foreground after ${Math.round(timeInBackground / 1000)}s - refreshing company data`);
-          // Refresh company data in background (non-blocking) with force refresh
-          InteractionManager.runAfterInteractions(() => {
-            getUserCompanies(user.id, true).catch(err => {
-              console.warn('Failed to refresh company data on app foreground:', err);
-            });
-          });
-        }
-        
-        appBackgroundTimeRef.current = null;
-      } else if (nextAppState === 'background' || nextAppState === 'inactive') {
-        // App is going to background - record the time
-        appBackgroundTimeRef.current = Date.now();
-      }
-    };
-
-    // Set initial state
-    const currentAppState = AppState.currentState;
-    if (currentAppState === 'active') {
-      appBackgroundTimeRef.current = null;
-    } else {
-      appBackgroundTimeRef.current = Date.now();
-    }
-
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-
-    return () => {
-      subscription.remove();
-    };
-  }, [isAuthenticated, user?.id, isAppBootCompleted]);
-
-  // Poll for pending company approval status changes
-  useEffect(() => {
-    if (!isAuthenticated || !user || !isAppBootCompleted) {
-      if (companyPollingIntervalRef.current) {
-        clearInterval(companyPollingIntervalRef.current);
-        companyPollingIntervalRef.current = null;
-      }
-      return;
-    }
-
-    // Check if user has any pending companies
-    const checkAndRefreshPendingCompanies = async () => {
-      try {
-        const response = await getUserCompanies(user.id);
-        if (response.success && response.data) {
-          const companiesList = Array.isArray(response.data)
-            ? response.data
-            : (response.data as any)?.data || [];
-          
-          // Check if any companies are pending approval
-          const hasPendingCompanies = companiesList.some((company: any) => {
-            const approvalStatus = company.approval_status || company.company?.approval_status;
-            return approvalStatus === 'pending';
-          });
-
-          if (hasPendingCompanies) {
-            // Force refresh to get latest approval status
-            await getUserCompanies(user.id, true);
-            console.log('🔄 Refreshed pending company approval status');
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to check pending company status:', error);
-      }
-    };
-
-    // Poll every 30 seconds if app is in foreground
-    const startPolling = () => {
-      if (companyPollingIntervalRef.current) {
-        clearInterval(companyPollingIntervalRef.current);
-      }
-      
-      // Initial check after 5 seconds
-      setTimeout(checkAndRefreshPendingCompanies, 5000);
-      
-      // Then poll every 30 seconds
-      companyPollingIntervalRef.current = setInterval(() => {
-        const currentState = AppState.currentState;
-        if (currentState === 'active') {
-          checkAndRefreshPendingCompanies();
-        }
-      }, 30000);
-    };
-
-    // Handle app state changes for polling
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active') {
-        // Resume polling when app comes to foreground
-        startPolling();
-      } else {
-        // Stop polling when app goes to background
-        if (companyPollingIntervalRef.current) {
-          clearInterval(companyPollingIntervalRef.current);
-          companyPollingIntervalRef.current = null;
-        }
-      }
-    };
-
-    // Start polling if app is active
-    const currentAppState = AppState.currentState;
-    if (currentAppState === 'active') {
-      startPolling();
-    }
-
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-
-    return () => {
-      if (companyPollingIntervalRef.current) {
-        clearInterval(companyPollingIntervalRef.current);
-        companyPollingIntervalRef.current = null;
-      }
-      subscription.remove();
-    };
-  }, [isAuthenticated, user?.id, isAppBootCompleted]);
+  // Company data sync: foreground refresh + pending-approval polling
+  // (handled by useCompanySync hook)
+  useCompanySync({
+    enabled: isAuthenticated && !!user && isAppBootCompleted,
+    userId: user?.id,
+    getUserCompanies,
+  });
 
   // Setup real-time subscription for notifications
-  useEffect(() => {
-    if (isAuthenticated && user?.id) {
-      // Initialize Supabase if not already initialized
-      try {
-        if (!supabaseService.isInitialized()) {
-          const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-          const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
-
-          if (supabaseUrl && supabaseKey) {
-            supabaseService.initialize(supabaseUrl, supabaseKey);
-            console.log('    Supabase initialized for real-time notifications');
-          } else {
-            console.warn('   Supabase credentials not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.');
-          }
-        }
-
-        // Subscribe to notifications for this user
-        if (supabaseService.isInitialized()) {
-          const channelId = supabaseService.subscribeToNotifications(
-            user.id,
-            (newNotification: Notification) => {
-              console.log('📨 New notification received via real-time:', newNotification);
-              
-              const normalized = normalizeNotification(
-                newNotification as unknown as Record<string, unknown>
-              );
-
-              if (!shouldShowInNotificationCenter(normalized)) {
-                setTimeout(() => {
-                  refreshNotificationBadge();
-                }, 500);
-                return;
-              }
-
-              setNotifications((prev) => {
-                if (prev.find((n) => n.id === normalized.id)) {
-                  return prev;
-                }
-                const updated = [normalized, ...prev];
-                setUnreadNotificationCount(countUnreadInAppNotifications(updated));
-                return updated;
-              });
-
-              // Check if notification is related to company approval and refresh company data
-              const notificationTitle = newNotification.title?.toLowerCase() || '';
-              const notificationMessage = newNotification.message?.toLowerCase() || '';
-              const isCompanyRelated = 
-                notificationTitle.includes('company') || 
-                notificationTitle.includes('approval') ||
-                notificationMessage.includes('company') ||
-                notificationMessage.includes('approval') ||
-                newNotification.type === 'company_invitation' ||
-                newNotification.type === 'company_invitation_accepted';
-              
-              if (isCompanyRelated) {
-                console.log('🔄 Company-related notification received - refreshing company data');
-                // Refresh company data in background (non-blocking)
-                setTimeout(() => {
-                  getUserCompanies(user.id, true).catch(err => {
-                    console.warn('Failed to refresh company data after notification:', err);
-                  });
-                }, 1000);
-              }
-
-              setTimeout(() => {
-                refreshNotificationBadge();
-              }, 500);
-            }
-          );
-
-          setNotificationChannelId(channelId);
-          console.log('    Real-time notification subscription established');
-        }
-      } catch (error) {
-        console.error('Failed to setup real-time notifications:', error);
-      }
-    }
-
-    // Cleanup subscription on unmount or when user changes
-    return () => {
-      if (notificationChannelId) {
-        supabaseService.unsubscribe(notificationChannelId);
-        setNotificationChannelId(null);
-        console.log('🔌 Unsubscribed from real-time notifications');
-      }
-    };
-  }, [isAuthenticated, user?.id]);
+  // (handled by useNotificationSubscription hook)
+  const { forceUnsubscribe: forceUnsubscribeNotifications } = useNotificationSubscription({
+    isAuthenticated,
+    userId: user?.id,
+    setNotifications,
+    setUnreadNotificationCount,
+    refreshNotificationBadge,
+    getUserCompanies,
+  });
 
   // Calculate unread count from StreamChat channels
   // FIXED: Now filters channels based on current profile type (user vs company)
