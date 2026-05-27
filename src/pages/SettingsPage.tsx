@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -6,12 +6,10 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
-  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { shareAppInvite } from '../utils/shareAppInvite';
 import { useAppNavigation } from '../navigation/NavigationContext';
-import { ProfileSwitchTest } from '../utils/ProfileSwitchTest';
 
 interface SettingsPageProps {
   onBack: () => void;
@@ -47,7 +45,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const onNavigate = onNavigateProp || navigateTo;
   
   const isDark = theme === 'dark';
-  const [showProfileTest, setShowProfileTest] = useState(false);
 
   const handleInviteFriend = async () => {
     await shareAppInvite();
@@ -143,29 +140,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     },
   ];
 
-  // Add developer tools section in dev mode
-  if (__DEV__) {
-    settingsSections.push({
-      title: 'Developer',
-      items: [
-        {
-          id: 'performanceTest',
-          title: 'Performance Monitor',
-          icon: 'speedometer',
-          action: () => onNavigate('performanceTest'),
-          showArrow: true,
-        },
-        {
-          id: 'profileSwitchTest',
-          title: 'Profile Switching Test',
-          icon: 'swap-horizontal',
-          action: () => setShowProfileTest(true),
-          showArrow: true,
-        },
-      ],
-    });
-  }
-
   const renderSettingsItem = (item: SettingsItem) => {
     return (
       <TouchableOpacity
@@ -244,17 +218,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           </View>
         ))}
       </ScrollView>
-      
-      {/* Profile Switching Test Modal - Dev Only */}
-      {__DEV__ && (
-        <Modal
-          visible={showProfileTest}
-          animationType="slide"
-          onRequestClose={() => setShowProfileTest(false)}
-        >
-          <ProfileSwitchTest onClose={() => setShowProfileTest(false)} />
-        </Modal>
-      )}
     </View>
   );
 };

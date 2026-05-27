@@ -55,7 +55,6 @@ export type RootStackParamList = {
   allAgenda: undefined;
   bookingRequests: undefined;
   weeklySchedule: undefined;
-  performanceTest: undefined;
   
   // News screens
   newsDetail: { slug: string; post?: any };

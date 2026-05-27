@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useRef } from 'react';
-import { NavigationContainerRef, StackActions } from '@react-navigation/native';
+import { CommonActions, NavigationContainerRef, StackActions } from '@react-navigation/native';
 import { RootStackParamList } from './types';
 
 interface NavigationContextType {
@@ -20,6 +20,15 @@ const NavigationContext = createContext<NavigationContextType | undefined>(undef
 
 // Navigation ref that will be set by NavigationContainer
 export const navigationRef = React.createRef<NavigationContainerRef<RootStackParamList>>();
+
+const navigateWithParams = <T extends keyof RootStackParamList>(
+  name: T,
+  params?: RootStackParamList[T]
+) => {
+  navigationRef.current?.dispatch(
+    CommonActions.navigate({ name, params })
+  );
+};
 
 export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const navigateTo = (pageName: string, data?: any) => {
@@ -53,7 +62,6 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'allAgenda': 'allAgenda',
       'bookingRequests': 'bookingRequests',
       'weeklySchedule': 'weeklySchedule',
-      'performanceTest': 'performanceTest',
       'coursesManagement': 'coursesManagement',
       'courseEdit': 'courseEdit',
       'courseDetail': 'courseDetail',
@@ -103,7 +111,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
       
-      navigationRef.current?.navigate(routeName, params as any);
+      navigateWithParams(routeName, params as RootStackParamList[typeof routeName]);
     } else {
       console.warn(`Unknown route: ${pageName}`);
     }
@@ -113,7 +121,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     name: T,
     params?: RootStackParamList[T]
   ) => {
-    navigationRef.current?.navigate(name, params);
+    navigateWithParams(name, params);
   };
 
   const replace = <T extends keyof RootStackParamList>(
@@ -132,7 +140,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       } catch (error) {
         console.warn('Failed to replace route, falling back to navigate:', error);
         // Fallback to navigate if replace fails
-        navigationRef.current.navigate(name, params);
+        navigateWithParams(name, params);
       }
     }
   };
@@ -168,7 +176,6 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       'allAgenda': 'allAgenda',
       'bookingRequests': 'bookingRequests',
       'weeklySchedule': 'weeklySchedule',
-      'performanceTest': 'performanceTest',
       'coursesManagement': 'coursesManagement',
       'courseEdit': 'courseEdit',
       'courseDetail': 'courseDetail',
@@ -230,7 +237,7 @@ export const NavigationProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         } catch (error) {
           console.warn('Failed to replace route, falling back to navigate:', error);
           // Fallback to navigate if replace fails
-          navigationRef.current.navigate(routeName, params as any);
+          navigateWithParams(routeName, params as RootStackParamList[typeof routeName]);
         }
       }
     } else {

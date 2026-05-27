@@ -53,7 +53,6 @@ const screens = {
   allAgenda: loadScreen(() => require('../pages/AllAgendaPage')),
   bookingRequests: loadScreen(() => require('../pages/BookingRequestsPage')),
   weeklySchedule: loadScreen(() => require('../pages/WeeklySchedulePage')),
-  performanceTest: loadScreen(() => require('../pages/PerformanceTestPage')),
   newsDetail: loadScreen(() => require('../pages/NewsDetailPage')),
 };
 
@@ -161,7 +160,6 @@ const AppNavigatorComponent: React.FC<AppNavigatorProps> = () => {
       <Stack.Screen name="allAgenda" getComponent={screens.allAgenda} options={{ title: 'All Agenda' }} />
       <Stack.Screen name="bookingRequests" getComponent={screens.bookingRequests} options={{ title: 'Booking Requests' }} />
       <Stack.Screen name="weeklySchedule" getComponent={screens.weeklySchedule} options={{ title: 'Weekly Schedule' }} />
-      <Stack.Screen name="performanceTest" getComponent={screens.performanceTest} options={{ title: 'Performance Test' }} />
 
       {/* News screens */}
       <Stack.Screen
