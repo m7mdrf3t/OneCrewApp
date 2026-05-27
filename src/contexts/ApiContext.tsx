@@ -53,6 +53,8 @@ import {
 } from '../services/authUtils';
 import agendaService from '../services/AgendaService';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
+import { useHeartbeat } from '../hooks/useHeartbeat';
+import { useUnreadConversationCount } from '../hooks/useUnreadConversationCount';
 import {
   countUnreadInAppNotifications,
   filterInAppNotifications,
@@ -521,9 +523,8 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   const [unreadConversationCount, setUnreadConversationCount] = useState(0);
   // Social links refresh trigger (increments when social links are updated)
   const [socialLinksRefreshTrigger, setSocialLinksRefreshTrigger] = useState(0);
-  // Heartbeat state
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+  // Escape-hatch ref so handle401Error / logout can stop the heartbeat before the hook unmounts
+  const stopHeartbeatRef = useRef<() => void>(() => {});
 
   // Flag to prevent duplicate 401 handling
   const isHandling401Ref = useRef(false);
@@ -575,10 +576,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         
         try {
           // Stop heartbeat
-          if (heartbeatIntervalRef.current) {
-            clearInterval(heartbeatIntervalRef.current);
-            heartbeatIntervalRef.current = null;
-          }
+          stopHeartbeatRef.current();
 
           // Clear all auth data
           await clearAllAuthData();
@@ -1720,10 +1718,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('🧹 Clearing auth state after password reset...');
       
       // Stop heartbeat and background processes first
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
-        heartbeatIntervalRef.current = null;
-      }
+      stopHeartbeatRef.current();
       
       // Clear local auth state first
       setIsAuthenticated(false);
@@ -9385,30 +9380,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     }
   };
 
-  const startHeartbeat = () => {
-    // Clear any existing interval
-    if (heartbeatIntervalRef.current) {
-      clearInterval(heartbeatIntervalRef.current);
-    }
-    
-    // Send initial heartbeat
-    sendHeartbeat();
-    
-    // Set up interval for periodic heartbeats
-    heartbeatIntervalRef.current = setInterval(() => {
-      sendHeartbeat();
-    }, HEARTBEAT_INTERVAL);
-    
-    console.log('🟢 Heartbeat started (30s interval)');
-  };
-
-  const stopHeartbeat = () => {
-    if (heartbeatIntervalRef.current) {
-      clearInterval(heartbeatIntervalRef.current);
-      heartbeatIntervalRef.current = null;
-      console.log('🔴 Heartbeat stopped');
-    }
-  };
+  // Wire useHeartbeat — stop is forwarded through stopHeartbeatRef so handle401Error / logout
+  // can call it before the hook's own cleanup runs.
+  const { stop: _stopHeartbeat } = useHeartbeat({
+    enabled: isAuthenticated && !!user && !!api.chat && isAppBootCompleted,
+    onBeat: sendHeartbeat,
+  });
+  stopHeartbeatRef.current = _stopHeartbeat;
 
   // Load non-critical data after app boot (avoid blocking the JS splash/first render)
   useEffect(() => {
@@ -9438,39 +9416,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, isAppBootCompleted]);
 
   // Manage heartbeat based on authentication state and app state
-  useEffect(() => {
-    if (!isAuthenticated || !user || !api.chat || !isAppBootCompleted) {
-      // Stop heartbeat if user is not authenticated
-      stopHeartbeat();
-      return;
-    }
-
-    // Handle app state changes for heartbeat management
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active') {
-        // App is in foreground - start/resume heartbeat
-        startHeartbeat();
-      } else {
-        // App is in background or inactive - stop heartbeat
-        stopHeartbeat();
-      }
-    };
-
-    // Set initial state based on current app state
-    const currentAppState = AppState.currentState;
-    if (currentAppState === 'active') {
-      startHeartbeat();
-    }
-
-    // Subscribe to app state changes
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-
-    return () => {
-      // Cleanup: stop heartbeat and remove listener
-      stopHeartbeat();
-      subscription.remove();
-    };
-  }, [isAuthenticated, user?.id, api.chat]);
+  // (handled by useHeartbeat hook — wired just above sendHeartbeat)
 
   // Track app background time and refresh company data when app comes to foreground
   const appBackgroundTimeRef = useRef<number | null>(null);
@@ -9821,346 +9767,17 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
   }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id]);
 
   // Real-time StreamChat unread count tracking
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setUnreadConversationCount(0);
-      return;
-    }
-
-    let isMounted = true;
-    let client: any = null;
-    let rateLimitedUntil = 0;
-    let lastUpdateAttempt = 0;
-    const THROTTLE_MS = 15000;
-    const NORMAL_POLL_MS = 30000;
-    const RATE_LIMIT_BACKOFF_MS = 60000;
-
-    const is429 = (err: any) => {
-      const msg = err?.message || err?.toString() || '';
-      return msg.includes('429') || msg.includes('Too many requests');
-    };
-
-    const updateUnreadCount = async (force = false) => {
-      if (!isMounted) return;
-      const now = Date.now();
-      if (now < rateLimitedUntil && !force) return;
-      if (!force && now - lastUpdateAttempt < THROTTLE_MS) return;
-      lastUpdateAttempt = now;
-
-      // FIXED: Use lightweight endpoint for instant updates (10x faster)
-      // Backend endpoint returns only the count, no conversation data
-      try {
-        if (isMounted) {
-          const count = await getUnreadConversationCount();
-
-          if (count === 0 && streamChatService.isConnected()) {
-            try {
-              const streamChatCount = await calculateStreamChatUnreadCount();
-              if (streamChatCount > 0) {
-                setUnreadConversationCount(streamChatCount);
-                if (__DEV__) {
-                  console.log('    [UnreadCount] Using Stream fallback after backend returned 0:', streamChatCount);
-                }
-                return;
-              }
-            } catch {
-              // Keep backend count if Stream fallback fails.
-            }
-          }
-          
-          // If we got here, the method exists and returned successfully
-          // Count can be 0 (no unread messages) or > 0 (has unread messages)
-          if (__DEV__) {
-            console.log('    [UnreadCount] Updated from lightweight endpoint:', {
-              count,
-              currentProfileType,
-              currentProfileId: currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id,
-            });
-          }
-          return; // Success - count is set in getUnreadConversationCount
-        }
-      } catch (error) {
-        if (is429(error)) {
-          rateLimitedUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
-          if (__DEV__) console.warn('   [UnreadCount] Rate limited (429), backing off 60s');
-        }
-        if (__DEV__) {
-          console.warn('   [UnreadCount] Lightweight endpoint failed:', error);
-        }
-
-        // SKIP pagination fallback on 429 - it triggers many more requests
-        if (is429(error)) {
-          try {
-            if (streamChatService.isConnected() && isMounted) {
-              client = streamChatService.getClient();
-              const streamChatCount = await calculateStreamChatUnreadCount();
-              setUnreadConversationCount(streamChatCount);
-              if (__DEV__) console.warn('   [UnreadCount] StreamChat fallback (rate limited):', streamChatCount);
-            }
-          } catch {
-            /* keep existing count */
-          }
-          return;
-        }
-
-        // Non-429: try pagination fallback
-        try {
-          if (isMounted) {
-            const currentUserId = currentProfileType === 'company' && activeCompany ? activeCompany.id : user?.id;
-            const currentUserType = currentProfileType === 'company' ? 'company' : 'user';
-            const cachePattern = `conversations-${currentUserType}-${currentUserId}`;
-            await rateLimiter.clearCacheByPattern(cachePattern);
-            
-            // Fetch all conversations by paginating
-            let allConversations: any[] = [];
-            let page = 1;
-            const limit = 100;
-            let hasMore = true;
-
-            while (hasMore && isMounted) {
-              const response = await getConversations({ limit, page });
-              if (response.success && response.data) {
-                const responseData = response.data as any;
-                let conversations: any[] = [];
-                if (Array.isArray(responseData)) {
-                  conversations = responseData;
-                } else if (responseData && typeof responseData === 'object' && 'data' in responseData) {
-                  conversations = Array.isArray(responseData.data) ? responseData.data : [];
-                }
-
-                if (Array.isArray(conversations) && conversations.length > 0) {
-                  allConversations = allConversations.concat(conversations);
-                  hasMore = conversations.length === limit;
-                  page++;
-                } else {
-                  hasMore = false;
-                }
-              } else {
-                hasMore = false;
-              }
-            }
-            
-            // Calculate unread count from all conversations
-            let unreadCount = 0;
-            allConversations.forEach((conv: any) => {
-              if (conv.participants && Array.isArray(conv.participants)) {
-                const participant = conv.participants.find((p: any) => 
-                  p.participant_id === currentUserId && p.participant_type === currentUserType
-                );
-                
-                if (participant && conv.last_message_at) {
-                  const lastReadAt = participant.last_read_at ? new Date(participant.last_read_at).getTime() : 0;
-                  const lastMessageAt = new Date(conv.last_message_at).getTime();
-                  
-                  if (lastMessageAt > lastReadAt) {
-                    unreadCount++;
-                  }
-                } else if (conv.last_message_at && participant && !participant.last_read_at) {
-                  unreadCount++;
-                }
-              }
-            });
-            
-            if (isMounted) {
-              setUnreadConversationCount(unreadCount);
-              if (__DEV__) {
-                console.log('    [UnreadCount] Updated from pagination fallback:', {
-                  unreadCount,
-                  totalConversations: allConversations.length,
-                });
-              }
-            }
-          }
-        } catch (fallbackError) {
-          if (__DEV__) console.warn('   [UnreadCount] Pagination fallback failed:', fallbackError);
-          if (is429(fallbackError)) {
-            rateLimitedUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
-          }
-          // Last resort: Try StreamChat (but it won't be profile-aware)
-          try {
-            if (streamChatService.isConnected() && isMounted) {
-              client = streamChatService.getClient();
-              const streamChatCount = await calculateStreamChatUnreadCount();
-              setUnreadConversationCount(streamChatCount);
-              if (__DEV__) {
-                console.warn('   [UnreadCount] Using StreamChat fallback (may not be profile-aware):', streamChatCount);
-              }
-            }
-          } catch (streamError) {
-            if (__DEV__) {
-              console.warn('   [UnreadCount] All methods failed');
-            }
-          }
-        }
-      }
-    };
-
-    // FIXED: Don't use StreamChat's initial unread counts directly
-    // They include ALL channels regardless of current profile
-    // Instead, fetch from backend which correctly filters by profile
-    const useInitialUnreadCounts = () => {
-      // Skip StreamChat initial counts - they're not profile-aware
-      // Backend getConversations will set the correct count
-      return false;
-    };
-
-    // Always fetch from backend for accurate profile-aware count
-    const hasInitialCounts = false;
-
-    // FIXED: Always call updateUnreadCount immediately and on interval
-    // This ensures we get the correct count even if getConversations was called with a limit
-    let initialTimeout: NodeJS.Timeout | null = null;
-    
-    // FIXED: Call updateUnreadCount immediately to get accurate count
-    // This ensures count is correct even if other parts of the app call getConversations with limits
-    // Don't wait for StreamChat - backend API works independently
-    if (isMounted) {
-      updateUnreadCount(true).catch(err => {
-        if (__DEV__) console.warn('   [UnreadCount] Immediate update failed:', err);
-      });
-    }
-
-    initialTimeout = setTimeout(() => {
-      if (isMounted) {
-        updateUnreadCount().catch(err => {
-          if (__DEV__) console.warn('   [UnreadCount] Backup update failed:', err);
-        });
-      }
-    }, 5000);
-
-    // Set up real-time listeners if StreamChat is connected
-    if (streamChatService.isConnected()) {
-      client = streamChatService.getClient();
-      
-      // FIXED: Don't use StreamChat's total_unread_count directly from events
-      // It includes ALL channels regardless of current profile
-      // Instead, recalculate from backend when events occur
-      const handleUnreadUpdate = (event: any) => {
-        if (isMounted) {
-          // Trigger backend recalculation instead of using event count
-          updateUnreadCount();
-          if (__DEV__) {
-            console.log('    [UnreadCount] Event received, recalculating from backend (profile-aware)');
-          }
-        }
-      };
-      
-      const handleMessageNew = () => {
-        if (isMounted) {
-          updateUnreadCount();
-        }
-      };
-
-      const handleChannelUpdated = (event: any) => {
-        // Channel updated - could be read state change
-        if (isMounted) {
-          if (__DEV__ && event?.channel?.state?.unreadCount !== undefined) {
-            console.log('    [UnreadCount] Channel updated, unreadCount:', event.channel.state.unreadCount);
-          }
-          updateUnreadCount();
-        }
-      };
-      
-      // Listen for read state changes specifically
-      const handleReadStateChanged = () => {
-        // When read state changes, unread count definitely changed
-        if (isMounted) {
-          if (__DEV__) {
-            console.log('    [UnreadCount] Read state changed, updating count');
-          }
-          updateUnreadCount();
-        }
-      };
-
-      const handleChannelDeleted = () => {
-        if (isMounted) {
-          updateUnreadCount();
-        }
-      };
-
-      const handleChannelRead = () => {
-        // When a channel is marked as read, update unread count immediately
-        if (isMounted) {
-          if (__DEV__) {
-            console.log('    [UnreadCount] Channel marked as read, updating count');
-          }
-          updateUnreadCount();
-        }
-      };
-
-      // FIXED: Listen to events but recalculate from backend (profile-aware)
-      // StreamChat events include total_unread_count but it's not profile-filtered
-      const unreadEventListeners = [
-        client.on('notification.mark_read', (event: any) => {
-          // Recalculate from backend instead of using event.total_unread_count
-          handleUnreadUpdate(event);
-          handleChannelRead();
-        }),
-        client.on('notification.message_new', (event: any) => {
-          // Recalculate from backend instead of using event.total_unread_count
-          handleUnreadUpdate(event);
-          handleMessageNew();
-        }),
-        client.on('notification.mark_unread', (event: any) => {
-          // Recalculate from backend instead of using event.total_unread_count
-          handleUnreadUpdate(event);
-        }),
-      ];
-
-      // Also listen to channel-level events (fallback if event doesn't have unread count)
-      const channelEventListeners = [
-        client.on('message.new', handleMessageNew),
-        client.on('channel.updated', handleChannelUpdated),
-        client.on('channel.deleted', handleChannelDeleted),
-        client.on('notification.read', handleReadStateChanged),
-      ];
-      
-      // Also listen to channel-specific read events
-      // Note: StreamChat may fire 'notification.mark_read', 'notification.read', or channel state changes
-      // when messages are marked as read
-
-      // Poll every 30s; throttle prevents extra calls from event bursts
-      const refreshInterval = setInterval(() => {
-        if (isMounted && streamChatService.isConnected()) {
-          updateUnreadCount();
-        }
-      }, NORMAL_POLL_MS);
-
-      return () => {
-        isMounted = false;
-        if (client) {
-          // BEST PRACTICE: Unsubscribe from all listeners (per Stream docs)
-          // Unsubscribe from unread count event listeners
-          unreadEventListeners.forEach(listener => {
-            try {
-              listener.unsubscribe();
-            } catch (error) {
-              console.warn('   [UnreadCount] Error unsubscribing unread listener:', error);
-            }
-          });
-          // Unsubscribe from channel event listeners
-          channelEventListeners.forEach(listener => {
-            try {
-              listener.unsubscribe();
-            } catch (error) {
-              console.warn('   [UnreadCount] Error unsubscribing channel listener:', error);
-            }
-          });
-        }
-        clearInterval(refreshInterval);
-        if (initialTimeout !== null) {
-          clearTimeout(initialTimeout);
-        }
-      };
-    }
-
-    return () => {
-      isMounted = false;
-      if (initialTimeout !== null) {
-        clearTimeout(initialTimeout);
-      }
-    };
-  }, [isAuthenticated, user?.id, currentProfileType, activeCompany?.id, calculateStreamChatUnreadCount, getConversations]);
+  // (handled by useUnreadConversationCount hook)
+  useUnreadConversationCount({
+    isAuthenticated,
+    userId: user?.id,
+    currentProfileType,
+    activeCompanyId: activeCompany?.id,
+    getUnreadConversationCount,
+    calculateStreamChatUnreadCount,
+    getConversations,
+    setUnreadConversationCount,
+  });
 
   // Online status methods
   const getOnlineStatus = async (userId: string) => {
