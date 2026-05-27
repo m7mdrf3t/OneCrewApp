@@ -37,6 +37,19 @@ import pushNotificationService from '../services/PushNotificationService';
 import streamChatService from '../services/StreamChatService';
 import { initializeGoogleSignIn, signInWithGoogle } from '../services/GoogleAuthService';
 import { initializeAppleAuthentication, signInWithApple } from '../services/AppleAuthService';
+import {
+  buildLoginAuthError,
+  clearOAuthPendingState,
+  clearOAuthPendingStateOnError,
+  clearPasswordResetFlag,
+  createCategoryRequiredError,
+  extractAuthPayload,
+  isCategoryRequiredError,
+  parseAuthErrorResponse,
+  parseAuthResponseJson,
+  persistAuthSession,
+  readOAuthPendingState,
+} from '../services/authUtils';
 import agendaService from '../services/AgendaService';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
 import {
@@ -813,6 +826,84 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     initializeApi();
   }, [api]);
 
+  const runPostAuthSetup = (userData: any, logRecentLogin: boolean = false) => {
+    // Mark recent login FIRST to prevent immediate 401 handling (before setIsAuthenticated triggers API calls)
+    recentLoginRef.current = Date.now();
+    if (logRecentLogin) {
+      console.log('    Recent login timestamp set - 401 handling will be skipped for', RECENT_LOGIN_WINDOW, 'ms');
+    }
+
+    // Update user state
+    setUser(userData);
+    setIsAuthenticated(true);
+
+    // Set up token refresh callback for automatic re-registration
+    pushNotificationService.setOnTokenRefreshCallback((newToken) => {
+      if (api.auth.isAuthenticated()) {
+        registerPushToken(newToken).catch((error) => {
+          console.warn('   Failed to re-register token after refresh:', error);
+        });
+      }
+    });
+
+    // Register for push notifications after successful login (retry: FCM often not ready for ~2s)
+    const tryRegisterPushAfterLogin = async (attempt: number, maxAttempts: number, delayMs: number) => {
+      if (!api.auth.isAuthenticated()) return;
+      try {
+        const pushToken = await pushNotificationService.initialize();
+        if (pushToken) {
+          await registerPushToken(pushToken);
+          return;
+        }
+      } catch (error) {
+        console.error('  Failed to register push notifications:', error);
+        return;
+      }
+      if (attempt < maxAttempts) {
+        console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
+        setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
+      } else {
+        console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
+      }
+    };
+    setTimeout(() => tryRegisterPushAfterLogin(1, 4, 2500), 500);
+
+    // Fetch complete user profile data after login
+    setTimeout(async () => {
+      try {
+        const completeUser = await fetchCompleteUserProfile(userData.id, userData);
+        if (completeUser) {
+          setUser(completeUser as User);
+        }
+      } catch (err) {
+        // Silent fail - profile will load on next refresh
+      }
+    }, 1000);
+
+    // Initialize StreamChat (fire-and-forget; does not block the auth flow)
+    ;(async () => {
+      try {
+        const streamTokenResponse = await getStreamChatToken({ profile_type: 'user' });
+        if (streamTokenResponse.success && streamTokenResponse.data) {
+          const { token: streamToken, user_id, api_key } = streamTokenResponse.data as any;
+          await streamChatService.connectUser(
+            user_id,
+            streamToken,
+            { name: userData.name, image: userData.image_url },
+            api_key,
+            'user'
+          );
+          console.log('    StreamChat initialized after sign-in');
+        } else {
+          console.error('  StreamChat token response failed:', streamTokenResponse);
+        }
+      } catch (streamError) {
+        console.error('  Failed to initialize StreamChat:', streamError);
+        // Non-critical — auth proceeds regardless
+      }
+    })();
+  };
+
   const login = async (credentials: LoginRequest) => {
     setIsLoading(true);
     setError(null);
@@ -830,96 +921,13 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const responseText = await response.text();
       
       if (!response.ok) {
-        // Try to parse as JSON, but fallback to text if it's not JSON
-        let errorMessage = responseText || `HTTP ${response.status}: ${response.statusText}`;
-        let errorData: any = {};
-        try {
-          errorData = JSON.parse(responseText);
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } catch {
-          // Not JSON, use text response as error message
-        }
-        
-        // Check for account lockout errors
-        const errorLower = errorMessage.toLowerCase();
-        if (errorLower.includes('lockout') || errorLower.includes('locked') || errorLower.includes('too many attempts')) {
-          const lockoutError: any = new Error(errorMessage);
-          lockoutError.code = 'ACCOUNT_LOCKOUT';
-          lockoutError.lockoutDuration = errorData.lockoutDuration || errorData.lockout_duration || 3600; // Default 1 hour in seconds
-          lockoutError.remainingTime = errorData.remainingTime || errorData.remaining_time;
-          throw lockoutError;
-        }
-        
-        // Check for account deletion errors - during grace period, users should still be able to login
-        if (errorLower.includes('deleted') || errorLower.includes('deletion')) {
-          const deletionError: any = new Error(
-            'Your account is scheduled for deletion. You can still log in during the grace period to restore your account. Please contact support if you need assistance.'
-          );
-          deletionError.code = 'ACCOUNT_DELETION_PENDING';
-          deletionError.isPending = true;
-          // Include deletion info if available from backend
-          if (errorData.expirationDate) {
-            deletionError.expirationDate = errorData.expirationDate;
-          }
-          if (errorData.daysRemaining !== undefined) {
-            deletionError.daysRemaining = errorData.daysRemaining;
-          }
-          throw deletionError;
-        }
-        
-        // Normalize common authentication error messages for better UX
-        if (errorLower.includes('invalid') && (errorLower.includes('email') || errorLower.includes('password') || errorLower.includes('credential'))) {
-          errorMessage = 'Invalid email or password. Please check your credentials and try again.';
-        } else if (errorLower.includes('unauthorized') || response.status === 401) {
-          errorMessage = 'Invalid email or password. Please check your credentials and try again.';
-        }
-        
-        const authError: any = new Error(errorMessage);
-        authError.isAuthError = true;
-        authError.statusCode = response.status;
-        throw authError;
+        throw buildLoginAuthError(response.status, responseText, response.statusText);
       }
 
       // Parse response as JSON
-      let authResponse;
-      try {
-        authResponse = JSON.parse(responseText);
-      } catch (parseError: any) {
-        // If JSON parsing fails, it's likely a text error message
-        console.error('  Failed to parse response as JSON:', responseText);
-        throw new Error(responseText || 'Server returned invalid JSON response');
-      }
+      const authResponse = parseAuthResponseJson(responseText);
       
-      // Extract user data and token
-      let userData = null;
-      let token = null;
-      
-      // Check if data contains user info directly
-      if (authResponse.data) {
-        if (authResponse.data.user) {
-          userData = authResponse.data.user;
-        } else if (authResponse.data.userData) {
-          userData = authResponse.data.userData;
-        } else if (authResponse.data.id || authResponse.data.name || authResponse.data.email) {
-          userData = authResponse.data;
-        }
-        
-        // Check for token in data
-        if (authResponse.data.token) {
-          token = authResponse.data.token;
-        } else if (authResponse.data.accessToken) {
-          token = authResponse.data.accessToken;
-        }
-      }
-      
-      // Fallback to root level
-      if (!userData) {
-        userData = authResponse.user;
-      }
-      
-      if (!token) {
-        token = authResponse.token || authResponse.accessToken;
-      }
+      const { userData, token } = extractAuthPayload(authResponse);
       
       if (!userData) {
         console.error(' No user data found in login response');
@@ -931,139 +939,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error('Login response missing authentication token');
       }
       
-      // Clear any existing tokens before storing new ones to ensure complete replacement
       await clearAllAuthData();
+      await clearPasswordResetFlag();
+      await persistAuthSession(api as any, token, userData);
+      console.log('    API client headers updated with new token');
       
-      // Clear password reset flag if it exists (user successfully logged in after reset)
-      try {
-        await AsyncStorage.removeItem('passwordResetFlag');
-      } catch (err) {
-        // Silent fail
-      }
-      
-      // Use the AuthService's setAuthData method to properly store the token
-      if ((api as any).auth && typeof (api as any).auth.setAuthData === 'function') {
-        await (api as any).auth.setAuthData({
-          token: token,
-          user: userData
-        });
-      } else {
-        // Fallback: Set the auth token in the API client directly
-        if ((api as any).apiClient && typeof (api as any).apiClient.setAuthToken === 'function') {
-          (api as any).apiClient.setAuthToken(token);
-        }
-        
-        // Also store in the auth service for compatibility
-        if ((api as any).auth) {
-          (api as any).auth.authToken = token;
-          (api as any).auth.token = token;
-          (api as any).auth.accessToken = token;
-          (api as any).auth.currentUser = userData;
-        }
-      }
-      
-      // CRITICAL: Ensure API client headers are updated immediately after storing token
-      // This prevents race conditions where API calls are made before token is available
-      if ((api as any).apiClient) {
-        if (!(api as any).apiClient.defaultHeaders) {
-          (api as any).apiClient.defaultHeaders = {};
-        }
-        (api as any).apiClient.defaultHeaders['Authorization'] = `Bearer ${token}`;
-        console.log('    API client headers updated with new token');
-      }
-      
-      // Also update auth service properties directly to ensure immediate availability
-      if ((api as any).auth) {
-        (api as any).auth.authToken = token;
-        (api as any).auth.token = token;
-        (api as any).auth.accessToken = token;
-      }
-      
-      // Mark recent login FIRST to prevent immediate 401 handling (before setIsAuthenticated triggers API calls)
-      recentLoginRef.current = Date.now();
-      console.log('    Recent login timestamp set - 401 handling will be skipped for', RECENT_LOGIN_WINDOW, 'ms');
-      
-      // Update user state
-      setUser(userData);
-      setIsAuthenticated(true);
-      
-      // Initialize StreamChat after successful login
-      try {
-        const streamTokenResponse = await getStreamChatToken({ profile_type: 'user' });
-        if (streamTokenResponse.success && streamTokenResponse.data) {
-          const { token, user_id, api_key } = streamTokenResponse.data as any;
-          
-          // Log token response for debugging
-          console.log('    StreamChat token response:', {
-            hasToken: !!token,
-            hasUserId: !!user_id,
-            hasApiKey: !!api_key,
-            userId: user_id,
-            apiKeyPrefix: api_key ? api_key.substring(0, 10) + '...' : 'NOT PROVIDED',
-          });
-          
-          // Use user_id from token response (backend knows the correct StreamChat user ID format)
-          await streamChatService.connectUser(
-            user_id, // Use user_id from token, not mapped OneCrew ID
-            token,
-            {
-              name: userData.name,
-              image: userData.image_url,
-            },
-            api_key, // Pass API key from backend if provided
-            'user' // User type for tracking
-          );
-          console.log('    StreamChat initialized after login');
-        } else {
-          console.error('  StreamChat token response failed:', streamTokenResponse);
-        }
-      } catch (streamError) {
-        console.error('  Failed to initialize StreamChat:', streamError);
-        // Don't block login if StreamChat fails, but log the error
-      }
-      
-      // Set up token refresh callback for automatic re-registration
-      pushNotificationService.setOnTokenRefreshCallback((newToken) => {
-        if (api.auth.isAuthenticated()) {
-          registerPushToken(newToken).catch((error) => {
-            console.warn('   Failed to re-register token after refresh:', error);
-          });
-        }
-      });
-
-      // Register for push notifications after successful login (retry: FCM often not ready for ~2s)
-      const tryRegisterPushAfterLogin = async (attempt: number, maxAttempts: number, delayMs: number) => {
-        if (!api.auth.isAuthenticated()) return;
-        try {
-          const pushToken = await pushNotificationService.initialize();
-          if (pushToken) {
-            await registerPushToken(pushToken);
-            return;
-          }
-        } catch (error) {
-          console.error('  Failed to register push notifications:', error);
-          return;
-        }
-        if (attempt < maxAttempts) {
-          console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
-          setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
-        } else {
-          console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
-        }
-      };
-      setTimeout(() => tryRegisterPushAfterLogin(1, 4, 2500), 500);
-
-      // Fetch complete user profile data after login
-      setTimeout(async () => {
-        try {
-          const completeUser = await fetchCompleteUserProfile(userData.id, userData);
-          if (completeUser) {
-            setUser(completeUser as User);
-          }
-        } catch (err) {
-          // Silent fail - profile will load on next refresh
-        }
-      }, 1000);
+      runPostAuthSetup(userData, true);
       
       return authResponse;
     } catch (err: any) {
@@ -1274,17 +1155,10 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const accessToken = await signInWithGoogle();
       
       // Step 2: Retrieve category and role from AsyncStorage (stored before OAuth)
-      let storedCategory: string | null = null;
-      let storedRole: string | null = null;
-      try {
-        storedCategory = await AsyncStorage.getItem('pending_category');
-        storedRole = await AsyncStorage.getItem('pending_role');
-      } catch (storageErr) {
-        // Silent fail
-      }
+      const { storedCategory, storedRole } = await readOAuthPendingState();
       
       // Use stored values if available, otherwise fall back to function parameters
-      const finalCategory = (storedCategory as 'crew' | 'talent' | 'company' | null) || category;
+      const finalCategory = storedCategory || category;
       const finalRole = storedRole || primaryRole;
       
       // Step 3: Send Supabase access token to backend
@@ -1305,70 +1179,24 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       const responseText = await response.text();
       
       if (!response.ok) {
-        let errorMessage = responseText || `HTTP ${response.status}: ${response.statusText}`;
-        try {
-          const errorData = JSON.parse(responseText);
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } catch {
-          // Not JSON, use text response as error message
-        }
+        const { errorMessage } = parseAuthErrorResponse(
+          responseText,
+          `HTTP ${response.status}: ${response.statusText}`
+        );
         
         // Check if error is about missing category
-        if (errorMessage.toLowerCase().includes('category') && errorMessage.toLowerCase().includes('required')) {
-          // Return a special error that can be caught by the UI to show category selection
-          const categoryError = new Error('CATEGORY_REQUIRED');
-          (categoryError as any).code = 'CATEGORY_REQUIRED';
-          throw categoryError;
+        if (isCategoryRequiredError(errorMessage)) {
+          throw createCategoryRequiredError();
         }
         
         throw new Error(errorMessage);
       }
 
       // Parse response
-      let authResponse;
-      try {
-        authResponse = JSON.parse(responseText);
-      } catch (parseError: any) {
-        console.error('  Failed to parse response as JSON:', responseText);
-        throw new Error(responseText || 'Server returned invalid JSON response');
-      }
+      const authResponse = parseAuthResponseJson(responseText);
       
-      // Clear AsyncStorage after successful sign-in
-      try {
-        await AsyncStorage.removeItem('pending_category');
-        await AsyncStorage.removeItem('pending_role');
-      } catch (clearErr) {
-        // Silent fail
-      }
-      
-      // Extract user data and token
-      let userData = null;
-      let token = null;
-      
-      if (authResponse.data) {
-        if (authResponse.data.user) {
-          userData = authResponse.data.user;
-        } else if (authResponse.data.userData) {
-          userData = authResponse.data.userData;
-        } else if (authResponse.data.id || authResponse.data.name || authResponse.data.email) {
-          userData = authResponse.data;
-        }
-        
-        if (authResponse.data.token) {
-          token = authResponse.data.token;
-        } else if (authResponse.data.accessToken) {
-          token = authResponse.data.accessToken;
-        }
-      }
-      
-      // Fallback to root level
-      if (!userData) {
-        userData = authResponse.user;
-      }
-      
-      if (!token) {
-        token = authResponse.token || authResponse.accessToken;
-      }
+      await clearOAuthPendingState();
+      const { userData, token } = extractAuthPayload(authResponse);
       
       if (!userData) {
         throw new Error('Google Sign-In response missing user data');
@@ -1378,100 +1206,11 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error('Google Sign-In response missing authentication token');
       }
       
-      // Clear any existing tokens before storing new ones to ensure complete replacement
       await clearAllAuthData();
-      
-      // Clear password reset flag if it exists (user successfully signed in after reset)
-      try {
-        await AsyncStorage.removeItem('passwordResetFlag');
-      } catch (err) {
-        // Silent fail
-      }
-      
-      // Store auth data using the same method as login
-      if ((api as any).auth && typeof (api as any).auth.setAuthData === 'function') {
-        await (api as any).auth.setAuthData({
-          token: token,
-          user: userData
-        });
-      } else {
-        if ((api as any).apiClient && typeof (api as any).apiClient.setAuthToken === 'function') {
-          (api as any).apiClient.setAuthToken(token);
-        }
-        
-        if ((api as any).auth) {
-          (api as any).auth.authToken = token;
-          (api as any).auth.token = token;
-          (api as any).auth.accessToken = token;
-          (api as any).auth.currentUser = userData;
-        }
-      }
-      
-      // CRITICAL: Ensure API client headers are updated immediately after storing token
-      // This prevents race conditions where API calls are made before token is available
-      if ((api as any).apiClient) {
-        if (!(api as any).apiClient.defaultHeaders) {
-          (api as any).apiClient.defaultHeaders = {};
-        }
-        (api as any).apiClient.defaultHeaders['Authorization'] = `Bearer ${token}`;
-      }
-      
-      // Also update auth service properties directly to ensure immediate availability
-      if ((api as any).auth) {
-        (api as any).auth.authToken = token;
-        (api as any).auth.token = token;
-        (api as any).auth.accessToken = token;
-      }
-      
-      // Mark recent login FIRST to prevent immediate 401 handling (before setIsAuthenticated triggers API calls)
-      recentLoginRef.current = Date.now();
-      
-      // Update user state
-      setUser(userData);
-      setIsAuthenticated(true);
-      
-      // Set up token refresh callback for automatic re-registration
-      pushNotificationService.setOnTokenRefreshCallback((newToken) => {
-        if (api.auth.isAuthenticated()) {
-          registerPushToken(newToken).catch((error) => {
-            console.warn('   Failed to re-register token after refresh:', error);
-          });
-        }
-      });
+      await clearPasswordResetFlag();
+      await persistAuthSession(api as any, token, userData);
 
-      // Register for push notifications after successful login (retry: FCM often not ready for ~2s)
-      const tryRegisterPushAfterLogin = async (attempt: number, maxAttempts: number, delayMs: number) => {
-        if (!api.auth.isAuthenticated()) return;
-        try {
-          const pushToken = await pushNotificationService.initialize();
-          if (pushToken) {
-            await registerPushToken(pushToken);
-            return;
-          }
-        } catch (error) {
-          console.error('  Failed to register push notifications:', error);
-          return;
-        }
-        if (attempt < maxAttempts) {
-          console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
-          setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
-        } else {
-          console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
-        }
-      };
-      setTimeout(() => tryRegisterPushAfterLogin(1, 4, 2500), 500);
-
-      // Fetch complete user profile data after login
-      setTimeout(async () => {
-        try {
-          const completeUser = await fetchCompleteUserProfile(userData.id, userData);
-          if (completeUser) {
-            setUser(completeUser as User);
-          }
-        } catch (err) {
-          // Silent fail - profile will load on next refresh
-        }
-      }, 1000);
+      runPostAuthSetup(userData);
       
       return {
         user: userData,
@@ -1481,15 +1220,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     } catch (err: any) {
       console.error('  Google Sign-In failed:', err);
       
-      // Clear AsyncStorage on error (unless it's a cancellation)
-      if (!err?.message?.toLowerCase().includes('cancelled')) {
-        try {
-          await AsyncStorage.removeItem('pending_category');
-          await AsyncStorage.removeItem('pending_role');
-        } catch (clearErr) {
-          console.warn('   Failed to clear AsyncStorage on error:', clearErr);
-        }
-      }
+      await clearOAuthPendingStateOnError(err);
       
       // Don't set error state for category required - let UI handle it
       if (err.code === 'CATEGORY_REQUIRED') {
@@ -1517,21 +1248,14 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
       console.log('    Supabase access token received');
       
       // Step 2: Retrieve category and role from AsyncStorage (stored before OAuth)
-      let storedCategory: string | null = null;
-      let storedRole: string | null = null;
-      try {
-        storedCategory = await AsyncStorage.getItem('pending_category');
-        storedRole = await AsyncStorage.getItem('pending_role');
-        console.log('📋 Retrieved from AsyncStorage:', {
-          category: storedCategory || 'not found',
-          role: storedRole || 'not found',
-        });
-      } catch (storageErr) {
-        console.warn('   Failed to retrieve category/role from AsyncStorage:', storageErr);
-      }
+      const { storedCategory, storedRole } = await readOAuthPendingState();
+      console.log('📋 Retrieved from AsyncStorage:', {
+        category: storedCategory || 'not found',
+        role: storedRole || 'not found',
+      });
       
       // Use stored values if available, otherwise fall back to function parameters
-      const finalCategory = (storedCategory as 'crew' | 'talent' | 'company' | null) || category;
+      const finalCategory = storedCategory || category;
       const finalRole = storedRole || primaryRole;
       
       // Step 3: Use API client method if available (v2.26.0+), otherwise fallback to direct fetch
@@ -1708,59 +1432,25 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         const responseText = await response.text();
         
         if (!response.ok) {
-          let errorMessage = responseText || `HTTP ${response.status}: ${response.statusText}`;
-          try {
-            const errorData = JSON.parse(responseText);
-            errorMessage = errorData.message || errorData.error || errorMessage;
-          } catch {
-            // Not JSON, use text response as error message
-          }
+          const { errorMessage } = parseAuthErrorResponse(
+            responseText,
+            `HTTP ${response.status}: ${response.statusText}`
+          );
           
           // Check if error is about missing category
-          const errorMessageLower = errorMessage.toLowerCase();
-          if (errorMessageLower.includes('category') && errorMessageLower.includes('required')) {
-            // Return a special error that can be caught by the UI to show category selection
-            const categoryError = new Error('CATEGORY_REQUIRED');
-            (categoryError as any).code = 'CATEGORY_REQUIRED';
-            throw categoryError;
+          if (isCategoryRequiredError(errorMessage)) {
+            throw createCategoryRequiredError();
           }
           
           throw new Error(errorMessage);
         }
 
         // Parse response
-        try {
-          authResponse = JSON.parse(responseText);
-        } catch (parseError: any) {
-          console.error('  Failed to parse response as JSON:', responseText);
-          throw new Error(responseText || 'Server returned invalid JSON response');
-        }
+        authResponse = parseAuthResponseJson(responseText);
         
-        // Extract user data and token from fetch response
-        if (authResponse.data) {
-          if (authResponse.data.user) {
-            userData = authResponse.data.user;
-          } else if (authResponse.data.userData) {
-            userData = authResponse.data.userData;
-          } else if (authResponse.data.id || authResponse.data.name || authResponse.data.email) {
-            userData = authResponse.data;
-          }
-          
-          if (authResponse.data.token) {
-            token = authResponse.data.token;
-          } else if (authResponse.data.accessToken) {
-            token = authResponse.data.accessToken;
-          }
-        }
-        
-        // Fallback to root level
-        if (!userData) {
-          userData = authResponse.user;
-        }
-        
-        if (!token) {
-          token = authResponse.token || authResponse.accessToken;
-        }
+        const extractedPayload = extractAuthPayload(authResponse);
+        userData = extractedPayload.userData;
+        token = extractedPayload.token;
       }
       
       if (!userData) {
@@ -1771,108 +1461,12 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
         throw new Error('Apple Sign-In response missing authentication token');
       }
       
-      // Clear AsyncStorage after successful sign-in
-      try {
-        await AsyncStorage.removeItem('pending_category');
-        await AsyncStorage.removeItem('pending_role');
-      } catch (clearErr) {
-        // Silent fail
-      }
-      
-      // Clear any existing tokens before storing new ones to ensure complete replacement
+      await clearOAuthPendingState();
       await clearAllAuthData();
-      
-      // Clear password reset flag if it exists (user successfully signed in after reset)
-      try {
-        await AsyncStorage.removeItem('passwordResetFlag');
-      } catch (err) {
-        // Silent fail
-      }
-      
-      // Store auth data using the same method as login
-      if ((api as any).auth && typeof (api as any).auth.setAuthData === 'function') {
-        await (api as any).auth.setAuthData({
-          token: token,
-          user: userData
-        });
-      } else {
-        if ((api as any).apiClient && typeof (api as any).apiClient.setAuthToken === 'function') {
-          (api as any).apiClient.setAuthToken(token);
-        }
-        
-        if ((api as any).auth) {
-          (api as any).auth.authToken = token;
-          (api as any).auth.token = token;
-          (api as any).auth.accessToken = token;
-          (api as any).auth.currentUser = userData;
-        }
-      }
-      
-      // CRITICAL: Ensure API client headers are updated immediately after storing token
-      // This prevents race conditions where API calls are made before token is available
-      if ((api as any).apiClient) {
-        if (!(api as any).apiClient.defaultHeaders) {
-          (api as any).apiClient.defaultHeaders = {};
-        }
-        (api as any).apiClient.defaultHeaders['Authorization'] = `Bearer ${token}`;
-      }
-      
-      // Also update auth service properties directly to ensure immediate availability
-      if ((api as any).auth) {
-        (api as any).auth.authToken = token;
-        (api as any).auth.token = token;
-        (api as any).auth.accessToken = token;
-      }
-      
-      // Mark recent login FIRST to prevent immediate 401 handling (before setIsAuthenticated triggers API calls)
-      recentLoginRef.current = Date.now();
-      
-      // Update user state
-      setUser(userData);
-      setIsAuthenticated(true);
-      
-      // Set up token refresh callback for automatic re-registration
-      pushNotificationService.setOnTokenRefreshCallback((newToken) => {
-        if (api.auth.isAuthenticated()) {
-          registerPushToken(newToken).catch((error) => {
-            console.warn('   Failed to re-register token after refresh:', error);
-          });
-        }
-      });
+      await clearPasswordResetFlag();
+      await persistAuthSession(api as any, token, userData);
 
-      // Register for push notifications after successful login (retry: FCM often not ready for ~2s)
-      const tryRegisterPushAfterLogin = async (attempt: number, maxAttempts: number, delayMs: number) => {
-        if (!api.auth.isAuthenticated()) return;
-        try {
-          const pushToken = await pushNotificationService.initialize();
-          if (pushToken) {
-            await registerPushToken(pushToken);
-            return;
-          }
-        } catch (error) {
-          console.error('  Failed to register push notifications:', error);
-          return;
-        }
-        if (attempt < maxAttempts) {
-          console.log(`    [Push] FCM token not ready yet (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs / 1000}s...`);
-          setTimeout(() => tryRegisterPushAfterLogin(attempt + 1, maxAttempts, delayMs), delayMs);
-        } else {
-          console.warn('   [Push] Could not get FCM token after', maxAttempts, 'attempts. Check logs above for    [Token] reason.');
-        }
-      };
-      setTimeout(() => tryRegisterPushAfterLogin(1, 4, 2500), 500);
-
-      // Fetch complete user profile data after login
-      setTimeout(async () => {
-        try {
-          const completeUser = await fetchCompleteUserProfile(userData.id, userData);
-          if (completeUser) {
-            setUser(completeUser as User);
-          }
-        } catch (err) {
-          // Silent fail - profile will load on next refresh
-        }
-      }, 1000);
+      runPostAuthSetup(userData);
       
       return {
         user: userData,
@@ -1882,15 +1476,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     } catch (err: any) {
       console.error('  Apple Sign-In failed:', err);
       
-      // Clear AsyncStorage on error (unless it's a cancellation)
-      if (!err?.message?.toLowerCase().includes('cancelled')) {
-        try {
-          await AsyncStorage.removeItem('pending_category');
-          await AsyncStorage.removeItem('pending_role');
-        } catch (clearErr) {
-          console.warn('   Failed to clear AsyncStorage on error:', clearErr);
-        }
-      }
+      await clearOAuthPendingStateOnError(err);
       
       // Don't set error state for category required - let UI handle it
       if (err.code === 'CATEGORY_REQUIRED') {
