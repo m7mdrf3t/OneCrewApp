@@ -711,6 +711,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                     height: '100%',
                   }}
                   contentFit="cover"
+                  cachePolicy="memory-disk"
                   transition={150}
                   onError={(error: any) => {
                     // Mark image as failed to load
@@ -979,6 +980,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
               source={{ uri: userImage }}
               style={styles.headerAvatar}
               contentFit="cover"
+              cachePolicy="memory-disk"
               transition={150}
             />
           ) : (

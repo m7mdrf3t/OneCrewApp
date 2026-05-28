@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useRoute, useNavigation } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { useGlobalModals } from '../contexts/GlobalModalsContext';
@@ -207,30 +207,8 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   }, [navigation]);
 
   // Refetch company data when screen comes into focus to ensure fresh data after approval
-  useFocusEffect(
-    React.useCallback(() => {
-      // Invalidate and refetch company data when screen is focused
-      // This ensures that after approval or visibility changes, the page shows the updated status
-      if (companyId) {
-        // Clear rate limiter cache first to ensure fresh data from backend
-        (async () => {
-          try {
-            const { rateLimiter } = await import('../utils/rateLimiter');
-            await rateLimiter.clearCacheByPattern(`company-${companyId}`);
-            if (__DEV__) {
-              console.log(`🧹 [CompanyProfile] useFocusEffect: Cleared cache for company: ${companyId}`);
-            }
-          } catch (err) {
-            console.warn('⚠️ Could not clear cache in useFocusEffect:', err);
-          }
-        })();
-        
-        // Invalidate React Query cache and refetch
-        queryClient.invalidateQueries({ queryKey: ['company', companyId, 'core'], exact: false });
-        queryClient.refetchQueries({ queryKey: ['company', companyId, 'core'], exact: false });
-      }
-    }, [companyId, queryClient])
-  );
+  // No useFocusEffect cache-busting here — React Query's staleTime controls freshness.
+  // Explicit refresh is triggered by incrementing refreshKey (e.g. after mutations).
 
   const isAcademy = (companyCoreQuery.data?.subcategory || company?.subcategory) === 'academy';
 
@@ -238,6 +216,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const membersQuery = useQuery<CompanyMember[]>({
     queryKey: ['companyMembers', companyId, refreshKey],
     enabled: !!companyId,
+    staleTime: 5 * 60_000, // 5 minutes
     queryFn: async () => {
       let response = await getCompanyMembers(companyId, {
         page: 1,
@@ -309,6 +288,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const servicesQuery = useQuery<CompanyService[]>({
     queryKey: ['companyServices', companyId, refreshKey],
     enabled: shouldLoadServices,
+    staleTime: 5 * 60_000,
     queryFn: async () => {
       console.log('🔍 Fetching company services for:', companyId, { isReadOnly, isCompanyMember, membersQuerySuccess: membersQuery.isSuccess });
       const response = await getCompanyServices(companyId);
@@ -346,6 +326,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const pendingMembersQuery = useQuery<CompanyMember[]>({
     queryKey: ['companyPendingMembers', companyId, refreshKey],
     enabled: !!companyId && (!isReadOnly || (isOwnerOrAdmin && membersQuery.isSuccess)),
+    staleTime: 2 * 60_000, // 2 minutes — pending invites change more often
     queryFn: async () => {
       try {
         const response = await getPendingCompanyMembers(companyId, {
@@ -396,6 +377,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const documentsQuery = useQuery<CompanyDocument[]>({
     queryKey: ['companyDocuments', companyId, refreshKey],
     enabled: !!companyId && (!isReadOnly || (isCompanyMember && membersQuery.isSuccess)),
+    staleTime: 5 * 60_000,
     queryFn: async () => {
       const response = await getCompanyDocuments(companyId);
       if (!response?.success) {
@@ -417,6 +399,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const coursesQuery = useQuery<CourseWithDetails[]>({
     queryKey: ['academyCourses', companyId, refreshKey],
     enabled: !!companyId && isAcademy && !!companyCoreQuery.data, // Only run if company is loaded
+    staleTime: 5 * 60_000,
     queryFn: async () => {
       try {
         const coursesData = await getAcademyCourses(companyId);
@@ -446,6 +429,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
   const certificationsQuery = useQuery<UserCertification[]>({
     queryKey: ['companyCertifications', companyId, refreshKey],
     enabled: !!companyId && isAcademy,
+    staleTime: 5 * 60_000,
     queryFn: async () => {
       const certs = await getCompanyCertifications(companyId);
       return Array.isArray(certs) ? certs : [];

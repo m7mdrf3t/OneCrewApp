@@ -104,6 +104,7 @@ const PromoCarousel: React.FC<PromoCarouselProps> = ({
                 source={{ uri: promo.imageUrl }}
                 style={styles.promoBackgroundImage}
                 contentFit="cover"
+                cachePolicy="memory-disk"
                 transition={150}
               />
             ) : null}

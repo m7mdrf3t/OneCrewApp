@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRoute, useNavigation, useFocusEffect, usePreventRemove } from '@react-navigation/native';
+import { useRoute, useNavigation, usePreventRemove } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
 import { useAppNavigation } from '../navigation/NavigationContext';
 import { spacing, semanticSpacing } from '../constants/spacing';
@@ -857,16 +857,8 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
     }
   });
 
-  // Refetch companies when screen comes into focus (e.g., after editing a course)
-  useFocusEffect(
-    React.useCallback(() => {
-      if (isCompaniesSection) {
-        // Invalidate and refetch companies to ensure fresh data
-        queryClient.invalidateQueries({ queryKey: directoryCompaniesQueryKey });
-        queryClient.refetchQueries({ queryKey: directoryCompaniesQueryKey });
-      }
-    }, [isCompaniesSection, queryClient, directoryCompaniesQueryKey])
-  );
+  // No useFocusEffect refetch here — React Query's staleTime controls freshness.
+  // Explicit invalidation is triggered after mutations (e.g. course edits) via queryClient.invalidateQueries.
 
   // Helper function to check if a user matches the filter criteria
   // Note: Search is handled server-side, so we don't need to filter by searchQuery here
@@ -1526,6 +1518,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                           source={{ uri: company.logo_url }}
                           style={styles.companyCardLogo}
                           contentFit="cover"
+                          cachePolicy="memory-disk"
                           transition={150}
                         />
                       ) : (
@@ -1630,6 +1623,7 @@ const DirectoryPage: React.FC<DirectoryPageProps> = ({
                   source={{ uri: user.image_url }}
                   style={styles.userCardBackgroundImage}
                   contentFit="cover"
+                  cachePolicy="memory-disk"
                   transition={150}
                 />
               ) : (

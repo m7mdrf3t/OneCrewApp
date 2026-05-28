@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Linking, Image, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Linking, Modal } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { UserCertification } from '../types';
 
@@ -62,7 +63,8 @@ const CertificationCard: React.FC<CertificationCardProps> = ({
           <Image
             source={{ uri: certification.certificate_image_url }}
             style={styles.certificateImage}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
           />
           <View style={styles.imageOverlay}>
             <Ionicons name="expand" size={20} color="#fff" />
@@ -86,6 +88,8 @@ const CertificationCard: React.FC<CertificationCardProps> = ({
             <Image
               source={{ uri: certification.certificate_image_url }}
               style={styles.headerIconImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
             />
           ) : (
             <Ionicons
@@ -203,7 +207,8 @@ const CertificationCard: React.FC<CertificationCardProps> = ({
           <Image
             source={{ uri: certification.certificate_image_url }}
             style={styles.imageModalImage}
-            resizeMode="contain"
+            contentFit="contain"
+            cachePolicy="memory-disk"
           />
         )}
       </View>

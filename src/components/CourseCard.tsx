@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { CourseCardProps, CourseStatus } from '../types';
 
@@ -129,7 +130,9 @@ const CourseCard: React.FC<CourseCardProps> = ({
           style={[
             styles.backgroundImage,
             design === 'horizontal' && styles.backgroundImageHorizontal,
-          ]} 
+          ]}
+          contentFit="cover"
+          cachePolicy="memory-disk"
         />
       ) : (
         <View style={[

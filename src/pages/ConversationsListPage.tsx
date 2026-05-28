@@ -370,6 +370,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
             source={{ uri: avatarUrl }}
             style={styles.channelAvatar}
             contentFit="cover"
+            cachePolicy="memory-disk"
             transition={150}
           />
         ) : (
@@ -624,6 +625,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
                     source={{ uri: member.imageUrl }}
                     style={styles.searchResultAvatar}
                     contentFit="cover"
+                    cachePolicy="memory-disk"
                     transition={150}
                   />
                 ) : (
