@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Image, StyleSheet, ActivityIndicator, Linking, Modal, Dimensions, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Linking, Modal, Dimensions, Alert } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -844,7 +845,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   <Image 
                     source={{ uri: allCoverImages[0] }} 
                     style={styles.heroImage}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
                   />
                   {/* Calendar Icon - Top Right */}
                   <TouchableOpacity style={styles.heroCalendarIcon}>
@@ -1390,7 +1392,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                         ].slice(0, 4).map((item, idx) => (
                           <View key={idx} style={styles.albumThumbCell}>
                             {item.type === 'image' ? (
-                              <Image source={{ uri: item.url }} style={styles.albumThumbImage} resizeMode="cover" />
+                              <Image source={{ uri: item.url }} style={styles.albumThumbImage} contentFit="cover" cachePolicy="memory-disk" />
                             ) : (
                               <View style={styles.albumThumbVideoPlaceholder}>
                                 <Ionicons name="videocam" size={20} color="#9ca3af" />
@@ -1429,7 +1431,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                           <Image 
                             source={{ uri: item.url }} 
                             style={styles.imageThumbnail}
-                            resizeMode="cover"
+                            contentFit="cover"
+                            cachePolicy="memory-disk"
                           />
                         </TouchableOpacity>
                       ))}
@@ -1533,7 +1536,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                           <Image
                             source={{ uri: certification.certificate_image_url! }}
                             style={styles.certificateCardImage}
-                            resizeMode="cover"
+                            contentFit="cover"
+                            cachePolicy="memory-disk"
                           />
                           <View style={styles.certificateCardOverlay} />
                         </>

@@ -11,6 +11,8 @@ import {
   Linking,
   useWindowDimensions,
   Alert,
+  Share,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -111,6 +113,36 @@ const NewsDetailPage: React.FC<NewsDetailPageProps> = ({ slug: slugProp, post: i
       return '';
     }
   };
+
+  const handleShare = async () => {
+    if (!post) return;
+    const deepLink = `onecrew://news/${post.slug}`;
+    const content = Platform.OS === 'ios'
+      ? { message: post.title, url: deepLink }
+      : { message: `${post.title}\n${deepLink}` };
+    try {
+      await Share.share(content);
+    } catch {
+      // dismissed
+    }
+  };
+
+  // Set share button in header whenever post is available
+  useEffect(() => {
+    if (!post) return;
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={handleShare}
+          style={{ marginRight: 8, padding: 4 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="share-outline" size={22} color={darkMode ? '#fff' : '#1f2937'} />
+        </TouchableOpacity>
+      ),
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [post, darkMode]);
 
   const handleLikePress = async () => {
     if (!post) return;

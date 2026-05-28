@@ -8,6 +8,8 @@ import {
   Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { shareAppInvite } from '../utils/shareAppInvite';
 import { useAppNavigation } from '../navigation/NavigationContext';
 
@@ -217,6 +219,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             </View>
           </View>
         ))}
+        <AppVersionFooter isDark={isDark} />
       </ScrollView>
     </View>
   );
@@ -305,6 +308,60 @@ const styles = StyleSheet.create({
   separator: {
     height: 1,
     marginLeft: 52, // Align with text after icon
+  },
+});
+
+const AppVersionFooter: React.FC<{ isDark: boolean }> = ({ isDark }) => {
+  const version = Constants.expoConfig?.version ?? '—';
+  const build = Constants.expoConfig?.ios?.buildNumber
+    ?? String(Constants.expoConfig?.android?.versionCode ?? '—');
+
+  // expo-updates info (only meaningful in production builds)
+  let updateLine: string | null = null;
+  if (!__DEV__ && Updates.isEnabled) {
+    const { currentlyRunning } = Updates.useUpdates(); // eslint-disable-line react-hooks/rules-of-hooks
+    if (!currentlyRunning.isEmbeddedLaunch && currentlyRunning.updateId) {
+      updateLine = currentlyRunning.updateId.slice(0, 8).toUpperCase();
+    }
+  }
+
+  const subtle = isDark ? '#4b5563' : '#9ca3af';
+  const label = isDark ? '#6b7280' : '#71717a';
+
+  return (
+    <View style={versionStyles.container}>
+      <Text style={[versionStyles.row, { color: subtle }]}>
+        <Text style={[versionStyles.key, { color: label }]}>Version  </Text>
+        {version}
+        {'   '}
+        <Text style={[versionStyles.key, { color: label }]}>Build  </Text>
+        {build}
+      </Text>
+      {updateLine && (
+        <Text style={[versionStyles.row, { color: subtle }]}>
+          <Text style={[versionStyles.key, { color: label }]}>OTA  </Text>
+          {updateLine}
+        </Text>
+      )}
+    </View>
+  );
+};
+
+const versionStyles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    gap: 4,
+  },
+  row: {
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
+  },
+  key: {
+    fontWeight: '600',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });
 

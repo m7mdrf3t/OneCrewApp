@@ -9,8 +9,8 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { Company, CompanyMemberRole } from '../types';
@@ -373,7 +373,7 @@ const InvitationModal: React.FC<InvitationModalProps> = ({
                         onPress={() => handleSelectUser(user)}
                       >
                         {user.image_url ? (
-                          <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} />
+                          <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} contentFit="cover" cachePolicy="memory-disk" />
                         ) : (
                           <View style={[styles.userItemAvatar, styles.userItemAvatarPlaceholder]}>
                             <Text style={styles.userItemAvatarText}>

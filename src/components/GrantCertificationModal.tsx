@@ -9,8 +9,8 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { Company, CertificationTemplate, CreateCertificationRequest } from '../types';
@@ -827,7 +827,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
                             </View>
                           </View>
                           {user.image_url ? (
-                            <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} />
+                            <Image source={{ uri: user.image_url }} style={styles.userItemAvatar} contentFit="cover" cachePolicy="memory-disk" />
                           ) : (
                             <View style={[styles.userItemAvatar, styles.userItemAvatarPlaceholder]}>
                               <Text style={styles.userItemAvatarText}>
@@ -1029,7 +1029,7 @@ const GrantCertificationModal: React.FC<GrantCertificationModalProps> = ({
               <Text style={styles.sectionTitle}>Certificate Image (Optional)</Text>
               {certificateImageUrl ? (
                 <View style={styles.certificateImageContainer}>
-                  <Image source={{ uri: certificateImageUrl }} style={styles.certificateImagePreview} />
+                  <Image source={{ uri: certificateImageUrl }} style={styles.certificateImagePreview} contentFit="cover" cachePolicy="memory-disk" />
                   <TouchableOpacity
                     style={styles.removeImageButton}
                     onPress={() => setCertificateImageUrl('')}

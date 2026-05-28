@@ -222,7 +222,7 @@ const ForwardMessageModal: React.FC<ForwardMessageModalProps> = ({
                     activeOpacity={0.7}
                   >
                     {avatar ? (
-                      <Image source={{ uri: avatar }} style={styles.avatar} contentFit="cover" />
+                      <Image source={{ uri: avatar }} style={styles.avatar} contentFit="cover" cachePolicy="memory-disk" />
                     ) : (
                       <View style={styles.avatarPlaceholder}>
                         <Text style={styles.avatarInitials}>{getInitials(name)}</Text>

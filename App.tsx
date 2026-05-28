@@ -292,6 +292,11 @@ const AppContent: React.FC = () => {
         });
       }
 
+      // news/:slug  →  NewsDetailPage
+      if (segments[0] === 'news' && segments[1]) {
+        return { screen: 'newsDetail', params: { slug: segments[1] } };
+      }
+
       // company/:companyId/course/:courseId  →  CourseDetailPage
       if (segments[0] === 'company' && segments[2] === 'course' && segments[1] && segments[3]) {
         return { screen: 'courseDetail', params: { courseId: segments[3], companyId: segments[1] } };
@@ -1065,6 +1070,7 @@ const AppContent: React.FC = () => {
                       companyProfile: 'company/:companyId',
                       courseDetail: 'course/:courseId',
                       publicCourses: 'courses',
+                      newsDetail: 'news/:slug',
                     },
                   },
                 }}

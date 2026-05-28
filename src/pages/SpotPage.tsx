@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity, Animated, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity, Animated, Alert, Share, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -170,6 +170,19 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
     }
   }, [onNavigate]);
 
+  const handleSharePress = useCallback(async (post: NewsPost, event: any) => {
+    event?.stopPropagation?.();
+    const deepLink = `onecrew://news/${post.slug}`;
+    const content = Platform.OS === 'ios'
+      ? { message: post.title, url: deepLink }
+      : { message: `${post.title}\n${deepLink}` };
+    try {
+      await Share.share(content);
+    } catch {
+      // dismissed
+    }
+  }, []);
+
   const handleLikePress = useCallback(async (post: NewsPost, event: any) => {
     // Prevent card navigation when like button is pressed
     event?.stopPropagation?.();
@@ -309,23 +322,33 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
               </Text>
             )}
             </View>
-            <TouchableOpacity
-              style={styles.likeButton}
-              onPress={(e) => handleLikePress(post, e)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={post.user_liked ? 'heart' : 'heart-outline'}
-                size={20}
-                color={post.user_liked ? '#ef4444' : (isDark ? '#6b7280' : '#9ca3af')}
-              />
-              {(post.like_count || 0) > 0 && (
-                <Text style={[styles.likeCount, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
-                  {post.like_count}
-                </Text>
-              )}
-            </TouchableOpacity>
+            <View style={styles.footerRight}>
+              <TouchableOpacity
+                style={styles.shareButton}
+                onPress={(e) => handleSharePress(post, e)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="share-outline" size={20} color={isDark ? '#6b7280' : '#9ca3af'} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.likeButton}
+                onPress={(e) => handleLikePress(post, e)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={post.user_liked ? 'heart' : 'heart-outline'}
+                  size={20}
+                  color={post.user_liked ? '#ef4444' : (isDark ? '#6b7280' : '#9ca3af')}
+                />
+                {(post.like_count || 0) > 0 && (
+                  <Text style={[styles.likeCount, { color: isDark ? '#6b7280' : '#9ca3af' }]}>
+                    {post.like_count}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -542,6 +565,15 @@ const styles = StyleSheet.create({
   },
   date: {
     fontSize: 12,
+  },
+  footerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  shareButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   likeButton: {
     flexDirection: 'row',

@@ -9,8 +9,8 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useApi } from '../contexts/ApiContext';
 import { Company, CourseWithDetails, CourseRegistration, User } from '../types';
@@ -514,7 +514,7 @@ const CourseRegistrationModal: React.FC<CourseRegistrationModalProps> = ({
                         >
                           <View style={styles.userInfo}>
                             {user.image_url ? (
-                              <Image source={{ uri: user.image_url }} style={styles.userAvatar} />
+                              <Image source={{ uri: user.image_url }} style={styles.userAvatar} contentFit="cover" cachePolicy="memory-disk" />
                             ) : (
                               <View style={styles.userAvatarPlaceholder}>
                                 <Text style={styles.userAvatarText}>
