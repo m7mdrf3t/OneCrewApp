@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
-import { Platform, InteractionManager } from 'react-native';
+import { InteractionManager, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { User, LoginRequest, SignupRequest } from 'onecrew-api-client';
+import { User, LoginRequest, SignupRequest, AuthResponse } from 'onecrew-api-client';
 import pushNotificationService from '../services/PushNotificationService';
 import streamChatService from '../services/StreamChatService';
 import ReferenceDataService from '../services/ReferenceDataService';

@@ -789,6 +789,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     currentProfileType,
     getAccessToken,
     setUnreadConversationCount,
+    handle401Error,
   });
 
   // Update forward-reference ref so auth methods (runPostAuthSetup) can call getStreamChatToken
@@ -804,7 +805,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     markNotificationAsRead,
     markAllNotificationsAsRead,
     deleteNotification,
-  } = useNotificationMethods({ api, notifications, setNotifications, setUnreadNotificationCount });
+  } = useNotificationMethods({ api, notifications, setNotifications, setUnreadNotificationCount, handle401Error });
 
   // Heartbeat system for online status tracking (Redis-powered)
   const sendHeartbeat = async () => {

@@ -10,6 +10,7 @@ interface UseChatMethodsParams {
   currentProfileType: string;
   getAccessToken: () => string;
   setUnreadConversationCount: (count: number) => void;
+  handle401Error: (error: any) => Promise<void>;
 }
 
 export function useChatMethods({
@@ -19,6 +20,7 @@ export function useChatMethods({
   currentProfileType,
   getAccessToken,
   setUnreadConversationCount,
+  handle401Error,
 }: UseChatMethodsParams) {
   const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
   const getUnreadConversationCount = async (): Promise<number> => {

@@ -1,5 +1,6 @@
 import { User } from 'onecrew-api-client';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
+import performanceMonitor from '../services/PerformanceMonitor';
 import {
   CertificationTemplate,
   UserCertification,
@@ -27,6 +28,7 @@ export function useCertificationMethods({
   activeCompany,
   isAuthenticated,
 }: UseCertificationMethodsParams) {
+  const baseUrl: string = (api as any).baseUrl || 'https://onecrew-backend-staging-309236356616.us-central1.run.app';
   const getCertificationTemplates = async (query?: { active?: boolean; category?: string }) => {
     const cacheKey = `certification-templates-${JSON.stringify(query || {})}`;
     return rateLimiter.execute(cacheKey, async () => {

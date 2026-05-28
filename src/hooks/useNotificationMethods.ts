@@ -14,6 +14,7 @@ interface UseNotificationMethodsParams {
   notifications: Notification[];
   setNotifications: (updater: ((prev: Notification[]) => Notification[]) | Notification[]) => void;
   setUnreadNotificationCount: (updater: ((prev: number) => number) | number) => void;
+  handle401Error: (error: any) => Promise<void>;
 }
 
 export function useNotificationMethods({
@@ -21,6 +22,7 @@ export function useNotificationMethods({
   notifications,
   setNotifications,
   setUnreadNotificationCount,
+  handle401Error,
 }: UseNotificationMethodsParams) {
 
 const NOTIFICATION_FETCH_LIMIT = 100;

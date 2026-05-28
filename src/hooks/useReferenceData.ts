@@ -1,5 +1,5 @@
 import OneCrewApi from 'onecrew-api-client';
-import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
+import { rateLimiter } from '../utils/rateLimiter';
 import performanceMonitor from '../services/PerformanceMonitor';
 
 const DEFAULT_BASE_URL = 'https://onecrew-backend-staging-309236356616.us-central1.run.app';
@@ -370,9 +370,6 @@ const getRoles = async (options?: { category?: 'crew' | 'talent' | 'company' | '
       }
     }
   );
-};
-
-  return roleCategories[role] || 'Other';
 };
 
 const getCategories = async () => {
