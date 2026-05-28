@@ -67,6 +67,10 @@ import { useReferenceData } from '../hooks/useReferenceData';
 import { useUserFilters } from '../hooks/useUserFilters';
 import { useTeamMethods } from '../hooks/useTeamMethods';
 import { useSkillMethods } from '../hooks/useSkillMethods';
+import { usePortfolioMethods } from '../hooks/usePortfolioMethods';
+import { useGuestSession } from '../hooks/useGuestSession';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useAgendaMethods } from '../hooks/useAgendaMethods';
 import {
   countUnreadInAppNotifications,
   filterInAppNotifications,
@@ -3003,449 +3007,66 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     };
   };
 
-  // New API client methods - direct passthrough
-  const getAvailableSkinTones = async () => {
-    return await api.getAvailableSkinTones();
-  };
+  // Portfolio, social links, profile pictures, file upload (extracted)
+  const {
+    getAvailableSkinTones,
+    getAvailableHairColors,
+    getAvailableAbilities,
+    getAvailableLanguages,
+    healthCheck,
+    getUserPortfolio,
+    addPortfolioItem,
+    updatePortfolioItem,
+    removePortfolioItem,
+    getUserSocialLinks,
+    addSocialLink,
+    updateSocialLink,
+    deleteSocialLink,
+    getUserProfilePictures,
+    uploadProfilePicture,
+    setMainProfilePicture,
+    deleteProfilePicture,
+    uploadFile,
+  } = usePortfolioMethods({ api, user, getAccessToken, setSocialLinksRefreshTrigger });
 
-  const getAvailableHairColors = async () => {
-    return await api.getAvailableHairColors();
-  };
+  // Guest session methods (extracted)
+  const {
+    createGuestSession,
+    browseUsersAsGuest,
+    convertGuestToUser,
+    getGuestSessionId,
+  } = useGuestSession({
+    api,
+    guestSessionId,
+    setGuestSessionId,
+    setIsGuest,
+    setIsAuthenticated,
+    setUser,
+  });
 
-  const getAvailableAbilities = async () => {
-    return await api.getAvailableAbilities();
-  };
+  // Online status (extracted)
+  const {
+    getOnlineStatus,
+    getOnlineStatuses,
+  } = useOnlineStatus({ baseUrl, getAccessToken });
 
-  const getAvailableLanguages = async () => {
-    return await api.getAvailableLanguages();
-  };
-
-  const healthCheck = async () => {
-    return performanceMonitor.trackApiCall(
-      'Health Check',
-      `${baseUrl}/api/health`,
-      'GET',
-      () => api.healthCheck()
-    );
-  };
-
-  // Portfolio management methods
-  const getUserPortfolio = async () => {
-    try {
-      console.log('🖼️ Fetching user portfolio...');
-      const response = await api.getUserPortfolio();
-      console.log('    Portfolio fetched successfully:', response.data?.length || 0, 'items');
-      return response;
-    } catch (error: any) {
-      console.error('  Failed to fetch portfolio:', error);
-      throw error;
-    }
-  };
-
-  const addPortfolioItem = async (item: { kind: 'image' | 'video'; url: string; caption?: string; sort_order?: number }) => {
-    try {
-      console.log('➕ Adding portfolio item:', item.kind, item.url);
-      const response = await api.addPortfolioItem(item);
-      console.log('    Portfolio item added successfully:', response.data);
-      return response;
-    } catch (error: any) {
-      console.error('  Failed to add portfolio item:', error);
-      throw error;
-    }
-  };
-
-  const updatePortfolioItem = async (itemId: string, updates: { caption?: string; sort_order?: number }) => {
-    try {
-      console.log('✏️ Updating portfolio item:', itemId, updates);
-      const response = await api.updatePortfolioItem(itemId, updates);
-      console.log('    Portfolio item updated successfully:', response.data);
-      return response;
-    } catch (error: any) {
-      console.error('  Failed to update portfolio item:', error);
-      throw error;
-    }
-  };
-
-  const removePortfolioItem = async (itemId: string) => {
-    try {
-      console.log('🗑️ Removing portfolio item:', itemId);
-      const response = await api.removePortfolioItem(itemId);
-      console.log('    Portfolio item removed successfully');
-      return response;
-    } catch (error: any) {
-      console.error('  Failed to remove portfolio item:', error);
-      throw error;
-    }
-  };
-
-  // Social media links management methods
-  const getUserSocialLinks = async (userId?: string) => {
-    // CRITICAL: Always use the provided userId, never fall back to current user's ID
-    // This ensures we fetch the correct user's social links, not the logged-in user's
-    const targetUserId = userId; // Don't fall back to user?.id - this causes the bug!
-    
-    // Check if fetching for current user or another user
-    const isCurrentUserRequest = !targetUserId || targetUserId === user?.id;
-    
-    // IMPORTANT: Only cache for current user's social links
-    // For other users, always fetch fresh data to avoid showing wrong social links
-    const fetchSocialLinks = async () => {
-      try {
-        console.log('🔗 Fetching user social links...', targetUserId ? `for user ${targetUserId}` : 'for current user (no cache)');
-        const accessToken = getAccessToken();
-        
-        // Always include user_id parameter if provided, otherwise backend returns current user's links
-        const url = targetUserId 
-          ? `${baseUrl}/api/social-links?user_id=${targetUserId}`
-          : `${baseUrl}/api/social-links`;
-        
-        console.log('🔗 API URL:', url);
-        
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`,
-          },
-        });
-
-        const result = await response.json();
-        
-        if (!response.ok) {
-          console.error('  Failed to fetch social links:', result);
-          throw new Error(result.error || 'Failed to fetch social links');
-        }
-
-        // DEBUG: Log the actual response data to verify backend is returning correct user's links
-        if (result.data && Array.isArray(result.data) && result.data.length > 0) {
-          console.log('🔍 [DEBUG] Social links response data:', JSON.stringify(result.data, null, 2));
-          const firstLink = result.data[0];
-          if (firstLink.user_id) {
-            console.log('🔍 [DEBUG] First link user_id:', firstLink.user_id, 'Expected:', targetUserId);
-            if (firstLink.user_id !== targetUserId) {
-              console.error('  [BUG DETECTED] Backend returned wrong user\'s social links!');
-              console.error('   Expected user_id:', targetUserId);
-              console.error('   Got user_id:', firstLink.user_id);
-              console.error('   This is a BACKEND bug - the API is ignoring the user_id parameter');
-            } else {
-              console.log('    [DEBUG] Backend returned correct user\'s social links');
-            }
-          }
-        }
-
-        console.log('    Social links fetched successfully for user', targetUserId || 'current', ':', result.data?.length || 0, 'links');
-        return result;
-      } catch (error: any) {
-        console.error('  Failed to fetch social links for user', targetUserId || 'current', ':', error);
-        throw error;
-      }
-    };
-    
-    // Only cache for current user's own social links
-    // For other users, always fetch fresh to avoid showing wrong data
-    if (isCurrentUserRequest) {
-      const cacheKey = 'user-social-links-current';
-      return rateLimiter.execute(cacheKey, fetchSocialLinks, { ttl: CacheTTL.SHORT, persistent: false });
-    } else {
-      // NO CACHING for other users' social links - always fetch fresh!
-      console.log('🔗 Fetching OTHER user social links (no cache) for:', targetUserId);
-      return fetchSocialLinks();
-    }
-  };
-
-  const addSocialLink = async (linkData: { platform: string; url: string; is_custom?: boolean }) => {
-    try {
-      console.log('➕ Adding social link:', linkData);
-      const accessToken = getAccessToken();
-      const response = await fetch(`${baseUrl}/api/social-links`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          platform: linkData.platform,
-          url: linkData.url,
-          is_custom: linkData.is_custom || false,
-        }),
-      });
-
-      const result = await response.json();
-      
-      if (!response.ok) {
-        console.error('  Failed to add social link:', result);
-        throw new Error(result.error || 'Failed to add social link');
-      }
-
-      // Invalidate all social links caches (for current user and any specific userId)
-      await rateLimiter.clearCache('user-social-links');
-      await rateLimiter.clearCacheByPattern('user-social-links');
-      // Trigger refresh in components that display social links
-      setSocialLinksRefreshTrigger(prev => prev + 1);
-      
-      console.log('    Social link added successfully:', result.data);
-      return result;
-    } catch (error: any) {
-      console.error('  Failed to add social link:', error);
-      throw error;
-    }
-  };
-
-  const updateSocialLink = async (linkId: string, updates: { platform?: string; url?: string; is_custom?: boolean }) => {
-    try {
-      console.log('✏️ Updating social link:', linkId, updates);
-      const accessToken = getAccessToken();
-      const response = await fetch(`${baseUrl}/api/social-links/${linkId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(updates),
-      });
-
-      const result = await response.json();
-      
-      if (!response.ok) {
-        console.error('  Failed to update social link:', result);
-        throw new Error(result.error || 'Failed to update social link');
-      }
-
-      // Invalidate all social links caches (for current user and any specific userId)
-      await rateLimiter.clearCache('user-social-links');
-      await rateLimiter.clearCacheByPattern('user-social-links');
-      // Trigger refresh in components that display social links
-      setSocialLinksRefreshTrigger(prev => prev + 1);
-      
-      console.log('    Social link updated successfully:', result.data);
-      return result;
-    } catch (error: any) {
-      console.error('  Failed to update social link:', error);
-      throw error;
-    }
-  };
-
-  const deleteSocialLink = async (linkId: string) => {
-    try {
-      console.log('🗑️ Deleting social link:', linkId);
-      const accessToken = getAccessToken();
-      const response = await fetch(`${baseUrl}/api/social-links/${linkId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-
-      const result = await response.json();
-      
-      if (!response.ok) {
-        console.error('  Failed to delete social link:', result);
-        throw new Error(result.error || 'Failed to delete social link');
-      }
-
-      // Invalidate all social links caches (for current user and any specific userId)
-      await rateLimiter.clearCache('user-social-links');
-      await rateLimiter.clearCacheByPattern('user-social-links');
-      // Trigger refresh in components that display social links
-      setSocialLinksRefreshTrigger(prev => prev + 1);
-      
-      console.log('    Social link deleted successfully');
-      return result;
-    } catch (error: any) {
-      console.error('  Failed to delete social link:', error);
-      throw error;
-    }
-  };
-
-  // Profile picture management methods
-  const getUserProfilePictures = async (userId: string) => {
-    const cacheKey = `user-profile-pictures-${userId}`;
-    return rateLimiter.execute(cacheKey, async () => {
-      try {
-        console.log('🖼️ Fetching profile pictures for user:', userId);
-        const response = await api.getUserProfilePictures(userId);
-        console.log('    Profile pictures fetched successfully:', response.data?.length || 0, 'pictures');
-        return response;
-      } catch (error: any) {
-        console.error('  Failed to fetch profile pictures:', error);
-        throw error;
-      }
-    }, { ttl: CacheTTL.MEDIUM, persistent: false }); // Pictures change occasionally; cache briefly to speed profile loads
-  };
-
-  const uploadProfilePicture = async (file: any, isMain: boolean = false) => {
-    try {
-      console.log('📤 Uploading profile picture, isMain:', isMain);
-      const response = await api.uploadProfilePicture(file, isMain);
-      console.log('    Profile picture uploaded successfully');
-      // Invalidate profile pictures cache (current user)
-      const targetUserId = (response as any)?.data?.user_id || user?.id;
-      if (targetUserId) {
-        await rateLimiter.clearCache(`user-profile-pictures-${targetUserId}`);
-      } else {
-        await rateLimiter.clearCacheByPattern('user-profile-pictures-');
-      }
-      return response;
-    } catch (error: any) {
-      console.error('  Failed to upload profile picture:', error);
-      throw error;
-    }
-  };
-
-  const setMainProfilePicture = async (userId: string, pictureId: string) => {
-    try {
-      console.log('⭐ Setting main profile picture:', pictureId, 'for user:', userId);
-      const response = await api.setMainProfilePicture(userId, pictureId);
-      console.log('    Main profile picture set successfully');
-      await rateLimiter.clearCache(`user-profile-pictures-${userId}`);
-      return response;
-    } catch (error: any) {
-      console.error('  Failed to set main profile picture:', error);
-      throw error;
-    }
-  };
-
-  const deleteProfilePicture = async (userId: string, pictureId: string) => {
-    try {
-      console.log('🗑️ Deleting profile picture:', pictureId, 'for user:', userId);
-      const response = await api.deleteProfilePicture(userId, pictureId);
-      console.log('    Profile picture deleted successfully');
-      await rateLimiter.clearCache(`user-profile-pictures-${userId}`);
-      return response;
-    } catch (error: any) {
-      console.error('  Failed to delete profile picture:', error);
-      throw error;
-    }
-  };
-
-  // File upload methods
-  const uploadFile = async (file: { uri: string; type: string; name: string }) => {
-    try {
-      console.log('📤 Uploading file:', file.name, file.type);
-      
-      // Use the correct endpoint /api/media/upload instead of /api/upload
-      const formData = new FormData();
-      formData.append('file', {
-        uri: file.uri,
-        type: file.type,
-        name: file.name,
-      } as any);
-      
-      // Add required media_type field based on file type
-      const mediaType = file.type.startsWith('image/') ? 'image' : 
-                       file.type.startsWith('video/') ? 'video' : 
-                       file.type.startsWith('audio/') ? 'audio' : 'image';
-      formData.append('media_type', mediaType);
-
-      // Debug: Log what we're sending
-      console.log('🔍 FormData file object:', {
-        uri: file.uri,
-        type: file.type,
-        name: file.name,
-        media_type: mediaType,
-      });
-
-      const accessToken = getAccessToken();
-      
-      // Don't set Content-Type manually - let fetch() handle it with proper boundary
-      const response = await fetch(`${baseUrl}/api/media/upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          // Remove Content-Type - let fetch() set it automatically
-        },
-        body: formData,
-      });
-
-      const result = await response.json();
-      
-      if (!response.ok) {
-        console.error('  Upload failed with status:', response.status);
-        console.error('  Response:', result);
-        throw new Error(result.error || `Upload failed with status ${response.status}`);
-      }
-
-      console.log('    File uploaded successfully:', result);
-      
-      // The backend returns the URL in result.data.file_url, not result.data.url
-      const uploadResponse = {
-        url: result.data.file_url,
-        filename: result.data.title || file.name,
-        size: result.data.file_size,
-        type: result.data.media_type,
-      };
-      
-      console.log('🔗 Extracted upload response:', uploadResponse);
-      return { 
-        success: true,
-        data: uploadResponse 
-      };
-    } catch (error: any) {
-      console.error('  Failed to upload file:', error);
-      throw error;
-    }
-  };
-
-  // Guest session methods
-  const createGuestSession = async (): Promise<GuestSessionData> => {
-    try {
-      console.log('🎭 Creating guest session...');
-      const response = await api.createGuestSession();
-      if (response.success && response.data) {
-        setGuestSessionId(response.data.sessionId);
-        setIsGuest(true);
-        console.log('🎭 Guest session created:', response.data.sessionId);
-        return response.data;
-      } else {
-        throw new Error(response.error || 'Failed to create guest session');
-      }
-    } catch (error) {
-      console.error('Failed to create guest session:', error);
-      throw error;
-    }
-  };
-
-  // Browse users as guest - accepts all FilterParams for comprehensive filtering
-  const browseUsersAsGuest = async (params?: FilterParams & { page?: number; limit?: number }) => {
-    if (!guestSessionId) {
-      throw new Error('No guest session available');
-    }
-    try {
-      console.log('🎭 Browsing users as guest...', params);
-      // The underlying API client may only support basic params, but we pass all params
-      // The backend should handle unsupported params gracefully
-      const response = await api.browseUsersAsGuest(guestSessionId, params);
-      return response;
-    } catch (error) {
-      console.error('Failed to browse users as guest:', error);
-      throw error;
-    }
-  };
-
-  const convertGuestToUser = async (request: ConvertGuestToUserRequest): Promise<AuthResponse> => {
-    try {
-      console.log('🎭 Converting guest to user...');
-      const response = await api.convertGuestToUser(request);
-      if (response.success && response.data) {
-        setIsGuest(false);
-        setGuestSessionId(null);
-        setIsAuthenticated(true);
-        setUser(response.data.user);
-        console.log('🎭 Guest converted to user:', response.data.user.name);
-        return response.data;
-      } else {
-        throw new Error(response.error || 'Failed to convert guest to user');
-      }
-    } catch (error) {
-      console.error('Failed to convert guest to user:', error);
-      throw error;
-    }
-  };
-
-  const getGuestSessionId = (): string | null => {
-    return guestSessionId;
-  };
+  // Agenda + booking (extracted)
+  const {
+    getAgendaEvents,
+    getAgendaEvent,
+    createAgendaEvent,
+    updateAgendaEvent,
+    deleteAgendaEvent,
+    getEventAttendees,
+    addEventAttendee,
+    updateAttendeeStatus,
+    removeEventAttendee,
+    getBookingRequests,
+    getBookingRequest,
+    createBookingRequest,
+    respondToBookingRequest,
+    cancelBookingRequest,
+  } = useAgendaMethods({ isAuthenticated, user, getAccessToken });
 
   // Project + task management methods (extracted)
   const {
@@ -4008,197 +3629,7 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     setUnreadConversationCount,
   });
 
-  // Online status methods
-  const getOnlineStatus = async (userId: string) => {
-    try {
-      const accessToken = getAccessToken();
-      const response = await fetch(`${baseUrl}/api/users/${userId}/online-status`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      return data;
-    } catch (error: any) {
-      console.error('  Failed to get online status:', error);
-      throw error;
-    }
-  };
-
-  const getOnlineStatuses = async (userIds: string[]) => {
-    try {
-      const accessToken = getAccessToken();
-      const response = await fetch(`${baseUrl}/api/users/online-statuses`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ user_ids: userIds }),
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      return data;
-    } catch (error: any) {
-      console.error('  Failed to get online statuses:', error);
-      throw error;
-    }
-  };
-
   // =====================================================
-
-  // AGENDA METHODS
-  // ====================================================
-
-
-  // Initialize agenda service with access token when authenticated
-  useEffect(() => {
-    if (isAuthenticated && user) {
-      const token = getAccessToken();
-      if (token) {
-        agendaService.setAccessToken(token);
-      }
-    }
-  }, [isAuthenticated, user]);
-
-  const getAgendaEvents = async (params?: GetAgendaEventsParams): Promise<AgendaEvent[]> => {
-    try {
-      return await agendaService.getEvents(params);
-    } catch (error: any) {
-      console.error('  Failed to get agenda events:', error);
-      throw error;
-    }
-  };
-
-  const getAgendaEvent = async (eventId: string): Promise<AgendaEvent> => {
-    try {
-      return await agendaService.getEvent(eventId);
-    } catch (error: any) {
-      console.error('  Failed to get agenda event:', error);
-      throw error;
-    }
-  };
-
-  const createAgendaEvent = async (eventData: CreateAgendaEventRequest): Promise<AgendaEvent> => {
-    try {
-      return await agendaService.createEvent(eventData);
-    } catch (error: any) {
-      console.error('Failed to create agenda event:', error);
-      throw error;
-    }
-  };
-
-  const updateAgendaEvent = async (eventId: string, updates: UpdateAgendaEventRequest): Promise<AgendaEvent> => {
-    try {
-      return await agendaService.updateEvent(eventId, updates);
-    } catch (error: any) {
-      console.error('Failed to update agenda event:', error);
-      throw error;
-    }
-  };
-
-  const deleteAgendaEvent = async (eventId: string): Promise<void> => {
-    try {
-      await agendaService.deleteEvent(eventId);
-    } catch (error: any) {
-      console.error('Failed to delete agenda event:', error);
-      throw error;
-    }
-  };
-
-  const getEventAttendees = async (eventId: string): Promise<AgendaEventAttendee[]> => {
-    try {
-      return await agendaService.getEventAttendees(eventId);
-    } catch (error: any) {
-      console.error('  Failed to get event attendees:', error);
-      throw error;
-    }
-  };
-
-  const addEventAttendee = async (eventId: string, userId: string): Promise<AgendaEventAttendee> => {
-    try {
-      return await agendaService.addEventAttendee(eventId, userId);
-    } catch (error: any) {
-      console.error('  Failed to add event attendee:', error);
-      throw error;
-    }
-  };
-
-  const updateAttendeeStatus = async (eventId: string, attendeeId: string, status: 'accepted' | 'declined'): Promise<AgendaEventAttendee> => {
-    try {
-      return await agendaService.updateAttendeeStatus(eventId, attendeeId, status);
-    } catch (error: any) {
-      console.error('  Failed to update attendee status:', error);
-      throw error;
-    }
-  };
-
-  const removeEventAttendee = async (eventId: string, attendeeId: string): Promise<void> => {
-    try {
-      await agendaService.removeEventAttendee(eventId, attendeeId);
-    } catch (error: any) {
-      console.error('  Failed to remove event attendee:', error);
-      throw error;
-    }
-  };
-
-  const getBookingRequests = async (params?: GetBookingRequestsParams): Promise<BookingRequest[]> => {
-    try {
-      return await agendaService.getBookingRequests(params);
-    } catch (error: any) {
-      console.error('  Failed to get booking requests:', error);
-      throw error;
-    }
-  };
-
-  const getBookingRequest = async (requestId: string): Promise<BookingRequest> => {
-    try {
-      return await agendaService.getBookingRequest(requestId);
-    } catch (error: any) {
-      console.error('  Failed to get booking request:', error);
-      throw error;
-    }
-  };
-
-  const createBookingRequest = async (requestData: CreateBookingRequestRequest): Promise<BookingRequest> => {
-    try {
-      return await agendaService.createBookingRequest(requestData);
-    } catch (error: any) {
-      console.error('  Failed to create booking request:', error);
-      throw error;
-    }
-  };
-
-  const respondToBookingRequest = async (requestId: string, response: RespondToBookingRequestRequest): Promise<BookingRequest> => {
-    try {
-      return await agendaService.respondToBookingRequest(requestId, response);
-    } catch (error: any) {
-      console.error('  Failed to respond to booking request:', error);
-      throw error;
-    }
-  };
-
-  const cancelBookingRequest = async (requestId: string): Promise<void> => {
-    try {
-      await agendaService.cancelBookingRequest(requestId);
-    } catch (error: any) {
-      console.error('  Failed to cancel booking request:', error);
-      throw error;
-    }
-  };
 
   const value: ApiContextType = {
     api,
