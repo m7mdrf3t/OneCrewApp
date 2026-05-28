@@ -1134,8 +1134,6 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({
     setUnreadConversationCount,
   });
 
-  // =====================================================
-
   const value: ApiContextType = {
     api,
     isAuthenticated,
