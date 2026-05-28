@@ -141,7 +141,6 @@ const AppContent: React.FC = () => {
       'allAgenda': 'allAgenda',
       'bookingRequests': 'bookingRequests',
       'weeklySchedule': 'weeklySchedule',
-      'performanceTest': 'performanceTest',
       'coursesManagement': 'coursesManagement',
       'courseEdit': 'courseEdit',
       'courseDetail': 'courseDetail',
