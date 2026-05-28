@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, Image, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity, Animated, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl, TouchableOpacity, Animated, Alert } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useApi } from '../contexts/ApiContext';
@@ -55,13 +56,13 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
     }, [])
   );
 
-  const loadNews = useCallback(async (pageNum: number = 1, append: boolean = false) => {
+  const loadNews = useCallback(async (pageNum: number = 1, append: boolean = false, showFullLoader: boolean = true) => {
     try {
       setError(null);
       
       if (append) {
         setLoadingMore(true);
-      } else if (pageNum === 1) {
+      } else if (pageNum === 1 && showFullLoader) {
         setIsLoading(true);
       }
       
@@ -126,10 +127,18 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
     }
   }, [searchQuery, getPublishedNews]);
 
+  // Track which searchQuery the list was last loaded for, so we only show
+  // the full-screen spinner on the first load or when the search term changes.
+  // Subsequent re-runs caused by an unstable `getPublishedNews` reference will
+  // fetch in the background without blanking the screen.
+  const loadedForSearchRef = React.useRef<string | symbol>(Symbol('unset'));
+
   useEffect(() => {
+    const isNewSearch = loadedForSearchRef.current !== searchQuery;
+    loadedForSearchRef.current = searchQuery;
     setPage(1);
     setHasMore(true);
-    loadNews(1, false);
+    loadNews(1, false, isNewSearch);
   }, [searchQuery, loadNews]);
 
   const onRefresh = useCallback(async () => {
@@ -249,7 +258,8 @@ const SpotPage: React.FC<SpotPageProps> = ({ isDark, onNavigate: onNavigateProp 
           <Image
             source={{ uri: post.photo_url || post.thumbnail_url }}
             style={styles.image}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
           />
         )}
         <View style={styles.content}>

@@ -183,8 +183,8 @@ export function useAuthMethods({
 
   // Initialize API client
   const initializeApi = async () => {
-      // Test connectivity (non-blocking - if it fails, we'll still try to initialize)
-      await testConnectivity();
+      // Test connectivity in the background — truly non-blocking
+      testConnectivity();
       
       try {
         await api.initialize();

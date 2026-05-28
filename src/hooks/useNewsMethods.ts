@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { rateLimiter, CacheTTL } from '../utils/rateLimiter';
 
 interface UseNewsMethodsParams {
@@ -10,7 +11,7 @@ export function useNewsMethods({
   getAccessToken,
 }: UseNewsMethodsParams) {
   const baseUrl = (api as any).baseUrl || 'https://onecrew-backend-staging-q5pyrx7ica-uc.a.run.app';
-  const getPublishedNews = async (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest' }) => {
+  const getPublishedNews = useCallback(async (filters?: { category?: string; tags?: string[]; search?: string; page?: number; limit?: number; sort?: 'newest' | 'oldest' }) => {
     const cacheKey = `published-news-${JSON.stringify(filters || {})}`;
     return rateLimiter.execute(cacheKey, async () => {
       try {
@@ -23,7 +24,7 @@ export function useNewsMethods({
         throw error;
       }
     }, { ttl: CacheTTL.MEDIUM, persistent: true }); // News posts change when published/updated - 5min TTL with persistence
-  };
+  }, [api]);
 
   const getNewsPostBySlug = async (slug: string) => {
     const cacheKey = `news-post-${slug}`;

@@ -30,6 +30,7 @@ import TabBar from './src/components/TabBar';
 import SplashScreen from './src/components/SplashScreen';
 import SkeletonScreen from './src/components/SkeletonScreen';
 import GlobalModals from './src/components/GlobalModals';
+import OTAUpdateBanner from './src/components/OTAUpdateBanner';
 // Data
 import { ProjectCreationData, ProjectDashboardData } from './src/types';
 
@@ -1144,6 +1145,7 @@ const App: React.FC = () => {
                 <AppContent />
               </StreamChatProvider>
             </ApiProvider>
+            <OTAUpdateBanner />
           </SafeAreaProvider>
         </QueryClientProvider>
       </GestureHandlerRootView>
