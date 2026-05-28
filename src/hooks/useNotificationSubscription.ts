@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Notification } from '../types';
 import supabaseService from '../services/SupabaseService';
 import {
   countUnreadInAppNotifications,
@@ -73,7 +74,7 @@ export const useNotificationSubscription = ({
       const channelId = supabaseService.subscribeToNotifications(
         userId,
         (newNotification: Notification) => {
-          console.log('📨 New notification received via real-time:', newNotification);
+          console.log('New notification received via real-time:', newNotification);
 
           const normalized = normalizeNotification(
             newNotification as unknown as Record<string, unknown>
@@ -126,7 +127,7 @@ export const useNotificationSubscription = ({
       if (channelIdRef.current) {
         supabaseService.unsubscribe(channelIdRef.current);
         channelIdRef.current = null;
-        console.log('🔌 Unsubscribed from real-time notifications');
+        console.log('Unsubscribed from real-time notifications');
       }
     };
   }, [isAuthenticated, userId]);
