@@ -12,10 +12,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { ChannelList } from 'stream-chat-react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { RootStackScreenProps } from '../navigation/types';
 import { useAppNavigation } from '../navigation/NavigationContext';
@@ -52,6 +54,8 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     browseUsersAsGuest,
     getCompanies,
     isGuest,
+    getAccessToken,
+    getBaseUrl,
   } = useApi();
   const { clientReady } = useStreamChatReady();
   const isConnected = streamChatService.isConnected();
@@ -59,6 +63,9 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [memberSearchResults, setMemberSearchResults] = useState<SearchMemberResult[]>([]);
   const [isSearchingMembers, setIsSearchingMembers] = useState(false);
+  const [deletingChannelCid, setDeletingChannelCid] = useState<string | null>(null);
+  const [hiddenChannelKeys, setHiddenChannelKeys] = useState<string[]>([]);
+  const [channelListRefreshNonce, setChannelListRefreshNonce] = useState(0);
 
   const onBack = onBackProp || goBack;
 
@@ -71,8 +78,8 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   // CRITICAL: Create a key that changes when profile switches
   // This forces ChannelList to remount and re-query when switching profiles
   const channelListKey = useMemo(() => {
-    return `${currentStreamUserId || 'no-user'}-${currentProfileType}-${activeCompany?.id || 'no-company'}`;
-  }, [currentStreamUserId, currentProfileType, activeCompany?.id]);
+    return `${currentStreamUserId || 'no-user'}-${currentProfileType}-${activeCompany?.id || 'no-company'}-${channelListRefreshNonce}`;
+  }, [currentStreamUserId, currentProfileType, activeCompany?.id, channelListRefreshNonce]);
 
   // Log profile changes for debugging
   useEffect(() => {
@@ -120,7 +127,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     console.log('💬 [ConversationsListPage] Extracted conversation ID:', conversationId, 'from:', channelIdentifier);
     
     if (conversationId) {
-      console.log('✅ [ConversationsListPage] Navigating to chat with conversationId:', conversationId);
+      console.log('[ConversationsListPage] Navigating to chat with conversationId:', conversationId);
       
       // Try custom navigateTo first, then fallback to React Navigation
       if (navigateTo) {
@@ -153,6 +160,118 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       (navigation as any).navigate('chat', { participant: member.participant });
     }
   }, [navigateTo, navigation]);
+
+  const handleDeleteConversation = useCallback((channel: any) => {
+    if (!channel) return;
+
+    const channelIdentifier = channel.id || channel.cid || '';
+    const extractedConversationId = getOneCrewConversationId(channelIdentifier);
+    const fallbackConversationId =
+      channel?.data?.conversation_id ||
+      extractedConversationId ||
+      channel?.id;
+
+    if (!fallbackConversationId) {
+      Alert.alert('Error', 'Could not identify this conversation.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete chat?',
+      'This will permanently remove this chat from your conversations.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const targetCid = channel?.cid || channel?.id || fallbackConversationId;
+
+            try {
+              setDeletingChannelCid(targetCid);
+
+              const idCandidates = Array.from(new Set([
+                channel?.data?.conversation_id,
+                extractedConversationId,
+                channel?.id,
+              ].filter(Boolean)));
+
+              let deleteSucceeded = false;
+              let lastError: any = null;
+
+              for (const candidateId of idCandidates) {
+                try {
+                  const token = getAccessToken();
+                  if (!token) {
+                    throw new Error('No access token available');
+                  }
+
+                  const baseUrl = getBaseUrl();
+                  const params = new URLSearchParams({
+                    profile_type: currentProfileType === 'company' ? 'company' : 'user',
+                  });
+
+                  if (currentProfileType === 'company' && activeCompany?.id) {
+                    params.set('company_id', activeCompany.id);
+                  }
+
+                  const url = `${baseUrl}/api/chat/conversations/${encodeURIComponent(String(candidateId))}?${params.toString()}`;
+                  const response = await fetch(url, {
+                    method: 'DELETE',
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                      'Content-Type': 'application/json',
+                    },
+                  });
+
+                  const result = await response.json().catch(() => ({}));
+                  if (!response.ok || result?.success === false) {
+                    throw new Error(result?.error || `HTTP ${response.status}: ${response.statusText}`);
+                  }
+
+                  deleteSucceeded = true;
+                  break;
+                } catch (err) {
+                  lastError = err;
+                }
+              }
+
+              if (!deleteSucceeded) {
+                throw lastError || new Error('Failed to delete conversation');
+              }
+
+              try {
+                await channel?.stopWatching?.();
+              } catch (err) {
+                if (__DEV__) {
+                  console.warn('⚠️ [ConversationsListPage] stopWatching failed after delete:', err);
+                }
+              }
+
+              // Hide deleted row immediately from local list rendering.
+              setHiddenChannelKeys((prev) => {
+                const next = new Set(prev);
+                if (channel?.cid) next.add(String(channel.cid));
+                if (channel?.id) next.add(String(channel.id));
+                if (channel?.data?.conversation_id) next.add(String(channel.data.conversation_id));
+                if (extractedConversationId) next.add(String(extractedConversationId));
+                return Array.from(next);
+              });
+
+              setChannelListRefreshNonce((prev) => prev + 1);
+              Alert.alert('Removed', 'Chat was removed successfully.');
+            } catch (err: any) {
+              console.error('❌ [ConversationsListPage] Failed to delete conversation:', err);
+              Alert.alert('Error', err?.message || 'Failed to delete chat. Please try again.');
+            } finally {
+              setDeletingChannelCid(null);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [getAccessToken, getBaseUrl, currentProfileType, activeCompany?.id]);
 
   // Custom filters for channels
   // Only show channels where current user is a member
@@ -212,7 +331,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
 
         const usersPromise = isGuest
           ? browseUsersAsGuest(userParams)
-          : getUsersDirect(userParams).catch(async () => api.getUsers({ q: debouncedSearchQuery, limit: 8, page: 1 }));
+          : getUsersDirect(userParams).catch(async () => api.getUsers({ search: debouncedSearchQuery, limit: 8, page: 1 }));
 
         const [usersResponse, companiesResponse] = await Promise.all([
           usersPromise,
@@ -352,61 +471,86 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       ? `Forwarded: ${lastMessageBody}`
       : lastMessageBody;
     const unreadCount = channel?.state?.unreadCount || 0;
+    const channelCid = channel?.cid || channel?.id;
+    const isDeleting = !!channelCid && deletingChannelCid === channelCid;
 
     return (
-      <TouchableOpacity
-        style={styles.channelPreview}
-        onPress={() => {
-          console.log('👆 [ChannelPreview] Channel tapped:', {
-            channelId: channel.id,
-            channelCid: channel.cid,
-          });
-          handleChannelSelect(channel);
-        }}
-        activeOpacity={0.7}
-      >
-        {avatarUrl ? (
-          <Image
-            source={{ uri: avatarUrl }}
-            style={styles.channelAvatar}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            transition={150}
-          />
-        ) : (
-          <View style={styles.channelAvatarPlaceholder}>
-            <Text style={styles.channelAvatarText}>{getInitials(displayName)}</Text>
-          </View>
-        )}
-        <View style={styles.channelContent}>
-          <View style={styles.channelHeader}>
-            <Text style={[styles.channelName, unreadCount > 0 && styles.channelNameUnread]}>
-              {displayName}
-            </Text>
-            {lastMessage?.created_at && (
-              <Text style={styles.channelTime}>
-                {formatTime(lastMessage.created_at)}
-              </Text>
-            )}
-          </View>
-          <Text 
-            style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]}
-            numberOfLines={1}
+      <Swipeable
+        enabled={!isDeleting}
+        overshootRight={false}
+        rightThreshold={40}
+        renderRightActions={() => (
+          <TouchableOpacity
+            style={styles.swipeDeleteButton}
+            onPress={() => handleDeleteConversation(channel)}
+            activeOpacity={0.85}
           >
-            {lastMessageText}
-          </Text>
-        </View>
-        {unreadCount > 0 && (
-          <View style={styles.unreadBadge}>
-            <Text style={styles.unreadBadgeText}>
-              {unreadCount > 99 ? '99+' : unreadCount}
+            <Ionicons name="trash-outline" size={18} color="#fff" />
+            <Text style={styles.swipeDeleteText}>Delete</Text>
+          </TouchableOpacity>
+        )}
+      >
+        <TouchableOpacity
+          style={[styles.channelPreview, isDeleting && styles.channelPreviewDeleting]}
+          onPress={() => {
+            console.log('👆 [ChannelPreview] Channel tapped:', {
+              channelId: channel.id,
+              channelCid: channel.cid,
+            });
+            handleChannelSelect(channel);
+          }}
+          activeOpacity={0.7}
+          disabled={isDeleting}
+        >
+          {avatarUrl ? (
+            <Image
+              source={{ uri: avatarUrl }}
+              style={styles.channelAvatar}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={150}
+            />
+          ) : (
+            <View style={styles.channelAvatarPlaceholder}>
+              <Text style={styles.channelAvatarText}>{getInitials(displayName)}</Text>
+            </View>
+          )}
+          <View style={styles.channelContent}>
+            <View style={styles.channelHeader}>
+              <Text style={[styles.channelName, unreadCount > 0 && styles.channelNameUnread]}>
+                {displayName}
+              </Text>
+              {lastMessage?.created_at && (
+                <Text style={styles.channelTime}>
+                  {formatTime(lastMessage.created_at)}
+                </Text>
+              )}
+            </View>
+            <Text
+              style={[
+                styles.lastMessage,
+                unreadCount > 0 && styles.lastMessageUnread,
+                isDeleting && styles.lastMessageDeleting,
+              ]}
+              numberOfLines={1}
+            >
+              {isDeleting ? 'Removing...' : lastMessageText}
             </Text>
           </View>
-        )}
-        <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-      </TouchableOpacity>
+          {isDeleting ? (
+            <ActivityIndicator size="small" color="#94A3B8" style={{ marginRight: 8 }} />
+          ) : unreadCount > 0 ? (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </Text>
+            </View>
+          ) : null}
+          <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+        </TouchableOpacity>
+      </Swipeable>
     );
-  }, [currentStreamUserId, getInitials, handleChannelSelect]));
+  }, [currentStreamUserId, getInitials, handleChannelSelect, handleDeleteConversation, deletingChannelCid]));
 
   // Format time helper
   const formatTime = (timestamp: string | Date): string => {
@@ -605,6 +749,13 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         />
       </View>
 
+      {deletingChannelCid ? (
+        <View style={styles.removingBanner}>
+          <ActivityIndicator size="small" color="#dc2626" />
+          <Text style={styles.removingBannerText}>Removing chat...</Text>
+        </View>
+      ) : null}
+
       {hasActiveMemberSearch ? (
         <View style={styles.searchResultsContainer}>
           {isSearchingMembers ? (
@@ -659,10 +810,27 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
           key={channelListKey}
           filters={filters}
           sort={sort}
+          channelRenderFilterFn={(channels) => {
+            if (!hiddenChannelKeys.length) return channels;
+            const hidden = new Set(hiddenChannelKeys);
+            return channels.filter((ch: any) => {
+              const keyCandidates = [
+                ch?.cid,
+                ch?.id,
+                ch?.data?.conversation_id,
+                getOneCrewConversationId(ch?.id || ch?.cid || ''),
+              ].filter(Boolean).map(String);
+
+              return !keyCandidates.some((k) => hidden.has(k));
+            });
+          }}
+          options={{
+            limit: 15,
+            watch: true,
+            state: true,
+          }}
           Preview={ChannelPreview}
           // Note: onSelect is handled by the custom Preview component's onPress
-          // Pagination - reduced limit for faster initial load
-          pagination={{ limit: 15 }}
           // Performance optimizations for FlatList
           additionalFlatListProps={{
             removeClippedSubviews: true,
@@ -670,44 +838,6 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
             windowSize: 5,
             initialNumToRender: 10,
             updateCellsBatchingPeriod: 50,
-          }}
-          // Error handling
-          onError={(error: any) => {
-            const errorMessage = error?.message || error?.toString() || '';
-            const isTokenError =
-              errorMessage.includes('tokens are not set') ||
-              errorMessage.includes('connectUser wasn\'t called') ||
-              errorMessage.includes('disconnect was called') ||
-              errorMessage.includes('Both secret and user tokens') ||
-              errorMessage.includes('Both secret') ||
-              errorMessage.includes('client.disconnect');
-            
-            // Monitor: Log ChannelList error
-            streamChatConnectionMonitor.logChannelOperation(
-              'channelList.query',
-              channelListKey,
-              false,
-              error
-            );
-            
-            // Monitor: Log token access attempt
-            if (isTokenError) {
-              streamChatConnectionMonitor.logTokenAccess('channelList.query', false, error);
-            }
-            
-            if (isTokenError) {
-              console.log('💬 [ConversationsListPage] StreamChat not connected yet (expected during profile switch):', errorMessage);
-              setIsReady(false);
-              // Reset clientReady check - force re-verification
-              // The useEffect will re-run and wait for connection again
-              setTimeout(() => {
-                // Trigger re-check after a short delay
-                setIsReady(false);
-              }, 500);
-              return;
-            }
-            console.error('❌ [ConversationsListPage] ChannelList error:', error);
-            setListError('Error loading channel list. Please try again.');
           }}
           // Empty state
           EmptyStateIndicator={() => (
@@ -836,6 +966,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E2E8F0',
     backgroundColor: '#fff',
   },
+  channelPreviewDeleting: {
+    opacity: 0.55,
+  },
   channelAvatar: {
     width: 48,
     height: 48,
@@ -889,6 +1022,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0F172A',
   },
+  lastMessageDeleting: {
+    color: '#dc2626',
+    fontWeight: '600',
+  },
+  removingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  removingBannerText: {
+    fontSize: 13,
+    color: '#991B1B',
+    fontWeight: '600',
+  },
   unreadBadge: {
     backgroundColor: '#ef4444',
     borderRadius: 10,
@@ -904,6 +1056,20 @@ const styles = StyleSheet.create({
   unreadBadgeText: {
     color: '#fff',
     fontSize: 11,
+    fontWeight: '700',
+  },
+  swipeDeleteButton: {
+    width: 96,
+    backgroundColor: '#dc2626',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+    gap: 4,
+  },
+  swipeDeleteText: {
+    color: '#fff',
+    fontSize: 12,
     fontWeight: '700',
   },
   emptyState: {

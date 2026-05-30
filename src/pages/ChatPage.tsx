@@ -87,6 +87,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
     api,
     getConversationById, 
     createConversation,
+    getMessages,
+    deleteMessage,
     getAccessToken,
     getBaseUrl,
     user, 
@@ -137,7 +139,205 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [thread, setThread] = useState<any>(null);
   const [forwardMessage, setForwardMessage] = useState<any>(null);
+  const [chatActionBusy, setChatActionBusy] = useState(false);
   const courseMessageSentRef = useRef(false);
+
+  const clearChatHistoryViaApi = useCallback(async () => {
+    if (!conversationId) {
+      throw new Error('Conversation ID is missing');
+    }
+
+    let page = 1;
+    const limit = 50;
+    let deletedCount = 0;
+    const maxPages = 40;
+
+    while (page <= maxPages) {
+      const response = await getMessages(conversationId, {
+        page,
+        limit,
+        include: 'none',
+      });
+
+      const data = response?.data;
+      const pageItems =
+        data?.items ||
+        data?.messages ||
+        response?.items ||
+        response?.messages ||
+        [];
+
+      const messages = Array.isArray(pageItems) ? pageItems : [];
+      if (messages.length === 0) break;
+
+      for (const msg of messages) {
+        if (!msg?.id) continue;
+
+        try {
+          await deleteMessage(msg.id, conversationId);
+          deletedCount += 1;
+        } catch (deleteErr) {
+          // Ignore per-message failures (e.g., not owned by current user) and continue.
+        }
+      }
+
+      if (messages.length < limit) break;
+      page += 1;
+    }
+
+    return deletedCount;
+  }, [conversationId, getMessages, deleteMessage]);
+
+  const handleClearChatHistory = useCallback(() => {
+    if (!channel) {
+      Alert.alert('Unavailable', 'Chat is not ready yet. Please try again.');
+      return;
+    }
+
+    Alert.alert(
+      'Clear chat history?',
+      'This will remove messages you are allowed to delete from this chat.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear History',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setChatActionBusy(true);
+
+              // Try Stream truncate first for roles that have permission.
+              try {
+                await channel.truncate();
+                Alert.alert('Success', 'Chat history has been cleared.');
+                return;
+              } catch (truncateErr: any) {
+                const truncateMessage = String(truncateErr?.message || truncateErr || '');
+                const isTruncatePermissionDenied =
+                  /truncatechannel|error code 17|not allowed to perform action truncatechannel/i.test(truncateMessage);
+
+                if (!isTruncatePermissionDenied) {
+                  throw truncateErr;
+                }
+              }
+
+              // Fallback for channel members without truncate capability.
+              const deletedCount = await clearChatHistoryViaApi();
+              if (deletedCount > 0) {
+                Alert.alert('Success', `Removed ${deletedCount} message${deletedCount === 1 ? '' : 's'}.`);
+              } else {
+                Alert.alert('Not permitted', 'You do not have permission to clear all messages in this chat. Use Delete Chat to remove the conversation.');
+              }
+            } catch (err: any) {
+              console.error('❌ [ChatPage] Failed to clear chat history:', err);
+              Alert.alert('Error', err?.message || 'Failed to clear chat history. Please try again.');
+            } finally {
+              setChatActionBusy(false);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [channel, clearChatHistoryViaApi]);
+
+  const handleDeleteChat = useCallback(() => {
+    if (!conversationId) {
+      Alert.alert('Unavailable', 'Conversation ID is missing.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete this chat?',
+      'This will permanently delete the conversation, channel data, and message details for this user.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Chat',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setChatActionBusy(true);
+
+              const token = getAccessToken();
+              if (!token) {
+                throw new Error('No access token available');
+              }
+
+              const baseUrl = getBaseUrl();
+              const params = new URLSearchParams({
+                profile_type: currentProfileType === 'company' ? 'company' : 'user',
+              });
+
+              if (currentProfileType === 'company' && activeCompany?.id) {
+                params.set('company_id', activeCompany.id);
+              }
+
+              const url = `${baseUrl}/api/chat/conversations/${encodeURIComponent(conversationId)}?${params.toString()}`;
+
+              const response = await fetch(url, {
+                method: 'DELETE',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+
+              const result = await response.json().catch(() => ({}));
+
+              if (!response.ok || result?.success === false) {
+                throw new Error(result?.error || `HTTP ${response.status}: ${response.statusText}`);
+              }
+
+              // Best-effort SDK cleanup after backend deletion.
+              // Backend is source of truth; these calls keep local/SDK state in sync.
+              try {
+                if (typeof channel?.delete === 'function') {
+                  await channel.delete();
+                }
+              } catch (deleteErr) {
+                if (__DEV__) {
+                  console.warn('⚠️ [ChatPage] Channel delete not permitted/already deleted:', deleteErr);
+                }
+              }
+
+              try {
+                await channel?.stopWatching();
+              } catch (stopErr) {
+                if (__DEV__) {
+                  console.warn('⚠️ [ChatPage] Failed to stop watching channel after delete:', stopErr);
+                }
+              }
+
+              // Clear local page state so no stale conversation details remain.
+              setThread(null);
+              setForwardMessage(null);
+              setChannel(null);
+              setError(null);
+
+              navigation.goBack();
+            } catch (err: any) {
+              console.error('❌ [ChatPage] Failed to delete chat:', err);
+              Alert.alert('Error', err?.message || 'Failed to delete chat. Please try again.');
+            } finally {
+              setChatActionBusy(false);
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  }, [conversationId, getAccessToken, getBaseUrl, currentProfileType, activeCompany?.id, channel, navigation]);
+
+  const openChatActionsMenu = useCallback(() => {
+    if (chatActionBusy) return;
+
+    Alert.alert('Chat options', 'Choose an action', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear Chat History', style: 'destructive', onPress: handleClearChatHistory },
+      { text: 'Delete Chat', style: 'destructive', onPress: handleDeleteChat },
+    ]);
+  }, [chatActionBusy, handleClearChatHistory, handleDeleteChat]);
 
   // Watch for channel state changes to detect when members are populated
   useEffect(() => {
@@ -748,10 +948,25 @@ const ChatPage: React.FC<ChatPageProps> = ({
           </View>
         );
       },
+      headerRight: () => (
+        <TouchableOpacity
+          style={styles.headerMenuButton}
+          onPress={openChatActionsMenu}
+          disabled={chatActionBusy}
+          accessibilityRole="button"
+          accessibilityLabel="Chat options"
+        >
+          <Ionicons
+            name="ellipsis-vertical"
+            size={20}
+            color={chatActionBusy ? '#94A3B8' : '#0F172A'}
+          />
+        </TouchableOpacity>
+      ),
       // Explicitly set title to empty string to prevent fallback to "Chat"
       title: '',
     });
-  }, [participant, channel, client, navigation, channelMembersLoaded, headerUpdateTrigger]);
+  }, [participant, channel, client, navigation, channelMembersLoaded, headerUpdateTrigger, openChatActionsMenu, chatActionBusy]);
 
 
   // Native-style send button - use StreamChat's default but with custom styling
@@ -2397,6 +2612,11 @@ const styles = StyleSheet.create({
   },
   headerRight: {
     width: 32,
+  },
+  headerMenuButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 4,
   },
   customHeader: {
     flexDirection: 'row',
