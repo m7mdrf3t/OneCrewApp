@@ -103,7 +103,7 @@ export const streamChatTheme: DeepPartial<Theme> = {
       },
     },
     container: {
-      marginVertical: 4,
+      marginVertical: 1,
     },
     content: {
       container: {
@@ -131,7 +131,11 @@ export const streamChatTheme: DeepPartial<Theme> = {
       },
       metaText: {
         fontSize: 11,
-        color: '#667781',  // WhatsApp muted teal-gray
+        color: '#667781',
+      },
+      timestampText: {
+        fontSize: 11,
+        color: '#667781',
       },
     },
   },
@@ -200,7 +204,8 @@ export const streamChatTheme: DeepPartial<Theme> = {
         marginLeft: 4,
       },
       micIcon: {
-        size: 24,
+        width: 24,
+        height: 24,
         fill: '#E2E8F0',  // Light gray — matches the attach + icon color on dark bar
       },
     },

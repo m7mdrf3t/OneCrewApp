@@ -39,8 +39,8 @@ const styles = StyleSheet.create({
   },
   bubble: {
     maxWidth: '75%',
-    padding: 12,
-    borderRadius: 18,
+    padding: 6,
+    borderRadius: 9,
     backgroundColor: '#f3f4f6',
   },
   bubbleOwn: {
