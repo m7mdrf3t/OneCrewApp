@@ -20,6 +20,7 @@ export interface SearchBarProps {
   onChange: (value: string) => void;
   onOpenFilter?: () => void;
   onClose?: () => void;
+  compact?: boolean;
 }
 
 export interface SectionCardProps {

@@ -15,6 +15,7 @@ const SearchBar: React.FC<EnhancedSearchBarProps> = ({
   onChange, 
   onOpenFilter, 
   onClose,
+  compact = false,
   filters,
   onClearFilters,
 }: EnhancedSearchBarProps) => {
@@ -55,11 +56,11 @@ const SearchBar: React.FC<EnhancedSearchBarProps> = ({
   };
 
   return (
-    <View style={styles.wrapper}>
-      <View style={styles.container}>
-        <Ionicons name="search" size={18} color="#6b7280" style={styles.searchIcon} />
+    <View style={[styles.wrapper, compact && styles.wrapperCompact]}>
+      <View style={[styles.container, compact && styles.containerCompact]}>
+        <Ionicons name="search" size={compact ? 17 : 18} color="#6b7280" style={styles.searchIcon} />
         <TextInput
-          style={styles.input}
+          style={[styles.input, compact && styles.inputCompact]}
           value={value || ''}
           onChangeText={(text) => {
             if (typeof onChange === 'function') {
@@ -164,6 +165,9 @@ const styles = StyleSheet.create({
   wrapper: {
     marginBottom: semanticSpacing.containerPadding,
   },
+  wrapperCompact: {
+    marginBottom: 0,
+  },
   container: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -179,6 +183,11 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
+  containerCompact: {
+    height: 42,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+  },
   searchIcon: {
     marginRight: spacing.sm,
   },
@@ -188,6 +197,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#000',
     letterSpacing: -0.2,
+  },
+  inputCompact: {
+    fontSize: 16,
   },
   clearButton: {
     padding: spacing.xs,

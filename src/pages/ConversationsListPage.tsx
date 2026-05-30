@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { ChannelList } from 'stream-chat-react-native';
@@ -37,6 +38,13 @@ type SearchMemberResult = {
   participant: any;
   participantType: 'user' | 'company';
 };
+
+const getHiddenChatsStorageKey = (
+  profileType: string,
+  activeCompanyId?: string | null,
+  streamUserId?: string | null,
+  appUserId?: string | null,
+) => `@onecrew:archived-chats:${profileType}:${activeCompanyId || streamUserId || appUserId || 'unknown'}`;
 
 const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   onBack: onBackProp,
@@ -63,8 +71,11 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [memberSearchResults, setMemberSearchResults] = useState<SearchMemberResult[]>([]);
   const [isSearchingMembers, setIsSearchingMembers] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSearchTriggerVisible, setIsSearchTriggerVisible] = useState(false);
   const [deletingChannelCid, setDeletingChannelCid] = useState<string | null>(null);
   const [hiddenChannelKeys, setHiddenChannelKeys] = useState<string[]>([]);
+  const [showArchivedChats, setShowArchivedChats] = useState(false);
   const [channelListRefreshNonce, setChannelListRefreshNonce] = useState(0);
 
   const onBack = onBackProp || goBack;
@@ -81,6 +92,11 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     return `${currentStreamUserId || 'no-user'}-${currentProfileType}-${activeCompany?.id || 'no-company'}-${channelListRefreshNonce}`;
   }, [currentStreamUserId, currentProfileType, activeCompany?.id, channelListRefreshNonce]);
 
+  const hiddenChatsStorageKey = useMemo(
+    () => getHiddenChatsStorageKey(currentProfileType, activeCompany?.id, currentStreamUserId, user?.id),
+    [currentProfileType, activeCompany?.id, currentStreamUserId, user?.id],
+  );
+
   // Log profile changes for debugging
   useEffect(() => {
     console.log('💬 [ConversationsListPage] Profile changed, refreshing channel list...', {
@@ -92,12 +108,68 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
   }, [channelListKey, currentStreamUserId, currentProfileType, activeCompany?.id]);
 
   useEffect(() => {
+    let isCancelled = false;
+
+    const loadHiddenChats = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(hiddenChatsStorageKey);
+        if (isCancelled) return;
+
+        if (!stored) {
+          setHiddenChannelKeys([]);
+          return;
+        }
+
+        const parsed = JSON.parse(stored);
+        setHiddenChannelKeys(Array.isArray(parsed) ? parsed.map(String) : []);
+      } catch (error) {
+        if (__DEV__) {
+          console.warn('[ConversationsListPage] Failed to load archived chats:', error);
+        }
+        if (!isCancelled) {
+          setHiddenChannelKeys([]);
+        }
+      }
+    };
+
+    loadHiddenChats();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [hiddenChatsStorageKey]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(hiddenChatsStorageKey, JSON.stringify(hiddenChannelKeys)).catch((error) => {
+      if (__DEV__) {
+        console.warn('⚠️ [ConversationsListPage] Failed to persist archived chats:', error);
+      }
+    });
+  }, [hiddenChannelKeys, hiddenChatsStorageKey]);
+
+  useEffect(() => {
     const timeoutId = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery.trim());
     }, 300);
 
     return () => clearTimeout(timeoutId);
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (searchQuery.trim().length > 0) {
+      setIsSearchOpen(true);
+    }
+  }, [searchQuery]);
+
+  const shouldShowSearchSection = isSearchOpen || searchQuery.trim().length > 0 || isSearchTriggerVisible;
+
+  const handleConversationListScroll = useCallback((event: any) => {
+    const offsetY = event?.nativeEvent?.contentOffset?.y ?? 0;
+    setIsSearchTriggerVisible((prev) => {
+      const next = offsetY > 24;
+      return prev === next ? prev : next;
+    });
+  }, []);
 
   // Handle channel selection - navigate to chat page
   const handleChannelSelect = useCallback((channel: any) => {
@@ -161,7 +233,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     }
   }, [navigateTo, navigation]);
 
-  const handleDeleteConversation = useCallback((channel: any) => {
+  const handleArchiveConversation = useCallback((channel: any) => {
     if (!channel) return;
 
     const channelIdentifier = channel.id || channel.cid || '';
@@ -177,78 +249,18 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     }
 
     Alert.alert(
-      'Delete chat?',
-      'This will permanently remove this chat from your conversations.',
+      'Archive chat?',
+      'This will move the chat to Archived chats. You can restore it later.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
-          style: 'destructive',
+          text: 'Archive',
           onPress: async () => {
             const targetCid = channel?.cid || channel?.id || fallbackConversationId;
 
             try {
               setDeletingChannelCid(targetCid);
 
-              const idCandidates = Array.from(new Set([
-                channel?.data?.conversation_id,
-                extractedConversationId,
-                channel?.id,
-              ].filter(Boolean)));
-
-              let deleteSucceeded = false;
-              let lastError: any = null;
-
-              for (const candidateId of idCandidates) {
-                try {
-                  const token = getAccessToken();
-                  if (!token) {
-                    throw new Error('No access token available');
-                  }
-
-                  const baseUrl = getBaseUrl();
-                  const params = new URLSearchParams({
-                    profile_type: currentProfileType === 'company' ? 'company' : 'user',
-                  });
-
-                  if (currentProfileType === 'company' && activeCompany?.id) {
-                    params.set('company_id', activeCompany.id);
-                  }
-
-                  const url = `${baseUrl}/api/chat/conversations/${encodeURIComponent(String(candidateId))}?${params.toString()}`;
-                  const response = await fetch(url, {
-                    method: 'DELETE',
-                    headers: {
-                      Authorization: `Bearer ${token}`,
-                      'Content-Type': 'application/json',
-                    },
-                  });
-
-                  const result = await response.json().catch(() => ({}));
-                  if (!response.ok || result?.success === false) {
-                    throw new Error(result?.error || `HTTP ${response.status}: ${response.statusText}`);
-                  }
-
-                  deleteSucceeded = true;
-                  break;
-                } catch (err) {
-                  lastError = err;
-                }
-              }
-
-              if (!deleteSucceeded) {
-                throw lastError || new Error('Failed to delete conversation');
-              }
-
-              try {
-                await channel?.stopWatching?.();
-              } catch (err) {
-                if (__DEV__) {
-                  console.warn('⚠️ [ConversationsListPage] stopWatching failed after delete:', err);
-                }
-              }
-
-              // Hide deleted row immediately from local list rendering.
               setHiddenChannelKeys((prev) => {
                 const next = new Set(prev);
                 if (channel?.cid) next.add(String(channel.cid));
@@ -259,10 +271,10 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
               });
 
               setChannelListRefreshNonce((prev) => prev + 1);
-              Alert.alert('Removed', 'Chat was removed successfully.');
+              Alert.alert('Archived', 'Chat was moved to Archived chats.');
             } catch (err: any) {
-              console.error('❌ [ConversationsListPage] Failed to delete conversation:', err);
-              Alert.alert('Error', err?.message || 'Failed to delete chat. Please try again.');
+              console.error('❌ [ConversationsListPage] Failed to archive conversation:', err);
+              Alert.alert('Error', err?.message || 'Failed to archive chat. Please try again.');
             } finally {
               setDeletingChannelCid(null);
             }
@@ -271,7 +283,31 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
       ],
       { cancelable: true }
     );
-  }, [getAccessToken, getBaseUrl, currentProfileType, activeCompany?.id]);
+  }, []);
+
+  const handleRestoreConversation = useCallback((channel: any) => {
+    if (!channel) return;
+
+    const channelIdentifier = channel.id || channel.cid || '';
+    const extractedConversationId = getOneCrewConversationId(channelIdentifier);
+
+    setDeletingChannelCid(channel?.cid || channel?.id || null);
+
+    setHiddenChannelKeys((prev) => prev.filter((key) => {
+      const removableKeys = new Set([
+        channel?.cid,
+        channel?.id,
+        channel?.data?.conversation_id,
+        extractedConversationId,
+      ].filter(Boolean).map(String));
+
+      return !removableKeys.has(String(key));
+    }));
+
+    setChannelListRefreshNonce((prev) => prev + 1);
+    setDeletingChannelCid(null);
+    Alert.alert('Restored', 'Chat was restored to your active conversations.');
+  }, []);
 
   // Custom filters for channels
   // Only show channels where current user is a member
@@ -394,7 +430,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         }
       } catch (error) {
         if (!isCancelled) {
-          console.error('❌ [ConversationsListPage] Failed to search members:', error);
+          console.error('[ConversationsListPage] Failed to search members:', error);
           setMemberSearchResults([]);
         }
       } finally {
@@ -473,6 +509,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
     const unreadCount = channel?.state?.unreadCount || 0;
     const channelCid = channel?.cid || channel?.id;
     const isDeleting = !!channelCid && deletingChannelCid === channelCid;
+    const isArchivedView = showArchivedChats;
 
     return (
       <Swipeable
@@ -481,12 +518,12 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         rightThreshold={40}
         renderRightActions={() => (
           <TouchableOpacity
-            style={styles.swipeDeleteButton}
-            onPress={() => handleDeleteConversation(channel)}
+            style={[styles.swipeDeleteButton, isArchivedView && styles.swipeRestoreButton]}
+            onPress={() => isArchivedView ? handleRestoreConversation(channel) : handleArchiveConversation(channel)}
             activeOpacity={0.85}
           >
-            <Ionicons name="trash-outline" size={18} color="#fff" />
-            <Text style={styles.swipeDeleteText}>Delete</Text>
+            <Ionicons name={isArchivedView ? 'arrow-undo-outline' : 'archive-outline'} size={18} color="#fff" />
+            <Text style={styles.swipeDeleteText}>{isArchivedView ? 'Restore' : 'Archive'}</Text>
           </TouchableOpacity>
         )}
       >
@@ -534,7 +571,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
               ]}
               numberOfLines={1}
             >
-              {isDeleting ? 'Removing...' : lastMessageText}
+              {isDeleting ? (isArchivedView ? 'Restoring...' : 'Archiving...') : lastMessageText}
             </Text>
           </View>
           {isDeleting ? (
@@ -550,7 +587,7 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
         </TouchableOpacity>
       </Swipeable>
     );
-  }, [currentStreamUserId, getInitials, handleChannelSelect, handleDeleteConversation, deletingChannelCid]));
+  }, [currentStreamUserId, getInitials, handleChannelSelect, handleArchiveConversation, handleRestoreConversation, deletingChannelCid, showArchivedChats]));
 
   // Format time helper
   const formatTime = (timestamp: string | Date): string => {
@@ -742,17 +779,58 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
 
   return (
     <View style={styles.container}>
-      <View style={styles.searchSection}>
-        <SearchBar
-          value={searchQuery}
-          onChange={setSearchQuery}
-        />
+      {shouldShowSearchSection ? (
+        <View style={styles.searchSection}>
+          {isSearchOpen ? (
+            <SearchBar
+              value={searchQuery}
+              onChange={setSearchQuery}
+              onClose={() => {
+                setSearchQuery('');
+                setIsSearchOpen(false);
+              }}
+              compact
+            />
+          ) : (
+            <View style={styles.searchCollapsedRow}>
+              <TouchableOpacity
+                style={styles.searchIconButton}
+                onPress={() => setIsSearchOpen(true)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Open search"
+              >
+                <Ionicons name="search" size={18} color="#0F172A" />
+              </TouchableOpacity>
+              <Text style={styles.searchCollapsedLabel}>Search conversations</Text>
+            </View>
+          )}
+        </View>
+      ) : null}
+
+      <View style={styles.archiveToggleRow}>
+        <TouchableOpacity
+          style={[styles.archiveToggleButton, !showArchivedChats && styles.archiveToggleButtonActive]}
+          onPress={() => setShowArchivedChats(false)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="chatbubbles-outline" size={16} color={!showArchivedChats ? '#fff' : '#64748B'} />
+          <Text style={[styles.archiveToggleText, !showArchivedChats && styles.archiveToggleTextActive]}>Active</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.archiveToggleButton, showArchivedChats && styles.archiveToggleButtonActive]}
+          onPress={() => setShowArchivedChats(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="archive-outline" size={16} color={showArchivedChats ? '#fff' : '#64748B'} />
+          <Text style={[styles.archiveToggleText, showArchivedChats && styles.archiveToggleTextActive]}>Archived</Text>
+        </TouchableOpacity>
       </View>
 
       {deletingChannelCid ? (
         <View style={styles.removingBanner}>
           <ActivityIndicator size="small" color="#dc2626" />
-          <Text style={styles.removingBannerText}>Removing chat...</Text>
+          <Text style={styles.removingBannerText}>{showArchivedChats ? 'Restoring chat...' : 'Archiving chat...'}</Text>
         </View>
       ) : null}
 
@@ -811,7 +889,6 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
           filters={filters}
           sort={sort}
           channelRenderFilterFn={(channels) => {
-            if (!hiddenChannelKeys.length) return channels;
             const hidden = new Set(hiddenChannelKeys);
             return channels.filter((ch: any) => {
               const keyCandidates = [
@@ -821,7 +898,8 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
                 getOneCrewConversationId(ch?.id || ch?.cid || ''),
               ].filter(Boolean).map(String);
 
-              return !keyCandidates.some((k) => hidden.has(k));
+              const isArchived = keyCandidates.some((k) => hidden.has(k));
+              return showArchivedChats ? isArchived : !isArchived;
             });
           }}
           options={{
@@ -838,14 +916,16 @@ const ConversationsListPage: React.FC<ConversationsListPageProps> = ({
             windowSize: 5,
             initialNumToRender: 10,
             updateCellsBatchingPeriod: 50,
+            onScroll: handleConversationListScroll,
+            scrollEventThrottle: 16,
           }}
           // Empty state
           EmptyStateIndicator={() => (
             <View style={styles.emptyState}>
               <Ionicons name="chatbubbles-outline" size={64} color="#d1d5db" />
-              <Text style={styles.emptyStateTitle}>No conversations yet</Text>
+              <Text style={styles.emptyStateTitle}>{showArchivedChats ? 'No archived chats' : 'No conversations yet'}</Text>
               <Text style={styles.emptyStateText}>
-                Visit someone's profile to start a chat, or use the search bar above to message a member
+                {showArchivedChats ? 'Chats you archive will appear here.' : 'Visit someone\'s profile to start a chat, or use the search bar above to message a member'}
               </Text>
             </View>
           )}
@@ -867,11 +947,64 @@ const styles = StyleSheet.create({
   },
   searchSection: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 4,
+    paddingTop: 10,
+    paddingBottom: 6,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
+  },
+  searchCollapsedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    minHeight: 42,
+    gap: 10,
+  },
+  searchCollapsedLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  searchIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  archiveToggleRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 6,
+    gap: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  archiveToggleButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 11,
+    backgroundColor: '#F1F5F9',
+  },
+  archiveToggleButtonActive: {
+    backgroundColor: '#0F172A',
+  },
+  archiveToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  archiveToggleTextActive: {
+    color: '#fff',
   },
   header: {
     flexDirection: 'row',
@@ -1066,6 +1199,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
     gap: 4,
+  },
+  swipeRestoreButton: {
+    backgroundColor: '#0F766E',
   },
   swipeDeleteText: {
     color: '#fff',
