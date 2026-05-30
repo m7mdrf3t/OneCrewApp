@@ -21,7 +21,50 @@ import NotificationModal from '../components/NotificationModal';
 import AccountSwitcherModal from '../components/AccountSwitcherModal';
 import UserMenuModal from '../components/UserMenuModal';
 import InvitationListModal from '../components/InvitationListModal';
-import { useGlobalModals } from '../contexts/GlobalModalsContext';
+import { useGlobalModalsSafe } from '../contexts/GlobalModalsContext';
+
+/** Persists for the lifetime of the JS bundle — banner stays hidden once dismissed until app restart. */
+let completionBannerDismissed = false;
+
+/** Opens a URL only when its scheme is http or https, preventing javascript:/data: injection. */
+const safeOpenUrl = (url: string | undefined | null) => {
+  if (!url) return;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      Linking.openURL(url);
+    }
+  } catch {
+    // invalid URL — do nothing
+  }
+};
+
+interface HeroActionButtonsProps {
+  isInTeam: boolean;
+  onChatPress: () => void;
+  onTeamPress: () => Promise<void>;
+  onProjectPress: () => Promise<void>;
+}
+
+const HeroActionButtons: React.FC<HeroActionButtonsProps> = ({ isInTeam, onChatPress, onTeamPress, onProjectPress }) => (
+  <View style={styles.heroActionIcons}>
+    <TouchableOpacity style={styles.heroActionIcon} onPress={onChatPress}>
+      <View style={styles.actionIconCircle}>
+        <Ionicons name="chatbubble-outline" size={16} color="#000" />
+      </View>
+    </TouchableOpacity>
+    <TouchableOpacity style={styles.heroActionIcon} onPress={onTeamPress}>
+      <View style={[styles.actionIconCircle, isInTeam && styles.actionIconCircleActive]}>
+        <Ionicons name={isInTeam ? 'checkmark' : 'add'} size={16} color="#000" />
+      </View>
+    </TouchableOpacity>
+    <TouchableOpacity style={styles.heroActionIcon} onPress={onProjectPress}>
+      <View style={styles.actionIconCircle}>
+        <Ionicons name="briefcase-outline" size={16} color="#000" />
+      </View>
+    </TouchableOpacity>
+  </View>
+);
 
 const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => void; onNavigate?: (page: string, data?: any) => void }> = ({
   profile: profileProp,
@@ -47,13 +90,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   const onBack = onBackProp || goBack;
   const queryClient = useQueryClient();
   
-  // Get global modals context for My Team
-  let globalModals: ReturnType<typeof useGlobalModals> | null = null;
-  try {
-    globalModals = useGlobalModals();
-  } catch {
-    // Context not available, will use local state
-  }
+  // Get global modals context for My Team (undefined when rendered outside the provider)
+  const globalModals = useGlobalModalsSafe();
 
   const { 
     api, 
@@ -80,9 +118,12 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   // Debug: Track invitation modal state changes
   useEffect(() => {
     if (globalModals) {
-      console.log('📧 [ProfileDetailPage] showInvitationListModal state changed:', globalModals.showInvitationListModal);
-      console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
-      console.log('📧 [ProfileDetailPage] Should render modal:', currentUser && globalModals.showInvitationListModal);
+      if (__DEV__) console.log('📧 [ProfileDetailPage] showInvitationListModal state changed:', globalModals.showInvitationListModal);
+
+      if (__DEV__) console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
+
+      if (__DEV__) console.log('📧 [ProfileDetailPage] Should render modal:', currentUser && globalModals.showInvitationListModal);
+
     }
   }, [globalModals?.showInvitationListModal, currentUser]);
 
@@ -132,21 +173,9 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     }
   }, [currentUser, profile?.id, isAuthenticated, isGuest, refreshTrigger]);
 
-  // If no profile provided, show loading/error state
-  if (!profile) {
-    return (
-      <View style={styles.container}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" />
-          <Text>Loading profile...</Text>
-        </View>
-      </View>
-    );
-  }
-  
   // Ensure myTeam is always an array
   const [myTeam, setMyTeam] = useState<any[]>(myTeamProp || []);
-  
+
   // Load team members if not provided and user is authenticated
   useEffect(() => {
     if (!myTeamProp && isAuthenticated && !isGuest) {
@@ -160,7 +189,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       });
     }
   }, [myTeamProp, isAuthenticated, isGuest, getMyTeamMembers]);
-  
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileCompleteness, setProfileCompleteness] = useState(0);
@@ -169,7 +198,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
   const [showSignUpPrompt, setShowSignUpPrompt] = useState(false);
   const [promptAction, setPromptAction] = useState<string>('');
   const [galleryTab, setGalleryTab] = useState<'albums' | 'images' | 'videos' | 'audio'>('albums');
-  const [showCompletionBanner, setShowCompletionBanner] = useState(true);
+  const [showCompletionBanner, setShowCompletionBanner] = useState(!completionBannerDismissed);
   const [certifications, setCertifications] = useState<UserCertification[]>([]);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
@@ -189,29 +218,21 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     sort_order: number;
   }>>([]);
   const [loadingProfilePictures, setLoadingProfilePictures] = useState(false);
+
   const debugLog = (...args: any[]) => {
-    // Avoid expensive logging in production builds (it can noticeably slow down profile load on devices)
     if (__DEV__) console.log(...args);
   };
 
-  // Load projects for selection - only owner projects (server-side filtered)
+  // Load projects for selection — only owner projects (server-side filtered)
   const loadProjects = async (): Promise<any[]> => {
-    if (loadingProjects) {
-      console.log('⏳ Projects already loading, skipping...');
-      return availableProjects;
-    }
-    
-    console.log('🔄 Starting to load owner projects (server-side filtered)...');
+    if (loadingProjects) return availableProjects;
     setLoadingProjects(true);
     try {
-      // Use server-side filtering - only owner projects
       const ownerProjects = await getMyOwnerProjects({ minimal: true });
-      console.log('✅ Owner projects loaded:', ownerProjects?.length || 0);
-      
       setAvailableProjects(ownerProjects || []);
       return ownerProjects || [];
-    } catch (error) {
-      console.error('❌ Failed to load owner projects:', error);
+    } catch (err) {
+      console.error('Failed to load owner projects:', err);
       Alert.alert('Error', 'Failed to load projects. Please try again.');
       return [];
     } finally {
@@ -219,12 +240,16 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     }
   };
 
-  // Refresh profile data when screen comes into focus (e.g., after editing profile)
+  const lastRefreshRef = useRef(0);
+
+  // Refresh profile data when screen comes into focus — at most once per 30 s
   useFocusEffect(
     React.useCallback(() => {
-      // Force refresh when screen comes into focus
-      setRefreshTrigger(prev => prev + 1);
-      debugLog('🔄 ProfileDetailPage focused, triggering refresh');
+      const now = Date.now();
+      if (now - lastRefreshRef.current > 30_000) {
+        lastRefreshRef.current = now;
+        setRefreshTrigger(prev => prev + 1);
+      }
     }, [])
   );
 
@@ -441,10 +466,10 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         return;
       }
 
-      // Set loading states
+      // Set loading states — only show spinner if we have no cached data yet
       setLoadingCertifications(true);
       setLoadingSocialLinks(true);
-      setLoadingProfilePictures(true);
+      if (profilePictures.length === 0) setLoadingProfilePictures(true);
 
       // Only load portfolio if viewing current user's profile (getUserPortfolio doesn't accept userId)
       const isViewingOwnProfile = computedIsCurrentUser && userIdToFetch === currentUser?.id;
@@ -492,7 +517,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
           const response = socialLinksResult.value;
           if (response && (response as any).success && (response as any).data) {
             const links = Array.isArray((response as any).data) ? (response as any).data : (response as any).data.data || [];
-            console.log('✅ [ProfileDetailPage] Social links loaded:', links.length, 'links for userId:', userIdToFetch);
+            if (__DEV__) console.log('✅ [ProfileDetailPage] Social links loaded:', links.length, 'links for userId:', userIdToFetch);
+
             setSocialLinks(links);
           } else {
             // Fallback to userProfile data if available
@@ -516,7 +542,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
             });
             setProfilePictures(sortedPictures);
-            console.log('🖼️ Profile pictures loaded:', sortedPictures.length, 'pictures');
+            if (__DEV__) console.log('🖼️ Profile pictures loaded:', sortedPictures.length, 'pictures');
+
           }
         }
 
@@ -533,8 +560,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               // Sort by sort_order
               const sortedPortfolio = portfolioItems.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
               
-              console.log('🖼️ [ProfileDetailPage] Portfolio loaded:', sortedPortfolio.length, 'items');
-              
+              if (__DEV__) console.log('🖼️ [ProfileDetailPage] Portfolio loaded:', sortedPortfolio.length, 'items');
+
               // Update userProfile with portfolio items
               setUserProfile((prev: any) => ({
                 ...prev,
@@ -563,6 +590,63 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
 
   const isInTeam = Array.isArray(myTeam) && myTeam.length > 0 && myTeam.some(member => member?.id === userProfile?.id);
 
+  const handleChatPress = () => {
+    if (isGuest) {
+      setPromptAction('start a chat');
+      setShowSignUpPrompt(true);
+    } else if (onStartChat) {
+      onStartChat(userProfile);
+    } else {
+      const participant = {
+        id: userProfile.id,
+        name: userProfile.name,
+        image_url: userProfile.image_url || userProfile.imageUrl,
+        category: userProfile.category || 'crew',
+        ...userProfile,
+      };
+      onNavigate('chat', { participant });
+    }
+  };
+
+  const handleTeamPress = async () => {
+    if (isGuest) {
+      setPromptAction('add users to your team');
+      setShowSignUpPrompt(true);
+    } else if (onAddToTeam) {
+      onAddToTeam(userProfile);
+      queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
+    } else {
+      try {
+        if (isInTeam) {
+          const response = await removeFromMyTeam(userProfile.id);
+          if (response.success) {
+            setMyTeam(prev => prev.filter(m => m.id !== userProfile.id));
+            queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
+          }
+        } else {
+          const response = await addToMyTeam(userProfile.id);
+          if (response.success) {
+            setMyTeam(prev => [...prev, userProfile]);
+            queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
+          }
+        }
+      } catch (err) {
+        console.error('Error toggling team member:', err);
+        Alert.alert('Error', 'Failed to update team member');
+      }
+    }
+  };
+
+  const handleProjectPress = async () => {
+    if (isGuest) {
+      setPromptAction('assign users to projects');
+      setShowSignUpPrompt(true);
+    } else {
+      setShowProjectSelectionModal(true);
+      await loadProjects();
+    }
+  };
+
   // Calculate profile completeness
   const calculateProfileCompleteness = (profile: any) => {
     const fields = [
@@ -570,7 +654,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       profile.specialty,
       profile.skills && profile.skills.length > 0,
       profile.about?.gender,
-      profile.about?.age,
+      profile.about?.birthday,
       profile.about?.nationality,
       profile.about?.location,
       profile.imageUrl || profile.image_url,
@@ -657,9 +741,15 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
     });
   }, [navigation, navigateTo]);
 
-  // Show loading state only if we don't have profile data yet
-  // This prevents showing loading when switching profiles if we already have data
-  if (isLoading && !userProfile && !profile) {
+  // If we have profile data but isLoading is still true, clear it
+  useEffect(() => {
+    if (isLoading && (userProfile || profile)) {
+      setIsLoading(false);
+    }
+  }, [isLoading, userProfile, profile]);
+
+  // Show skeleton when profile data is not yet available (loading or no profile supplied)
+  if (!userProfile && !profile) {
     return (
       <View style={styles.container}>
         <View style={{ flex: 1 }}>
@@ -668,14 +758,6 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       </View>
     );
   }
-  
-  // If we have profile data but isLoading is still true, clear it
-  // This handles the case where loading state gets stuck
-  useEffect(() => {
-    if (isLoading && (userProfile || profile)) {
-      setIsLoading(false);
-    }
-  }, [isLoading, userProfile, profile]);
 
   // Show error state
   if (error) {
@@ -715,7 +797,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
               onNavigate?.('profileCompletion', userProfile);
             }
           }}
-          onSkip={() => setShowCompletionBanner(false)}
+          onSkip={() => { completionBannerDismissed = true; setShowCompletionBanner(false); }}
           isVisible={shouldShowCompletionBanner && showCompletionBanner}
         />
         
@@ -747,92 +829,12 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   </TouchableOpacity>
                   {/* Action Icons - Bottom */}
                   {!computedIsCurrentUser && (
-                    <View style={styles.heroActionIcons}>
-                      <TouchableOpacity
-                        style={styles.heroActionIcon}
-                        onPress={() => {
-                          if (isGuest) {
-                            setPromptAction('start a chat');
-                            setShowSignUpPrompt(true);
-                          } else {
-                            if (onStartChat) {
-                              onStartChat(userProfile);
-                            } else {
-                              // Fallback: navigate directly to chat page
-                              // Ensure participant has required fields for ChatPage
-                              const participant = {
-                                id: userProfile.id,
-                                name: userProfile.name,
-                                image_url: userProfile.image_url || userProfile.imageUrl,
-                                category: userProfile.category || 'crew', // Default to 'crew' if not specified
-                                ...userProfile, // Include all other fields
-                              };
-                              onNavigate('chat', { participant });
-                            }
-                          }
-                        }}
-                      >
-                        <View style={styles.actionIconCircle}>
-                          <Ionicons name="chatbubble-outline" size={16} color="#000" />
-                        </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.heroActionIcon}
-                        onPress={async () => {
-                          if (isGuest) {
-                            setPromptAction('add users to your team');
-                            setShowSignUpPrompt(true);
-                          } else {
-                            if (onAddToTeam) {
-                              onAddToTeam(userProfile);
-                            } else {
-                              try {
-                                if (isInTeam) {
-                                  const response = await removeFromMyTeam(userProfile.id);
-                                  if (response.success) {
-                                    setMyTeam(prev => prev.filter(m => m.id !== userProfile.id));
-                                    // Invalidate team members query to sync with DirectoryPage
-                                    queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
-                                    await queryClient.refetchQueries({ queryKey: ['myTeamMembers'] });
-                                  }
-                                } else {
-                                  const response = await addToMyTeam(userProfile.id);
-                                  if (response.success) {
-                                    setMyTeam(prev => [...prev, userProfile]);
-                                    // Invalidate team members query to sync with DirectoryPage
-                                    queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
-                                    await queryClient.refetchQueries({ queryKey: ['myTeamMembers'] });
-                                  }
-                                }
-                              } catch (error) {
-                                console.error('Error toggling team member:', error);
-                                Alert.alert('Error', 'Failed to update team member');
-                              }
-                            }
-                          }
-                        }}
-                      >
-                        <View style={[styles.actionIconCircle, isInTeam && styles.actionIconCircleActive]}>
-                          <Ionicons name={isInTeam ? "checkmark" : "add"} size={16} color="#000" />
-                        </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.heroActionIcon}
-                        onPress={async () => {
-                          if (isGuest) {
-                            setPromptAction('assign users to projects');
-                            setShowSignUpPrompt(true);
-                          } else {
-                            setShowProjectSelectionModal(true);
-                            await loadProjects();
-                          }
-                        }}
-                      >
-                        <View style={styles.actionIconCircle}>
-                          <Ionicons name="briefcase-outline" size={16} color="#000" />
-                        </View>
-                      </TouchableOpacity>
-                    </View>
+                    <HeroActionButtons
+                      isInTeam={isInTeam}
+                      onChatPress={handleChatPress}
+                      onTeamPress={handleTeamPress}
+                      onProjectPress={handleProjectPress}
+                    />
                   )}
                 </>
               );
@@ -856,95 +858,12 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                   </TouchableOpacity>
                   {/* Action Icons - Bottom */}
                   {!computedIsCurrentUser && (
-                    <View style={styles.heroActionIcons}>
-                      <TouchableOpacity
-                        style={styles.heroActionIcon}
-                        onPress={() => {
-                          if (isGuest) {
-                            setPromptAction('start a chat');
-                            setShowSignUpPrompt(true);
-                          } else {
-                            if (onStartChat) {
-                              onStartChat(userProfile);
-                            } else {
-                              // Fallback: navigate directly to chat page
-                              // Ensure participant has required fields for ChatPage
-                              const participant = {
-                                id: userProfile.id,
-                                name: userProfile.name,
-                                image_url: userProfile.image_url || userProfile.imageUrl,
-                                category: userProfile.category || 'crew', // Default to 'crew' if not specified
-                                ...userProfile, // Include all other fields
-                              };
-                              onNavigate('chat', { participant });
-                            }
-                          }
-                        }}
-                      >
-                        <View style={styles.actionIconCircle}>
-                          <Ionicons name="chatbubble-outline" size={16} color="#000" />
-                        </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.heroActionIcon}
-                        onPress={async () => {
-                          if (isGuest) {
-                            setPromptAction('add users to your team');
-                            setShowSignUpPrompt(true);
-                          } else {
-                            if (onAddToTeam) {
-                              onAddToTeam(userProfile);
-                              // Invalidate team members query to sync with DirectoryPage
-                              queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
-                              await queryClient.refetchQueries({ queryKey: ['myTeamMembers'] });
-                            } else {
-                              try {
-                                if (isInTeam) {
-                                  const response = await removeFromMyTeam(userProfile.id);
-                                  if (response.success) {
-                                    setMyTeam(prev => prev.filter(m => m.id !== userProfile.id));
-                                    // Invalidate team members query to sync with DirectoryPage
-                                    queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
-                                    await queryClient.refetchQueries({ queryKey: ['myTeamMembers'] });
-                                  }
-                                } else {
-                                  const response = await addToMyTeam(userProfile.id);
-                                  if (response.success) {
-                                    setMyTeam(prev => [...prev, userProfile]);
-                                    // Invalidate team members query to sync with DirectoryPage
-                                    queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
-                                    await queryClient.refetchQueries({ queryKey: ['myTeamMembers'] });
-                                  }
-                                }
-                              } catch (error) {
-                                console.error('Error toggling team member:', error);
-                                Alert.alert('Error', 'Failed to update team member');
-                              }
-                            }
-                          }
-                        }}
-                      >
-                        <View style={[styles.actionIconCircle, isInTeam && styles.actionIconCircleActive]}>
-                          <Ionicons name={isInTeam ? "checkmark" : "add"} size={16} color="#000" />
-                        </View>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.heroActionIcon}
-                        onPress={async () => {
-                          if (isGuest) {
-                            setPromptAction('assign users to projects');
-                            setShowSignUpPrompt(true);
-                          } else {
-                            setShowProjectSelectionModal(true);
-                            await loadProjects();
-                          }
-                        }}
-                      >
-                        <View style={styles.actionIconCircle}>
-                          <Ionicons name="briefcase-outline" size={16} color="#000" />
-                        </View>
-                      </TouchableOpacity>
-                    </View>
+                    <HeroActionButtons
+                      isInTeam={isInTeam}
+                      onChatPress={handleChatPress}
+                      onTeamPress={handleTeamPress}
+                      onProjectPress={handleProjectPress}
+                    />
                   )}
                 </>
               );
@@ -971,7 +890,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                       <Image
                         source={{ uri: imageUrl }}
                         style={styles.heroImage}
-                        resizeMode="cover"
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
                       />
                     </View>
                   ))}
@@ -1000,87 +920,12 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                 </TouchableOpacity>
                 {/* Action Icons - Bottom */}
                 {!computedIsCurrentUser && (
-                  <View style={styles.heroActionIcons}>
-                    <TouchableOpacity
-                      style={styles.heroActionIcon}
-                      onPress={() => {
-                        if (isGuest) {
-                          setPromptAction('start a chat');
-                          setShowSignUpPrompt(true);
-                        } else {
-                          if (onStartChat) {
-                            onStartChat(userProfile);
-                          } else {
-                            // Fallback: navigate directly to chat page
-                            onNavigate('chat', { participant: userProfile });
-                          }
-                        }
-                      }}
-                    >
-                      <View style={styles.actionIconCircle}>
-                        <Ionicons name="chatbubble-outline" size={16} color="#000" />
-                      </View>
-                    </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.heroActionIcon}
-                        onPress={async () => {
-                          if (isGuest) {
-                            setPromptAction('add users to your team');
-                            setShowSignUpPrompt(true);
-                          } else {
-                            if (onAddToTeam) {
-                              onAddToTeam(userProfile);
-                              // Invalidate team members query to sync with DirectoryPage
-                              queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
-                              await queryClient.refetchQueries({ queryKey: ['myTeamMembers'] });
-                            } else {
-                              try {
-                                if (isInTeam) {
-                                  const response = await removeFromMyTeam(userProfile.id);
-                                  if (response.success) {
-                                    setMyTeam(prev => prev.filter(m => m.id !== userProfile.id));
-                                    // Invalidate team members query to sync with DirectoryPage
-                                    queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
-                                    await queryClient.refetchQueries({ queryKey: ['myTeamMembers'] });
-                                  }
-                                } else {
-                                  const response = await addToMyTeam(userProfile.id);
-                                  if (response.success) {
-                                    setMyTeam(prev => [...prev, userProfile]);
-                                    // Invalidate team members query to sync with DirectoryPage
-                                    queryClient.invalidateQueries({ queryKey: ['myTeamMembers'] });
-                                    await queryClient.refetchQueries({ queryKey: ['myTeamMembers'] });
-                                  }
-                                }
-                              } catch (error) {
-                                console.error('Error toggling team member:', error);
-                                Alert.alert('Error', 'Failed to update team member');
-                              }
-                            }
-                          }
-                        }}
-                      >
-                        <View style={[styles.actionIconCircle, isInTeam && styles.actionIconCircleActive]}>
-                          <Ionicons name={isInTeam ? "checkmark" : "add"} size={16} color="#000" />
-                        </View>
-                      </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.heroActionIcon}
-                      onPress={async () => {
-                        if (isGuest) {
-                          setPromptAction('assign users to projects');
-                          setShowSignUpPrompt(true);
-                        } else {
-                          setShowProjectSelectionModal(true);
-                          await loadProjects();
-                        }
-                      }}
-                    >
-                      <View style={styles.actionIconCircle}>
-                        <Ionicons name="briefcase-outline" size={16} color="#000" />
-                      </View>
-                    </TouchableOpacity>
-                  </View>
+                  <HeroActionButtons
+                    isInTeam={isInTeam}
+                    onChatPress={handleChatPress}
+                    onTeamPress={handleTeamPress}
+                    onProjectPress={handleProjectPress}
+                  />
                 )}
               </>
             );
@@ -1242,7 +1087,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                 {userProfile.about.reel_url && (
                   <View style={styles.infoTag}>
                     <Text style={styles.infoTagLabel}>Reel/Portfolio</Text>
-                    <TouchableOpacity onPress={() => Linking.openURL(userProfile.about.reel_url)}>
+                    <TouchableOpacity onPress={() => safeOpenUrl(userProfile.about.reel_url)}>
                       <Text style={[styles.infoTagValue, { color: '#3b82f6', textDecorationLine: 'underline' }]}>
                         View Link
                       </Text>
@@ -1639,13 +1484,7 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                     <TouchableOpacity
                       key={link.id || index}
                       style={styles.socialMediaTableRow}
-                      onPress={() => {
-                        try {
-                          Linking.openURL(link.url);
-                        } catch (error) {
-                          console.error('Failed to open URL:', error);
-                        }
-                      }}
+                      onPress={() => safeOpenUrl(link.url)}
                     >
                       <View style={styles.socialMediaTableIcon}>
                         <Ionicons name={platformInfo.icon as any} size={16} color="#000" />
@@ -1884,17 +1723,21 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
                 showsVerticalScrollIndicator={true}
               >
                 {availableProjects.map((project) => {
-                    console.log('📁 Rendering project in modal:', project.title, project.id);
+                    if (__DEV__) console.log('📁 Rendering project in modal:', project.title, project.id);
+
                     return (
                       <TouchableOpacity
                         key={project.id}
                         style={styles.projectItem}
                         onPress={() => {
-                          console.log('📁 Project selected:', project);
-                          console.log('👤 Selected user:', userProfile);
+                          if (__DEV__) console.log('📁 Project selected:', project);
+
+                          if (__DEV__) console.log('👤 Selected user:', userProfile);
+
                           setShowProjectSelectionModal(false);
                           // Navigate to project with user profile data
-                          console.log('🚀 Navigating via onNavigate to projectDetail');
+                          if (__DEV__) console.log('🚀 Navigating via onNavigate to projectDetail');
+
                           onNavigate('projectDetail', { 
                             project, 
                             selectedUser: userProfile,
@@ -1985,21 +1828,30 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         visible={showNotificationModal}
         onClose={() => setShowNotificationModal(false)}
         onNotificationPress={(notification) => {
-          console.log('📬 [ProfileDetailPage] Notification pressed:', notification.type);
+          if (__DEV__) console.log('📬 [ProfileDetailPage] Notification pressed:', notification.type);
+
           setShowNotificationModal(false);
           // Handle notification press - navigate to relevant page or open modals
           if (notification.type === 'company_invitation' && currentUser && globalModals) {
-            console.log('📧 [ProfileDetailPage] ========== COMPANY INVITATION DETECTED ==========');
-            console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
-            console.log('📧 [ProfileDetailPage] globalModals:', !!globalModals);
-            console.log('📧 [ProfileDetailPage] Current showInvitationListModal state:', globalModals.showInvitationListModal);
-            console.log('📧 [ProfileDetailPage] About to set showInvitationListModal to true...');
+            if (__DEV__) console.log('📧 [ProfileDetailPage] ========== COMPANY INVITATION DETECTED ==========');
+
+            if (__DEV__) console.log('📧 [ProfileDetailPage] currentUser:', currentUser?.id);
+
+            if (__DEV__) console.log('📧 [ProfileDetailPage] globalModals:', !!globalModals);
+
+            if (__DEV__) console.log('📧 [ProfileDetailPage] Current showInvitationListModal state:', globalModals.showInvitationListModal);
+
+            if (__DEV__) console.log('📧 [ProfileDetailPage] About to set showInvitationListModal to true...');
+
             // Wait for notification modal to close before opening invitation modal
             setTimeout(() => {
-              console.log('📧 [ProfileDetailPage] Setting showInvitationListModal to true NOW');
+              if (__DEV__) console.log('📧 [ProfileDetailPage] Setting showInvitationListModal to true NOW');
+
               globalModals.setShowInvitationListModal(true);
-              console.log('📧 [ProfileDetailPage] showInvitationListModal set to:', globalModals.showInvitationListModal);
-              console.log('📧 [ProfileDetailPage] ===========================================');
+              if (__DEV__) console.log('📧 [ProfileDetailPage] showInvitationListModal set to:', globalModals.showInvitationListModal);
+
+              if (__DEV__) console.log('📧 [ProfileDetailPage] ===========================================');
+
             }, 300);
           } else if (notification.data?.project_id) {
             navigateTo('projectDetail', { id: notification.data.project_id });
@@ -2016,7 +1868,8 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         }}
         onModalDismiss={() => {
           // Handle modal dismissal if needed
-          console.log('📬 [ProfileDetailPage] Notification modal dismissed');
+          if (__DEV__) console.log('📬 [ProfileDetailPage] Notification modal dismissed');
+
         }}
       />
 
@@ -2037,10 +1890,12 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         onMyTeam={() => {
           setShowUserMenu(false);
           if (globalModals) {
-            console.log('🔵 [ProfileDetailPage] Opening My Team via GlobalModals');
+            if (__DEV__) console.log('🔵 [ProfileDetailPage] Opening My Team via GlobalModals');
+
             globalModals.setShowMyTeam(true);
           } else {
-            console.log('🔵 [ProfileDetailPage] GlobalModals not available, navigating to myTeam page');
+            if (__DEV__) console.log('🔵 [ProfileDetailPage] GlobalModals not available, navigating to myTeam page');
+
             navigateTo('myTeam');
           }
         }}
@@ -2065,9 +1920,11 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
         onLogout={onLogout || (async () => {
           setShowUserMenu(false);
           try {
-            console.log('🚪 Logging out from ProfileDetailPage...');
+            if (__DEV__) console.log('🚪 Logging out from ProfileDetailPage...');
+
             await logout();
-            console.log('✅ Logout successful');
+            if (__DEV__) console.log('✅ Logout successful');
+
             // Navigate to login screen after logout
             navigateTo('login');
           } catch (error) {
@@ -2092,25 +1949,28 @@ const ProfileDetailPage: React.FC<ProfileDetailPageProps & { onLogout?: () => vo
       {/* Invitation List Modal - Rendered here to ensure it appears above ProfileDetailPage */}
       {(() => {
         const shouldShow = currentUser && globalModals && globalModals.showInvitationListModal;
-        console.log('📧 [ProfileDetailPage] Rendering InvitationListModal check:', {
+        if (__DEV__) console.log('📧 [ProfileDetailPage] Rendering InvitationListModal check:', {
           currentUser: !!currentUser,
           currentUserId: currentUser?.id,
           globalModals: !!globalModals,
           showInvitationListModal: globalModals?.showInvitationListModal,
           shouldShow,
         });
+
         return shouldShow ? (
           <InvitationListModal
             visible={true}
             onClose={() => {
-              console.log('📧 [ProfileDetailPage] Closing invitation modal');
+              if (__DEV__) console.log('📧 [ProfileDetailPage] Closing invitation modal');
+
               if (globalModals) {
                 globalModals.setShowInvitationListModal(false);
               }
             }}
             userId={currentUser.id}
             onInvitationResponded={() => {
-              console.log('📧 [ProfileDetailPage] Invitation responded');
+              if (__DEV__) console.log('📧 [ProfileDetailPage] Invitation responded');
+
             }}
           />
         ) : null;

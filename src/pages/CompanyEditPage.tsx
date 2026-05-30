@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { useApi } from '../contexts/ApiContext';
 import { Company, CompanyDocumentType } from '../types';
@@ -98,6 +99,7 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
     uploadFile,
     getCompanyType,
   } = useApi();
+  const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [currentCompany, setCurrentCompany] = useState<Company>(company);
   const [loading, setLoading] = useState(true);
@@ -688,6 +690,7 @@ const CompanyEditPage: React.FC<CompanyEditPageProps> = ({
       console.log('✅ Social media links in response:', response.data?.social_media_links);
       
       if (response.success) {
+        queryClient.invalidateQueries({ queryKey: ['company', currentCompany.id], exact: false });
         // Check if social media links were saved (backend issue detection)
         const sentLinks = cleanedUpdates.social_media_links;
         const receivedLinks = response.data?.social_media_links || {};

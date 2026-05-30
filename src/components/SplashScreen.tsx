@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 
 interface SplashScreenProps {
@@ -7,37 +7,26 @@ interface SplashScreenProps {
 }
 
 const SplashScreen: React.FC<SplashScreenProps> = ({ onFinished }) => {
-  const [fadeAnim] = useState(new Animated.Value(0));
-
   useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 1500,
-      useNativeDriver: true,
-    }).start();
-
+    // Start at full opacity — the native splash uses the same image so the
+    // handoff is seamless. No fade-in needed; just hold for the minimum
+    // display time then signal ready.
     const timer = setTimeout(() => {
       onFinished();
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [fadeAnim, onFinished]);
-
-  const translateY = fadeAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [20, 0],
-  });
+  }, [onFinished]);
 
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.content, { opacity: fadeAnim, transform: [{ translateY }] }]}>
+      <View style={styles.content}>
         <Image 
           source={require('../../assets/MODO_01_black.jpg')} 
           style={styles.splashImage}
           contentFit="contain"
-          transition={200}
         />
-      </Animated.View>
+      </View>
     </View>
   );
 };

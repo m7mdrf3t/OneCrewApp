@@ -1011,11 +1011,31 @@ const AppContent: React.FC = () => {
     navigationRef.current?.navigate(newTab as any);
   }, [isGuest]);
 
-  const handleSplashFinished = () => {
-    setShowSplash(false);
-    // Defer non-critical API work until after the JS splash finishes
-    setAppBootCompleted(true);
-  };
+  // Track whether the splash animation has completed independently of API init.
+  // Both must be done before we dismiss the splash and show the real app.
+  const splashAnimDoneRef = useRef(false);
+  // Mirror isLoading into a ref so handleSplashFinished stays stable and never
+  // causes SplashScreen to restart its internal timer when isLoading changes.
+  const isLoadingRef = useRef(isLoading);
+  isLoadingRef.current = isLoading;
+
+  // Stable reference — no deps — reads current isLoading via ref at call time.
+  const handleSplashFinished = useCallback(() => {
+    splashAnimDoneRef.current = true;
+    if (!isLoadingRef.current) {
+      setShowSplash(false);
+      setAppBootCompleted(true);
+    }
+    // else: the useEffect below will dismiss when isLoading clears
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Dismiss splash once API init finishes (in case it outlasted the animation)
+  useEffect(() => {
+    if (!isLoading && splashAnimDoneRef.current && showSplash) {
+      setShowSplash(false);
+      setAppBootCompleted(true);
+    }
+  }, [isLoading, showSplash]);
 
 
   const handleLogout = async () => {
@@ -1028,24 +1048,16 @@ const AppContent: React.FC = () => {
 
   const isDark = theme === 'dark';
 
-  // Show splash, auth, or onboarding outside of React Navigation
+  // Show splash until BOTH the animation is done AND the API is initialized.
+  // This prevents the skeleton flash between splash and main app.
+  // NOTE: do NOT include `isLoading` here — it is also set to true during login/logout,
+  // which would cause the splash to re-appear after the initial boot is complete.
   if (showSplash) {
     return (
       <SafeAreaProvider>
         <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
           <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
           <SplashScreen onFinished={handleSplashFinished} />
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]} edges={Platform.OS === 'ios' ? ['top'] : []}>
-          <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={isDark ? '#000' : '#fff'} />
-          <SkeletonScreen showHeader={true} contentCount={5} isDark={isDark} />
         </SafeAreaView>
       </SafeAreaProvider>
     );

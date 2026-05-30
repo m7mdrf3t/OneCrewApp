@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useMemo, useLayoutEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -45,6 +45,20 @@ import UploadProgressBar from '../components/UploadProgressBar';
 // NOTE: FlashList runtime supports `estimatedItemSize`, but our current TS setup may not expose it.
 // We cast to keep the perf optimization without blocking typecheck; revisit after dependency upgrades.
 const FlashListUnsafe: React.ComponentType<any> = FlashList as any;
+
+// Map invalid/missing icon names to valid Ionicons names (module-level, no recreation per render)
+const getValidIconName = (iconName: string | undefined | null): string => {
+  if (!iconName) return 'briefcase-outline';
+  const iconMap: Record<string, string> = {
+    'pen': 'pencil-outline',
+    'pencil': 'pencil-outline',
+    'create': 'create-outline',
+    'edit': 'create-outline',
+    'write': 'pencil-outline',
+  };
+  const lower = iconName.toLowerCase();
+  return iconMap[lower] || iconName || 'briefcase-outline';
+};
 
 interface CompanyProfilePageProps {
   companyId: string;
@@ -290,10 +304,11 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     enabled: shouldLoadServices,
     staleTime: 5 * 60_000,
     queryFn: async () => {
-      console.log('🔍 Fetching company services for:', companyId, { isReadOnly, isCompanyMember, membersQuerySuccess: membersQuery.isSuccess });
+      if (__DEV__) {
+        console.log('🔍 Fetching company services for:', companyId);
+      }
       const response = await getCompanyServices(companyId);
       if (!response?.success) {
-        // Should not happen if enabled correctly, but handle gracefully
         console.warn('⚠️ Failed to load services:', response?.error);
         return [];
       }
@@ -305,18 +320,17 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           : Array.isArray(payload?.data)
             ? payload.data
             : [];
-      console.log('✅ Company services loaded:', servicesArray.length, 'services', servicesArray);
+      if (__DEV__) {
+        console.log('✅ Company services loaded:', servicesArray.length);
+      }
       return servicesArray;
     },
   });
 
   useEffect(() => {
     if (servicesQuery.data !== undefined) {
-      console.log('📦 Updating services state:', servicesQuery.data.length, 'services');
       setServices(servicesQuery.data);
     } else if (servicesQuery.isSuccess) {
-      // Query succeeded but returned no data - clear services
-      console.log('📦 Clearing services (query succeeded but no data)');
       setServices([]);
     }
   }, [servicesQuery.data, servicesQuery.isSuccess]);
@@ -730,40 +744,27 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     }
   };
 
-  const isOwner = () => {
-    // In read-only mode, never detect ownership - always return false
-    if (isReadOnly) return false;
-    
-    if (!company || !user) return false;
-    // Check multiple ways: owner.id or activeCompany match
+  const isOwner = useMemo(() => {
+    if (isReadOnly || !company || !user) return false;
     const isOwnerById = company.owner?.id === user.id;
     const isActiveCompany = activeCompany?.id === company.id;
-    // Also check if company was created by this user (created_by field if available)
     const isCreator = (company as any).created_by === user.id;
     return isOwnerById || isActiveCompany || isCreator;
-  };
+  }, [isReadOnly, company, user, activeCompany]);
 
-  const canEdit = () => {
-    // In read-only mode, never allow editing - always return false
-    if (isReadOnly) return false;
-    
-    if (!company || !user) return false;
-    // Only allow edits when the user is verified as owner/admin for this company.
-    const isOwnerCheck = isOwner();
-    
-    // Also check if user is a member with admin/owner role
+  const canEdit = useMemo(() => {
+    if (isReadOnly || !company || !user) return false;
+    if (isOwner) return true;
     const userMember = members.find(m => m.user_id === user.id);
-    const hasEditPermission = userMember && (userMember.role === 'owner' || userMember.role === 'admin');
-    
-    return isOwnerCheck || hasEditPermission;
-  };
+    return !!(userMember && (userMember.role === 'owner' || userMember.role === 'admin'));
+  }, [isReadOnly, company, user, isOwner, members]);
 
   const checkIsAcademy = () => {
     return company?.subcategory === 'academy';
   };
 
   const handleToggleVisibility = async () => {
-    if (!company || !checkIsAcademy() || !canEdit()) return;
+    if (!company || !checkIsAcademy() || !canEdit) return;
 
     const currentVisibility = company.visibility || 'published';
     const newVisibility = currentVisibility === 'private' ? 'published' : 'private';
@@ -794,92 +795,28 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
     if (!company) return;
 
     const previousVisibility = company.visibility || 'published';
-
-    // Optimistic update
     setCompany({ ...company, visibility });
 
     try {
-      // Clear rate limiter cache BEFORE updating to ensure fresh data after
-      try {
-        const { rateLimiter } = await import('../utils/rateLimiter');
-        await rateLimiter.clearCacheByPattern(`company-${company.id}`);
-        if (__DEV__) {
-          console.log(`🧹 [updateVisibility] Cleared rate limiter cache before update`);
-        }
-      } catch (err) {
-        console.warn('⚠️ Could not clear cache before update:', err);
-      }
-
       await updateAcademyVisibility(company.id, visibility);
-      
-      // Update timestamp to force query key change and cache invalidation
-      const newTimestamp = Date.now();
-      setVisibilityUpdateTimestamp(newTimestamp);
-      
-      // Clear rate limiter cache AGAIN after update to ensure it's fresh
+
+      // Bump timestamp so the query key changes and cache is bypassed
+      setVisibilityUpdateTimestamp(Date.now());
+
+      // Invalidate related caches
+      queryClient.invalidateQueries({ queryKey: ['company', company.id], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['directoryCompanies'], exact: false });
+
       try {
         const { rateLimiter } = await import('../utils/rateLimiter');
         await rateLimiter.clearCacheByPattern(`company-${company.id}`);
         await rateLimiter.clearCacheByPattern(`companies-`);
-        if (__DEV__) {
-          console.log(`🧹 [updateVisibility] Cleared rate limiter cache after update`);
-        }
-      } catch (err) {
-        console.warn('⚠️ Could not clear cache after update:', err);
+      } catch {
+        // non-critical
       }
-      
-      // Invalidate and refetch the company query immediately to get fresh data
-      // The timestamp change will force a new query key, bypassing all caches
-      queryClient.invalidateQueries({ 
-        queryKey: ['company', company.id, 'core'],
-        exact: false
-      });
-      
-      // Force refetch with cache bypass - wait for it to complete
-      await companyCoreQuery.refetch();
-      
-      // Verify the data was updated correctly
-      if (companyCoreQuery.data?.visibility !== visibility) {
-        console.warn('⚠️ [updateVisibility] Visibility mismatch after refetch. Expected:', visibility, 'Got:', companyCoreQuery.data?.visibility);
-        // Force another refetch after a short delay
-        setTimeout(async () => {
-          await companyCoreQuery.refetch();
-        }, 500);
-      }
-      
-      // Invalidate React Query cache for directory companies to refresh the list
-      // This ensures private academies are immediately removed/added from the directory
-      queryClient.invalidateQueries({ 
-        queryKey: ['directoryCompanies'],
-        exact: false // Invalidate all directory company queries
-      });
-      
-      // Also invalidate any other company-related queries
-      queryClient.invalidateQueries({ 
-        queryKey: ['company', company.id],
-        exact: false
-      });
-      
-      // Force clear rate limiter cache for companies list to ensure fresh data
-      // This is critical - the rate limiter cache might still have old data
-      try {
-        const { rateLimiter } = await import('../utils/rateLimiter');
-        await rateLimiter.clearCacheByPattern(`companies-`);
-        if (__DEV__) {
-          console.log(`🧹 [updateVisibility] Cleared companies list cache from rate limiter`);
-        }
-      } catch (err) {
-        console.warn('⚠️ Could not clear companies list cache:', err);
-      }
-      
-      // Success - update happens silently without confirmation message
     } catch (error: any) {
-      // Revert optimistic update on error
       setCompany({ ...company, visibility: previousVisibility });
-      Alert.alert(
-        'Error',
-        error.message || 'Failed to update academy visibility. Please try again.'
-      );
+      Alert.alert('Error', error.message || 'Failed to update academy visibility. Please try again.');
     }
   };
 
@@ -930,23 +867,6 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       default:
         return '#71717a';
     }
-  };
-
-  // Map invalid icon names to valid Ionicons names
-  const getValidIconName = (iconName: string | undefined | null): string => {
-    if (!iconName) return 'briefcase-outline'; // Default icon
-    
-    const iconMap: Record<string, string> = {
-      'pen': 'pencil-outline',
-      'pencil': 'pencil-outline',
-      'create': 'create-outline',
-      'edit': 'create-outline',
-      'write': 'pencil-outline',
-    };
-    
-    const lowerIconName = iconName.toLowerCase();
-    // Return mapped icon if exists, otherwise return the original with fallback
-    return iconMap[lowerIconName] || iconName || 'briefcase-outline';
   };
 
   const handleWebsitePress = () => {
@@ -1195,7 +1115,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             <Ionicons name="swap-horizontal-outline" size={24} color="#000" />
           </TouchableOpacity>
           {/* Visibility Toggle Button - Only for academy owners */}
-          {!isReadOnly && canEdit() && company && checkIsAcademy() && (
+          {!isReadOnly && canEdit && company && checkIsAcademy() && (
             <TouchableOpacity
               onPress={handleToggleVisibility}
               style={[
@@ -1224,15 +1144,15 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
           )}
         {/* STRICT READ-ONLY: Edit button completely removed when readOnly is true */}
           {(() => {
-            const shouldShowEdit = !isReadOnly && canEdit() && company;
+            const shouldShowEdit = !isReadOnly && canEdit && company;
             if (__DEV__ && !shouldShowEdit) {
               console.log('🔍 [CompanyProfile] Edit button hidden:', {
                 isReadOnly,
-                canEdit: canEdit(),
+                canEdit: canEdit,
                 hasCompany: !!company,
                 companyId: company?.id,
                 userId: user?.id,
-                isOwner: isOwner(),
+                isOwner: isOwner,
                 isActiveCompany: currentProfileType === 'company' && activeCompany?.id === company?.id,
                 membersCount: members.length,
                 userMember: members.find(m => m.user_id === user?.id),
@@ -1299,7 +1219,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               )}
               
               {/* Chat Icon - Top Right Corner */}
-              {!canEdit() && (
+              {!canEdit && (
                 <TouchableOpacity
                   style={styles.chatIconButton}
                   onPress={handleStartChat}
@@ -1312,7 +1232,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
               )}
               
               {/* STRICT READ-ONLY: Upload Logo Button completely removed when readOnly is true */}
-              {!isReadOnly && canEdit() && (
+              {!isReadOnly && canEdit && (
                 <TouchableOpacity
                   style={styles.uploadLogoButton}
                   onPress={handleUploadLogo}
@@ -1444,44 +1364,40 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
               {/* Metrics Row */}
               <View style={styles.metricsRow}>
+                <View style={styles.metricItem}>
+                  <Ionicons name="people-outline" size={18} color="#000" />
+                  <Text style={styles.metricLabel}>Members</Text>
+                  <Text style={styles.metricValue}>
+                    {loadingMembers ? '...' : members.filter(m => m.invitation_status === 'accepted').length}
+                  </Text>
+                </View>
+
+                <View style={styles.metricItem}>
+                  <Ionicons name="school-outline" size={18} color="#000" />
+                  <Text style={styles.metricLabel}>Courses</Text>
+                  <Text style={styles.metricValue}>
+                    {loadingCourses ? '...' : courses.length}
+                  </Text>
+                </View>
+
                 {(company.establishment_date || company.created_at) && (
                   <View style={styles.metricItem}>
                     <Ionicons name="calendar-outline" size={18} color="#000" />
-                    <Text style={styles.metricLabel}>
-                      Team Size: {loadingMembers ? '...' : `${members.length}+`}
-                    </Text>
+                    <Text style={styles.metricLabel}>Est.</Text>
                     <Text style={styles.metricValue}>
-                      Created: {company.establishment_date
-                        ? new Date(company.establishment_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
-                        : new Date(company.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
+                      {new Date(company.establishment_date || company.created_at).getFullYear()}
                     </Text>
                   </View>
                 )}
-
-                <View style={styles.metricItem}>
-                  <Ionicons name="people-outline" size={18} color="#000" />
-                  <Text style={styles.metricLabel}>Active Users</Text>
-                  <Text style={styles.metricValue}>
-                    {loadingMembers ? '...' : `${members.length}+`}
-                  </Text>
-                </View>
-
-                <View style={styles.metricItem}>
-                  <Ionicons name="bar-chart-outline" size={18} color="#000" />
-                  <Text style={styles.metricLabel}>Active</Text>
-                  <Text style={styles.metricValue}>
-                    {loadingMembers ? '...' : `${members.length}+`}
-                  </Text>
-                </View>
               </View>
             </View>
 
-            {/* Team & Metrics Section with Courses */}
+            {/* Courses Section */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Team & Metrics</Text>
+                <Text style={styles.sectionTitle}>Courses</Text>
                 {/* STRICT READ-ONLY: Manage button completely removed when readOnly is true */}
-                {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
+                {!isReadOnly && canEdit && company.approval_status === 'approved' && (
                   <TouchableOpacity
                     style={styles.manageButton}
                     onPress={() => handleManageCourses(company)}
@@ -1557,7 +1473,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="school-outline" size={48} color="#e4e4e7" />
                   <Text style={styles.emptyStateText}>No courses available yet</Text>
                   {/* STRICT READ-ONLY: Create Course button completely removed when readOnly is true */}
-                  {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
+                  {!isReadOnly && canEdit && company.approval_status === 'approved' && (
                     <TouchableOpacity
                       style={styles.addButton}
                       onPress={() => handleManageCourses(company)}
@@ -1570,7 +1486,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             </View>
 
             {/* STRICT READ-ONLY: Academy Management Section - Enhanced UI */}
-            {!isReadOnly && canEdit() && company.subcategory === 'academy' && company.approval_status === 'approved' && (
+            {!isReadOnly && canEdit && company.subcategory === 'academy' && company.approval_status === 'approved' && (
               <View style={styles.section}>
                 <Text style={styles.managementSectionTitle}>Academy Management</Text>
                 <Text style={styles.managementSectionSubtitle}>
@@ -1646,7 +1562,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
             )}
             
             {/* User Management Section - For all company types */}
-            {!isReadOnly && canEdit() && company.approval_status === 'approved' && company.subcategory !== 'academy' && (
+            {!isReadOnly && canEdit && company.approval_status === 'approved' && company.subcategory !== 'academy' && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>User Management</Text>
@@ -1683,7 +1599,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   </View>
                 )}
                 {/* STRICT READ-ONLY: Upload Logo Button completely removed when readOnly is true */}
-                {!readOnly && canEdit() && (
+                {!isReadOnly && canEdit && (
                   <TouchableOpacity
                     style={styles.uploadLogoButton}
                     onPress={handleUploadLogo}
@@ -1881,7 +1797,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   Services We Provide {services.length > 0 ? `(${services.length})` : ''}
                 </Text>
                 {/* STRICT READ-ONLY: Manage Services button completely removed when readOnly is true */}
-                {!isReadOnly && canEdit() && onManageServices && (
+                {!isReadOnly && canEdit && onManageServices && (
                   <TouchableOpacity
                     style={styles.manageButton}
                     onPress={() => onManageServices(company)}
@@ -1935,7 +1851,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="briefcase-outline" size={48} color="#e4e4e7" />
                   <Text style={styles.emptyStateText}>No services added yet</Text>
                   {/* STRICT READ-ONLY: Add Services button completely removed when readOnly is true */}
-                  {!isReadOnly && canEdit() && onManageServices && (
+                  {!isReadOnly && canEdit && onManageServices && (
                     <TouchableOpacity
                       style={styles.addButton}
                       onPress={() => onManageServices(company)}
@@ -1955,7 +1871,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                 </Text>
                 <View style={styles.memberActionButtons}>
                   {/* STRICT READ-ONLY: Manage Members button completely removed when readOnly is true */}
-                  {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
+                  {!isReadOnly && canEdit && company.approval_status === 'approved' && (
                     <TouchableOpacity
                       style={styles.manageButton}
                       onPress={() => handleManageMembers(company)}
@@ -1965,7 +1881,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                     </TouchableOpacity>
                   )}
                 {/* STRICT READ-ONLY: Invite Member button completely removed when readOnly is true */}
-                {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
+                {!isReadOnly && canEdit && company.approval_status === 'approved' && (
                   <TouchableOpacity
                     style={styles.manageButton}
                     onPress={() => handleInviteMember(company)}
@@ -2031,7 +1947,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
                         <View style={styles.memberActions}>
                           {/* STRICT READ-ONLY: Member action buttons completely removed when readOnly is true */}
-                          {!isReadOnly && canEdit() && member.role !== 'owner' && (
+                          {!isReadOnly && canEdit && member.role !== 'owner' && (
                             <>
                               {company.subcategory === 'academy' && (
                                 <TouchableOpacity
@@ -2044,7 +1960,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                                   <Ionicons name="trophy-outline" size={20} color="#3b82f6" />
                                 </TouchableOpacity>
                               )}
-                              {isOwner() && (
+                              {isOwner && (
                                 <TouchableOpacity
                                   style={styles.memberActionButton}
                                   onPress={() => handleRemoveMember(member)}
@@ -2068,7 +1984,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
                   <Ionicons name="people-outline" size={48} color="#e4e4e7" />
                   <Text style={styles.emptyStateText}>No members yet</Text>
                   {/* STRICT READ-ONLY: Management buttons completely removed when readOnly is true */}
-                  {!isReadOnly && canEdit() && company.approval_status === 'approved' && (
+                  {!isReadOnly && canEdit && company.approval_status === 'approved' && (
                     <View style={styles.emptyStateButtons}>
                       <TouchableOpacity
                         style={[styles.addButton, { backgroundColor: '#3b82f6', marginBottom: 8 }]}
@@ -2091,7 +2007,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
 
             {/* Documents Section - Show when company is pending or rejected, allow document upload */}
             {/* STRICT READ-ONLY: Documents section completely removed when readOnly is true */}
-            {!isReadOnly && (company.approval_status === 'pending' || company.approval_status === 'rejected') && (isOwner() || canEdit()) && (
+            {!isReadOnly && (company.approval_status === 'pending' || company.approval_status === 'rejected') && (isOwner || canEdit) && (
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Documents</Text>
@@ -2270,7 +2186,7 @@ const CompanyProfilePage: React.FC<CompanyProfilePageProps> = ({
       )}
 
       {/* STRICT READ-ONLY: Course Registration Modal completely removed when readOnly is true */}
-      {!isReadOnly && company && company.subcategory === 'academy' && canEdit() && (
+      {!isReadOnly && company && company.subcategory === 'academy' && canEdit && (
         <CourseRegistrationModal
           visible={showCourseRegistrationModal}
           onClose={() => setShowCourseRegistrationModal(false)}
@@ -2451,7 +2367,6 @@ const styles = StyleSheet.create({
     height: 280,
     borderRadius: 8,
     backgroundColor: '#f4f4f5',
-    resizeMode: 'cover',
   },
   logoPlaceholder: {
     width: '100%',

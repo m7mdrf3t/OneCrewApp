@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
+import { AppState, View, Text, StyleSheet, Animated, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
@@ -79,11 +79,20 @@ const OTAUpdateBannerReal: React.FC = () => {
     }
   }, [isUpdateAvailable]);
 
-  // Reload automatically when the download finishes
+  // Reload on the next foreground transition instead of immediately.
+  // This prevents the double-splash the user would see if we called
+  // reloadAsync() right after download while they are actively using the app.
   useEffect(() => {
-    if (isUpdatePending) {
-      Updates.reloadAsync().catch(() => {});
-    }
+    if (!isUpdatePending) return;
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        subscription.remove();
+        Updates.reloadAsync().catch(() => {});
+      }
+    });
+
+    return () => subscription.remove();
   }, [isUpdatePending]);
 
   // Keep banner visible (at 100%) between download completion and app reload

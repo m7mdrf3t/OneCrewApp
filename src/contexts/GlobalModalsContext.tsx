@@ -29,7 +29,7 @@ export const GlobalModalsProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   // Debug: Log when showMyTeam changes
   React.useEffect(() => {
-    console.log('🟡 [GlobalModalsContext] showMyTeam state changed to:', showMyTeam);
+    if (__DEV__) console.log('🟡 [GlobalModalsContext] showMyTeam state changed to:', showMyTeam);
   }, [showMyTeam]);
 
   const actions = useMemo(
@@ -80,6 +80,10 @@ export const useGlobalModals = () => {
   }
   return context;
 };
+
+/** Like useGlobalModals but returns undefined when used outside the provider. */
+export const useGlobalModalsSafe = (): GlobalModalsContextType | undefined =>
+  useContext(GlobalModalsContext);
 
 export const useGlobalModalActions = () => {
   const context = useContext(GlobalModalsActionsContext);
