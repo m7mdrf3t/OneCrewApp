@@ -299,7 +299,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         {/* Gradient Header */}
         <LinearGradient
-          colors={['#E8E0F5', '#E0D5F0']}
+          colors={['#0F172A', '#1E3A5F']}
           style={styles.gradientHeader}
         >
           <View style={styles.gridOverlay} />
@@ -488,7 +488,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F8FAFC',
   },
   scrollContainer: {
     flexGrow: 1,
@@ -533,18 +533,17 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 36,
     fontWeight: '800',
-    color: '#000',
+    color: '#FFFFFF',
     marginBottom: 4,
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 18,
-    color: '#000',
+    color: '#CBD5E1',
     fontWeight: '400',
-    opacity: 0.8,
   },
   cardContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     marginTop: -20,
@@ -552,9 +551,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 40,
     minHeight: '100%',
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 5,
   },
@@ -643,8 +642,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   checkboxChecked: {
-    backgroundColor: '#000',
-    borderColor: '#000',
+    backgroundColor: '#0369A1',
+    borderColor: '#0369A1',
   },
   rememberMeText: {
     fontSize: 14,
@@ -657,16 +656,16 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   loginButton: {
-    backgroundColor: '#000',
+    backgroundColor: '#0369A1',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: '#0369A1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
   loginButtonDisabled: {
     backgroundColor: '#9ca3af',

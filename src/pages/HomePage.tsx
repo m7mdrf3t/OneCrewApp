@@ -43,9 +43,9 @@ const HomePage: React.FC<HomePageProps> = ({
               onPress={() => setShowSearch(true)}
             >
               <View style={styles.searchIconContainer}>
-                <Ionicons name="search" size={16} color="#000" />
+                <Ionicons name="search" size={16} color="#0369A1" />
               </View>
-              <Text style={styles.searchButtonText}>Search</Text>
+              <Text style={styles.searchButtonText}>Search profiles...</Text>
             </TouchableOpacity>
           ) : (
             <View style={styles.searchBarContainer}>
@@ -73,7 +73,7 @@ const HomePage: React.FC<HomePageProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f4f4f5',
+    backgroundColor: '#F8FAFC',
   },
   content: {
     flex: 1,
@@ -84,28 +84,31 @@ const styles = StyleSheet.create({
   searchButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
     padding: 12,
-    marginBottom: 8,
+    marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
   searchIconContainer: {
     width: 40,
     height: 40,
-    borderRadius: 8,
-    backgroundColor: '#f4f4f5',
-    borderWidth: 1,
-    borderColor: '#d4d4d8',
+    borderRadius: 10,
+    backgroundColor: '#EFF6FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   searchButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#94A3B8',
     flex: 1,
   },
   searchBarContainer: {

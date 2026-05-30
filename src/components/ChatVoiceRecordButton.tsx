@@ -133,7 +133,7 @@ export const ChatVoiceRecordButton: React.FC = () => {
   return (
     <View style={styles.wrap}>
       <TouchableOpacity onPress={startRecording} style={styles.btn} activeOpacity={0.7}>
-        <Ionicons name="mic" size={24} color="#3b82f6" />
+        <Ionicons name="mic" size={22} color="#8696A0" />
       </TouchableOpacity>
     </View>
   );
@@ -146,10 +146,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   btn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },

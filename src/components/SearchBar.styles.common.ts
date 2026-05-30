@@ -12,12 +12,12 @@ export const searchBarCommonStyles = {
   container: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: semanticSpacing.borderRadius.lg,
     paddingHorizontal: semanticSpacing.containerPadding,
     height: 48,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: '#E2E8F0',
   } as ViewStyle,
   
   searchIcon: {
@@ -50,7 +50,7 @@ export const searchBarCommonStyles = {
   } as ViewStyle,
   
   filterButtonActive: {
-    backgroundColor: '#000',
+    backgroundColor: '#0369A1',
   } as ViewStyle,
   
   filterBadge: {

@@ -11,24 +11,26 @@ import { spacing, semanticSpacing } from '../constants/spacing';
 // Common color palette
 export const commonColors = {
   // Primary colors
-  primary: '#000000',
-  primaryLight: '#333333',
-  primaryDark: '#000000',
+  primary: '#0F172A',
+  primaryLight: '#334155',
+  primaryDark: '#020617',
+  accent: '#0369A1',
+  accentLight: '#EFF6FF',
   
   // Background colors
-  background: '#ffffff',
-  backgroundSecondary: '#f4f4f5',
-  backgroundTertiary: '#f9fafb',
+  background: '#FFFFFF',
+  backgroundSecondary: '#F8FAFC',
+  backgroundTertiary: '#F1F5F9',
   
   // Text colors
-  text: '#000000',
-  textSecondary: '#71717a',
-  textTertiary: '#9ca3af',
+  text: '#020617',
+  textSecondary: '#64748B',
+  textTertiary: '#94A3B8',
   textInverse: '#ffffff',
   
   // Border colors
-  border: '#e5e7eb',
-  borderDark: '#d4d4d8',
+  border: '#E2E8F0',
+  borderDark: '#CBD5E1',
   
   // Status colors
   success: '#10b981',
@@ -37,8 +39,8 @@ export const commonColors = {
   info: '#3b82f6',
   
   // Overlay colors
-  overlay: 'rgba(0, 0, 0, 0.5)',
-  overlayLight: 'rgba(0, 0, 0, 0.3)',
+  overlay: 'rgba(15, 23, 42, 0.5)',
+  overlayLight: 'rgba(15, 23, 42, 0.3)',
 } as const;
 
 // Common typography
@@ -90,25 +92,25 @@ export const commonBorderRadius = {
 // Common shadow styles (will be overridden by platform-specific)
 export const commonShadows = {
   sm: {
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
     elevation: 1,
   },
   md: {
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
   },
   lg: {
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 6,
   },
 } as const;
 
@@ -172,7 +174,7 @@ export const commonStyles = StyleSheet.create({
   
   // Input styles
   input: {
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: commonColors.borderDark,
     borderRadius: commonBorderRadius.md,
     paddingHorizontal: semanticSpacing.inputPadding,
@@ -188,8 +190,8 @@ export const commonStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: commonColors.background,
-    borderBottomWidth: 2,
-    borderBottomColor: commonColors.primary,
+    borderBottomWidth: 1,
+    borderBottomColor: commonColors.border,
     paddingHorizontal: semanticSpacing.containerPadding,
     paddingVertical: semanticSpacing.headerPaddingVertical,
     paddingTop: semanticSpacing.containerPadding,

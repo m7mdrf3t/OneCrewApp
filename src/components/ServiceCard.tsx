@@ -47,7 +47,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({ item, onSelect }) => {
       activeOpacity={0.7}
     >
       <View style={styles.iconContainer}>
-        <Ionicons name={iconName} size={20} color="#000" />
+        <Ionicons name={iconName} size={20} color="#0369A1" />
       </View>
       <View style={styles.content}>
         <Text style={styles.label}>{item.label}</Text>
@@ -62,20 +62,24 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#d4d4d8',
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    padding: 14,
     marginBottom: 8,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
   iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#f4f4f5',
-    borderWidth: 1,
-    borderColor: '#d4d4d8',
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 0,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -84,14 +88,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   label: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#000',
+    color: '#0F172A',
     marginBottom: 2,
   },
   userCount: {
-    fontSize: 14,
-    color: '#71717a',
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
   },
 });
 

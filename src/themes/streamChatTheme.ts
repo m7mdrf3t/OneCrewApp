@@ -8,21 +8,53 @@ export type StreamChatThemeOptions = {
 
 export const streamChatTheme: DeepPartial<Theme> = {
   colors: {
-    accent_blue: '#3b82f6',
-    accent_green: '#10b981',
+    accent_blue: '#00A884',    // WhatsApp teal
+    accent_green: '#00A884',   // WhatsApp teal
     accent_red: '#ef4444',
     white: '#ffffff',
-    white_smoke: '#f0f2f5',
-    grey: '#e5e7eb',
-    grey_whisper: '#f0f2f5',
-    black: '#111827',
-    grey_dark: '#374151',
+    white_smoke: '#F0F2F5',    // WhatsApp input bar tint
+    grey: '#E2E8F0',
+    grey_whisper: '#F0F2F5',
+    black: '#111B21',          // WhatsApp dark text
+    grey_dark: '#8696A0',      // WhatsApp muted label — lighter for dark input bar
   },
 
-  // Messenger-style light gray background for the chat area
+  // Date separator pill ("Thursday", "Today", etc.)
+  dateSeparator: {
+    container: {
+      marginVertical: 12,
+    },
+    line: {
+      flex: 0,
+      width: 0,
+      height: 0,
+    },
+    text: {
+      color: '#ffffff',
+      fontSize: 12,
+      fontWeight: '600',
+      paddingHorizontal: 12,
+      paddingVertical: 4,
+      backgroundColor: '#8696A0',
+      borderRadius: 20,
+      overflow: 'hidden',
+    },
+    dateText: {
+      color: '#ffffff',
+      fontSize: 12,
+      fontWeight: '600',
+      paddingHorizontal: 12,
+      paddingVertical: 4,
+      backgroundColor: '#8696A0',
+      borderRadius: 20,
+      overflow: 'hidden',
+    },
+  },
+
+  // WhatsApp-style warm wallpaper background
   messageList: {
     container: {
-      backgroundColor: '#f0f2f5',
+      backgroundColor: '#ECE5DD',
     },
     contentContainer: {
       paddingHorizontal: 8,
@@ -36,7 +68,7 @@ export const streamChatTheme: DeepPartial<Theme> = {
       paddingHorizontal: 16,
       paddingVertical: 12,
       borderBottomWidth: 1,
-      borderBottomColor: '#f3f4f6',
+      borderBottomColor: '#E2E8F0',
       backgroundColor: '#ffffff',
     },
     contentContainer: {
@@ -45,11 +77,11 @@ export const streamChatTheme: DeepPartial<Theme> = {
     title: {
       fontSize: 16,
       fontWeight: '600',
-      color: '#111827',
+      color: '#0F172A',
     },
     date: {
       fontSize: 12,
-      color: '#9ca3af',
+      color: '#94A3B8',
     },
     unreadText: {
       fontSize: 12,
@@ -60,8 +92,18 @@ export const streamChatTheme: DeepPartial<Theme> = {
   // Message bubbles — WhatsApp/Messenger style
   // borderRadiusL = outer corners, borderRadiusS = inner (tail-side) corners
   messageSimple: {
+    avatarWrapper: {
+      container: {
+        marginBottom: 0,
+        marginRight: 8,
+      },
+      spacer: {
+        width: 48,   // avatar width (40) + marginRight (8)
+        height: 40,
+      },
+    },
     container: {
-      marginVertical: 2,
+      marginVertical: 4,
     },
     content: {
       container: {
@@ -70,20 +112,26 @@ export const streamChatTheme: DeepPartial<Theme> = {
       },
       containerInner: {
         borderRadius: 18,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
       },
-      // Own messages: blue (Messenger blue)
-      senderMessageBackgroundColor: '#3b82f6',
-      // Other messages: white card on the gray background
-      receiverMessageBackgroundColor: '#ffffff',
+      // Own messages: WhatsApp mint green — dark text (#111B21) ensures readability
+      senderMessageBackgroundColor: '#DCF8C6',
+      // Other messages: white card on warm wallpaper
+      receiverMessageBackgroundColor: '#FFFFFF',
       markdown: {
         text: {
           fontSize: 15,
-          lineHeight: 20,
+          lineHeight: 22,
+          color: '#111B21',  // Dark text — works on both white AND light-green bubbles
         },
+      },
+      metaContainer: {
+        marginTop: 4,
       },
       metaText: {
         fontSize: 11,
-        color: '#9ca3af',
+        color: '#667781',  // WhatsApp muted teal-gray
       },
     },
   },
@@ -91,31 +139,70 @@ export const streamChatTheme: DeepPartial<Theme> = {
   // Input bar — clean pill shape (Messenger style)
   messageInput: {
     container: {
-      backgroundColor: '#ffffff',
+      backgroundColor: '#202C33',  // WhatsApp dark charcoal input bar
       borderTopWidth: 1,
-      borderTopColor: '#e9e9e9',
+      borderTopColor: '#1A2428',   // barely-there dark separator
       paddingHorizontal: 8,
-      paddingVertical: 8,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: -1 },
-      shadowOpacity: 0.04,
-      shadowRadius: 3,
-      elevation: 2,
+      paddingTop: 6,
+      paddingBottom: 0,  // controlled by getStreamChatTheme based on safe-area inset
+      shadowColor: 'transparent',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0,
+      shadowRadius: 0,
+      elevation: 0,
     },
     // The text input field
     inputBox: {
-      backgroundColor: '#f0f2f5',
+      backgroundColor: '#FFFFFF',  // White pill input
       borderRadius: 22,
       paddingHorizontal: 16,
-      paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+      paddingVertical: 8,
       fontSize: 15,
-      color: '#111827',
-      minHeight: 44,
+      color: '#111B21',
+      minHeight: 40,
       maxHeight: 120,
     },
     inputBoxContainer: {
       borderRadius: 22,
-      backgroundColor: '#f0f2f5',
+      backgroundColor: '#FFFFFF',
+    },
+    // Attach (+) button — no circle background, plain icon matching dark bar
+    attachButton: {
+      backgroundColor: 'transparent',
+      width: 32,
+      height: 32,
+      justifyContent: 'center',
+      alignItems: 'center',
+      transform: [{ scale: 0.78 }],  // 32px SVG → ~25px visual
+    },
+    // Native attachment picker popup (image/camera circles above the + button)
+    nativeAttachmentPicker: {
+      buttonContainer: {
+        backgroundColor: '#202C33',  // Match dark input bar — makes light #E2E8F0 icons visible
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+      },
+    },
+    // SDK mic/audio recording button container
+    micButtonContainer: {
+      width: 32,
+      height: 32,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    // SDK AudioRecordingButton — the big white circle mic shown when no text is typed
+    audioRecordingButton: {
+      container: {
+        width: 32,
+        height: 32,
+        backgroundColor: 'transparent',  // No white circle on dark bar
+        marginLeft: 4,
+      },
+      micIcon: {
+        size: 24,
+        fill: '#E2E8F0',  // Light gray — matches the attach + icon color on dark bar
+      },
     },
     sendButton: {
       backgroundColor: 'transparent',
@@ -223,8 +310,9 @@ export const getStreamChatTheme = (
   options?: StreamChatThemeOptions,
 ): DeepPartial<Theme> => {
   const bottomInset = options?.bottomInset ?? 0;
-  const composerBottomPadding =
-    Platform.OS === 'ios' ? Math.max(bottomInset, 8) : 8;
+  // Use exactly the safe-area inset with a small minimum so the pill
+  // never sits flush against the bottom edge on devices with no home indicator.
+  const composerBottomPadding = Math.max(bottomInset, 4);
 
   return {
     ...streamChatTheme,

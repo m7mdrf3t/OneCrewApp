@@ -1080,7 +1080,7 @@ const ProjectsPage: React.FC<ProjectsPageProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f4f4f5',
+    backgroundColor: '#F8FAFC',
   },
   header: {
     flexDirection: 'row',
@@ -1124,13 +1124,13 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#a855f7',
+    backgroundColor: '#0369A1',
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: '#0369A1',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     elevation: 8,
   },
   trashButton: {
@@ -1179,8 +1179,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xxl,
   },
   retryButton: {
-    backgroundColor: '#000',
-    borderRadius: 8,
+    backgroundColor: '#0369A1',
+    borderRadius: 10,
     paddingHorizontal: 24,
     paddingVertical: 12,
   },
@@ -1190,17 +1190,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   projectCard: {
-    backgroundColor: '#000',
-    borderRadius: 12,
+    backgroundColor: '#0F172A',
+    borderRadius: 14,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#333333',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 2,
+    borderColor: '#1E293B',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
   projectCardWithImage: {
     position: 'relative',
@@ -1233,8 +1233,8 @@ const styles = StyleSheet.create({
     minHeight: 150, // Ensure content has minimum height
   },
   projectCardOwner: {
-    backgroundColor: '#000',
-    borderColor: '#333333',
+    backgroundColor: '#0F172A',
+    borderColor: '#1E293B',
   },
   projectCardMember: {
     backgroundColor: '#f97316', // Orange color

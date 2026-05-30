@@ -741,7 +741,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#E2E8F0',
   },
   header: {
     flexDirection: 'row',
@@ -750,7 +750,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#E2E8F0',
     backgroundColor: '#fff',
   },
   backButton: {
@@ -758,8 +758,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    fontWeight: '700',
+    color: '#0F172A',
   },
   headerRight: {
     width: 32,
@@ -788,7 +788,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#E2E8F0',
     backgroundColor: '#fff',
   },
   searchResultAvatar: {
@@ -796,7 +796,7 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     marginRight: 12,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: '#E2E8F0',
   },
   searchResultAvatarPlaceholder: {
     width: 48,
@@ -805,7 +805,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#0369A1',
   },
   searchResultAvatarText: {
     color: '#fff',
@@ -819,7 +819,7 @@ const styles = StyleSheet.create({
   searchResultName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#111827',
+    color: '#0F172A',
     marginBottom: 2,
   },
   searchResultSubtitle: {
@@ -833,7 +833,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: '#E2E8F0',
     backgroundColor: '#fff',
   },
   channelAvatar: {
@@ -841,14 +841,14 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     marginRight: 12,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: '#E2E8F0',
   },
   channelAvatarPlaceholder: {
     width: 48,
     height: 48,
     borderRadius: 24,
     marginRight: 12,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#0369A1',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -870,7 +870,7 @@ const styles = StyleSheet.create({
   channelName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#000',
+    color: '#0F172A',
     flex: 1,
   },
   channelNameUnread: {
@@ -878,16 +878,16 @@ const styles = StyleSheet.create({
   },
   channelTime: {
     fontSize: 12,
-    color: '#9ca3af',
+    color: '#94A3B8',
     marginLeft: 8,
   },
   lastMessage: {
     fontSize: 14,
-    color: '#6b7280',
+    color: '#64748B',
   },
   lastMessageUnread: {
     fontWeight: '600',
-    color: '#000',
+    color: '#0F172A',
   },
   unreadBadge: {
     backgroundColor: '#ef4444',
@@ -916,12 +916,12 @@ const styles = StyleSheet.create({
   emptyStateTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#374151',
+    color: '#334155',
     marginTop: 16,
   },
   emptyStateText: {
     fontSize: 14,
-    color: '#6b7280',
+    color: '#64748B',
     textAlign: 'center',
     lineHeight: 20,
   },

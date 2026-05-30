@@ -679,7 +679,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
             width: 32,
             height: 32,
             borderRadius: 16,
-            backgroundColor: '#3b82f6',
+            backgroundColor: '#0369A1',
             justifyContent: 'center',
             alignItems: 'center',
             overflow: 'hidden', // For consistency
@@ -691,8 +691,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
           },
           headerTitleText: {
             fontSize: 18,
-            fontWeight: '600',
-            color: '#000',
+            fontWeight: '700',
+            color: '#0F172A',
           },
         });
         
@@ -763,7 +763,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
     
     // Trust StreamChat's disabled prop - it already checks for text
     const isEnabled = !disabled;
-    const iconColor = isEnabled ? '#3b82f6' : '#9ca3af';
+    const iconColor = isEnabled ? '#FFFFFF' : '#94A3B8';          // white on teal circle, gray when disabled
+    const sendButtonBg = isEnabled ? '#00A884' : 'transparent';  // WhatsApp teal circle
     
     // Get sendMessage from props first, fallback to context
     const sendMessageFn = propsSendMessage || messageInput?.sendMessage;
@@ -804,16 +805,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
       <TouchableOpacity
         onPress={handlePress}
         disabled={disabled}
-        style={styles.nativeSendButton}
-        // Larger hitSlop for easier tapping
+        style={[styles.nativeSendButton, { backgroundColor: sendButtonBg }]}
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        activeOpacity={0.6}
-        // Android: Enable ripple effect for Material Design
+        activeOpacity={0.7}
         {...(Platform.OS === 'android' && {
           android_ripple: {
-            color: 'rgba(59, 130, 246, 0.2)', // Blue ripple when enabled
+            color: 'rgba(0, 168, 132, 0.2)', // WhatsApp teal ripple
             borderless: false,
-            radius: 24,
+            radius: 22,
           },
         })}
       >
@@ -831,7 +830,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
       <DefaultInputButtons />
       {Platform.OS === 'android' ? (
-        <View style={{ minWidth: 44, justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ width: 36, justifyContent: 'center', alignItems: 'center' }}>
           <ChatVoiceRecordButton />
         </View>
       ) : null}
@@ -1238,7 +1237,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     const forwardedLabelColor =
       props?.myMessageTheme?.messageSimple?.content?.metaText?.color ||
       theme?.theme?.messageSimple?.content?.metaText?.color ||
-      '#6b7280';
+      '#64748B';
 
     const hasForwardedImages = getForwardImageAttachments(message).length > 0;
     const showForwardedLabelOnText =
@@ -2040,7 +2039,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3b82f6" />
+          <ActivityIndicator size="large" color="#0369A1" />
           <Text style={styles.loadingText}>Connecting to chat...</Text>
         </View>
       </View>
@@ -2076,7 +2075,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return (
       <View style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3b82f6" />
+          <ActivityIndicator size="large" color="#0369A1" />
           <Text style={styles.loadingText}>Loading chat...</Text>
         </View>
       </View>
@@ -2154,7 +2153,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
               topInset={topInset}
               additionalKeyboardAvoidingViewProps={{ style: styles.channelKeyboardAvoiding }}
               audioRecordingEnabled={true}
+              hasCommands={false}
               asyncMessagesMultiSendEnabled={true}
+              myMessageTheme={{
+                messageSimple: {
+                  content: {
+                    markdown: { text: { color: '#111B21' } },
+                  },
+                },
+              }}
               InputButtons={CustomInputButtons}
               MessageText={ForwardedMessageText}
               Gallery={ForwardedGallery}
@@ -2251,7 +2258,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                     <Ionicons
                       name="arrow-redo-outline"
                       size={24}
-                      color="#374151"
+                      color="#334155"
                     />
                   ),
                   action: () => {
@@ -2315,7 +2322,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 // Empty state
                 EmptyStateIndicator={() => (
                   <View style={styles.emptyState}>
-                    <Ionicons name="chatbubbles-outline" size={64} color="#d1d5db" />
+                    <Ionicons name="chatbubbles-outline" size={64} color="#CBD5E1" />
                     <Text style={styles.emptyStateText}>No messages yet</Text>
                     <Text style={styles.emptyStateSubtext}>Start the conversation!</Text>
                   </View>
@@ -2324,7 +2331,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
               <MessageInput 
                 additionalTextInputProps={{
                   placeholder: 'Type a message...',
-                  placeholderTextColor: '#9ca3af',
+                  placeholderTextColor: '#94A3B8',
                   multiline: true,
                   returnKeyType: 'send',
                   blurOnSubmit: false,
@@ -2336,7 +2343,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           </View>
         ) : loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#3b82f6" />
+            <ActivityIndicator size="large" color="#0369A1" />
             <Text style={styles.loadingText}>Loading chat...</Text>
           </View>
         ) : (
@@ -2382,7 +2389,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#E2E8F0',
     backgroundColor: '#fff',
   },
   backButton: {
@@ -2398,7 +2405,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#E2E8F0',
     backgroundColor: '#fff',
   },
   headerContent: {
@@ -2412,13 +2419,13 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: '#E2E8F0',
   },
   headerAvatarPlaceholder: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#0369A1',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2429,8 +2436,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    fontWeight: '700',
+    color: '#0F172A',
     flex: 1,
   },
   loadingContainer: {
@@ -2456,10 +2463,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#0369A1',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     marginTop: 8,
   },
   retryButtonText: {
@@ -2471,48 +2478,42 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#0369A1',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
   },
   sendButtonDisabled: {
-    backgroundColor: '#e5e7eb',
+    backgroundColor: '#E2E8F0',
   },
   customSendButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#0369A1',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
-    // Ensure minimum touch target size
     minWidth: 48,
     minHeight: 48,
   },
   customSendButtonDisabled: {
-    backgroundColor: '#e5e7eb',
+    backgroundColor: '#E2E8F0',
   },
   customSendButtonSending: {
-    backgroundColor: '#60a5fa', // Lighter blue when sending
-    opacity: 0.8,
+    backgroundColor: '#0284C7',
+    opacity: 0.85,
   },
   nativeSendButton: {
-    // Larger touch target for easier tapping
-    width: Platform.OS === 'android' ? 48 : 44, // Increased from 40/36 for bigger touch area
-    height: Platform.OS === 'android' ? 48 : 44,
-    minWidth: Platform.OS === 'android' ? 48 : 44, // Ensure minimum touch target
-    minHeight: Platform.OS === 'android' ? 48 : 44,
+    width: 36,
+    height: 36,
+    minWidth: 36,
+    minHeight: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 4,
-    // No background - just icon (native messenger style)
-    backgroundColor: 'transparent',
-    // Android: Add ripple effect support
-    ...(Platform.OS === 'android' && {
-      borderRadius: 24, // Circular for ripple effect
-    }),
+    // backgroundColor applied dynamically in component based on isEnabled
   },
   customReactionButton: {
     minWidth: 44, // iOS minimum touch target
@@ -2531,12 +2532,12 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#374151',
+    color: '#334155',
     marginTop: 16,
   },
   emptyStateSubtext: {
     fontSize: 14,
-    color: '#6b7280',
+    color: '#64748B',
     textAlign: 'center',
   },
 });
