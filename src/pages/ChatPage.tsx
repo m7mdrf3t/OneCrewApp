@@ -46,6 +46,7 @@ import ForwardMessageModal from '../components/ForwardMessageModal';
 import ForwardedLabel from '../components/ForwardedLabel';
 import ForwardedGallery from '../components/ForwardedGallery';
 import ForwardedAttachment from '../components/ForwardedAttachment';
+import ChatVoiceMessageAttachment from '../components/ChatVoiceMessageAttachment';
 import {
   getForwardImageAttachments,
   isMessageForwardable,
@@ -2381,6 +2382,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
               MessageText={ForwardedMessageText}
               Gallery={ForwardedGallery}
               Attachment={ForwardedAttachment}
+              AudioAttachment={ChatVoiceMessageAttachment}
               // Custom reaction options with SVG icons
               supportedReactions={customReactionOptions}
               // MessageOverlay not available in this SDK version
